@@ -4,6 +4,55 @@ Manage local and SSH machines from Codex or Claude Code using existing users, Bi
 
 Version 0.1 is tested locally and against fake SSH/API providers. There has been no live validation on your homelab or Bitwarden account. In particular, perform the first Proxmox apply on a disposable test VM and verify the node's API contract before relying on it.
 
+## TL;DR — first-time setup
+
+Do this **on the Linux/macOS machine where Codex or Claude Code runs**, using your existing account. Have Bun 1.4.2+, Git and OpenSSH installed. On Windows, use a Linux/WSL environment.
+
+**1. Install the CLI and all three skills.** Keep this checkout in a permanent location.
+
+```sh
+git clone https://github.com/Hiosdra/agentic-homelab.git
+cd agentic-homelab
+bun install --frozen-lockfile
+bun src/cli/main.ts setup --dry-run
+bun src/cli/main.ts setup
+export PATH="$HOME/.local/bin:$PATH"
+homectl doctor
+```
+
+Add that PATH entry to your shell profile for future terminals. Setup links skills for both agents; it does not install additional Codex/Claude instances.
+
+**2. Choose authentication for your first host.**
+
+| Your host uses | What you configure once |
+|---|---|
+| SSH key in Bitwarden | Enable Bitwarden Desktop SSH Agent, set its socket, and select `bitwarden-ssh-agent` |
+| Key already loaded in ssh-agent | Select `local-ssh-agent` |
+| SSH password only | Install/pair AAC privately, then select `bitwarden-agent-access` with the vault `item_id` |
+
+For password/AAC setup, follow [Bitwarden and secret boundaries](#bitwarden-and-secret-boundaries). Never paste passwords, private keys or pairing tokens into the agent chat or inventory.
+
+**3. Add your first existing machine.**
+
+```sh
+cp examples/host.example.json "$HOME/.config/homectl/first-host.json"
+```
+
+Edit that file: replace the example address, SSH alias, existing username, description and auth backend. Choose `observe`, `user`, `sudo-approved` or `full`; use `enforcement: advisory` unless you have actually configured/reviewed sudoers. The sample selects **full**—choose the tier you intend. For `sudo-approved`, add exact `sudo_allow` entries.
+
+In your own trusted terminal, establish the host's verified SSH fingerprint in `known_hosts` before enrollment. Then, from the checkout:
+
+```sh
+homectl enroll first-host --file "$HOME/.config/homectl/first-host.json" --dry-run
+homectl enroll first-host --file "$HOME/.config/homectl/first-host.json"
+homectl doctor first-host
+homectl exec first-host -- uname -s
+```
+
+For full access, configure the existing user's NOPASSWD sudo using [Existing-user sudo](#existing-user-sudo). Selecting `full` alone does not grant Unix privileges.
+
+**4. Start using the agent.** Ask it to use `homelab` to inspect `first-host`. Local inventory is in `~/.config/homectl/inventory.yaml`; Proxmox provisioning is an optional [next step](#provision-a-proxmox-vm). Every destructive operation still needs your explicit confirmation, including on full hosts.
+
 ## Start on the machine running the agent
 
 Requirements: Linux/macOS, Bun 1.4.2+, OpenSSH, and an existing Unix user. Windows CLI setup/transport is not implemented; use Linux/WSL or a VM. Keep the checkout at a stable path because launchers and skill links refer to it.
