@@ -1,0 +1,2 @@
+# Replace existinguser with the existing account; validate with visudo -cf.
+existinguser ALL=(ALL:ALL) NOPASSWD: ALL

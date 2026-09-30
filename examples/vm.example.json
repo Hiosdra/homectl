@@ -1,0 +1,1 @@
+{"provider":"lab-pve","vmid":210,"template":9000,"name":"slicer-test","cpus":4,"memory_mb":8192,"disk_gb":100,"disk":"scsi0","address":"192.0.2.20","cidr":24,"gateway":"192.0.2.1","bridge":"vmbr0","user":"debian","public_key":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleOnlyReplaceWithYourPublicKey homectl-example","access":"full","packages":["docker","bun"]}

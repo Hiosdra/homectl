@@ -1,0 +1,1 @@
+{"description":"Example existing printer using pi account","transport":"ssh","ssh_alias":"lab-printer","address":"192.0.2.10","user":"pi","access":"full","enforcement":"sudoers","auth":{"type":"bitwarden-ssh-agent"},"caution":["Check printer is idle before service restarts"]}

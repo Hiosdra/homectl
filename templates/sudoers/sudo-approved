@@ -1,0 +1,2 @@
+# Do not keep another broad sudo rule for this account if hard restriction is desired.
+existinguser ALL=(root) NOPASSWD: /usr/bin/systemctl restart moonraker, /usr/bin/systemctl status moonraker --no-pager

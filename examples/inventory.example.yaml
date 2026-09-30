@@ -1,0 +1,54 @@
+version: 1
+machines:
+  agent-host:
+    description: Local machine running Codex or Claude Code
+    transport: local
+    access: user
+    enforcement: advisory
+  lab-printer:
+    description: Example Klipper printer
+    transport: ssh
+    ssh_alias: lab-printer
+    address: 192.0.2.10
+    user: pi
+    access: full
+    enforcement: sudoers
+    auth:
+      type: bitwarden-ssh-agent
+    caution:
+      - Check printer is idle before restarting Klipper
+  lab-nas:
+    description: Example critical NAS
+    transport: ssh
+    ssh_alias: lab-nas
+    address: 192.0.2.11
+    user: operator
+    access: observe
+    enforcement: advisory
+    auth:
+      type: bitwarden-agent-access
+      item_id: example-vault-item-id
+    caution:
+      - Storage changes may affect other workloads
+  lab-service:
+    description: Example service with literal restricted sudo commands
+    transport: ssh
+    ssh_alias: lab-service
+    address: 192.0.2.12
+    user: operator
+    access: sudo-approved
+    enforcement: sudoers
+    sudo_allow:
+      - [/usr/bin/systemctl, restart, moonraker]
+      - [/usr/bin/systemctl, status, moonraker, --no-pager]
+    auth:
+      type: local-ssh-agent
+providers:
+  lab-pve:
+    type: proxmox
+    url: https://pve.example.invalid:8006
+    node: example-node
+    token_id: operator@pve!homectl
+    auth:
+      type: bitwarden-agent-access
+      item_id: example-proxmox-token-item

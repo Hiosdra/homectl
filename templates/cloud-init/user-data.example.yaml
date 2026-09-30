@@ -1,0 +1,13 @@
+#cloud-config
+# Prepare a template for the selected tier. Match ciuser to this existing account.
+# This file is a template preparation example; homectl uses the template's cloud-init drive.
+users:
+  - name: debian
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: ALL=(ALL:ALL) NOPASSWD:ALL
+packages:
+  - qemu-guest-agent
+  - sudo
+runcmd:
+  - [systemctl, enable, --now, qemu-guest-agent]
