@@ -2,72 +2,57 @@
 
 # homectl
 
-**Give your AI agent a practical way to run your homelab.**
+**Your homelab, operated from your AI coding agent.**
 
-Existing machines. Familiar SSH. One private unlock for a day of work.
+SSH into existing machines. Keep keys in KeePassXC. Unlock once for daily work.
 
 [![CI](https://github.com/Hiosdra/homectl/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Hiosdra/homectl/actions/workflows/ci.yml)
 ![Runtime: Bun](https://img.shields.io/badge/runtime-Bun-14151a)
 ![Credentials: KeePassXC](https://img.shields.io/badge/credentials-KeePassXC-6cac4d)
 
-[Get started](#get-started) · [User guide](docs/user-guide.md) · [Architecture](docs/architecture.md)
+[Quick start](#quick-start) · [User guide](docs/user-guide.md) · [Architecture](docs/architecture.md)
 
 </div>
 
 ---
 
-homectl connects **Codex and Claude Code** to your servers, NAS, printers and Proxmox hosts. It combines a small CLI with three agent skills, so the agent can discover machines, understand their purpose and access level, and run commands through a consistent workflow.
+homectl gives **Codex and Claude Code** a shared workflow for managing servers, NAS devices, printers and Proxmox VMs. A small CLI handles inventory, SSH and command review; three agent skills guide setup, enrollment and everyday operations.
 
-Your machines keep their existing Unix accounts. SSH keys live in a dedicated **KeePassXC database**. You unlock them privately; everyday commands use a separate SSH agent for the lifetime you choose.
+Each machine has a name, purpose, access tier and cautions. Your agent can use that context when you ask:
 
-## What you can do
+> Check the printer's Klipper and Moonraker services before changing anything.
 
-- **Ask for homelab work in plain language.** The skills guide inspection, changes and verification using `homectl`.
-- **Keep useful context with each machine.** Describe its role, access tier and cautions, such as checking that a printer is idle before a restart.
-- **Unlock once for daily SSH work.** Use the default 24-hour session, choose another TTL, or keep it open until reboot.
-- **Review commands before running them.** Preview with `--dry-run`; destructive and opaque operations require exact confirmation.
-- **Provision Proxmox VMs through SSH.** Clone a prepared cloud-init template, set resources and networking, then enroll the VM.
-- **Use it directly or automate it.** The same CLI offers readable help and `--json` output.
+> Inspect the NAS disk usage and summarize what is taking space.
 
-### A typical request
+> Prepare a Proxmox VM plan with 4 CPUs and 8 GB RAM for me to review.
 
-Once a host is enrolled, you can ask your agent:
+## A simpler daily routine
 
-> Check the printer's Klipper and Moonraker services. Show me what needs attention before changing anything.
-
-Or, with a configured Proxmox provider and template:
-
-> Prepare a Debian VM plan with 4 CPUs and 8 GB RAM. Let me review its network and storage before creating it.
-
-These are example requests, not recorded execution results. The skills supply the operating workflow; you supply the scope and approvals.
-
-## How it fits together
-
-```mermaid
-flowchart LR
-    You[You] --> Agent[Codex / Claude Code]
-    Agent --> CLI[homectl]
-    CLI --> Hosts[Existing SSH machines]
-    CLI --> PVE[Proxmox via SSH]
-    Vault[Private KeePassXC unlock] --> Keys[Dedicated SSH agent]
-    Keys --> CLI
-```
-
-One machine runs your coding agent and homectl. Managed hosts need existing SSH access; they do not need their own coding agents.
-
-## Get started
-
-**Requirements:** Bun 1.4.2+, OpenSSH, KeePassXC CLI and Bash. Automatic key creation requires Linux with `/dev/shm` mounted as tmpfs. See the [user guide](docs/user-guide.md#configuration-and-credential-storage) for manual macOS preparation.
-
-### 1. Install on your agent machine
-
-Install the required tools using your OS package manager. On Arch/EndeavourOS:
+Unlock your SSH keys **in a private terminal**, then work through your agent or the CLI:
 
 ```sh
-sudo pacman -S --needed openssh keepassxc
+homectl session unlock
+homectl hosts
+homectl inspect lab-printer
+homectl exec lab-printer -- uname -s
 ```
 
-With Bun installed:
+The default session lasts **24 hours**. Choose another TTL or `until-reboot`; lock it whenever you finish. Routine SSH commands use the loaded keys without reopening KeePassXC. Creating keys and editing the database are separate private operations.
+
+| What you need | What homectl provides |
+| --- | --- |
+| One way to reach your machines | Named inventory and SSH aliases using existing Unix accounts |
+| Credentials outside agent chat | A dedicated encrypted KeePassXC database and SSH agent |
+| Different access for different hosts | `observe`, `user`, `sudo-approved` and `full` tiers |
+| A chance to review changes | Dry runs and exact confirmation for destructive or opaque commands |
+| Proxmox VM setup | SSH-based provisioning from an existing cloud-init template |
+| Scripts as well as chat | Direct CLI commands and `--json` output |
+
+## Quick start
+
+Use a **Linux agent machine** with Bun 1.4.2+, OpenSSH, KeePassXC CLI, Bash and `/dev/shm` mounted as tmpfs. See [installation details](docs/user-guide.md#install) for package setup, and [manual macOS preparation](docs/user-guide.md#configuration-and-credential-storage) if needed.
+
+### 1. Install homectl
 
 ```sh
 git clone https://github.com/Hiosdra/homectl.git
@@ -76,29 +61,23 @@ bun install --frozen-lockfile
 bun src/cli/main.ts setup
 ```
 
-Setup links the CLI and all three skills for Codex and Claude Code, and creates your per-user configuration. Keep the checkout at a stable path and ensure `~/.local/bin` is on `PATH`. You can preview setup with `--dry-run`.
+Setup links `homectl` and the three skills for Codex and Claude Code. Add `~/.local/bin` to `PATH` if needed, and keep the checkout at a stable location. Preview setup with `--dry-run`.
 
-### 2. Create your private key database
+### 2. Prepare your keys privately
 
-Run this **yourself in a private terminal**:
+Run these yourself in a private terminal:
 
 ```sh
-homectl session configure --ttl 24h
 homectl session init
-```
-
-Choose a strong password and keep an encrypted backup. Already have a configured homectl database? Skip initialization.
-
-### 3. Add your first machine
-
-Prepare its dedicated key privately:
-
-```sh
 homectl key create lab-printer
 homectl key inspect lab-printer --json
 ```
 
-Verify the host's SSH fingerprint through a trusted source, install the generated **public key** using your existing access, and copy [host.example.json](examples/host.example.json) to a private configuration file. Set the address, existing account, desired tier and the exact `auth` references returned above.
+Initialization creates a dedicated encrypted database; skip it if yours already exists. Choose a strong password and keep an encrypted backup.
+
+### 3. Connect your first host
+
+Verify its SSH fingerprint through a trusted source and install the generated **public key** using your existing access. Copy [host.example.json](examples/host.example.json) outside the repository, then set its address, existing account, access tier and the exact `auth` references returned by `key inspect`.
 
 ```sh
 homectl enroll lab-printer --file /path/host.json --dry-run
@@ -106,72 +85,66 @@ homectl enroll lab-printer --file /path/host.json
 homectl doctor lab-printer
 ```
 
-The [host setup guide](docs/user-guide.md#add-an-existing-ssh-host) walks through public-key installation, sudo configuration and NAS/Proxmox specifics.
+Follow the [host setup walkthrough](docs/user-guide.md#add-an-existing-ssh-host) for public-key installation, sudo configuration and NAS specifics. Once enrolled, ask your agent to use homectl for that host.
 
-## Your daily workflow
+## Set the access you want
 
-```sh
-# Run privately when the session is locked or expired
-homectl session unlock
+| Tier | Intended use |
+| --- | --- |
+| `observe` | Inspection through recognized read commands |
+| `user` | Work as the existing account, without privileged commands |
+| `sudo-approved` | Exact sudo commands you allow, such as service restarts |
+| `full` | Administration and Proxmox provisioning |
 
-# Then work directly, or ask your agent to use homectl
-homectl hosts
-homectl inspect lab-printer
-homectl exec lab-printer -- uname -s
+A root SSH account requires `full`. These tiers guide command execution; actual privileges come from the account and system configuration. See [access and sudo setup](docs/user-guide.md#access-tiers).
 
-# Finish when you choose
-homectl session lock
-```
-
-Tune the lifetime to your routine:
+## Make the session fit your day
 
 ```sh
 homectl session configure --ttl 12h
-# Or keep keys available until lock or a cold reboot:
-homectl session configure --ttl until-reboot
+# Or use: homectl session configure --ttl until-reboot
+homectl session unlock
+homectl session status
+homectl session lock
 ```
 
-The TTL starts when a session begins and does not slide with use. Changing its configuration locks the current session. Private database/key editing still needs your password separately from routine SSH work.
+TTL is measured from session start. Using the CLI or repeating unlock keeps the existing expiry. Changing configuration locks the current session. Lock, expiry and cold reboot stop new authentication; established SSH connections may continue.
 
-## Choose access per machine
+## Provision a Proxmox VM
 
-| Tier | Good fit |
-| --- | --- |
-| `observe` | Inspection through recognized read commands |
-| `user` | Everyday work as an existing unprivileged account |
-| `sudo-approved` | Specific sudo commands, such as service restarts |
-| `full` | Administration and Proxmox provisioning |
-
-A root SSH account requires `full`. Actual privileges come from the Unix account and system configuration. See [access tiers](docs/user-guide.md#access-tiers) for exact allowlists and sudo setup.
-
-## Proxmox, using the same session
-
-Reference an enrolled full-access Proxmox SSH host, prepare a key for the new VM and describe it using [vm.example.json](examples/vm.example.json).
+Enroll a full-access Proxmox SSH host, configure its provider and prepare a dedicated VM key. Fill in [vm.example.json](examples/vm.example.json), then review and apply:
 
 ```sh
 homectl provision --file /path/vm.json --dry-run
 homectl provision --file /path/vm.json
 ```
 
-Provisioning uses node-local `pvesh` over SSH, with task journals for resuming the same request. You need an existing cloud-init template and static network settings. See the [Proxmox guide](docs/user-guide.md#proxmox-vm-provisioning-over-ssh) before your first apply.
+homectl uses `pvesh` over the same SSH session to clone, configure and start a VM, wait for SSH/cloud-init, and enroll it. Task journals support resuming the identical request. You need an existing cloud-init template and static network settings; see the [Proxmox walkthrough](docs/user-guide.md#proxmox-vm-provisioning-over-ssh).
 
-## Know the boundaries
+## How it works
 
-homectl is an early project for a homelab you control. **Human approval in the agent conversation is workflow protection, not a security sandbox.** Access tiers cannot remove privileges an account already has.
+```mermaid
+flowchart LR
+    Agent[Codex / Claude Code] --> CLI[homectl]
+    CLI --> Hosts[Existing SSH machines]
+    CLI --> PVE[Proxmox via SSH]
+    Vault[Private KeePassXC unlock] --> Keys[Dedicated SSH agent]
+    Keys --> CLI
+```
 
-KDBX protects stored keys; an unlocked SSH agent can be used by other processes running as your user. Keep passwords out of agent chat. Lock, expiry and cold reboot stop new authentication; existing SSH connections may continue. See [credential storage](docs/user-guide.md#configuration-and-credential-storage) for the full model.
+One machine runs your agent and homectl. Managed machines keep their existing accounts and need SSH access. Private keys stay encrypted in KDBX at rest and are loaded into a separate SSH agent for the session. Inventory contains references and host metadata.
 
-VM image import, automatic DHCP discovery and cross-node provisioning are not implemented. Doctor verifies SSH access; it does not prove a template or VM creation is ready.
+## Current scope
 
-## Explore further
+homectl is an early project for a homelab you control. **Human confirmation is a workflow safeguard.** It does not isolate the agent or remove privileges an account already has. Other processes running as your user can use an unlocked SSH agent. Read the [credential model](docs/user-guide.md#configuration-and-credential-storage) before choosing your access tiers and TTL.
 
-| Looking for… | Start here |
-| --- | --- |
-| Command help | `homectl --help`, `homectl session --help` |
-| Setup, recovery and troubleshooting | [User guide](docs/user-guide.md) |
-| A complete inventory example | [inventory.example.yaml](examples/inventory.example.yaml) |
-| How the components work | [Architecture](docs/architecture.md) |
-| Implementation references | [Primary sources](docs/research.md) |
-| Agent instructions | [Operate](skills/homelab/SKILL.md) · [Set up](skills/homelab-setup/SKILL.md) · [Enroll](skills/homelab-enroll/SKILL.md) |
+VM image import, automatic DHCP discovery and cross-node provisioning are outside the current scope. Doctor checks SSH connectivity; template readiness and real VM creation require separate verification.
 
-For development commands and the distinction between fixture tests and real-host verification, see [development](docs/user-guide.md#troubleshooting-and-development).
+## Find your next step
+
+- **Command help:** `homectl --help` or `homectl session --help`
+- **Setup, troubleshooting and recovery:** [User guide](docs/user-guide.md)
+- **Configuration:** [Inventory example](examples/inventory.example.yaml)
+- **Under the hood:** [Architecture](docs/architecture.md) · [Primary sources](docs/research.md)
+- **Agent skills:** [Operate](skills/homelab/SKILL.md) · [Set up](skills/homelab-setup/SKILL.md) · [Enroll](skills/homelab-enroll/SKILL.md)
+- **Working on the project:** [Development commands](docs/user-guide.md#troubleshooting-and-development)
