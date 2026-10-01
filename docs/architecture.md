@@ -1,37 +1,53 @@
-# Architecture and implementation decisions
+# Architecture
 
-Reviewed 2026-10-01. This repository manages infrastructure; it never deploys another coding agent unless separately requested.
+## Flow
 
-Three portable Agent Skills orchestrate a Bun/TypeScript CLI. Inventory is local YAML validated against a strict JSON Schema. Local and SSH transports share command policy, execution planning, dry-run, and output handling. SSH aliases are rendered into a dedicated config (one canonical address in inventory), with strict host-key verification and no agent forwarding.
+```text
+Codex / Claude → homectl → inventory + policy → managed SSH worker → OpenSSH → existing Unix account
+                                      ↑
+                       dedicated ssh-agent with absolute TTL
+                                      ↑
+                 private user-run unlock ← encrypted KeePassXC KDBX
+```
 
-## Policy versus enforcement
+The same agent host runs local commands and all remote operations. Remote-control clients approve the conversation; they do not receive keys or database passwords. One SSH authentication backend keeps daily operation independent of a separate vault listener.
 
-Access tiers are workflow policy. Observe uses a conservative inspection command grammar; user denies direct privilege escalation. Sudo-approved accepts exact argv allowlists and can install matching sudoers. Full accepts arbitrary commands and `sudo -n`; NOPASSWD: ALL is intentional. Neither argv classification nor an LLM instruction is a general sandbox. Existing Unix users, SSH config, sudoers and Proxmox ACLs remain the actual system boundaries. Existing root accounts require full.
+## Modules
 
-Known destructive commands and opaque commands require approval. Exact host/config/argv/impact are fingerprinted. A digest is an attestation of already received user confirmation, not cryptographic evidence of a human. Skills must never fabricate approval. A native prompt showing the exact operation counts once; auto-approval does not count as explicit user confirmation. Observe and privilege restrictions cannot be overridden with an approval digest. Unknown/opaque commands remain available with specific approval on permissive hosts.
+- `cli`: argument validation and command orchestration. Strict options; no universal approval bypass.
+- `inventory`: YAML/schema validation, secret-field rejection, atomic mode-0600 persistence. Root SSH requires full; providers reference an enrolled full SSH host.
+- `policies`: access tiers, literal sudo allowlists, command classification and exact approval fingerprints. This is workflow protection, not a shell sandbox or hard privilege isolation.
+- `transports`: quoted argv and generated aliases. Managed SSH selects one public identity, a dedicated socket, strict host-key checking and no password authentication/forwarding.
+- `credentials`: session-aware SSH worker. It checks supervisor expiry, passes socket references and runs OpenSSH without reopening KDBX.
+- `session`: configuration, private password/database subprocesses, a dedicated agent supervisor, absolute expiry and lock. Passwords are never retained by the supervisor.
+- `session/database`: private one-time initialization, refusing an existing database.
+- `session/keys`: private key preparation/reuse, encrypted backups, tmpfs staging and public references. Key installation is an explicit user-admin bootstrap step through existing trusted access.
+- `enroll`: validates configuration and SSH/OS before saving; optional explicit sudoers bootstrap preserves a different existing policy by refusing replacement.
+- `provisioners`: deterministic cloud-init plans, task/ownership journals and resumable provisioning. `ssh` maps allowed operations to node-local `pvesh` over the same managed-key worker.
+- `setup`: additive per-user CLI/skill links, SSH Include and doctor.
 
-## Credential routing
+## Session lifecycle
 
-Official Bitwarden SSH Agent handles keys without key material entering homectl. It is part of the desktop app, including Linux desktop; this is not a headless bw SSH agent. A local ssh-agent is supported. For password SSH, `aac run --id ... --env HOMECTL_SSH_PASSWORD=password -- bun ...` launches only a narrowly scoped worker. The worker starts OpenSSH with an askpass helper; only that helper's stdout carries the password to OpenSSH. Worker output is redacted before it reaches the outer CLI. It does not send the password in argv, stdin commands, inventory, or remote environment. Processes owned by the same user/root can still inspect environment/memory. Arbitrary secret exfiltration by malicious software is outside this threat model.
+The default lifetime is 24h; configurable durations span 1s–365d, or `until-reboot`. Expiry is absolute and repeated unlock does not slide it. Configuration changes lock the current agent. OpenSSH key lifetime constrains timed sessions alongside the supervisor check. Cold reboot loses keys; suspend or snapshot restoration is different. Expiry affects new authentication, not established connections. Lock never clears the personal agent.
 
-Proxmox similarly runs a private API worker through aac, mapping the vault password field to an API token secret. No token is printed. Strict HTTPS, no insecure switch. Agent Access is early preview; aac syntax is checked by doctor. Pair/unlock via provider UI/terminal outside the model transcript. Unlock and per-request approval are distinct; `bw status` is not proof that the AAC listener is ready, and temporary accept-all approval can expire. A reusable pairing option persists a token on disk and should only be used by explicit choice. Never put `BW_SESSION` in a shell startup file. No automatic master-password handling, no aac connect credential JSON, no guessed SDK binding. homectl does not implement caching; aac/provider governs persisted pairing and authorization. Headless Linux x86_64 client is documented; unattended approval/provider availability is not guaranteed.
+A private unlock reads a no-echo password, exports only enrolled key attachments into private pipes and loads the dedicated agent. Keys/passwords do pass through CLI memory. Clearing buffers is best effort; string copies/runtime allocations cannot guarantee erasure. Same-user processes can use an unlocked agent; root/hypervisor access is outside isolation guarantees.
 
-Enrollment and doctor classify common AAC timeout, SSH host-key/authentication, DNS and network failures without returning raw provider output. AAC log lines are removed from the successful `uname -s` result. A failed enrollment leaves inventory unchanged, but the generated SSH config may already have been refreshed. Doctor skips the sudo probe for a root SSH account because that account already runs as root.
+KDBX attachments are unencrypted OpenSSH keys within encrypted KDBX. Automatic generation requires Linux tmpfs; owned staging directories/files are mode 0700/0600 and removed in a finally block. Tmpfs may swap. Existing complete keys are reused; missing attachments and conflicting public files require manual repair. CLI edits require exclusive use of the database. Passwords, encrypted backups and private files stay outside Git and agent transcripts.
 
-## Provisioning
+For a new host, `key create` prepares and loads a key, the user installs the public file through trusted access, then enrollment verifies it. `key inspect` exposes only public data. An unregistered VM key is not part of ordinary inventory unlock; rerun private `key create` to load it after reboot before provisioning/enrollment.
 
-A Proxmox provider clones a prepared cloud-init template, configures CPU/RAM/network/public SSH key, grows the selected disk, boots, waits for bounded API tasks and SSH, verifies cloud-init, installs a requested sudoers policy for non-root users, and enrolls atomically. Root template users on full skip sudoers installation and run requested package recipes directly. Use an explicit VMID, static address and template user. Journal records stage and owned VM identity; collisions and mismatched plans fail without deleting/recreating anything. No automatic destructive rollback. Provisioning plans are pure and tests use an in-memory API fake. Additional providers implement the same interface.
+## Proxmox
 
-Template/image import, DHCP address discovery, cross-node migration and provider credential release semantics are deferred explicitly. SSH access to a Proxmox host does not validate the separate VM provisioning API path. Automated checks use a fake API; validate the API operations and ACLs against the node's API viewer before first real apply.
+A provider stores `{type: proxmox, host: <inventory-name>, node: <node-name>}`. Its host must have managed SSH and full access. Root runs `pvesh` directly; another account uses `sudo -n`. No separate token secret or HTTP credential worker exists.
 
-## Official sources
+The adapter maps GET/POST/PUT to `get`/`create`/`set`, with `--noproxy` and JSON output. It restricts paths to the configured node and provisioning resources: QEMU list/config, clone/start/config/resize and task status. It quotes every argument through the standard transport. Task waits are bounded; errors suppress raw output.
 
-- https://github.com/bitwarden/agent-access (early preview, Linux x86_64, aac listen/run, field mapping)
-- https://bitwarden.com/help/ssh-agent/ (desktop agent and platform sockets)
-- https://developers.openai.com/codex/skills/ (redirects to https://learn.chatgpt.com/docs/build-skills; .agents/skills)
-- https://code.claude.com/docs/en/skills (.claude/skills and portable format)
-- https://pve.proxmox.com/wiki/Cloud-Init_Support
-- https://pve.proxmox.com/pve-docs/api-viewer/index.html
-- https://github.com/proxmox/qemu-server/blob/master/PVE/API2/Qemu.pm
+Plans clone an existing cloud-init template, configure CPU/RAM/network/user/key, grow the requested disk and start. Journals retain plan fingerprints, completed/pending steps and task IDs. Resume checks VM ownership rather than blindly cloning again. Changed requests, VMID conflicts and uncertain state stop for inspection. There is no automatic destructive rollback. SSH readiness still requires out-of-band host-key verification. Post-provision enrollment/software recipes use the same session-aware worker.
 
-The Proxmox documentation host was inaccessible through the research fetcher. Source/API validation is tracked as a first-use requirement, not represented as a successful live test.
+Template/image import, DHCP discovery and cross-node operations are deferred. Static/fake checks do not prove real provisioning, template correctness or node permissions.
+
+## Host-specific bootstrap
+
+UGREEN home directories should be provisioned by enabling Personal Folder in the vendor UI. Do not bypass immutable `/home`. Proxmox authorized_keys may reference cluster-managed storage: preserve its symlink and review all affected nodes before adding access. No bootstrap flow removes old keys, changes users or tightens unrelated sudo rules implicitly.
+
+Human approval remains a conversation workflow. Actual restrictions come from Unix accounts and administrator configuration; an inventory tier cannot undo existing root/sudo privileges.

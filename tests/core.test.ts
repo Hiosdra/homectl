@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanEnv, credentialSpec, redactor } from "../src/credentials";
@@ -24,7 +24,6 @@ import {
   planProvision,
   proxmox,
 } from "../src/provisioners";
-import { proxmoxAPI } from "../src/provisioners/api";
 import { doctor, setup } from "../src/setup";
 import { shellQuote, sshConfig, transportSpec } from "../src/transports";
 import {
@@ -46,10 +45,19 @@ const ssh: Machine = {
   ssh_alias: "example",
   address: "192.0.2.10",
   user: "operator",
-  auth: { type: "local-ssh-agent" },
+  auth: {
+    type: "keepassxc",
+    socket: "/tmp/homectl-test/inventory.yaml.session/agent.sock",
+    entry: "homectl-example",
+    public_key: "/tmp/homectl-test/public-keys/example.pub",
+  },
 };
 const inventory = (machine = local) =>
-  ({ version: 1, machines: { example: machine } }) as Inventory;
+  ({
+    version: 1,
+    session: { ttl: "24h", database: "/tmp/homectl-test/homelab.kdbx" },
+    machines: { example: machine },
+  }) as Inventory;
 const temp = () => mkdtemp(join(tmpdir(), "homectl-test-"));
 const vm: ProvisionRequest = {
   provider: "example",
@@ -122,7 +130,7 @@ describe("inventory", () => {
             inventory({
               ...ssh,
               auth: {
-                type: "local-ssh-agent",
+                ...ssh.auth,
                 password: "fixture",
               } as Machine["auth"],
             }),
@@ -164,12 +172,15 @@ describe("inventory", () => {
         JSON.stringify(inventory({ ...ssh, user: "MixedCaseUser" })),
       ).machines.example?.user,
     ).toBe("MixedCaseUser"));
-  test("agent access requires a reference", () =>
+  test("managed key requires an entry reference", () =>
     failure(
       () =>
         parseInventory(
           JSON.stringify(
-            inventory({ ...ssh, auth: { type: "bitwarden-agent-access" } }),
+            inventory({
+              ...ssh,
+              auth: { ...ssh.auth, entry: "" } as Machine["auth"],
+            }),
           ),
         ),
       2,
@@ -316,16 +327,7 @@ describe("policy", () => {
       failure(() => checkApproval(altered, p.approval), 4);
   });
   test("dry run never starts local, SSH or credential process", async () => {
-    for (const m of [
-      local,
-      {
-        ...ssh,
-        auth: {
-          type: "bitwarden-agent-access" as const,
-          item_id: "example-id",
-        },
-      },
-    ]) {
+    for (const m of [local, ssh]) {
       let called = false;
       const result = await execute("example", m, ["rm", "fixture"], {
         dryRun: true,
@@ -363,22 +365,9 @@ describe("policy", () => {
   });
 });
 describe("diagnostics", () => {
-  test("extracts uname after AAC listener log lines", () =>
-    expect(
-      unameValue(
-        "2026-10-01T12:00:00Z INFO aac::client request started\nLinux\n",
-      ),
-    ).toBe("Linux"));
-  test("classifies AAC timeouts without echoing raw output", () => {
-    const message = probeFailureMessage({
-      stdout: "",
-      stderr: "Timeout waiting for credential response: private-fixture",
-      exitCode: 1,
-    });
-    expect(message).toContain("aac listen");
-    expect(message).toContain("/unlock");
-    expect(message).not.toContain("private-fixture");
-  });
+  test("extracts uname after non-OS output", () =>
+    expect(unameValue("connectivity probe started\nLinux\n")).toBe("Linux"));
+
   test("classifies host-key errors without suggesting an untrusted keyscan", () => {
     const message = probeFailureMessage({
       stdout: "",
@@ -445,39 +434,24 @@ describe("transports and credentials", () => {
   });
   test("key credentials use only socket reference", () => {
     const spec = credentialSpec(
-      { type: "bitwarden-ssh-agent", socket: "/socket" },
+      ssh.auth,
       transportSpec(ssh, ["uptime"], "/cfg"),
       "/worker",
     );
-    expect(spec.env).toEqual({ SSH_AUTH_SOCK: "/socket" });
-    expect(spec.argv[0]).toBe("ssh");
+    expect(JSON.parse(spec.stdin ?? "{}").env).toEqual({
+      SSH_AUTH_SOCK: ssh.auth?.socket,
+    });
+    expect(spec.argv).toEqual([process.execPath, "/worker"]);
   });
-  test("password backend uses AAC child injection and no secret material", () => {
-    const spec = credentialSpec(
-      { type: "bitwarden-agent-access", item_id: "fixture-id" },
-      transportSpec(ssh, ["uptime"], "/cfg"),
-      "/worker",
-    );
-    expect(spec.argv.slice(0, 7)).toEqual([
-      "aac",
-      "run",
-      "--id",
-      "fixture-id",
-      "--env",
-      "HOMECTL_SSH_PASSWORD=password",
-      "--",
-    ]);
-    expect(spec.env).toBeUndefined();
-    expect(spec.stdin).toContain("BatchMode=yes");
-  });
+
   test("sanitized environment drops credential-bearing variables", () =>
     expect(
       cleanEnv({
         PATH: "/bin",
         HOME: "/home/example",
         AWS_SECRET_ACCESS_KEY: "fixture",
-        BW_SESSION: "fixture",
-        HOMECTL_API_TOKEN: "fixture",
+        PRIVATE_SESSION: "fixture",
+        PRIVATE_TOKEN: "fixture",
       }),
     ).toEqual({ PATH: "/bin", HOME: "/home/example" }));
   test("redacts injected values, encodings, labelled values and private keys", () => {
@@ -490,46 +464,13 @@ describe("transports and credentials", () => {
   });
   test("command failure never dumps secret environments", async () => {
     const r = await run({
-      argv: ["sh", "-c", 'printf %s "$HOMECTL_API_TOKEN" >&2; exit 7'],
-      env: { HOMECTL_API_TOKEN: "fixture-token" },
+      argv: ["sh", "-c", 'printf %s "$PRIVATE_TOKEN" >&2; exit 7'],
+      env: { PRIVATE_TOKEN: "fixture-token" },
     });
     expect(r.exitCode).toBe(7);
     expect(r.stderr).toBe("[REDACTED]");
   });
-  test("private password worker scrubs child output before outer process", async () => {
-    const dir = await temp();
-    await writeFile(
-      join(dir, "ssh"),
-      '#!/bin/sh\nprintf "%s\\n" "$HOMECTL_SSH_PASSWORD"\nprintf "%s\\n" "$HOMECTL_SSH_PASSWORD" >&2\nexit 7\n',
-      { mode: 0o755 },
-    );
-    const child = Bun.spawn(
-      [
-        process.execPath,
-        join(import.meta.dir, "../src/credentials/worker.ts"),
-        "ssh",
-      ],
-      {
-        env: {
-          ...cleanEnv(),
-          PATH: `${dir}:${process.env.PATH}`,
-          HOMECTL_SSH_PASSWORD: "test-only-credential",
-        },
-        stdin: new Blob([
-          JSON.stringify({
-            argv: ["ssh", "-o", "BatchMode=yes", "example", "uptime"],
-          }),
-        ]),
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    );
-    expect(await new Response(child.stdout).text()).toContain("[REDACTED]");
-    expect(await new Response(child.stderr).text()).not.toContain(
-      "test-only-credential",
-    );
-    expect(await child.exited).toBe(7);
-  });
+
   test("worker rejects wrong executable", async () => {
     const r = await run({
       argv: [
@@ -537,7 +478,7 @@ describe("transports and credentials", () => {
         join(import.meta.dir, "../src/credentials/worker.ts"),
         "ssh",
       ],
-      env: { HOMECTL_SSH_PASSWORD: "test-only" },
+      env: { PRIVATE_PASSWORD: "test-only" },
       stdin: JSON.stringify({ argv: ["env"] }),
     });
     expect(r.exitCode).toBe(2);
@@ -566,14 +507,17 @@ describe("setup and enrollment", () => {
   test("enrollment verifies OS before saving", async () => {
     const dir = await temp();
     const path = join(dir, "inventory.yaml");
-    await saveInventory(path, { version: 1, machines: {} });
+    await saveInventory(path, {
+      version: 1,
+      session: { ttl: "24h", database: "/tmp/homectl-test/homelab.kdbx" },
+      machines: {},
+    });
     let calls = 0;
     const result = await enroll("example", ssh, path, join(dir, "ssh_config"), {
       runner: async () => {
         calls++;
         return {
-          stdout:
-            "2026-10-01T12:00:00Z INFO aac::client request started\nLinux\n",
+          stdout: "connectivity probe started\nLinux\n",
           stderr: "",
           exitCode: 0,
         };
@@ -586,7 +530,11 @@ describe("setup and enrollment", () => {
   test("failed enrollment leaves inventory untouched", async () => {
     const dir = await temp();
     const path = join(dir, "inventory.yaml");
-    await saveInventory(path, { version: 1, machines: {} });
+    await saveInventory(path, {
+      version: 1,
+      session: { ttl: "24h", database: "/tmp/homectl-test/homelab.kdbx" },
+      machines: {},
+    });
     await expect(
       enroll("example", ssh, path, join(dir, "ssh_config"), {
         runner: async () => ({
@@ -605,8 +553,10 @@ describe("setup and enrollment", () => {
       return { stdout: "", stderr: "", exitCode: 0 };
     });
     expect(seen?.stdin).toContain("NOPASSWD: ALL");
-    expect(seen?.argv.at(-1)).toContain("Existing sudoers differs");
-    expect(seen?.argv.at(-1)).toContain("visudo -cf");
+    expect(JSON.parse(seen?.stdin ?? "{}").argv.at(-1)).toContain(
+      "Existing sudoers differs",
+    );
+    expect(JSON.parse(seen?.stdin ?? "{}").argv.at(-1)).toContain("visudo -cf");
   });
   test("doctor does not run sudo for a root SSH account", async () => {
     const seen: ProcessSpec[] = [];
@@ -617,14 +567,16 @@ describe("setup and enrollment", () => {
       async (spec) => {
         seen.push(spec);
         return {
-          stdout: spec.argv[0] === "aac" ? "--env" : "",
+          stdout: "Linux\n",
           stderr: "",
           exitCode: 0,
         };
       },
     );
     expect(seen.some((spec) => spec.argv.includes("sudo"))).toBe(false);
-    expect(seen.some((spec) => spec.argv[0] === "bw")).toBe(false);
+    expect(seen.some((spec) => spec.argv.join(" ").includes("sudo"))).toBe(
+      false,
+    );
   });
 });
 describe("provisioning", () => {
@@ -725,28 +677,6 @@ describe("provisioning", () => {
     ).toBe("clone");
     await proxmox.apply(plan, api, dir);
     expect(mutations.filter((v) => v.endsWith("/clone"))).toHaveLength(1);
-  });
-  test("API authentication stays in worker header and is never in errors", async () => {
-    let header = "";
-    const config = {
-      type: "proxmox" as const,
-      url: "https://pve.example.invalid:8006",
-      node: "pve",
-      token_id: "user@pve!fixture",
-      auth: { type: "bitwarden-agent-access" as const, item_id: "fixture" },
-    };
-    const api = proxmoxAPI(config, "fixture-token", async (_url, init) => {
-      header = (init?.headers as Record<string, string>).Authorization ?? "";
-      return new Response(JSON.stringify({ data: [] }), { status: 200 });
-    });
-    expect(await api.request("GET", "/nodes/pve/qemu")).toEqual([]);
-    expect(header).toBe("PVEAPIToken=user@pve!fixture=fixture-token");
-    const broken = proxmoxAPI(config, "fixture-token", async () => {
-      throw Error("fixture-token");
-    });
-    await expect(broken.request("GET", "/nodes/pve/qemu")).rejects.toThrow(
-      "details suppressed",
-    );
   });
 });
 

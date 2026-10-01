@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import Ajv from "ajv";
 import { parse, stringify } from "yaml";
 import schema from "../../schema/inventory.schema.json";
+import { ttlSeconds } from "../session/config";
 import { HomectlError, type Inventory, type Machine } from "../types";
 
 const validate = new Ajv({ allErrors: true, strict: false }).compile(schema);
@@ -26,8 +27,14 @@ export function parseInventory(text: string): Inventory {
       })),
     ); // Do not echo offending values.
   const inventory = data as unknown as Inventory;
+  if (inventory.session) ttlSeconds(inventory.session.ttl);
   const aliases = new Set<string>();
   for (const m of Object.values(inventory.machines)) {
+    if (m.auth?.type === "keepassxc" && !inventory.session)
+      throw new HomectlError(
+        2,
+        "KeePassXC hosts require an inventory session configuration",
+      );
     if (
       m.transport === "local" &&
       (m.auth || m.ssh_alias || m.address || m.user)
@@ -67,12 +74,19 @@ export function parseInventory(text: string): Inventory {
       aliases.add(m.ssh_alias);
     }
   }
-  for (const p of Object.values(inventory.providers ?? {}))
-    if (p.auth.type !== "bitwarden-agent-access")
+  for (const p of Object.values(inventory.providers ?? {})) {
+    const host = inventory.machines[p.host];
+    if (
+      !host ||
+      host.transport !== "ssh" ||
+      host.access !== "full" ||
+      host.auth?.type !== "keepassxc"
+    )
       throw new HomectlError(
         2,
-        "Proxmox requires bitwarden-agent-access token injection",
+        "Proxmox provider must reference an existing SSH host with full access and a managed key",
       );
+  }
   return inventory;
 }
 export async function loadInventory(path: string): Promise<Inventory> {

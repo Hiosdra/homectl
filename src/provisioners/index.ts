@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { type Access, HomectlError, type Machine } from "../types";
+import { keyReference } from "../session/keys";
+import { type Access, type Auth, HomectlError, type Machine } from "../types";
 export interface ProvisionRequest {
   provider: string;
   vmid: number;
@@ -48,6 +50,7 @@ export interface Provisioner {
 export function planProvision(
   r: ProvisionRequest,
   node: string,
+  auth?: Auth,
 ): ProvisionPlan {
   const allowed = new Set([
     "provider",
@@ -152,7 +155,9 @@ export function planProvision(
         r.access === "full" || r.access === "sudo-approved"
           ? "sudoers"
           : "advisory",
-      auth: { type: "local-ssh-agent" },
+      auth:
+        auth ??
+        keyReference(r.name, join(homedir(), ".config/homectl/inventory.yaml")),
       ...(r.sudo_allow ? { sudo_allow: r.sudo_allow } : {}),
     },
     steps: [

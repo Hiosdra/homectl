@@ -161,14 +161,13 @@ test("all SSH addresses regenerate from current inventory before diagnostics", a
   const path = await fixture();
   const toolsDir = `${path}.tools`;
   await mkdir(toolsDir);
-  for (const name of ["ssh", "bun", "aac", "bw"])
-    await writeFile(
-      join(toolsDir, name),
-      name === "aac" ? '#!/bin/sh\nprintf "--env\\n"\n' : "#!/bin/sh\nexit 0\n",
-      { mode: 0o755 },
-    );
+  for (const name of ["ssh", "bun", "ssh-agent", "ssh-add", "keepassxc-cli"])
+    await writeFile(join(toolsDir, name), "#!/bin/sh\nexit 0\n", {
+      mode: 0o755,
+    });
   await saveInventory(path, {
     version: 1,
+    session: { ttl: "24h", database: "/tmp/homectl-test/homelab.kdbx" },
     machines: {
       example: {
         description: "Example",
@@ -178,7 +177,12 @@ test("all SSH addresses regenerate from current inventory before diagnostics", a
         port: 1,
         user: "operator",
         access: "user",
-        auth: { type: "local-ssh-agent" },
+        auth: {
+          type: "keepassxc",
+          socket: "/tmp/homectl-test/inventory.yaml.session/agent.sock",
+          entry: "homectl-example",
+          public_key: "/tmp/homectl-test/example.pub",
+        },
       },
     },
   });

@@ -6,12 +6,6 @@ function stripAnsi(value: string) {
   return value.replace(ansiColor, "");
 }
 
-function isAacCredentialFailure(value: string) {
-  return /mismatched request_id|timeout waiting for credential response|timed out waiting for credential|credential was not injected|vault (?:is )?locked|provider (?:is )?locked|(?:request|approval).*(?:denied|rejected)|user (?:denied|rejected)|(?:credential )?item (?:was )?not found|invalid item id|no such item/i.test(
-    stripAnsi(value),
-  );
-}
-
 export function unameValue(stdout: string) {
   const values = stripAnsi(stdout)
     .split(/\r?\n/)
@@ -26,8 +20,13 @@ export function probeFailureMessage(result?: ProcessResult) {
 
   const output = stripAnsi(`${result.stderr}\n${result.stdout}`).toLowerCase();
 
-  if (isAacCredentialFailure(output))
-    return "AAC did not return a credential. In the private provider terminal, make sure the paired `aac listen` is running, unlock it with `/unlock`, and approve this request. A temporary accept-all window may have expired; `bw status` does not confirm AAC's listener state. If the vault item is missing, look it up by its exact name and check the configured item reference before creating another copy. Resolve that state before retrying. No credentials or raw diagnostics are shown.";
+  if (
+    /could not chdir to home directory.*no such file or directory/.test(output)
+  )
+    return "The SSH account has no home directory. On UGREEN UGOS Pro, enable Personal Folder in Control Panel > User; do not remove immutable protection from /home. Have the administrator verify home ownership and permissions before installing the public key.";
+
+  if (/homectl ssh session (?:is locked|expired)/.test(output))
+    return "The homectl SSH session is locked or expired. Run `homectl session unlock` in your private terminal, then retry.";
 
   if (
     /remote host identification has changed|host key verification failed|offending .* key/.test(
@@ -48,22 +47,18 @@ export function probeFailureMessage(result?: ProcessResult) {
       output,
     )
   )
-    return "The host or credential provider could not be reached. Check that the relevant listener/service is available, then verify the inventory address, port and network. No credentials or raw diagnostics are shown.";
+    return "The SSH host could not be reached. Verify the inventory address, port and network. No credentials or raw diagnostics are shown.";
 
   if (
     /permission denied \(|permission denied, please try again|authentication failed|too many authentication failures/.test(
       output,
     )
   )
-    return "SSH authentication was rejected. Check the inventory username, selected credential backend and vault item reference; do not print or paste the password. No credentials or raw diagnostics are shown.";
+    return "SSH authentication was rejected. Check the inventory username, managed session and installed public key; run session unlock privately if needed. No credentials or raw diagnostics are shown.";
 
-  return "Connectivity failed. Check the SSH alias, address, username, pinned known_hosts fingerprint, credential-provider approval and network. Inventory was not changed, though the generated SSH config may have been refreshed. No credentials or raw diagnostics are shown.";
+  return "Connectivity failed. Check the SSH alias, address, username, pinned known_hosts fingerprint, managed SSH session and network. Inventory was not changed, though the generated SSH config may have been refreshed. No credentials or raw diagnostics are shown.";
 }
 
 export function provisioningFailureMessage(result: ProcessResult) {
-  const output = `${result.stderr}\n${result.stdout}`;
-  if (isAacCredentialFailure(output))
-    return "AAC did not provide the Proxmox credential. Unlock the paired listener with `/unlock` and approve the request in its private terminal; `bw status` does not confirm AAC readiness. If the vault item is missing, check its exact name and configured reference before creating another copy. Then inspect the provisioning journal and Proxmox tasks before retrying. No rollback was performed and raw provider output is suppressed.";
-
-  return "Proxmox API worker failed; inspect the provisioning journal and provider tasks before retrying. No rollback was performed and raw worker output is suppressed.";
+  return `Proxmox SSH operation failed. ${probeFailureMessage(result)} Inspect the provisioning journal and provider tasks before retrying. No rollback was performed.`;
 }

@@ -5,30 +5,18 @@ export function credentialSpec(
   workerPath: string,
 ): ProcessSpec {
   if (!auth) return spec;
-  if (auth.type === "local-ssh-agent" || auth.type === "bitwarden-ssh-agent")
-    return {
-      ...spec,
-      env: auth.socket ? { SSH_AUTH_SOCK: auth.socket } : undefined,
-    };
-  if (!auth.item_id)
-    throw new HomectlError(2, "Agent Access requires vault item_id reference");
+  if (auth.type !== "keepassxc" || !auth.socket)
+    throw new HomectlError(2, "SSH requires a managed KeePassXC key reference");
   return {
-    argv: [
-      "aac",
-      "run",
-      "--id",
-      auth.item_id,
-      "--env",
-      "HOMECTL_SSH_PASSWORD=password",
-      "--",
-      process.execPath,
-      workerPath,
-      "ssh",
-    ],
-    stdin: JSON.stringify(spec),
-    timeoutMs: (spec.timeoutMs ?? 120_000) + 120_000,
+    argv: [process.execPath, workerPath],
+    stdin: JSON.stringify({
+      ...spec,
+      env: { ...spec.env, SSH_AUTH_SOCK: auth.socket },
+    }),
+    timeoutMs: (spec.timeoutMs ?? 120_000) + 5000,
   };
 }
+
 export function redactor(secrets: string[]) {
   const values = secrets
     .filter(Boolean)

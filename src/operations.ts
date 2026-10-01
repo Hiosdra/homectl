@@ -1,10 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { credentialSpec } from "./credentials";
+import { probeFailureMessage } from "./diagnostics";
 import { checkApproval, planExecution } from "./policies";
 import { run } from "./process";
 import { sshConfig, transportSpec } from "./transports";
-import type { Machine, Runner } from "./types";
+import { HomectlError, type Machine, type Runner } from "./types";
 export const workerPath = resolve(import.meta.dir, "credentials/worker.ts");
 export async function execute(
   host: string,
@@ -35,7 +36,13 @@ export async function execute(
     transportSpec(machine, argv, options.configPath),
     workerPath,
   );
-  return { plan, result: await (options.runner ?? run)(spec) };
+  const result = await (options.runner ?? run)(spec);
+  if (
+    machine.auth?.type === "keepassxc" &&
+    /homectl SSH session is locked/.test(result.stderr)
+  )
+    throw new HomectlError(5, probeFailureMessage(result));
+  return { plan, result };
 }
 export async function writeSSHConfig(
   path: string,

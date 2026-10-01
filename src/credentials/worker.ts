@@ -1,66 +1,31 @@
-// Private process boundary. Never invoke through an agent with secret literals.
-import { resolve } from "node:path";
+// Managed SSH boundary: checks session expiry; never opens the password database.
 import { run } from "../process";
-import { type ProvisionPlan, proxmox } from "../provisioners";
-import { proxmoxAPI } from "../provisioners/api";
-import { HomectlError, type ProcessSpec, type ProviderConfig } from "../types";
-import { cleanEnv, redactor } from "./index";
+import { sessionStatus } from "../session";
+import { HomectlError, type ProcessSpec } from "../types";
 
-const mode = process.argv[2];
-const secret =
-  process.env[mode === "ssh" ? "HOMECTL_SSH_PASSWORD" : "HOMECTL_API_TOKEN"] ??
-  "";
-const redact = redactor([secret]);
 try {
-  if (!secret) throw new HomectlError(5, "Credential was not injected");
-  const payload = JSON.parse(await Bun.stdin.text());
-  if (mode === "ssh") {
-    const spec = payload as ProcessSpec;
-    if (spec.argv[0] !== "ssh")
-      throw new HomectlError(2, "Credential worker only supports OpenSSH");
-    const args = spec.argv.map((a) =>
-      a === "BatchMode=yes" ? "BatchMode=no" : a,
+  const spec = JSON.parse(await Bun.stdin.text()) as ProcessSpec;
+  const socket = spec.env?.SSH_AUTH_SOCK;
+  if (spec.argv[0] !== "ssh" || !socket?.endsWith(".session/agent.sock"))
+    throw new HomectlError(
+      2,
+      "Managed key worker only supports OpenSSH with the dedicated session socket",
     );
-    args.splice(
-      1,
-      0,
-      "-o",
-      "PreferredAuthentications=password",
-      "-o",
-      "PubkeyAuthentication=no",
-      "-o",
-      "NumberOfPasswordPrompts=1",
+  const inventoryPath = socket.slice(0, -".session/agent.sock".length);
+  if (!(await sessionStatus(inventoryPath)).unlocked)
+    throw new HomectlError(
+      5,
+      "homectl SSH session is locked; run homectl session unlock privately",
     );
-    const result = await run({
-      ...spec,
-      argv: args,
-      env: {
-        ...cleanEnv(),
-        HOMECTL_SSH_PASSWORD: secret,
-        SSH_ASKPASS: resolve(import.meta.dir, "askpass.sh"),
-        SSH_ASKPASS_REQUIRE: "force",
-        DISPLAY: "homectl-askpass",
-      },
-    });
-    process.stdout.write(redact(result.stdout));
-    process.stderr.write(redact(result.stderr));
-    process.exitCode = result.exitCode;
-  } else if (mode === "proxmox") {
-    const { config, plan, stateDir } = payload as {
-      config: ProviderConfig;
-      plan: ProvisionPlan;
-      stateDir: string;
-    };
-    await proxmox.apply(plan, proxmoxAPI(config, secret), stateDir);
-    console.log(JSON.stringify({ ok: true, vmid: plan.request.vmid }));
-  } else throw new HomectlError(2, "Unknown credential worker mode");
+  const result = await run(spec);
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  process.exitCode = result.exitCode;
 } catch (e) {
   console.error(
-    redact(
-      e instanceof HomectlError
-        ? e.message
-        : "Credential worker failed; diagnostic details suppressed",
-    ),
+    e instanceof HomectlError
+      ? e.message
+      : "SSH worker failed; diagnostic details suppressed",
   );
   process.exitCode = e instanceof HomectlError ? e.code : 5;
 }

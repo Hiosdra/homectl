@@ -1,4 +1,7 @@
 version: 1
+session:
+  ttl: 24h
+  database: /home/operator/.config/homectl/homelab.kdbx
 machines:
   agent-host:
     description: Local machine running Codex or Claude Code
@@ -11,12 +14,22 @@ machines:
     ssh_alias: lab-printer
     address: 192.0.2.10
     user: pi
-    access: full
+    access: sudo-approved
     enforcement: sudoers
     auth:
-      type: bitwarden-ssh-agent
+      type: keepassxc
+      entry: homectl-lab-printer
+      socket: /home/operator/.config/homectl/inventory.yaml.session/agent.sock
+      public_key: /home/operator/.config/homectl/public-keys/lab-printer.pub
     caution:
-      - Check printer is idle before restarting Klipper
+    - Check printer is idle before restarting Klipper
+    sudo_allow:
+    - - /usr/bin/systemctl
+      - restart
+      - klipper
+    - - /usr/bin/systemctl
+      - restart
+      - moonraker
   lab-nas:
     description: Example critical NAS
     transport: ssh
@@ -26,29 +39,27 @@ machines:
     access: observe
     enforcement: advisory
     auth:
-      type: bitwarden-agent-access
-      item_id: example-vault-item-id
+      type: keepassxc
+      entry: homectl-lab-nas
+      socket: /home/operator/.config/homectl/inventory.yaml.session/agent.sock
+      public_key: /home/operator/.config/homectl/public-keys/lab-nas.pub
     caution:
-      - Storage changes may affect other workloads
-  lab-service:
-    description: Example service with literal restricted sudo commands
+    - Storage changes may affect other workloads
+  lab-proxmox:
+    description: Example Proxmox SSH node
     transport: ssh
-    ssh_alias: lab-service
+    ssh_alias: lab-proxmox
     address: 192.0.2.12
-    user: operator
-    access: sudo-approved
-    enforcement: sudoers
-    sudo_allow:
-      - [/usr/bin/systemctl, restart, moonraker]
-      - [/usr/bin/systemctl, status, moonraker, --no-pager]
+    user: root
+    access: full
+    enforcement: advisory
     auth:
-      type: local-ssh-agent
+      type: keepassxc
+      entry: homectl-lab-proxmox
+      socket: /home/operator/.config/homectl/inventory.yaml.session/agent.sock
+      public_key: /home/operator/.config/homectl/public-keys/lab-proxmox.pub
 providers:
   lab-pve:
     type: proxmox
-    url: https://pve.example.invalid:8006
-    node: example-node
-    token_id: operator@pve!homectl
-    auth:
-      type: bitwarden-agent-access
-      item_id: example-proxmox-token-item
+    host: lab-proxmox
+    node: pve

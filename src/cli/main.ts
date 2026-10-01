@@ -3,30 +3,29 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { credentialSpec } from "../credentials";
-import { provisioningFailureMessage } from "../diagnostics";
 import { enroll, installSudo } from "../enroll";
-import { loadInventory, resolveHost } from "../inventory";
+import { loadInventory, resolveHost, saveInventory } from "../inventory";
 import { execute, workerPath, writeSSHConfig } from "../operations";
 import { checkApproval, planExecution } from "../policies";
 import { run } from "../process";
-import { type ProvisionRequest, planProvision } from "../provisioners";
-import { doctor, installAAC, paths, setup } from "../setup";
+import { type ProvisionRequest, planProvision, proxmox } from "../provisioners";
+import { proxmoxSSH } from "../provisioners/ssh";
+import {
+  lockSession,
+  privateCommand,
+  sessionConfig,
+  sessionStatus,
+  ttlSeconds,
+  unlockSession,
+} from "../session";
+import { initDatabase } from "../session/database";
+import { createKey, keyReference } from "../session/keys";
+import { normalizePublicKey } from "../session/public-key";
+import { doctor, paths, setup } from "../setup";
 import { transportSpec } from "../transports";
 import { HomectlError, type Machine, type ProcessResult } from "../types";
-export const help = `homectl — agent-managed homelab (Bun 1.4.2+)
-  setup [--dry-run] [--install-bitwarden-cli] [--aac-version V --aac-sha256 HASH]
-  doctor [host]                  inspect tools; classify SSH/AAC connectivity failures
-  hosts | inspect <host>        inventory and purpose/access/cautions
-  exec <host> [--impact TEXT] [--approval DIGEST] [--dry-run] -- command argv...
-  ssh <host> -- command argv...  same guarded transport; no unguarded interactive shell
-  enroll <host> --file host.json [--configure-sudo] [--dry-run]
-  sudoers <host>                 print literal sudoers policy without installing
-  provision --file vm.json [--dry-run]
-Global: --inventory PATH, --json (put flags before command argv separator)
-Exit: 0 success, 2 input/config, 3 policy/conflict, 4 exact confirmation needed,
-      5 transport/provider/setup, 6 command failed (result includes remote exitCode).
-No --yes flag. Approval DIGEST attests an exact user confirmation already received.
-`;
+import { renderHelp } from "./help";
+export const help = renderHelp();
 export async function main(raw = process.argv.slice(2)): Promise<number> {
   const split = raw.indexOf("--");
   const cliArgs = split < 0 ? raw : raw.slice(0, split);
@@ -45,14 +44,21 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         approval: { type: "string" },
         impact: { type: "string" },
         "configure-sudo": { type: "boolean" },
-        help: { type: "boolean" },
-        "install-bitwarden-cli": { type: "boolean" },
-        "aac-version": { type: "string" },
-        "aac-sha256": { type: "string" },
+        help: { type: "boolean", short: "h" },
+        ttl: { type: "string" },
+        database: { type: "string" },
       },
     });
     json = v.json ?? false;
-    const [command, host] = positionals;
+    const [command, host, keyName] = positionals;
+    if (
+      (v.ttl || v.database) &&
+      (command !== "session" || host !== "configure")
+    )
+      throw new HomectlError(
+        2,
+        "--ttl and --database apply only to session configure",
+      );
     const p = paths();
     const inventoryPath = v.inventory ? resolve(v.inventory) : p.inventory;
     const configPath = v.inventory ? `${inventoryPath}.ssh_config` : p.ssh;
@@ -66,7 +72,17 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
             : JSON.stringify(result, null, 2),
       );
     if (!command || v.help || command === "help") {
-      emit(help);
+      emit(
+        renderHelp(command === "help" ? host : command, {
+          width: process.stdout.columns,
+          color: Boolean(
+            process.stdout.isTTY &&
+              !json &&
+              process.env.NO_COLOR === undefined &&
+              process.env.TERM !== "dumb",
+          ),
+        }),
+      );
       return 0;
     }
     if (command === "setup") {
@@ -76,29 +92,105 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           "setup uses the standard per-user directory; use --inventory on later commands",
         );
       const result = await setup(p.home, dryRun);
-      if (!dryRun && v["install-bitwarden-cli"]) {
-        const install = await run({
-          argv: ["npm", "install", "--prefix", p.base, "@bitwarden/cli"],
-          timeoutMs: 120_000,
-        });
-        if (install.exitCode !== 0)
-          throw new HomectlError(5, "Bitwarden CLI installation failed");
-        emit({
-          installed: `${p.base}/node_modules/.bin/bw`,
-          next: "Add this directory to PATH for aac listen",
-        });
-      }
-      if (!dryRun && v["aac-version"])
-        emit(await installAAC(v["aac-version"], v["aac-sha256"] ?? "", p.home));
       emit(result);
       return 0;
     }
     const inv = await loadInventory(inventoryPath);
-    if (positionals.length > 2)
+    if (positionals.length > (command === "key" ? 3 : 2))
       throw new HomectlError(
         2,
         "Unexpected positional arguments; commands require the -- separator",
       );
+    if (command === "session") {
+      if (commandArgs.length)
+        throw new HomectlError(
+          2,
+          "Session commands do not accept command argv",
+        );
+      if (host === "status") {
+        if (dryRun) {
+          emit({ wouldCheck: "session", credentialFetch: false });
+          return 0;
+        }
+        emit({
+          ...(await sessionStatus(inventoryPath)),
+          ...sessionConfig(inv, inventoryPath),
+        });
+        return 0;
+      }
+      if (host === "configure") {
+        const config = sessionConfig(inv, inventoryPath);
+        inv.session = {
+          ttl: v.ttl ?? config.ttl,
+          database: v.database ? resolve(v.database) : config.database,
+        };
+        ttlSeconds(inv.session.ttl);
+        (await import("../inventory")).parseInventory(JSON.stringify(inv));
+        if (!dryRun) {
+          await lockSession(inventoryPath);
+          await saveInventory(inventoryPath, inv);
+        }
+        emit({
+          session: inv.session,
+          dryRun,
+          note: "Configuration persists; changing it locks the current session. TTL starts on the next unlock.",
+        });
+        return 0;
+      }
+      if (host === "init") {
+        if (dryRun) {
+          emit({
+            wouldCreate: sessionConfig(inv, inventoryPath).database,
+            credentialFetch: false,
+          });
+          return 0;
+        }
+        emit(await initDatabase(inv, inventoryPath));
+        return 0;
+      }
+      if (host === "unlock" || host === "lock") {
+        if (dryRun) {
+          emit({ would: host, credentialFetch: false });
+          return 0;
+        }
+        emit(
+          host === "unlock"
+            ? await unlockSession(inv, inventoryPath)
+            : await lockSession(inventoryPath),
+        );
+        return 0;
+      }
+      throw new HomectlError(
+        2,
+        "Use session configure, init, unlock, status or lock",
+      );
+    }
+    if (command === "key") {
+      if (commandArgs.length)
+        throw new HomectlError(2, "Key commands do not accept command argv");
+      if (!keyName || !["create", "inspect"].includes(host ?? ""))
+        throw new HomectlError(
+          2,
+          "Use key create <name> or key inspect <name>",
+        );
+      const auth = keyReference(keyName, inventoryPath);
+      if (dryRun) {
+        emit({ name: keyName, auth, would: host, credentialFetch: false });
+        return 0;
+      }
+      emit(
+        host === "create"
+          ? await createKey(keyName, inv, inventoryPath)
+          : {
+              name: keyName,
+              auth,
+              publicKey: normalizePublicKey(
+                await readFile(auth.public_key, "utf8"),
+              ),
+            },
+      );
+      return 0;
+    }
     if (command === "hosts") {
       emit(inv.machines);
       return 0;
@@ -163,7 +255,12 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       ) as ProvisionRequest;
       const provider = inv.providers?.[request.provider];
       if (!provider) throw new HomectlError(2, "Unknown provider");
-      const plan = planProvision(request, provider.node);
+      const plan = planProvision(
+        request,
+        provider.node,
+        keyReference(request.name, inventoryPath),
+      );
+      const providerHost = resolveHost(inv, provider.host);
       if (dryRun) {
         emit(plan);
         return 0;
@@ -174,24 +271,37 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           JSON.stringify(plan.machine)
       )
         throw new HomectlError(3, "Existing machine name conflicts with plan");
-      const result = await run({
-        argv: [
-          "aac",
-          "run",
-          "--id",
-          provider.auth.item_id ?? "",
-          "--env",
-          "HOMECTL_API_TOKEN=password",
-          "--",
-          process.execPath,
-          workerPath,
-          "proxmox",
-        ],
-        stdin: JSON.stringify({ config: provider, plan, stateDir: p.state }),
-        timeoutMs: 2_700_000,
-      });
-      if (result.exitCode !== 0)
-        throw new HomectlError(5, provisioningFailureMessage(result));
+      const publicKey = normalizePublicKey(
+        await readFile(plan.machine.auth?.public_key ?? "", "utf8"),
+      );
+      if (publicKey !== normalizePublicKey(request.public_key))
+        throw new HomectlError(
+          2,
+          "VM public key must match key create <vm-name>; inspect the generated public key",
+        );
+      if (!(await sessionStatus(inventoryPath)).unlocked)
+        throw new HomectlError(
+          5,
+          "Session locked; unlock privately before provisioning",
+        );
+      try {
+        await privateCommand(
+          ["ssh-add", "-T", plan.machine.auth?.public_key ?? ""],
+          undefined,
+          { SSH_AUTH_SOCK: plan.machine.auth?.socket ?? "" },
+        );
+      } catch {
+        throw new HomectlError(
+          5,
+          "VM key is not available in the managed agent; run key create <vm-name> privately to reload it before provisioning",
+        );
+      }
+      await writeSSHConfig(configPath, inv.machines);
+      await proxmox.apply(
+        plan,
+        proxmoxSSH(provider, providerHost, configPath),
+        p.state,
+      );
       await writeSSHConfig(configPath, {
         ...inv.machines,
         [request.name]: plan.machine,
@@ -247,34 +357,52 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
             : [...privilege, "npm", "install", "-g", "bun@1.4.2"];
         await checked(
           await run(
-            transportSpec(
-              plan.machine,
-              [...privilege, "apt-get", "update"],
-              configPath,
+            credentialSpec(
+              plan.machine.auth,
+              transportSpec(
+                plan.machine,
+                [...privilege, "apt-get", "update"],
+                configPath,
+              ),
+              workerPath,
             ),
           ),
         );
         if (software === "bun")
           await checked(
             await run(
-              transportSpec(
-                plan.machine,
-                [...privilege, "apt-get", "install", "-y", "nodejs", "npm"],
-                configPath,
+              credentialSpec(
+                plan.machine.auth,
+                transportSpec(
+                  plan.machine,
+                  [...privilege, "apt-get", "install", "-y", "nodejs", "npm"],
+                  configPath,
+                ),
+                workerPath,
               ),
             ),
           );
         await checked(
-          await run(transportSpec(plan.machine, recipe, configPath)),
+          await run(
+            credentialSpec(
+              plan.machine.auth,
+              transportSpec(plan.machine, recipe, configPath),
+              workerPath,
+            ),
+          ),
         );
         await checked(
           await run(
-            transportSpec(
-              plan.machine,
-              software === "docker"
-                ? [...privilege, "docker", "version"]
-                : ["bun", "--version"],
-              configPath,
+            credentialSpec(
+              plan.machine.auth,
+              transportSpec(
+                plan.machine,
+                software === "docker"
+                  ? [...privilege, "docker", "version"]
+                  : ["bun", "--version"],
+                configPath,
+              ),
+              workerPath,
             ),
           ),
         );

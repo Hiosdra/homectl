@@ -7,3 +7,7 @@ inventory.yaml
 state/
 *.pem
 *.key
+*.kdbx*
+*.session/
+public-keys/
+*.before-keepassxc-*

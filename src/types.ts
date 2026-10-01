@@ -1,8 +1,9 @@
 export type Access = "observe" | "user" | "sudo-approved" | "full";
 export type Auth = {
-  type: "local-ssh-agent" | "bitwarden-ssh-agent" | "bitwarden-agent-access";
-  socket?: string;
-  item_id?: string;
+  type: "keepassxc";
+  socket: string;
+  entry: string;
+  public_key: string;
 };
 export interface Machine {
   description: string;
@@ -19,13 +20,12 @@ export interface Machine {
 }
 export interface ProviderConfig {
   type: "proxmox";
-  url: string;
+  host: string;
   node: string;
-  token_id: string;
-  auth: Auth;
 }
 export interface Inventory {
   version: 1;
+  session?: { ttl: string; database: string };
   machines: Record<string, Machine>;
   providers?: Record<string, ProviderConfig>;
 }

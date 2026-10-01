@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   access,
   lstat,
@@ -13,6 +12,7 @@ import { probeFailureMessage } from "./diagnostics";
 import { saveInventory } from "./inventory";
 import { writeSSHConfig } from "./operations";
 import { run } from "./process";
+import { sessionConfig } from "./session/config";
 import {
   HomectlError,
   type Inventory,
@@ -63,6 +63,7 @@ export async function setup(home = homedir(), dryRun = false) {
   const p = paths(home);
   const initial: Inventory = {
     version: 1,
+    session: sessionConfig({ version: 1, machines: {} }, p.inventory),
     machines: {
       "agent-host": {
         description: "Machine running the current coding agent",
@@ -118,74 +119,6 @@ export async function setup(home = homedir(), dryRun = false) {
     next: "Run homectl doctor; ensure ~/.local/bin is on PATH. Keep this checkout in a stable location.",
   };
 }
-export async function installAAC(
-  version: string,
-  digest: string,
-  home = homedir(),
-) {
-  if (
-    !/^v?\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.-]+)?$/.test(version) ||
-    !/^[a-f0-9]{64}$/.test(digest)
-  )
-    throw new HomectlError(
-      2,
-      "Supply a pinned release version and independently verified archive SHA256",
-    );
-  const platform =
-    process.platform === "darwin"
-      ? "macos"
-      : process.platform === "linux"
-        ? "linux"
-        : "";
-  const arch =
-    process.arch === "arm64"
-      ? "aarch64"
-      : process.arch === "x64"
-        ? "x86_64"
-        : "";
-  if (!platform || !arch || (platform === "linux" && arch !== "x86_64"))
-    throw new HomectlError(
-      2,
-      "No researched official AAC release for this platform; install supported client manually",
-    );
-  const p = paths(home);
-  const target = join(p.bin, "aac");
-  if (await exists(target))
-    throw new HomectlError(
-      3,
-      "aac already exists; replacement is a separate operation",
-    );
-  const response = await fetch(
-    `https://github.com/bitwarden/agent-access/releases/download/${version}/aac-${platform}-${arch}.tar.gz`,
-    { signal: AbortSignal.timeout(60_000) },
-  );
-  if (!response.ok) throw new HomectlError(5, "AAC release download failed");
-  const data = new Uint8Array(await response.arrayBuffer());
-  if (createHash("sha256").update(data).digest("hex") !== digest)
-    throw new HomectlError(5, "AAC checksum mismatch");
-  const temp = join(p.base, `aac-install-${crypto.randomUUID()}`);
-  await mkdir(temp, { recursive: true, mode: 0o700 });
-  const archive = join(temp, "release.tar.gz");
-  await writeFile(archive, data, { mode: 0o600 });
-  const list = await run({ argv: ["tar", "-tzf", archive] });
-  if (list.exitCode !== 0 || list.stdout.trim() !== "aac")
-    throw new HomectlError(5, "Unexpected AAC archive contents");
-  const extract = await run({
-    argv: ["tar", "-xzf", archive, "-C", temp, "aac"],
-  });
-  if (extract.exitCode !== 0)
-    throw new HomectlError(5, "AAC extraction failed");
-  await mkdir(p.bin, { recursive: true, mode: 0o700 });
-  await writeFile(
-    target,
-    new Uint8Array(await Bun.file(join(temp, "aac")).arrayBuffer()),
-    { mode: 0o755, flag: "wx" },
-  );
-  return {
-    installed: target,
-    note: `Verified installation files retained in ${temp}; no automatic deletions`,
-  };
-}
 export async function doctor(
   inventory: Inventory,
   configPath: string,
@@ -193,31 +126,40 @@ export async function doctor(
   runner: Runner = run,
 ) {
   const checks: { name: string; ok: boolean; remediation?: string }[] = [];
-  for (const tool of ["ssh", "bun", "aac", "bw"]) {
-    if (tool === "bw") {
-      const available = Boolean(Bun.which("bw"));
+  const selected = host
+    ? [inventory.machines[host]]
+    : Object.values(inventory.machines);
+  const usesKeepass = selected.some((m) => m?.auth?.type === "keepassxc");
+  const required = new Set([
+    "ssh",
+    "bun",
+    ...(usesKeepass ? ["ssh-agent", "ssh-add", "keepassxc-cli"] : []),
+  ]);
+  for (const tool of required) {
+    if (["ssh-agent", "ssh-add", "keepassxc-cli"].includes(tool)) {
+      const available = Boolean(Bun.which(tool));
       checks.push({
         name: tool,
         ok: available,
         remediation: available
           ? undefined
-          : "Install @bitwarden/cli when using AAC Bitwarden provider",
+          : tool === "keepassxc-cli"
+            ? "Install KeePassXC on the agent host"
+            : "Install OpenSSH",
       });
       continue;
     }
-    const argv =
-      tool === "aac"
-        ? ["aac", "run", "--help"]
-        : [tool, tool === "ssh" ? "-V" : "--version"];
     try {
-      const r = await runner({ argv, timeoutMs: 10_000 });
+      const r = await runner({
+        argv: [tool, tool === "ssh" ? "-V" : "--version"],
+        timeoutMs: 10_000,
+      });
       checks.push({
         name: tool,
-        ok: r.exitCode === 0 && (tool !== "aac" || r.stdout.includes("--env")),
-        remediation:
-          tool === "aac"
-            ? "Install a supported pinned Agent Access release; pair via aac listen/connect in a private terminal"
-            : "Install tool on the agent host",
+        ok: r.exitCode === 0,
+        remediation: r.exitCode
+          ? `Install ${tool} on the agent host`
+          : undefined,
       });
     } catch {
       checks.push({
@@ -251,11 +193,9 @@ export async function doctor(
       return {
         checks,
         ok: checks
-          .filter(
-            (c) => ["ssh", "bun"].includes(c.name) || c.name.includes(":"),
-          )
+          .filter((c) => required.has(c.name) || c.name.includes(":"))
           .every((c) => c.ok),
-        note: "AAC/bw are optional for key-only hosts; availability is not proof of provider pairing. No credentials are fetched for tool checks.",
+        note: "Tool checks do not open the database. Host probes use only the managed SSH agent; run session unlock privately when needed.",
       };
     }
     checks.push({
@@ -280,8 +220,8 @@ export async function doctor(
   return {
     checks,
     ok: checks
-      .filter((c) => ["ssh", "bun"].includes(c.name) || c.name.includes(":"))
+      .filter((c) => required.has(c.name) || c.name.includes(":"))
       .every((c) => c.ok),
-    note: "AAC/bw are optional for key-only hosts; availability is not proof of provider pairing. No credentials are fetched for tool checks.",
+    note: "Tool checks do not open the database. Host probes use only the managed SSH agent; run session unlock privately when needed.",
   };
 }

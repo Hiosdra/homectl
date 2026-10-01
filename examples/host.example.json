@@ -1,1 +1,30 @@
-{"description":"Example existing printer using pi account","transport":"ssh","ssh_alias":"lab-printer","address":"192.0.2.10","user":"pi","access":"full","enforcement":"sudoers","auth":{"type":"bitwarden-ssh-agent"},"caution":["Check printer is idle before service restarts"]}
+{
+  "description": "Example existing printer using pi account",
+  "transport": "ssh",
+  "ssh_alias": "lab-printer",
+  "address": "192.0.2.10",
+  "user": "pi",
+  "access": "sudo-approved",
+  "enforcement": "sudoers",
+  "auth": {
+    "type": "keepassxc",
+    "entry": "homectl-lab-printer",
+    "socket": "/home/operator/.config/homectl/inventory.yaml.session/agent.sock",
+    "public_key": "/home/operator/.config/homectl/public-keys/lab-printer.pub"
+  },
+  "caution": [
+    "Check printer is idle before service restarts"
+  ],
+  "sudo_allow": [
+    [
+      "/usr/bin/systemctl",
+      "restart",
+      "klipper"
+    ],
+    [
+      "/usr/bin/systemctl",
+      "restart",
+      "moonraker"
+    ]
+  ]
+}

@@ -7,9 +7,12 @@ export function sshConfig(machines: Record<string, Machine>) {
     .filter((m) => m.transport === "ssh")
     .map(
       (m) =>
-        `Host ${m.ssh_alias}\n  HostName ${m.address}\n  User ${m.user}\n  Port ${m.port ?? 22}\n  StrictHostKeyChecking yes\n  ForwardAgent no\n  ConnectTimeout 10\n  ServerAliveInterval 15\n  ServerAliveCountMax 2\n`,
+        `Host ${m.ssh_alias}\n  HostName ${m.address}\n  User ${m.user}\n  Port ${m.port ?? 22}\n  StrictHostKeyChecking yes\n  ForwardAgent no\n  ConnectTimeout 10\n  ServerAliveInterval 15\n  ServerAliveCountMax 2\n${m.auth?.type === "keepassxc" ? `  IdentityAgent ${configQuote(m.auth.socket ?? "")}\n  IdentityFile ${configQuote(m.auth.public_key ?? "")}\n  IdentitiesOnly yes\n  PreferredAuthentications publickey\n  PasswordAuthentication no\n` : ""}`,
     )
     .join("\n");
+}
+function configQuote(value: string) {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 export function transportSpec(
   machine: Machine,
