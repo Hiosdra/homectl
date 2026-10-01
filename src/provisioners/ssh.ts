@@ -17,6 +17,7 @@ export function proxmoxSSH(
   host: Machine,
   configPath: string,
   runner: Runner = run,
+  polling: { timeoutMs?: number; intervalMs?: number } = {},
 ): API {
   if (
     host.transport !== "ssh" ||
@@ -34,11 +35,17 @@ export function proxmoxSSH(
     const verb = { GET: "get", POST: "create", PUT: "set" }[method];
     if (!verb || !path.startsWith(`${node}/`))
       throw new HomectlError(2, "Invalid Proxmox method/node");
-    const resource = path.slice(node.length);
+    let decodedPath: string;
+    try {
+      decodedPath = decodeURIComponent(path);
+    } catch {
+      throw new HomectlError(2, "Invalid Proxmox resource encoding");
+    }
+    const resource = decodedPath.slice(node.length);
     const valid =
       method === "GET"
         ? /^\/qemu(?:\/\d+\/config)?$/.test(resource) ||
-          /^\/tasks\/UPID(?::|%3A)[A-Za-z0-9:_.@!%+-]+\/status$/.test(resource)
+          /^\/tasks\/UPID:[A-Za-z0-9:_.@!-]+\/status$/.test(resource)
         : method === "POST"
           ? /^\/qemu\/\d+\/(clone|status\/start)$/.test(resource)
           : /^\/qemu\/\d+\/(config|resize)$/.test(resource);
@@ -62,7 +69,7 @@ export function proxmoxSSH(
             "pvesh",
             "--noproxy",
             verb,
-            decodeURIComponent(path),
+            decodedPath,
             "--output-format",
             "json",
             ...parameters,
@@ -89,12 +96,17 @@ export function proxmoxSSH(
     async wait(task) {
       if (!/^UPID:[A-Za-z0-9:_.@!-]+$/.test(task))
         throw new HomectlError(5, "Invalid Proxmox task ID");
-      const deadline = Date.now() + 600_000;
+      const deadline = Date.now() + (polling.timeoutMs ?? 600_000);
       while (Date.now() < deadline) {
         const state = (await request(
           "GET",
           `${node}/tasks/${encodeURIComponent(task)}/status`,
         )) as { status: string; exitstatus?: string };
+        if (!state || !["running", "stopped"].includes(state.status))
+          throw new HomectlError(
+            5,
+            "Invalid Proxmox task status; raw output suppressed and journal retained",
+          );
         if (state.status === "stopped") {
           if (state.exitstatus !== "OK")
             throw new HomectlError(
@@ -103,7 +115,7 @@ export function proxmoxSSH(
             );
           return;
         }
-        await Bun.sleep(1000);
+        await Bun.sleep(polling.intervalMs ?? 1000);
       }
       throw new HomectlError(
         5,
