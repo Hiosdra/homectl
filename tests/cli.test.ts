@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanEnv } from "../src/credentials";
@@ -19,9 +19,9 @@ async function fixture() {
   await saveInventory(path, { version: 1, machines: { example: machine } });
   return path;
 }
-async function invoke(args: string[]) {
+async function invoke(args: string[], env = cleanEnv()) {
   const child = Bun.spawn([process.execPath, cli, ...args], {
-    env: cleanEnv(),
+    env,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -159,6 +159,14 @@ test("spawn failure exits 5 without environment dumping", async () => {
 });
 test("all SSH addresses regenerate from current inventory before diagnostics", async () => {
   const path = await fixture();
+  const toolsDir = `${path}.tools`;
+  await mkdir(toolsDir);
+  for (const name of ["ssh", "bun", "aac", "bw"])
+    await writeFile(
+      join(toolsDir, name),
+      name === "aac" ? '#!/bin/sh\nprintf "--env\\n"\n' : "#!/bin/sh\nexit 0\n",
+      { mode: 0o755 },
+    );
   await saveInventory(path, {
     version: 1,
     machines: {
@@ -166,15 +174,22 @@ test("all SSH addresses regenerate from current inventory before diagnostics", a
         description: "Example",
         transport: "ssh",
         ssh_alias: "example",
-        address: "192.0.2.55",
+        address: "127.0.0.1",
+        port: 1,
         user: "operator",
         access: "user",
         auth: { type: "local-ssh-agent" },
       },
     },
   });
-  await invoke(["doctor", "--inventory", path, "--json"]);
-  expect(await readFile(`${path}.ssh_config`, "utf8")).toContain("192.0.2.55");
+  const env = cleanEnv();
+  await invoke(["doctor", "--inventory", path, "--json"], {
+    ...env,
+    PATH: `${toolsDir}:${env.PATH ?? ""}`,
+  });
+  const generated = await readFile(`${path}.ssh_config`, "utf8");
+  expect(generated).toContain("127.0.0.1");
+  expect(generated).toContain("Port 1");
 });
 test("unknown flags cannot silently change CLI behavior", async () => {
   const r = await invoke(["hosts", "--yes", "--inventory", await fixture()]);

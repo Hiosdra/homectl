@@ -3,6 +3,11 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanEnv, credentialSpec, redactor } from "../src/credentials";
+import {
+  probeFailureMessage,
+  provisioningFailureMessage,
+  unameValue,
+} from "../src/diagnostics";
 import { enroll, installSudo } from "../src/enroll";
 import { loadInventory, parseInventory, saveInventory } from "../src/inventory";
 import { execute } from "../src/operations";
@@ -20,7 +25,7 @@ import {
   proxmox,
 } from "../src/provisioners";
 import { proxmoxAPI } from "../src/provisioners/api";
-import { setup } from "../src/setup";
+import { doctor, setup } from "../src/setup";
 import { shellQuote, sshConfig, transportSpec } from "../src/transports";
 import {
   HomectlError,
@@ -153,6 +158,12 @@ describe("inventory", () => {
         ),
       2,
     ));
+  test("accepts mixed-case SSH usernames", () =>
+    expect(
+      parseInventory(
+        JSON.stringify(inventory({ ...ssh, user: "MixedCaseUser" })),
+      ).machines.example?.user,
+    ).toBe("MixedCaseUser"));
   test("agent access requires a reference", () =>
     failure(
       () =>
@@ -348,6 +359,43 @@ describe("policy", () => {
         }),
       2,
     );
+    failure(() => sudoers("root", local), 2);
+  });
+});
+describe("diagnostics", () => {
+  test("extracts uname after AAC listener log lines", () =>
+    expect(
+      unameValue(
+        "2026-10-01T12:00:00Z INFO aac::client request started\nLinux\n",
+      ),
+    ).toBe("Linux"));
+  test("classifies AAC timeouts without echoing raw output", () => {
+    const message = probeFailureMessage({
+      stdout: "",
+      stderr: "Timeout waiting for credential response: private-fixture",
+      exitCode: 1,
+    });
+    expect(message).toContain("aac listen");
+    expect(message).toContain("/unlock");
+    expect(message).not.toContain("private-fixture");
+  });
+  test("classifies host-key errors without suggesting an untrusted keyscan", () => {
+    const message = probeFailureMessage({
+      stdout: "",
+      stderr: "Host key verification failed",
+      exitCode: 255,
+    });
+    expect(message).toContain("trusted console");
+    expect(message).toContain("do not trust a keyscan");
+  });
+  test("suppresses Proxmox worker diagnostics on failure", () => {
+    const message = provisioningFailureMessage({
+      stdout: "",
+      stderr: "401: private-fixture",
+      exitCode: 1,
+    });
+    expect(message).toContain("journal");
+    expect(message).not.toContain("private-fixture");
   });
 });
 describe("transports and credentials", () => {
@@ -523,7 +571,12 @@ describe("setup and enrollment", () => {
     const result = await enroll("example", ssh, path, join(dir, "ssh_config"), {
       runner: async () => {
         calls++;
-        return { stdout: "Linux\n", stderr: "", exitCode: 0 };
+        return {
+          stdout:
+            "2026-10-01T12:00:00Z INFO aac::client request started\nLinux\n",
+          stderr: "",
+          exitCode: 0,
+        };
       },
     });
     expect(calls).toBe(1);
@@ -555,6 +608,24 @@ describe("setup and enrollment", () => {
     expect(seen?.argv.at(-1)).toContain("Existing sudoers differs");
     expect(seen?.argv.at(-1)).toContain("visudo -cf");
   });
+  test("doctor does not run sudo for a root SSH account", async () => {
+    const seen: ProcessSpec[] = [];
+    await doctor(
+      inventory({ ...ssh, user: "root" }),
+      "/unused/ssh_config",
+      "example",
+      async (spec) => {
+        seen.push(spec);
+        return {
+          stdout: spec.argv[0] === "aac" ? "--env" : "",
+          stderr: "",
+          exitCode: 0,
+        };
+      },
+    );
+    expect(seen.some((spec) => spec.argv.includes("sudo"))).toBe(false);
+    expect(seen.some((spec) => spec.argv[0] === "bw")).toBe(false);
+  });
 });
 describe("provisioning", () => {
   test("pure plan covers resources, public key, resize and boot", () => {
@@ -569,6 +640,10 @@ describe("provisioning", () => {
     expect(p.steps[1]?.params.ipconfig0).toBe("ip=192.0.2.20/24,gw=192.0.2.1");
     expect(p.steps[2]?.params.size).toBe("100G");
   });
+  test("accepts mixed-case cloud-init usernames", () =>
+    expect(
+      planProvision({ ...vm, user: "MixedCaseUser" }, "pve").machine.user,
+    ).toBe("MixedCaseUser"));
   test("rejects unsafe identities, private keys and unsupported recipes", () => {
     for (const r of [
       { ...vm, vmid: vm.template },

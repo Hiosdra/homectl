@@ -285,8 +285,13 @@ export function checkApproval(plan: ExecutionPlan, approval?: string) {
     );
 }
 export function sudoers(user: string, machine: Machine) {
-  if (!/^[a-z_][a-z0-9_-]*$/.test(user))
+  if (!/^[A-Za-z_][A-Za-z0-9_-]{0,31}$/.test(user))
     throw new HomectlError(2, "Invalid existing user");
+  if (user === "root")
+    throw new HomectlError(
+      2,
+      "A root SSH account already has root authority; sudoers configuration is not applicable",
+    );
   if (machine.access === "full") return `${user} ALL=(ALL:ALL) NOPASSWD: ALL\n`;
   if (machine.access !== "sudo-approved")
     throw new HomectlError(3, "Tier does not support sudoers");

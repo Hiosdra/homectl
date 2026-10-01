@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { credentialSpec } from "../credentials";
+import { provisioningFailureMessage } from "../diagnostics";
 import { enroll, installSudo } from "../enroll";
 import { loadInventory, resolveHost } from "../inventory";
 import { execute, workerPath, writeSSHConfig } from "../operations";
@@ -14,7 +15,7 @@ import { transportSpec } from "../transports";
 import { HomectlError, type Machine, type ProcessResult } from "../types";
 export const help = `homectl — agent-managed homelab (Bun 1.4.2+)
   setup [--dry-run] [--install-bitwarden-cli] [--aac-version V --aac-sha256 HASH]
-  doctor [host]                  inspect tool availability/connectivity
+  doctor [host]                  inspect tools; classify SSH/AAC connectivity failures
   hosts | inspect <host>        inventory and purpose/access/cautions
   exec <host> [--impact TEXT] [--approval DIGEST] [--dry-run] -- command argv...
   ssh <host> -- command argv...  same guarded transport; no unguarded interactive shell
@@ -190,11 +191,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         timeoutMs: 2_700_000,
       });
       if (result.exitCode !== 0)
-        throw new HomectlError(
-          5,
-          "Provisioning API worker failed; inspect journal/provider tasks. No rollback was performed.",
-          { worker: result.stderr },
-        );
+        throw new HomectlError(5, provisioningFailureMessage(result));
       await writeSSHConfig(configPath, {
         ...inv.machines,
         [request.name]: plan.machine,
@@ -236,19 +233,23 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           5,
           "Cloud-init did not complete successfully; inspect VM and retry",
         );
-      if (["full", "sudo-approved"].includes(request.access))
+      if (
+        ["full", "sudo-approved"].includes(request.access) &&
+        plan.machine.user !== "root"
+      )
         await installSudo(request.name, plan.machine, configPath);
       await enroll(request.name, plan.machine, inventoryPath, configPath);
+      const privilege = plan.machine.user === "root" ? [] : ["sudo", "-n"];
       for (const software of request.packages ?? []) {
         const recipe =
           software === "docker"
-            ? ["sudo", "-n", "apt-get", "install", "-y", "docker.io"]
-            : ["sudo", "-n", "npm", "install", "-g", "bun@1.4.2"];
+            ? [...privilege, "apt-get", "install", "-y", "docker.io"]
+            : [...privilege, "npm", "install", "-g", "bun@1.4.2"];
         await checked(
           await run(
             transportSpec(
               plan.machine,
-              ["sudo", "-n", "apt-get", "update"],
+              [...privilege, "apt-get", "update"],
               configPath,
             ),
           ),
@@ -258,7 +259,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
             await run(
               transportSpec(
                 plan.machine,
-                ["sudo", "-n", "apt-get", "install", "-y", "nodejs", "npm"],
+                [...privilege, "apt-get", "install", "-y", "nodejs", "npm"],
                 configPath,
               ),
             ),
@@ -271,7 +272,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
             transportSpec(
               plan.machine,
               software === "docker"
-                ? ["sudo", "-n", "docker", "version"]
+                ? [...privilege, "docker", "version"]
                 : ["bun", "--version"],
               configPath,
             ),

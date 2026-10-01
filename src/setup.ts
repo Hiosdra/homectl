@@ -9,10 +9,16 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { probeFailureMessage } from "./diagnostics";
 import { saveInventory } from "./inventory";
 import { writeSSHConfig } from "./operations";
 import { run } from "./process";
-import { HomectlError, type Inventory, type Runner } from "./types";
+import {
+  HomectlError,
+  type Inventory,
+  type ProcessResult,
+  type Runner,
+} from "./types";
 export const repoRoot = resolve(import.meta.dir, "..");
 export function paths(home = homedir()) {
   const base = join(home, ".config", "homectl");
@@ -188,12 +194,21 @@ export async function doctor(
 ) {
   const checks: { name: string; ok: boolean; remediation?: string }[] = [];
   for (const tool of ["ssh", "bun", "aac", "bw"]) {
+    if (tool === "bw") {
+      const available = Boolean(Bun.which("bw"));
+      checks.push({
+        name: tool,
+        ok: available,
+        remediation: available
+          ? undefined
+          : "Install @bitwarden/cli when using AAC Bitwarden provider",
+      });
+      continue;
+    }
     const argv =
       tool === "aac"
         ? ["aac", "run", "--help"]
-        : tool === "bw"
-          ? ["bw", "--version"]
-          : [tool, tool === "ssh" ? "-V" : "--version"];
+        : [tool, tool === "ssh" ? "-V" : "--version"];
     try {
       const r = await runner({ argv, timeoutMs: 10_000 });
       checks.push({
@@ -202,9 +217,7 @@ export async function doctor(
         remediation:
           tool === "aac"
             ? "Install a supported pinned Agent Access release; pair via aac listen/connect in a private terminal"
-            : tool === "bw"
-              ? "Install @bitwarden/cli when using AAC Bitwarden provider"
-              : "Install tool on the agent host",
+            : "Install tool on the agent host",
       });
     } catch {
       checks.push({
@@ -220,36 +233,48 @@ export async function doctor(
     const { credentialSpec } = await import("./credentials");
     const { transportSpec } = await import("./transports");
     const { workerPath } = await import("./operations");
-    const result = await runner(
-      credentialSpec(
-        m.auth,
-        transportSpec(m, ["uname", "-s"], configPath),
-        workerPath,
-      ),
-    );
+    let result: ProcessResult;
+    try {
+      result = await runner(
+        credentialSpec(
+          m.auth,
+          transportSpec(m, ["uname", "-s"], configPath),
+          workerPath,
+        ),
+      );
+    } catch {
+      checks.push({
+        name: `${host}:connectivity`,
+        ok: false,
+        remediation: probeFailureMessage(),
+      });
+      return {
+        checks,
+        ok: checks
+          .filter(
+            (c) => ["ssh", "bun"].includes(c.name) || c.name.includes(":"),
+          )
+          .every((c) => c.ok),
+        note: "AAC/bw are optional for key-only hosts; availability is not proof of provider pairing. No credentials are fetched for tool checks.",
+      };
+    }
     checks.push({
       name: `${host}:connectivity`,
       ok: result.exitCode === 0,
       remediation:
-        "Check SSH key/alias, pinned known_hosts fingerprint, provider pairing and network. No raw credential output is shown.",
+        result.exitCode === 0 ? undefined : probeFailureMessage(result),
     });
-    if (m.access === "full" || m.access === "sudo-approved") {
-      const args = ["sudo", "-n", "true"]; // Never execute the allowlisted mutation as a diagnostic.
-      if (m.access === "full") {
-        const r = await runner(
-          credentialSpec(
-            m.auth,
-            transportSpec(m, args, configPath),
-            workerPath,
-          ),
-        );
-        checks.push({
-          name: `${host}:sudo-n`,
-          ok: r.exitCode === 0,
-          remediation:
-            "Configure NOPASSWD for the existing user via initial interactive access",
-        });
-      }
+    if (result.exitCode === 0 && m.access === "full" && m.user !== "root") {
+      const args = ["sudo", "-n", "true"]; // Never execute an allowlisted mutation as a diagnostic.
+      const r = await runner(
+        credentialSpec(m.auth, transportSpec(m, args, configPath), workerPath),
+      );
+      checks.push({
+        name: `${host}:sudo-n`,
+        ok: r.exitCode === 0,
+        remediation:
+          "Configure NOPASSWD for the existing user via initial interactive access",
+      });
     }
   }
   return {

@@ -81,7 +81,7 @@ export function planProvision(
     !/^[a-z][a-z0-9-]{0,62}$/.test(r.name) ||
     !/^[a-zA-Z0-9-]+$/.test(node) ||
     !/^[a-z][a-z0-9-]*$/.test(r.provider) ||
-    !/^[a-z_][a-z0-9_-]{0,31}$/.test(r.user)
+    !/^[A-Za-z_][A-Za-z0-9_-]{0,31}$/.test(r.user)
   )
     throw new HomectlError(
       2,

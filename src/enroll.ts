@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { credentialSpec } from "./credentials";
+import { probeFailureMessage, unameValue } from "./diagnostics";
 import { loadInventory, parseInventory, saveInventory } from "./inventory";
 import { workerPath, writeSSHConfig } from "./operations";
 import { sudoers } from "./policies";
@@ -16,6 +17,11 @@ export async function installSudo(
     throw new HomectlError(
       2,
       "Sudo installation requires an existing SSH user",
+    );
+  if (m.user === "root")
+    throw new HomectlError(
+      2,
+      "A root SSH account already has root authority; sudoers installation is not applicable",
     );
   const content = sudoers(m.user, m);
   const target = `/etc/sudoers.d/homectl-${host}`;
@@ -59,6 +65,11 @@ export async function enroll(
       3,
       "Existing inventory entry differs; resetting it requires a separately approved operation",
     );
+  if (options.configureSudo && m.user === "root")
+    throw new HomectlError(
+      2,
+      "A root SSH account already has root authority; do not install a sudoers rule",
+    );
   inv.machines[name] = m;
   parseInventory(JSON.stringify(inv));
   if (options.configureSudo) sudoers(m.user ?? "", m);
@@ -74,9 +85,12 @@ export async function enroll(
     ),
   );
   if (probe.exitCode !== 0)
+    throw new HomectlError(5, probeFailureMessage(probe));
+  const os = unameValue(probe.stdout);
+  if (!os)
     throw new HomectlError(
       5,
-      "Enrollment connectivity failed; check known_hosts, provider approval and network. Inventory was not changed.",
+      "The remote OS probe returned no recognizable uname value. Inventory was not changed; raw provider output is suppressed.",
     );
   if (options.configureSudo) await installSudo(name, m, configPath, runner);
   if ((await readFile(inventoryPath, "utf8")) !== before)
@@ -85,5 +99,5 @@ export async function enroll(
       "Inventory changed concurrently; retry enrollment",
     );
   await saveInventory(inventoryPath, inv);
-  return { name, machine: m, os: probe.stdout.trim() };
+  return { name, machine: m, os };
 }

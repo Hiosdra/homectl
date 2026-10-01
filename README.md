@@ -2,7 +2,7 @@
 
 Manage local and SSH machines from Codex or Claude Code using existing users, Bitwarden, explicit access tiers, and a shared TypeScript/Bun CLI. Create focused Proxmox VMs from prepared cloud-init templates. This is a personal homelab tool: **full/root access is supported intentionally**, while **every destructive operation requires explicit human confirmation**.
 
-Version 0.1 is tested locally and against fake SSH/API providers. There has been no live validation on your homelab or Bitwarden account. In particular, perform the first Proxmox apply on a disposable test VM and verify the node's API contract before relying on it.
+Automated checks use local processes and fake SSH/API providers; they do not validate a particular network or credential-provider state. `homectl doctor <host>` checks current host connectivity. Proxmox VM provisioning uses a separate API path and still needs first-use validation against the node's API viewer and a reviewed VM plan.
 
 ## TL;DR — first-time setup
 
@@ -49,7 +49,7 @@ homectl doctor first-host
 homectl exec first-host -- uname -s
 ```
 
-For full access, configure the existing user's NOPASSWD sudo using [Existing-user sudo](#existing-user-sudo). Selecting `full` alone does not grant Unix privileges.
+For a full non-root account, configure the existing user's NOPASSWD sudo using [Existing-user sudo](#existing-user-sudo). A root SSH account already has root authority and needs no sudoers rule. Selecting `full` alone does not grant Unix privileges.
 
 **4. Start using the agent.** Ask it to use `homelab` to inspect `first-host`. Local inventory is in `~/.config/homectl/inventory.yaml`; Proxmox provisioning is an optional [next step](#provision-a-proxmox-vm). Every destructive operation still needs your explicit confirmation, including on full hosts.
 
@@ -139,7 +139,7 @@ homectl setup --aac-version <release-tag> --aac-sha256 <verified-archive-sha256>
 
 AAC installer supports researched Linux x86_64 and macOS x86_64/arm64 assets; Linux arm64 is not assumed supported. Existing binaries are not overwritten. Official manual installation is documented at [bitwarden/agent-access](https://github.com/bitwarden/agent-access). The checksum option intentionally has no guessed default.
 
-**One-time private setup:** on the credential-provider device, the user runs `aac listen`, unlocks using the provider's trusted terminal, and pairs the client using the current official instructions. Keep pairing tokens, vault master password and session state outside the model transcript and repository. `homectl doctor` checks `aac run --help` syntax; a host probe then verifies auth without printing secrets. Pairing and any credential/session caching/revocation are controlled by AAC/provider, not homectl. No unattended authorization or cache lifetime is promised. Keep the provider available/unlocked as required. The implementation never runs `aac connect --output json`.
+**One-time private setup:** on the credential-provider device, the user runs `aac listen`, unlocks it with `/unlock` in the trusted terminal, and pairs the client using the current official instructions. Unlocking and approving each request are separate. A temporary accept-all window can expire, and `bw status` does not establish whether the AAC listener is unlocked or ready. Keep pairing tokens, vault master password and session state outside the model transcript, shell history, shell startup files and repository; do not put `BW_SESSION` in `.zshrc`. If AAC's reusable pairing option is used, it persists a token on disk and requires an explicit choice. If a pairing code/token is shared in chat, treat it as exposed and regenerate it. `homectl doctor` checks `aac run --help` syntax; a host probe then verifies auth without printing secrets. Pairing and any credential/session caching/revocation are controlled by AAC/provider, not homectl. No unattended authorization or cache lifetime is promised. Keep the provider available/unlocked as required. The implementation never runs `aac connect --output json`.
 
 Commands execute on the Codex/Claude host. A phone or other remote client only controls/approves that session; SSH/API secrets are not routed through that remote-control client. Desktop-only Bitwarden dialogs can still require access to the provider desktop. Headless clients can use AAC or local ssh-agent, subject to provider authorization.
 
@@ -155,7 +155,7 @@ homectl doctor lab-printer --json
 
 Before first access, verify the host-key fingerprint through a trusted console/known source and establish `known_hosts` on the agent host. OpenSSH uses `StrictHostKeyChecking=yes`; homectl never accepts an unverified key or disables checks. Initial user access once may be necessary. Password-only devices can use an Agent Access item reference after pairing.
 
-Enrollment validates before modifying inventory, probes `uname -s`, generates the alias and saves a mode-0600 inventory atomically. It refuses conflicting existing entries. Run inventory-changing operations sequentially; concurrent enrollment is not a supported transaction model. Failed enrollment does not change inventory, though it may leave a generated alias for diagnostics.
+Enrollment validates before modifying inventory, probes `uname -s`, generates the alias and saves a mode-0600 inventory atomically. It refuses conflicting existing entries. Run inventory-changing operations sequentially; concurrent enrollment is not a supported transaction model. Failed enrollment does not change inventory, though it may refresh the generated SSH config. The probe strips AAC log lines from the reported OS value and gives specific, secret-safe remediation for AAC waits, SSH authentication, host-key rejection and network failures. Resolve the reported cause before retrying; do not repeat long credential waits blindly.
 
 ### Existing-user sudo
 
@@ -213,7 +213,7 @@ A human native approval displaying the exact destructive command/target/impact c
 
 Use a prepared Debian/Ubuntu cloud-init template on the selected node. It needs a cloud-init drive, boot disk (default `scsi0`), existing user matching `ciuser`, QEMU guest agent/cloud-init tools and public-key SSH authentication. Use a disk at or below the requested size; provisioning only requests growth and never partitions/formats or shrinks existing storage. The API token needs privileges for template cloning, VM allocation/config/disk changes and power operations; use Proxmox's API viewer to determine ACLs for your actual storage/pool/node. TLS verification is mandatory; trust your homelab CA in the agent runtime rather than disabling certificate checks.
 
-For a full VM, the template user must already have NOPASSWD bootstrap access; homectl adds its validated existing-user rule after boot. For observe/user, use an appropriately configured template and treat enforcement as advisory. For sudo-approved, prepare the desired restricted rules in the template or provide administrator bootstrap access for initial installation; adding a limited file to a template with NOPASSWD: ALL does not restrict that account. Tier-specific template preparation is required; automatic removal of inherited privileges is intentionally not performed.
+For a full VM, a non-root template user must already have NOPASSWD bootstrap access; homectl adds its validated existing-user rule after boot. A root template user already has root authority, so homectl skips sudoers installation and runs requested package recipes directly as root. For observe/user, use an appropriately configured template and treat enforcement as advisory. For sudo-approved, prepare the desired restricted rules in the template or provide administrator bootstrap access for initial installation; adding a limited file to a template with NOPASSWD: ALL does not restrict that account. Tier-specific template preparation is required; automatic removal of inherited privileges is intentionally not performed.
 
 Add a provider using [the example inventory](examples/inventory.example.yaml). The Proxmox API token secret lives in the password field of its referenced vault item. Adapt [examples/vm.example.json](examples/vm.example.json), including a real **public** key and an explicit unused VMID/static IP:
 
@@ -245,8 +245,8 @@ bun run check
 | 5 | Process, credential/provider or bootstrap failure |
 | 6 | Executed command failed; result carries its actual exit code |
 
-Doctor reports optional AAC/bw availability separately from required SSH/Bun and host connectivity. It does not dump provider secrets and never executes an allowlisted service restart as a check. For full, it probes `sudo -n true`. For limited sudo, inspect the rendered policy and have an administrator verify actual system grants.
+Doctor reports optional AAC/bw availability separately from required SSH/Bun and host connectivity. It does not dump provider secrets and never executes an allowlisted service restart as a check. For full non-root SSH users, it probes `sudo -n true`; for a root SSH account it checks connectivity directly because root does not need sudo. For limited sudo, inspect the rendered policy and have an administrator verify actual system grants. Tool availability and `bw status` do not prove AAC pairing, listener unlock or approval state.
 
-On authentication failure: verify alias/IP/user, network, fingerprint, loaded key/socket or AAC pairing/provider availability. On sudo bootstrap failure: use initial trusted interactive admin access. On Proxmox failure: inspect tasks and the journal, then resume the identical request when the cause is fixed. Do not erase a journal or recreate storage to force progress. Changes to pre-existing inventory/VM/config state require inspection and explicit approval if destructive. Installation temporary artifacts are retained for inspection instead of automatically deleted.
+On authentication failure, follow `doctor`'s classified remediation: verify the address/user and network; compare changed SSH fingerprints through a trusted console before editing known_hosts; check loaded key/socket or AAC listener unlock and request approval. On sudo bootstrap failure: use initial trusted interactive admin access. SSH enrollment of a Proxmox root account validates SSH connectivity only; VM creation uses a separate Proxmox API token/provider configuration. On Proxmox API failure: inspect tasks and the journal, then resume the identical request when the cause is fixed. Do not erase a journal or recreate storage to force progress. Changes to pre-existing inventory/VM/config state require inspection and explicit approval if destructive. Installation temporary artifacts are retained for inspection instead of automatically deleted.
 
 Tests use fakes and local subprocesses, not your real homelab. They cover inventory/secrets, command policy, approval fingerprints, local/SSH argv, AAC isolation/redaction, setup/enrollment, dry-run, API provisioning/resume/collisions and actual CLI exit codes. CI runs typecheck, Biome lint and Bun tests. No secrets or real host details are required in CI.
