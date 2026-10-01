@@ -191,4 +191,4 @@ bun run lint
 bun test
 ```
 
-Automated tests use fixtures, fake provisioning responses and local subprocesses. They do not prove deployment or real VM creation. See [architecture](architecture.md) and [primary sources](research.md). This repository does not deploy additional coding agents to managed hosts.
+The session integration tests require OpenSSH and KeePassXC CLI. They create synthetic encrypted databases, keys and dedicated sockets in owned temporary directories, then remove those fixtures. They verify signing, unlock/lock, absolute TTL, repeat unlock, isolation between agents, configuration changes and failure cleanup. They never use your personal database or SSH agent. Other tests use fixtures, fake provisioning responses and local subprocesses. These checks do not prove deployment or real VM creation. See [architecture](architecture.md) and [primary sources](research.md). This repository does not deploy additional coding agents to managed hosts.

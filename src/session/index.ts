@@ -249,7 +249,11 @@ export async function loadKey(
   });
 }
 
-export async function unlockSession(inv: Inventory, inventoryPath: string) {
+export async function unlockSession(
+  inv: Inventory,
+  inventoryPath: string,
+  passwordPrompt: () => Promise<string> = readPassword,
+) {
   const current = await sessionStatus(inventoryPath);
   if (current.unlocked)
     return {
@@ -272,7 +276,7 @@ export async function unlockSession(inv: Inventory, inventoryPath: string) {
       5,
       "Database not found; initialize or configure the homelab database privately",
     );
-  const password = await readPassword();
+  const password = await passwordPrompt();
   const state = await startSession(inv, inventoryPath);
   try {
     for (const m of hosts) {
