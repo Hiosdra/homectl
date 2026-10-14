@@ -375,6 +375,32 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         });
         return 0;
       }
+      let existing: { peerAddress?: string } | undefined;
+      try {
+        existing = await (await import("../peer/local-api")).localApi(
+          inventoryPath,
+          "/api/state",
+        );
+      } catch {
+        /* No authenticated running workspace. */
+      }
+      if (existing) {
+        if (
+          v.interface &&
+          existing.peerAddress &&
+          new URL(existing.peerAddress).hostname !== v.interface
+        )
+          throw new HomectlError(
+            3,
+            "A workspace is already running on another interface. Stop it in its terminal or service before changing interfaces.",
+          );
+        emit({
+          running: true,
+          peers: existing.peerAddress,
+          next: "Workspace is already running. Use homectl panel to open it. To stop the temporary workspace, press Ctrl+C in the terminal running homectl pair/serve.",
+        });
+        return 0;
+      }
       const running = await (await import("../serve")).serve({
         inventoryPath,
         configPath,

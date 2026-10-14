@@ -82,40 +82,60 @@ export async function serve(options: ServeOptions) {
     "utf8",
   );
   const css = await readFile(resolve(import.meta.dir, "web/style.css"), "utf8");
-  const peerServer = Bun.serve({
-    hostname: interfaceIP,
-    port: peerPort,
-    maxRequestBodySize: 24 * 1024 * 1024,
-    idleTimeout: 120,
-    async fetch(req) {
-      try {
-        const path = new URL(req.url).pathname;
-        if (req.method !== "POST") return response({ error: "Not found" }, 404);
-        const v = await body(req);
-        if (!hub) return response({ error: "Starting" }, 503);
-        return await hub.serial(async () => {
-          if (path.startsWith("/pair/"))
-            return response(await hub.pairingRoute(path, v));
-          if (path === "/peer/challenge")
-            return response(hub.challenge(String(v.id)));
-          if (path === "/peer/message")
-            return response(
-              await hub.message(v as Parameters<Hub["message"]>[0]),
-            );
-          return response({ error: "Not found" }, 404);
-        });
-      } catch (e) {
-        return failure(e);
-      }
-    },
-  });
+  const peerServer = (() => {
+    try {
+      return Bun.serve({
+        hostname: interfaceIP,
+        port: peerPort,
+        maxRequestBodySize: 24 * 1024 * 1024,
+        idleTimeout: 120,
+        async fetch(req) {
+          try {
+            const path = new URL(req.url).pathname;
+            if (req.method !== "POST")
+              return response({ error: "Not found" }, 404);
+            const v = await body(req);
+            if (!hub) return response({ error: "Starting" }, 503);
+            return await hub.serial(async () => {
+              if (path.startsWith("/pair/"))
+                return response(await hub.pairingRoute(path, v));
+              if (path === "/peer/challenge")
+                return response(hub.challenge(String(v.id)));
+              if (path === "/peer/message")
+                return response(
+                  await hub.message(v as Parameters<Hub["message"]>[0]),
+                );
+              return response({ error: "Not found" }, 404);
+            });
+          } catch (e) {
+            return failure(e);
+          }
+        },
+      });
+    } catch {
+      throw new HomectlError(
+        5,
+        `Cannot start peer listener on ${interfaceIP}:${peerPort}. Check that the interface exists and the port is free; an existing pair/serve workspace may already be running.`,
+      );
+    }
+  })();
   const actualPeerPort = peerServer.port;
   const address = `http://${interfaceIP.includes(":") ? `[${interfaceIP}]` : interfaceIP}:${actualPeerPort}`;
-  hub = await new Hub(
-    options.inventoryPath,
-    options.configPath,
-    address,
-  ).init();
+  try {
+    hub = await new Hub(
+      options.inventoryPath,
+      options.configPath,
+      address,
+    ).init();
+  } catch (error) {
+    peerServer.stop(true);
+    throw error instanceof HomectlError
+      ? error
+      : new HomectlError(
+          5,
+          "Cannot initialize peer workspace; check inventory and local state permissions",
+        );
+  }
   let discovered: ReturnType<typeof discovery> | undefined;
   if (
     options.discover !== false &&
@@ -129,123 +149,91 @@ export async function serve(options: ServeOptions) {
         interfaceIP,
       );
     } catch {}
-  const localServer = Bun.serve({
-    hostname: "127.0.0.1",
-    port: localPort,
-    maxRequestBodySize: 24 * 1024 * 1024,
-    idleTimeout: 120,
-    async fetch(req) {
-      try {
-        const url = new URL(req.url);
-        const host = req.headers.get("Host");
-        if (
-          host !== `127.0.0.1:${localPort}` &&
-          host !== `localhost:${localPort}`
-        )
-          throw new HomectlError(3, "Unexpected panel host");
-        if (url.pathname === "/" && req.method === "GET")
-          return new Response(html, {
-            headers: {
-              ...security,
-              "Content-Type": "text/html; charset=utf-8",
-            },
-          });
-        if (url.pathname === "/app.js" && req.method === "GET")
-          return new Response(script, {
-            headers: { ...security, "Content-Type": "text/javascript" },
-          });
-        if (url.pathname === "/style.css" && req.method === "GET")
-          return new Response(css, {
-            headers: { ...security, "Content-Type": "text/css" },
-          });
-        const origin = `http://${host}`;
-        if (url.pathname === "/api/connect" && req.method === "POST") {
-          if (req.headers.get("Origin") !== origin)
-            throw new HomectlError(3, "Open the local panel directly");
-          const v = await body(req);
-          if (v.token !== token)
-            throw new HomectlError(3, "Invalid local panel access code");
-          const r = response({ connected: true });
-          r.headers.set(
-            "Set-Cookie",
-            `homectl=${cookie}; HttpOnly; SameSite=Strict; Path=/`,
-          );
-          return r;
-        }
-        if (
-          req.headers
-            .get("Cookie")
-            ?.split("; ")
-            .find((v) => v === `homectl=${cookie}`) === undefined
-        )
-          throw new HomectlError(3, "Connect to this local panel first");
-        if (req.method === "POST" && req.headers.get("Origin") !== origin)
-          throw new HomectlError(3, "Cross-origin operation refused");
-        if (req.method === "GET" && url.pathname === "/api/state")
-          return response({
-            ...(await hub.status()),
-            peerAddress: address,
-            discovery: discovered?.list() ?? {
-              devices: [],
-              error: "Use a manual peer IP when LAN discovery is unavailable",
-            },
-            pending: [...hub.pending.values()].map((p) => ({
-              id: p.id,
-              peerId: p.peerId,
-              remoteName: hub.state.peers[p.peerId]?.name,
-            })),
-            address,
-          });
-        if (req.method !== "POST") return response({ error: "Not found" }, 404);
-        const v = await body(req);
-        // Never hold the local mutation queue while waiting for another peer:
-        // simultaneous bidirectional sync must not deadlock both queues.
-        if (url.pathname === "/api/sync/start")
-          return response(await hub.beginSync(String(v.id)));
-        if (url.pathname === "/api/sync/apply")
-          return response(
-            await hub.syncCommit(
-              String(v.id),
-              (v.choices ?? {}) as Record<string, Choice>,
-            ),
-          );
-        if (url.pathname === "/api/peer/request")
-          return response(
-            await hub.peerRequest(String(v.id), String(v.action), v.payload),
-          );
-        return hub.serial(async () => {
-          switch (url.pathname) {
-            case "/api/pair/open":
-              return response(await hub.openPair());
-            case "/api/pair/join":
-              return response(
-                await hub.join(String(v.address), String(v.code)),
+  const localServer = (() => {
+    try {
+      return Bun.serve({
+        hostname: "127.0.0.1",
+        port: localPort,
+        maxRequestBodySize: 24 * 1024 * 1024,
+        idleTimeout: 120,
+        async fetch(req) {
+          try {
+            const url = new URL(req.url);
+            const host = req.headers.get("Host");
+            if (
+              host !== `127.0.0.1:${localPort}` &&
+              host !== `localhost:${localPort}`
+            )
+              throw new HomectlError(3, "Unexpected panel host");
+            if (url.pathname === "/" && req.method === "GET")
+              return new Response(html, {
+                headers: {
+                  ...security,
+                  "Content-Type": "text/html; charset=utf-8",
+                },
+              });
+            if (url.pathname === "/app.js" && req.method === "GET")
+              return new Response(script, {
+                headers: { ...security, "Content-Type": "text/javascript" },
+              });
+            if (url.pathname === "/style.css" && req.method === "GET")
+              return new Response(css, {
+                headers: { ...security, "Content-Type": "text/css" },
+              });
+            const origin = `http://${host}`;
+            if (url.pathname === "/api/connect" && req.method === "POST") {
+              if (req.headers.get("Origin") !== origin)
+                throw new HomectlError(3, "Open the local panel directly");
+              const v = await body(req);
+              if (v.token !== token)
+                throw new HomectlError(3, "Invalid local panel access code");
+              const r = response({ connected: true });
+              r.headers.set(
+                "Set-Cookie",
+                `homectl=${cookie}; HttpOnly; SameSite=Strict; Path=/`,
               );
-            case "/api/pair/confirm":
-              return response(await hub.confirm(v.permissions as Permissions));
-            case "/api/pair/poll":
-              return response(await hub.pollPair());
-            case "/api/pair/cancel":
-              hub.pair?.key?.fill(0);
-              hub.pair = undefined;
-              return response({ cancelled: true });
-            case "/api/vault/unlock":
+              return r;
+            }
+            if (
+              req.headers
+                .get("Cookie")
+                ?.split("; ")
+                .find((v) => v === `homectl=${cookie}`) === undefined
+            )
+              throw new HomectlError(3, "Connect to this local panel first");
+            if (req.method === "POST" && req.headers.get("Origin") !== origin)
+              throw new HomectlError(3, "Cross-origin operation refused");
+            if (req.method === "GET" && url.pathname === "/api/state")
+              return response({
+                ...(await hub.status()),
+                peerAddress: address,
+                discovery: discovered?.list() ?? {
+                  devices: [],
+                  error:
+                    "Use a manual peer IP when LAN discovery is unavailable",
+                },
+                pending: [...hub.pending.values()].map((p) => ({
+                  id: p.id,
+                  peerId: p.peerId,
+                  remoteName: hub.state.peers[p.peerId]?.name,
+                })),
+                address,
+              });
+            if (req.method !== "POST")
+              return response({ error: "Not found" }, 404);
+            const v = await body(req);
+            // Never hold the local mutation queue while waiting for another peer:
+            // simultaneous bidirectional sync must not deadlock both queues.
+            if (url.pathname === "/api/sync/start")
+              return response(await hub.beginSync(String(v.id)));
+            if (url.pathname === "/api/sync/apply")
               return response(
-                await hub.unlock(String(v.password), v.create === true),
-              );
-            case "/api/vault/lock":
-              return response(await hub.lock());
-            case "/api/peer/permissions":
-              return response(
-                await hub.permissions(
+                await hub.syncCommit(
                   String(v.id),
-                  v.permissions as Permissions,
-                  v.address as string | undefined,
+                  (v.choices ?? {}) as Record<string, Choice>,
                 ),
               );
-            case "/api/peer/forget":
-              return response(await hub.forget(String(v.id)));
-            case "/api/peer/request":
+            if (url.pathname === "/api/peer/request")
               return response(
                 await hub.peerRequest(
                   String(v.id),
@@ -253,133 +241,194 @@ export async function serve(options: ServeOptions) {
                   v.payload,
                 ),
               );
-            case "/api/sync/start":
-              return response(await hub.beginSync(String(v.id)));
-            case "/api/sync/preview": {
-              const p = hub.pending.get(String(v.id));
-              if (!p) throw new HomectlError(2, "Unknown preview");
-              hub.pending.delete(p.id);
-              return response(await hub.preview(p.peerId, p.records));
-            }
-            case "/api/sync/apply":
-              return response(
-                await hub.syncCommit(
-                  String(v.id),
-                  (v.choices ?? {}) as Record<string, Choice>,
-                ),
-              );
-            case "/api/sync/cancel":
-              hub.pending.delete(String(v.id));
-              return response({ cancelled: true });
-            case "/api/operation/decide":
-              return response(
-                await hub.decideOperation(String(v.id), v.approved === true),
-              );
-            case "/api/doctor":
-              return response(
-                await doctor(
-                  await loadInventory(options.inventoryPath),
-                  options.configPath,
-                  v.host as string | undefined,
-                ),
-              );
-            case "/api/key/create": {
-              const name = String(v.name);
-              const password = String(v.password ?? "");
-              if (!password || password.length > 1024)
-                throw new HomectlError(2, "Enter the local vault password");
-              await hub.lock();
-              const inv = await loadInventory(options.inventoryPath);
-              const created = await createKey(
-                name,
-                inv,
-                options.inventoryPath,
-                async () => password,
-              );
-              await hub.lock();
-              return response({
-                ...created,
-                publicKey: await readFile(created.auth.public_key, "utf8"),
-              });
-            }
-            case "/api/machine/save": {
-              if (
-                typeof v.name !== "string" ||
-                !/^[a-z][a-z0-9-]{0,62}$/.test(v.name)
-              )
-                throw new HomectlError(2, "Use a lowercase machine name");
-              const inv = await loadInventory(options.inventoryPath);
-              const m = v.machine as Machine;
-              if (!m || m.transport !== "ssh")
-                throw new HomectlError(2, "Panel editing requires an SSH host");
-              if (!m.auth) m.auth = keyReference(v.name, options.inventoryPath);
-              inv.machines[v.name] = m;
-              parseInventory(JSON.stringify(inv));
-              await saveInventory(options.inventoryPath, inv);
-              await writeSSHConfig(options.configPath, inv.machines);
-              return response({ saved: true });
-            }
-            case "/api/machine/delete": {
-              const inv = await loadInventory(options.inventoryPath);
-              if (inv.machines[String(v.name)]?.transport === "local")
-                throw new HomectlError(3, "Local host cannot be removed here");
-              delete inv.machines[String(v.name)];
-              parseInventory(JSON.stringify(inv));
-              await saveInventory(options.inventoryPath, inv);
-              await writeSSHConfig(options.configPath, inv.machines);
-              return response({ removed: true });
-            }
-            case "/api/exec": {
-              const inv = await loadInventory(options.inventoryPath);
-              const m = inv.machines[String(v.host)];
-              if (
-                !m ||
-                !Array.isArray(v.argv) ||
-                v.argv.some((a) => typeof a !== "string") ||
-                !v.argv.length
-              )
-                throw new HomectlError(
-                  2,
-                  "Select a machine and command arguments",
-                );
-              return response(
-                await execute(String(v.host), m, v.argv as string[], {
-                  configPath: options.configPath,
-                  dryRun: v.dryRun === true,
-                  approval: v.approval as string | undefined,
-                  impact: v.impact as string | undefined,
-                }),
-              );
-            }
-            case "/api/settings": {
-              const inv = await loadInventory(options.inventoryPath);
-              const ttl = String(v.ttl);
-              ttlSeconds(ttl);
-              await hub.lock();
-              inv.session = {
-                ...sessionConfig(inv, options.inventoryPath),
-                ttl,
-              };
-              await saveInventory(options.inventoryPath, inv);
-              if (
-                typeof v.name === "string" &&
-                v.name.trim() &&
-                v.name.length <= 100
-              ) {
-                hub.state.name = v.name;
-                await hub.save();
+            return hub.serial(async () => {
+              switch (url.pathname) {
+                case "/api/pair/open":
+                  return response(await hub.openPair());
+                case "/api/pair/join":
+                  return response(
+                    await hub.join(String(v.address), String(v.code)),
+                  );
+                case "/api/pair/confirm":
+                  return response(
+                    await hub.confirm(v.permissions as Permissions),
+                  );
+                case "/api/pair/poll":
+                  return response(await hub.pollPair());
+                case "/api/pair/cancel":
+                  hub.pair?.key?.fill(0);
+                  hub.pair = undefined;
+                  return response({ cancelled: true });
+                case "/api/vault/unlock":
+                  return response(
+                    await hub.unlock(String(v.password), v.create === true),
+                  );
+                case "/api/vault/lock":
+                  return response(await hub.lock());
+                case "/api/peer/permissions":
+                  return response(
+                    await hub.permissions(
+                      String(v.id),
+                      v.permissions as Permissions,
+                      v.address as string | undefined,
+                    ),
+                  );
+                case "/api/peer/forget":
+                  return response(await hub.forget(String(v.id)));
+                case "/api/peer/request":
+                  return response(
+                    await hub.peerRequest(
+                      String(v.id),
+                      String(v.action),
+                      v.payload,
+                    ),
+                  );
+                case "/api/sync/start":
+                  return response(await hub.beginSync(String(v.id)));
+                case "/api/sync/preview": {
+                  const p = hub.pending.get(String(v.id));
+                  if (!p) throw new HomectlError(2, "Unknown preview");
+                  hub.pending.delete(p.id);
+                  return response(await hub.preview(p.peerId, p.records));
+                }
+                case "/api/sync/apply":
+                  return response(
+                    await hub.syncCommit(
+                      String(v.id),
+                      (v.choices ?? {}) as Record<string, Choice>,
+                    ),
+                  );
+                case "/api/sync/cancel":
+                  hub.pending.delete(String(v.id));
+                  return response({ cancelled: true });
+                case "/api/operation/decide":
+                  return response(
+                    await hub.decideOperation(
+                      String(v.id),
+                      v.approved === true,
+                    ),
+                  );
+                case "/api/doctor":
+                  return response(
+                    await doctor(
+                      await loadInventory(options.inventoryPath),
+                      options.configPath,
+                      v.host as string | undefined,
+                    ),
+                  );
+                case "/api/key/create": {
+                  const name = String(v.name);
+                  const password = String(v.password ?? "");
+                  if (!password || password.length > 1024)
+                    throw new HomectlError(2, "Enter the local vault password");
+                  await hub.lock();
+                  const inv = await loadInventory(options.inventoryPath);
+                  const created = await createKey(
+                    name,
+                    inv,
+                    options.inventoryPath,
+                    async () => password,
+                  );
+                  await hub.lock();
+                  return response({
+                    ...created,
+                    publicKey: await readFile(created.auth.public_key, "utf8"),
+                  });
+                }
+                case "/api/machine/save": {
+                  if (
+                    typeof v.name !== "string" ||
+                    !/^[a-z][a-z0-9-]{0,62}$/.test(v.name)
+                  )
+                    throw new HomectlError(2, "Use a lowercase machine name");
+                  const inv = await loadInventory(options.inventoryPath);
+                  const m = v.machine as Machine;
+                  if (!m || m.transport !== "ssh")
+                    throw new HomectlError(
+                      2,
+                      "Panel editing requires an SSH host",
+                    );
+                  if (!m.auth)
+                    m.auth = keyReference(v.name, options.inventoryPath);
+                  inv.machines[v.name] = m;
+                  parseInventory(JSON.stringify(inv));
+                  await saveInventory(options.inventoryPath, inv);
+                  await writeSSHConfig(options.configPath, inv.machines);
+                  return response({ saved: true });
+                }
+                case "/api/machine/delete": {
+                  const inv = await loadInventory(options.inventoryPath);
+                  if (inv.machines[String(v.name)]?.transport === "local")
+                    throw new HomectlError(
+                      3,
+                      "Local host cannot be removed here",
+                    );
+                  delete inv.machines[String(v.name)];
+                  parseInventory(JSON.stringify(inv));
+                  await saveInventory(options.inventoryPath, inv);
+                  await writeSSHConfig(options.configPath, inv.machines);
+                  return response({ removed: true });
+                }
+                case "/api/exec": {
+                  const inv = await loadInventory(options.inventoryPath);
+                  const m = inv.machines[String(v.host)];
+                  if (
+                    !m ||
+                    !Array.isArray(v.argv) ||
+                    v.argv.some((a) => typeof a !== "string") ||
+                    !v.argv.length
+                  )
+                    throw new HomectlError(
+                      2,
+                      "Select a machine and command arguments",
+                    );
+                  return response(
+                    await execute(String(v.host), m, v.argv as string[], {
+                      configPath: options.configPath,
+                      dryRun: v.dryRun === true,
+                      approval: v.approval as string | undefined,
+                      impact: v.impact as string | undefined,
+                    }),
+                  );
+                }
+                case "/api/settings": {
+                  const inv = await loadInventory(options.inventoryPath);
+                  const ttl = String(v.ttl);
+                  ttlSeconds(ttl);
+                  await hub.lock();
+                  inv.session = {
+                    ...sessionConfig(inv, options.inventoryPath),
+                    ttl,
+                  };
+                  await saveInventory(options.inventoryPath, inv);
+                  if (
+                    typeof v.name === "string" &&
+                    v.name.trim() &&
+                    v.name.length <= 100
+                  ) {
+                    hub.state.name = v.name;
+                    await hub.save();
+                  }
+                  return response({ saved: true });
+                }
+                default:
+                  return response({ error: "Not found" }, 404);
               }
-              return response({ saved: true });
-            }
-            default:
-              return response({ error: "Not found" }, 404);
+            });
+          } catch (e) {
+            return failure(e);
           }
-        });
-      } catch (e) {
-        return failure(e);
-      }
-    },
-  });
+        },
+      });
+    } catch {
+      discovered?.close();
+      peerServer.stop(true);
+      throw new HomectlError(
+        5,
+        `Cannot start local panel on 127.0.0.1:${localPort}. Stop the existing pair/serve workspace or choose another --port.`,
+      );
+    }
+  })();
   localPort = localServer.port ?? localPort;
   const directory = join(dirname(options.inventoryPath), "serve");
   await privateDirectory(directory);
