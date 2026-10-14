@@ -362,7 +362,7 @@ pages.peers = {
 pages.pair = {
   usage: "homectl pair [open|join|confirm|status|poll|cancel]",
   intro:
-    "Run homectl pair on BOTH devices for automatic LAN discovery and guided pairing. Starts a temporary workspace when needed; select an interface if multiple private LANs exist. Enter the displayed code on the other device and confirm the same phrase on both. Codes and phrases are private, never argv. Explicit subcommands remain available.",
+    "Run homectl pair on BOTH devices for automatic LAN discovery and guided pairing. Starts a temporary workspace when needed; select an interface if multiple private LANs exist. Enter the displayed code on the other device and visually compare the phrase and confirm with y on both. Codes and phrases are private, never argv. Explicit subcommands remain available.",
   sections: [
     {
       title: "Pairing",

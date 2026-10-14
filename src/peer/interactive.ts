@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { confirm } from "../cli/prompts";
 import { readPassword } from "../session";
 import { HomectlError } from "../types";
 import type { Discovered } from "./discovery";
@@ -212,14 +213,9 @@ If the other device asks for a code, enter this one there. Never share it in cha
       `Device: ${remote.name}\nCompare this phrase on BOTH devices: ${verified.sas}`,
     );
     if (
-      (await readPassword(
-        "Type the matching phrase to confirm (anything else cancels): ",
-      )) !== verified.sas
+      !(await confirm("Does this phrase match on both devices?", abort.signal))
     )
-      throw new HomectlError(
-        3,
-        "Verification phrase does not match; pairing cancelled",
-      );
+      throw new HomectlError(3, "Pairing cancelled: phrase not confirmed");
     await localApi(inventoryPath, "/api/pair/confirm", {
       permissions: {
         sync: true,

@@ -30,6 +30,7 @@ import { HomectlError, type Machine, type ProcessResult } from "../types";
 import { update } from "../update";
 import { renderHelp } from "./help";
 import { formatError, formatHuman } from "./output";
+import { confirm } from "./prompts";
 export const help = renderHelp();
 export async function main(raw = process.argv.slice(2)): Promise<number> {
   const split = raw.indexOf("--");
@@ -216,12 +217,11 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
               "No verified pairing awaiting confirmation",
             );
           console.log("Compare on both devices:", state.pair.sas);
-          if (
-            (await readPassword(
-              "Type the matching phrase from both devices: ",
-            )) !== state.pair.sas
-          )
-            throw new HomectlError(3, "Verification phrase does not match");
+          if (!(await confirm("Does this phrase match on both devices?")))
+            throw new HomectlError(
+              3,
+              "Pairing cancelled: phrase not confirmed",
+            );
           const result = await localApi<{ pair: unknown }>(
             inventoryPath,
             "/api/pair/confirm",

@@ -28,7 +28,7 @@ On **both computers**, run in a private interactive terminal:
 homectl pair
 ```
 
-The command starts a temporary workspace if none is running, chooses the only private LAN IPv4 interface (or asks you to select one), opens a five-minute pairing window and discovers other devices running the same command. With multiple devices, select the endpoint. One device displays a one-time code; enter it on the other. Compare the verification phrase and type it **on both** devices. Discovery never replaces this verification. Only sync is granted initially; no auth is transferred during pairing.
+The command starts a temporary workspace if none is running, chooses the only private LAN IPv4 interface (or asks you to select one), opens a five-minute pairing window and discovers other devices running the same command. With multiple devices, select the endpoint. One device displays a one-time code; enter it on the other. Compare the verification phrase visually and confirm with `y` **on both** devices. Enter or `n` cancels. Discovery never replaces this verification. Only sync is granted initially; no auth is transferred during pairing.
 
 A temporary workspace remains running after success so the other device can finish confirming and both can open `homectl panel` from a separate terminal to sync. Ctrl+C closes pairing and stops only the workspace started by this command. Existing serve/service processes stay running. You can choose an interface explicitly with `homectl pair --interface <local-LAN-IP>`. An existing workspace must have LAN discovery enabled on a LAN interface; loopback-only serve cannot advertise to another computer.
 
