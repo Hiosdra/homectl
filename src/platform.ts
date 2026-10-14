@@ -33,9 +33,11 @@ export async function protect(path: string, directory = false) {
   const script = `$ErrorActionPreference='Stop'
 try {
   $p=$env:HOMECTL_PROTECT_PATH
-  $sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
+  $identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()
+  $sid=$identity.User
   $old=if(${directory ? "$true" : "$false"}){[System.IO.Directory]::GetAccessControl($p)}else{[System.IO.File]::GetAccessControl($p)}
-  if($old.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value){exit 13}
+  $owner=$old.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+  if($owner -ne $sid.Value -and $owner -ne $identity.Owner.Value){exit 13}
   $acl=if(${directory ? "$true" : "$false"}){[System.Security.AccessControl.DirectorySecurity]::new()}else{[System.Security.AccessControl.FileSecurity]::new()}
   $acl.SetOwner($sid)
   $acl.SetAccessRuleProtection($true,$false)
