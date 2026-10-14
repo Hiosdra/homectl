@@ -53,3 +53,15 @@ test("Linux gets package manager guidance without mutations", async () => {
     installDependencies(false, never, () => false, false),
   ).rejects.toThrow("Linux/WSL");
 });
+
+test("Windows environment casing preserves PATH and SystemRoot for subprocesses", async () => {
+  const { cleanEnv } = await import("../src/credentials");
+  const env = cleanEnv({
+    Path: "C:\\Windows",
+    SYSTEMROOT: "C:\\Windows",
+    secret: "hidden",
+  });
+  expect(env.PATH).toBe("C:\\Windows");
+  expect(env.SystemRoot).toBe("C:\\Windows");
+  expect(env.secret).toBeUndefined();
+});

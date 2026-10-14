@@ -70,7 +70,14 @@ export function cleanEnv(
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "NODE_EXTRA_CA_CERTS",
-  ])
-    if (source[key]) env[key] = source[key];
+  ]) {
+    const actual =
+      source[key] !== undefined
+        ? key
+        : Object.keys(source).find(
+            (name) => name.toLowerCase() === key.toLowerCase(),
+          );
+    if (actual && source[actual]) env[key] = source[actual];
+  }
   return env;
 }
