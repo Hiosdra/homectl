@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createPrivateKey } from "node:crypto";
 import { lstat, unlink } from "node:fs/promises";
 import { createConnection } from "node:net";
@@ -93,6 +94,40 @@ export async function startSession(
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
     }
+  }
+  if (windows) {
+    const daemon = spawn(
+      process.execPath,
+      [resolve(import.meta.dir, "daemon.ts")],
+      {
+        detached: true,
+        windowsHide: true,
+        env: cleanEnv(),
+        stdio: ["pipe", "ignore", "ignore"],
+      },
+    );
+    let failed = false;
+    daemon.on("error", () => {
+      failed = true;
+    });
+    daemon.stdin?.on("error", () => {
+      failed = true;
+    });
+    daemon.stdin?.end(
+      JSON.stringify({
+        ...p,
+        ttl: ttlSeconds(sessionConfig(inv, inventoryPath).ttl),
+      }),
+    );
+    daemon.unref();
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (failed || daemon.exitCode !== null) break;
+      const ready = await sessionStatus(inventoryPath);
+      if (ready.unlocked) return ready;
+      await Bun.sleep(50);
+    }
+    daemon.kill();
+    throw new HomectlError(5, "Detached Windows SSH session could not start");
   }
   const daemon = Bun.spawn(
     [process.execPath, resolve(import.meta.dir, "daemon.ts")],
