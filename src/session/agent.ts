@@ -214,17 +214,22 @@ export function createDedicatedAgent(path: string, expiresAt: number | null) {
     },
   };
 }
-export async function addKey(path: string, bytes: Uint8Array) {
+export async function addKey(
+  path: string,
+  bytes: Uint8Array,
+  lifetime?: number,
+) {
   const key = decodeKey(Buffer.from(bytes));
   const jwk = key.export({ format: "jwk" });
   const pub = publicBlob(key).subarray(-32);
   const secret = Buffer.concat([Buffer.from(jwk.d ?? "", "base64url"), pub]);
   const request = Buffer.concat([
-    Buffer.from([17]),
+    Buffer.from([lifetime === undefined ? 17 : 25]),
     sshString("ssh-ed25519"),
     sshString(pub),
     sshString(secret),
     sshString("homectl"),
+    ...(lifetime === undefined ? [] : [Buffer.from([1]), u32(lifetime)]),
   ]);
   try {
     await new Promise<void>((resolve, reject) => {

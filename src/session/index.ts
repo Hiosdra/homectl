@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { cleanEnv } from "../credentials";
 import { available, executable, privateDirectory, windows } from "../platform";
 import { HomectlError, type Inventory } from "../types";
-import { addKey, decodeKey } from "./agent";
+import { addKey } from "./agent";
 import { sessionConfig, sessionPaths, ttlSeconds } from "./config";
 
 export { sessionConfig, sessionPaths, ttlSeconds } from "./config";
@@ -239,24 +239,11 @@ export async function loadKey(
       : Math.floor(((state.expiresAt ?? 0) - Date.now()) / 1000);
   if (remaining !== null && remaining < 1)
     throw new HomectlError(5, "Session TTL expired; unlock again");
-  const args = [
-    "ssh-add",
-    ...(remaining === null ? [] : ["-t", String(remaining)]),
-    "-",
-  ];
-  if (windows) await addKey(sessionPaths(inventoryPath).socket, key);
-  else {
-    const pem = Buffer.from(
-      decodeKey(Buffer.from(key)).export({ format: "pem", type: "pkcs8" }),
-    );
-    try {
-      await privateCommand(args, pem, {
-        SSH_AUTH_SOCK: sessionPaths(inventoryPath).socket,
-      });
-    } finally {
-      pem.fill(0);
-    }
-  }
+  await addKey(
+    sessionPaths(inventoryPath).socket,
+    key,
+    windows || remaining === null ? undefined : remaining,
+  );
 }
 
 export async function unlockSession(

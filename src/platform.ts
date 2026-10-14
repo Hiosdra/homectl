@@ -30,7 +30,24 @@ export async function protect(path: string, directory = false) {
     await chmod(path, directory ? 0o700 : 0o600);
     return;
   }
-  const script = `$ErrorActionPreference='Stop'; $p=$env:HOMECTL_PROTECT_PATH; $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User; $acl=Get-Acl -LiteralPath $p; if($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $sid.Value){exit 13}; $acl.SetAccessRuleProtection($true,$false); foreach($r in @($acl.Access)){$acl.RemoveAccessRuleSpecific($r)}; $inherit=if(${directory ? "$true" : "$false"}){[Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'}else{[Security.AccessControl.InheritanceFlags]::None}; foreach($owner in @($sid,[Security.Principal.SecurityIdentifier]'S-1-5-18')){$r=[Security.AccessControl.FileSystemAccessRule]::new($owner,'FullControl',$inherit,[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow);$acl.AddAccessRule($r)};Set-Acl -LiteralPath $p -AclObject $acl`;
+  const script = `$ErrorActionPreference='Stop'
+try {
+  $p=$env:HOMECTL_PROTECT_PATH
+  $sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
+  $old=Get-Acl -LiteralPath $p
+  if($old.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value){exit 13}
+  $acl=if(${directory ? "$true" : "$false"}){[System.Security.AccessControl.DirectorySecurity]::new()}else{[System.Security.AccessControl.FileSecurity]::new()}
+  $acl.SetOwner($sid)
+  $acl.SetAccessRuleProtection($true,$false)
+  $inherit=if(${directory ? "$true" : "$false"}){[System.Security.AccessControl.InheritanceFlags]3}else{[System.Security.AccessControl.InheritanceFlags]0}
+  $identities=@($sid; [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18'))
+  foreach($identity in $identities){
+    $rule=[System.Security.AccessControl.FileSystemAccessRule]::new($identity,[System.Security.AccessControl.FileSystemRights]::FullControl,$inherit,[System.Security.AccessControl.PropagationFlags]::None,[System.Security.AccessControl.AccessControlType]::Allow)
+    $acl.AddAccessRule($rule)
+  }
+  Set-Acl -LiteralPath $p -AclObject $acl
+} catch { [Console]::Out.Write($_.Exception.GetType().Name); exit 1 }
+`;
   const child = Bun.spawn(
     [
       "powershell.exe",
@@ -42,17 +59,20 @@ export async function protect(path: string, directory = false) {
     {
       env: { ...process.env, HOMECTL_PROTECT_PATH: path },
       stdin: "ignore",
-      stdout: "ignore",
+      stdout: "pipe",
       stderr: "ignore",
     },
   );
-  const code = await child.exited;
+  const [code, diagnostic] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+  ]);
   if (code)
     throw new HomectlError(
       3,
       code === 13
         ? "Private path is owned by another Windows account"
-        : "Cannot secure Windows permissions (PowerShell ACL operation failed)",
+        : `Cannot secure Windows permissions (PowerShell ACL operation failed: ${/^[A-Za-z]+Exception$/.test(diagnostic) ? diagnostic : "unknown error"})`,
     );
 }
 export async function privateDirectory(path: string) {
