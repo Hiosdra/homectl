@@ -34,7 +34,7 @@ export async function protect(path: string, directory = false) {
 try {
   $p=$env:HOMECTL_PROTECT_PATH
   $sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
-  $old=Get-Acl -LiteralPath $p
+  $old=if(${directory ? "$true" : "$false"}){[System.IO.Directory]::GetAccessControl($p)}else{[System.IO.File]::GetAccessControl($p)}
   if($old.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value){exit 13}
   $acl=if(${directory ? "$true" : "$false"}){[System.Security.AccessControl.DirectorySecurity]::new()}else{[System.Security.AccessControl.FileSecurity]::new()}
   $acl.SetOwner($sid)
@@ -45,7 +45,7 @@ try {
     $rule=[System.Security.AccessControl.FileSystemAccessRule]::new($identity,[System.Security.AccessControl.FileSystemRights]::FullControl,$inherit,[System.Security.AccessControl.PropagationFlags]::None,[System.Security.AccessControl.AccessControlType]::Allow)
     $acl.AddAccessRule($rule)
   }
-  Set-Acl -LiteralPath $p -AclObject $acl
+  if(${directory ? "$true" : "$false"}){[System.IO.Directory]::SetAccessControl($p,$acl)}else{[System.IO.File]::SetAccessControl($p,$acl)}
 } catch { [Console]::Out.Write($_.Exception.GetType().Name); exit 1 }
 `;
   const child = Bun.spawn(
