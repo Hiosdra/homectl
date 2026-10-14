@@ -31,7 +31,7 @@ export async function update(dryRun = false, runner: Runner = run) {
   await git(["pull", "--ff-only"]);
   const revision = await git(["rev-parse", "HEAD"]);
   const install = await runner({
-    argv: [process.execPath, "--cwd", repoRoot, "install", "--frozen-lockfile"],
+    argv: [process.execPath, "install", "--cwd", repoRoot, "--frozen-lockfile"],
     timeoutMs: 300_000,
   });
   if (install.exitCode)

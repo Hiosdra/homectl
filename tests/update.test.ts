@@ -29,7 +29,8 @@ test("update fast-forwards before dependencies and fresh setup", async () => {
   const result = await update(false, runner);
   expect(result.updated).toBe(false);
   expect(commands[4]?.slice(-2)).toEqual(["pull", "--ff-only"]);
-  expect(commands[6]?.slice(-2)).toEqual(["install", "--frozen-lockfile"]);
+  expect(commands[6]?.[1]).toBe("install");
+  expect(commands[6]?.at(-1)).toBe("--frozen-lockfile");
   expect(commands[7]?.at(-1)).toBe("setup");
 });
 test("update never installs dependencies after a rejected fast-forward", async () => {
@@ -38,4 +39,30 @@ test("update never installs dependencies after a rejected fast-forward", async (
     return { exitCode: argv.includes("pull") ? 1 : 0, stdout: "", stderr: "" };
   };
   await expect(update(false, runner)).rejects.toThrow("Git operation failed");
+});
+
+test("Bun install command accepts update argument order", async () => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "homectl-update-"));
+  try {
+    await writeFile(
+      join(dir, "package.json"),
+      '{"name":"update-fixture","private":true}',
+    );
+    const child = Bun.spawn(
+      [process.execPath, "install", "--cwd", dir, "--frozen-lockfile"],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(stdout + stderr).not.toContain("Script not found");
+    expect(code).toBe(0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
