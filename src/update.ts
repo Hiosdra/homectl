@@ -5,7 +5,7 @@ import { HomectlError, type Runner } from "./types";
 
 export async function update(dryRun = false, runner: Runner = run) {
   const actions = [
-    "Require a clean checkout on a branch with an upstream",
+    "Check the current branch and its upstream",
     "Fast-forward the current branch from its configured upstream",
     "Install dependencies from the frozen lockfile",
     "Refresh the per-user installation with the updated setup",
@@ -16,15 +16,10 @@ export async function update(dryRun = false, runner: Runner = run) {
     if (result.exitCode)
       throw new HomectlError(
         5,
-        "Update Git operation failed; check Git installation, upstream access and branch state",
+        "Git refused the update; check upstream access, divergent history, or local changes overlapping incoming files. Local changes were not stashed or discarded",
       );
     return result.stdout.trim();
   };
-  if (await git(["status", "--porcelain"]))
-    throw new HomectlError(
-      3,
-      "Update requires a clean checkout; commit or move your local changes first",
-    );
   await git(["symbolic-ref", "--quiet", "HEAD"]);
   await git(["rev-parse", "--abbrev-ref", "@{upstream}"]);
   const before = await git(["rev-parse", "HEAD"]);
@@ -51,7 +46,14 @@ export async function update(dryRun = false, runner: Runner = run) {
   return {
     updated: before !== revision,
     revision,
-    actions,
+    actions: [
+      "Branch and upstream checked",
+      before === revision
+        ? "Source already up to date"
+        : "Source updated by fast-forward",
+      "Dependencies verified from the frozen lockfile",
+      "Local installation refreshed",
+    ],
     next: "Restart running homectl serve processes to use the update. On Windows, restart your terminal application to load user PATH changes.",
   };
 }

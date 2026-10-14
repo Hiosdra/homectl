@@ -103,6 +103,23 @@ export function formatHuman(
       .filter(Boolean)
       .join("\n\n");
   }
+  if (command === "update" && Array.isArray(value.actions)) {
+    const preview = value.revision === undefined;
+    return [
+      preview
+        ? "Update preview"
+        : value.updated
+          ? "Updated successfully."
+          : "Already up to date.",
+      typeof value.revision === "string"
+        ? `Version: ${value.revision.slice(0, 7)}`
+        : "",
+      value.actions.map((item) => `${preview ? "•" : "✓"} ${item}`).join("\n"),
+      value.updated && value.next ? String(value.next) : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
   if (command === "setup" || command === "update") {
     const { actions, next, dependencies, doctor, hint, ...rest } = value;
     const sections = [

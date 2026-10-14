@@ -23,7 +23,7 @@ Setup produces three launchers under `%USERPROFILE%\.local\bin`:
 
 Setup adds that directory to your Windows user PATH idempotently. Restart the entire terminal application (including Windows Terminal or VS Code) to load the updated environment. For immediate use in the current PowerShell, run `$env:Path = "$HOME\.local\bin;$env:Path"`. If PowerShell script execution is restricted, invoke `homectl.cmd`; homectl does not change execution policy. Skills are copied on Windows so setup does not require Developer Mode or elevated symlink rights. Existing different launchers and skills are not silently overwritten.
 
-Update the installed checkout with `homectl.cmd update` (or preview with `homectl.cmd update --dry-run`). It requires a clean Git checkout and a configured upstream, uses fast-forward only, installs the frozen dependencies and reruns setup. It preserves the per-user inventory and vault and does not restart running services. If your checkout predates this command, use `git pull --ff-only` once first.
+Update the installed checkout with `homectl.cmd update` (or preview with `homectl.cmd update --dry-run`). It requires a configured upstream and preserves unrelated local changes, uses fast-forward only, installs the frozen dependencies and reruns setup. It preserves the per-user inventory and vault and does not restart running services. If your checkout predates this command, use `git pull --ff-only` once first.
 
 Initialize or import credentials locally, then start the workspace:
 

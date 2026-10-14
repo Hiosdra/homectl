@@ -272,7 +272,7 @@ for (const [name, usage, description] of [
   [
     "update",
     "homectl update [--dry-run] [--json]",
-    "Fast-forward the current clean branch from its configured upstream, install the frozen dependencies and refresh setup. Refuses local changes or divergent history; never restarts services.",
+    "Fast-forward the current branch from its configured upstream, install the frozen dependencies and refresh setup. Git refuses overlapping local changes or divergent history; no automatic stash or reset; never restarts services.",
   ],
   [
     "setup",

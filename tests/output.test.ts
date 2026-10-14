@@ -37,3 +37,21 @@ test("errors keep exit code and approval details", () => {
     "Approval: digest",
   );
 });
+
+test("completed update is a report, while dry-run remains a plan", () => {
+  const output = formatHuman(
+    {
+      updated: false,
+      revision: "1234567890",
+      actions: ["Dependencies verified"],
+      next: "Restart",
+    },
+    "update",
+  );
+  expect(output).toContain("✓ Dependencies verified");
+  expect(output).not.toContain("Updated: No");
+  expect(output).not.toContain("Restart");
+  expect(
+    formatHuman({ actions: ["Install dependencies"] }, "update"),
+  ).toContain("Update preview");
+});
