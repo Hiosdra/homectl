@@ -26,6 +26,7 @@ import { normalizePublicKey } from "../session/public-key";
 import { doctor, paths, setup } from "../setup";
 import { transportSpec } from "../transports";
 import { HomectlError, type Machine, type ProcessResult } from "../types";
+import { update } from "../update";
 import { renderHelp } from "./help";
 export const help = renderHelp();
 export async function main(raw = process.argv.slice(2)): Promise<number> {
@@ -92,6 +93,12 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           ),
         }),
       );
+      return 0;
+    }
+    if (command === "update") {
+      if (positionals.length !== 1 || commandArgs.length || v.inventory)
+        throw new HomectlError(2, "Usage: homectl update [--dry-run] [--json]");
+      emit(await update(dryRun));
       return 0;
     }
     if (command === "setup") {

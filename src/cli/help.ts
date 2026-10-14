@@ -18,6 +18,10 @@ const pages: Record<string, Page> = {
       {
         title: "Get started",
         rows: [
+          [
+            "update",
+            "Update the checkout, dependencies and local installation.",
+          ],
           ["setup", "Install the CLI links, skills and SSH configuration."],
           [
             "serve",
@@ -265,6 +269,11 @@ const pages: Record<string, Page> = {
   },
 };
 for (const [name, usage, description] of [
+  [
+    "update",
+    "homectl update [--dry-run] [--json]",
+    "Fast-forward the current clean branch from its configured upstream, install the frozen dependencies and refresh setup. Refuses local changes or divergent history; never restarts services.",
+  ],
   [
     "setup",
     "homectl setup [--dry-run]",
