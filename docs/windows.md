@@ -10,10 +10,10 @@ From the checkout:
 
 ```powershell
 bun install --frozen-lockfile
-bun src/cli/main.ts setup --install-deps
+bun src/cli/main.ts setup
 ```
 
-`--install-deps` installs missing Windows OpenSSH Client through a UAC elevation prompt and KeePassXC through Microsoft winget. Install Microsoft App Installer if winget is unavailable. Existing dependencies are left in place; no vault is opened or initialized. Preview with `setup --install-deps --dry-run`. Bun is required to run this command. Plain `setup` configures the installation without installing dependencies.
+`--install-deps` installs missing Windows OpenSSH Client through a UAC elevation prompt and KeePassXC through Microsoft winget. Install Microsoft App Installer if winget is unavailable. Existing dependencies are left in place; no vault is opened or initialized. Preview with `setup --install-deps --dry-run`. Bun is required to run this command. Plain `setup` in an interactive terminal asks before installing missing dependencies and configuring firewall rules. It saves the selected LAN for future `pair` commands. Windows firewall rules are limited to Bun, UDP 5353/TCP 7448, the selected subnet and the Private profile. No network profile is changed. `setup --json` never prompts or opens UAC; explicit `--install-deps` and `--configure-firewall --interface <IP>` require an already elevated terminal.
 
 Setup produces three launchers under `%USERPROFILE%\.local\bin`:
 

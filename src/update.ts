@@ -35,7 +35,12 @@ export async function update(dryRun = false, runner: Runner = run) {
       "Source updated, but dependency installation failed; run bun install --frozen-lockfile in the checkout and retry setup",
     );
   const setup = await runner({
-    argv: [process.execPath, join(repoRoot, "src", "cli", "main.ts"), "setup"],
+    argv: [
+      process.execPath,
+      join(repoRoot, "src", "cli", "main.ts"),
+      "setup",
+      "--json",
+    ],
     timeoutMs: 120_000,
   });
   if (setup.exitCode)

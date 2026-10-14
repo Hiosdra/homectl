@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { credentialSpec } from "../credentials";
-import { installDependencies } from "../dependencies";
+
 import { enroll, installSudo } from "../enroll";
 import { loadInventory, resolveHost, saveInventory } from "../inventory";
 import { execute, workerPath, writeSSHConfig } from "../operations";
@@ -24,7 +24,7 @@ import {
 import { initDatabase } from "../session/database";
 import { createKey, keyReference } from "../session/keys";
 import { normalizePublicKey } from "../session/public-key";
-import { doctor, paths, setup } from "../setup";
+import { doctor, paths } from "../setup";
 import { transportSpec } from "../transports";
 import { HomectlError, type Machine, type ProcessResult } from "../types";
 import { update } from "../update";
@@ -52,6 +52,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         json: { type: "boolean" },
         "dry-run": { type: "boolean" },
         "install-deps": { type: "boolean" },
+        "configure-firewall": { type: "boolean" },
         inventory: { type: "string" },
         file: { type: "string" },
         approval: { type: "string" },
@@ -94,7 +95,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       );
       return 0;
     }
-    if (v["install-deps"] && command !== "setup")
+    if ((v["install-deps"] || v["configure-firewall"]) && command !== "setup")
       throw new HomectlError(2, "--install-deps is only supported by setup");
     if (command === "update") {
       if (positionals.length !== 1 || commandArgs.length || v.inventory)
@@ -108,25 +109,16 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           2,
           "setup uses the standard per-user directory; use --inventory on later commands",
         );
-      const dependencies = v["install-deps"]
-        ? await installDependencies(dryRun)
-        : undefined;
-      const result = await setup(p.home, dryRun);
-      const verification =
-        !dryRun && v["install-deps"]
-          ? await doctor(await loadInventory(p.inventory), p.inventory)
-          : undefined;
-      emit({
-        ...result,
-        ...(dependencies ? { dependencies } : {}),
-        ...(verification ? { doctor: verification } : {}),
-        ...(!v["install-deps"] && windows
-          ? {
-              hint: "Run homectl setup --install-deps to install missing OpenSSH Client and KeePassXC",
-            }
-          : {}),
+      const result = await (await import("../setup-flow")).setupFlow({
+        home: p.home,
+        json,
+        dryRun,
+        installDeps: Boolean(v["install-deps"]),
+        configureFirewall: Boolean(v["configure-firewall"]),
+        interface: v.interface,
       });
-      if (verification && !verification.ok) return 5;
+      emit(result);
+      if ("doctor" in result && result.doctor && !result.doctor.ok) return 5;
       return 0;
     }
     if (["peers", "pair", "sync", "peer"].includes(command ?? "")) {

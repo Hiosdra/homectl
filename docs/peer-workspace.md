@@ -18,7 +18,7 @@ homectl panel
 
 The launcher uses a private local access token in the URL fragment. The frontend removes the fragment immediately after connecting and uses an HttpOnly SameSite cookie. Do not copy launch URLs into agent chat. The launch information lives in `serve/panel.json` beside the selected inventory. The CLI peer commands use this file internally and never print its token.
 
-Starting `serve` does not install a service, open pairing, create a vault, unlock credentials, alter a firewall, or connect to a managed machine. Windows and Linux firewalls may require a user-created inbound rule for peer TCP and mDNS UDP 5353 on the selected private LAN. No router forwarding is needed.
+Starting `serve` does not install a service, open pairing, create a vault, unlock credentials, alter a firewall, or connect to a managed machine. Run `homectl setup` interactively to review and configure scoped firewall rules. Windows and Linux firewalls require an inbound rule for peer TCP and mDNS UDP 5353 on the selected private LAN. No router forwarding is needed.
 
 ## Pair two devices
 
@@ -105,3 +105,9 @@ homectl service uninstall
 The systemd user unit uses private permissions, `UMask=0077`, restart-on-failure and `NoNewPrivileges`. It starts with locked credentials and closed pairing. Running without login requires a separate, explicit administrator decision to enable user lingering. `uninstall` removes the service registration, not inventory, vaults or peer trust.
 
 For native Windows installation and Log On account setup, see [Windows and WSL](windows.md).
+
+## Interactive setup and automation
+
+`homectl setup` in a terminal walks through missing dependencies, LAN selection and firewall consent, then runs doctor. Linux supports apt/dnf/pacman for dependencies and firewalld/UFW for firewall configuration. Existing rules are preserved; firewalld rules are added to both runtime and permanent configuration without reloading the whole firewall. UFW is never enabled or disabled. Unsupported firewalls are reported for manual configuration. The selected LAN is saved locally and reused by `pair` while that address is still assigned.
+
+For agents, `homectl setup --json` is noninteractive. Use `--install-deps` and/or `--configure-firewall --interface <local-IP>` explicitly; privileged operations require existing administrator rights or noninteractive sudo. `--dry-run` never installs packages or changes firewall rules. Setup does not initialize/unlock a vault or pair devices. Successful rule installation does not prove multicast reaches another computer across the LAN.

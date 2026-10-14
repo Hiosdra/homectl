@@ -1,4 +1,6 @@
+import { readFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { readPassword } from "../session";
 import { HomectlError } from "../types";
@@ -88,6 +90,20 @@ export async function interactivePair(
       /* No running local workspace. */
     }
     if (!current) {
+      if (!interfaceIP) {
+        try {
+          const saved = JSON.parse(
+            await readFile(
+              join(dirname(inventoryPath), "setup-preferences.json"),
+              "utf8",
+            ),
+          );
+          if (lanAddresses().includes(saved.interface))
+            interfaceIP = saved.interface;
+        } catch {
+          /* No valid saved LAN preference. */
+        }
+      }
       if (!interfaceIP) {
         const addresses = lanAddresses();
         if (!addresses.length)

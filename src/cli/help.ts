@@ -276,8 +276,8 @@ for (const [name, usage, description] of [
   ],
   [
     "setup",
-    "homectl setup [--install-deps] [--dry-run]",
-    "Install per-user CLI and skill links plus SSH configuration. On native Windows, --install-deps installs missing OpenSSH Client via UAC and KeePassXC through winget, then runs doctor. Existing configuration is preserved. Uses the standard per-user directory; --inventory is not supported.",
+    "homectl setup [--json] [--dry-run] [--install-deps] [--configure-firewall --interface IP]",
+    "Interactive setup guides dependency installation, LAN selection and scoped firewall configuration with confirmation. Installs per-user CLI, skills and SSH configuration. --json never prompts: use --install-deps and --configure-firewall --interface IP explicitly from an administrator terminal. --dry-run previews without changing files or firewall rules. Existing configuration is preserved. Uses the standard per-user directory; --inventory is not supported.",
   ],
   [
     "doctor",

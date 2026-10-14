@@ -22,7 +22,7 @@ test("update fast-forwards before dependencies and fresh setup", async () => {
   expect(commands[3]?.slice(-2)).toEqual(["pull", "--ff-only"]);
   expect(commands[5]?.[1]).toBe("install");
   expect(commands[5]?.at(-1)).toBe("--frozen-lockfile");
-  expect(commands[6]?.at(-1)).toBe("setup");
+  expect(commands[6]?.slice(-2)).toEqual(["setup", "--json"]);
 });
 test("update never installs dependencies after a rejected fast-forward", async () => {
   const runner: Runner = async ({ argv }) => {

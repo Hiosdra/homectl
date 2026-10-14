@@ -1,4 +1,5 @@
 import { available, windows } from "./platform";
+import { privileged } from "./privileged";
 import { run } from "./process";
 import { HomectlError, type Runner } from "./types";
 
@@ -7,6 +8,7 @@ export async function installDependencies(
   runner: Runner = run,
   tools = available,
   nativeWindows = windows,
+  interactive = true,
 ) {
   if (!nativeWindows)
     throw new HomectlError(
@@ -39,7 +41,7 @@ export async function installDependencies(
         "-NoProfile",
         "-NonInteractive",
         "-EncodedCommand",
-        Buffer.from(outer, "utf16le").toString("base64"),
+        Buffer.from(interactive ? outer : inner, "utf16le").toString("base64"),
       ],
       timeoutMs: 900_000,
     });
@@ -47,6 +49,22 @@ export async function installDependencies(
       throw new HomectlError(
         5,
         "OpenSSH Client installation failed or UAC was cancelled; retry setup --install-deps or enable OpenSSH Client in Windows Optional features",
+      );
+  }
+  if (missingVault && !interactive) {
+    const admin = await runner({
+      argv: [
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "if(([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){exit 0}else{exit 1}",
+      ],
+    });
+    if (admin.exitCode)
+      throw new HomectlError(
+        5,
+        "JSON dependency installation requires an elevated terminal; no UAC prompt will be opened",
       );
   }
   if (missingVault) {
@@ -81,4 +99,58 @@ export async function installDependencies(
       "Dependencies remain unavailable after installation; check OpenSSH Client and KeePassXC installation, then retry setup --install-deps",
     );
   return { actions, installed: actions.length > 0, checks };
+}
+
+export async function installLinuxDependencies(
+  dryRun: boolean,
+  interactive: boolean,
+) {
+  const missing = [
+    ...(!available("ssh") ? ["openssh"] : []),
+    ...(!available("keepassxc-cli") ? ["keepassxc"] : []),
+  ];
+  if (!missing.length) return { installed: false, actions: [] };
+  let commands: string[][];
+  if (Bun.which("apt-get"))
+    commands = [
+      ["apt-get", "update"],
+      [
+        "apt-get",
+        "install",
+        "-y",
+        ...missing.map((name) =>
+          name === "openssh" ? "openssh-client" : name,
+        ),
+      ],
+    ];
+  else if (Bun.which("dnf"))
+    commands = [
+      [
+        "dnf",
+        "install",
+        "-y",
+        ...missing.map((name) =>
+          name === "openssh" ? "openssh-clients" : name,
+        ),
+      ],
+    ];
+  else if (Bun.which("pacman"))
+    commands = [["pacman", "-S", "--needed", "--noconfirm", ...missing]];
+  else
+    throw new HomectlError(
+      5,
+      "Unsupported package manager; install OpenSSH and KeePassXC manually",
+    );
+  if (dryRun)
+    return {
+      installed: false,
+      actions: commands.map((argv) => argv.join(" ")),
+    };
+  for (const command of commands) await privileged(command, interactive);
+  if (!available("ssh") || !available("keepassxc-cli"))
+    throw new HomectlError(
+      5,
+      "Dependencies unavailable after package installation",
+    );
+  return { installed: true, actions: ["OpenSSH and KeePassXC installed"] };
 }

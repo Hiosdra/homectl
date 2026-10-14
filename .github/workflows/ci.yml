@@ -31,7 +31,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run lint
-      - run: bun test --timeout 30000 tests/platform.test.ts tests/peer.test.ts tests/update.test.ts tests/dependencies.test.ts tests/interactive-pair.test.ts tests/output.test.ts
+      - run: bun test --timeout 30000 tests/platform.test.ts tests/peer.test.ts tests/update.test.ts tests/dependencies.test.ts tests/interactive-pair.test.ts tests/output.test.ts tests/firewall.test.ts tests/setup-flow.test.ts
       - name: PowerShell CLI smoke
         shell: pwsh
         run: |
