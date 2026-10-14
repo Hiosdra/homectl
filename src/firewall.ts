@@ -30,11 +30,10 @@ export function selectedLAN(ip: string) {
         return {
           ip,
           name,
-          subnet:
-            ip
-              .split(".")
-              .map((n, i) => Number(n) & (mask[i] ?? 0))
-              .join(".") + `/${prefix}`,
+          subnet: `${ip
+            .split(".")
+            .map((n, i) => Number(n) & (mask[i] ?? 0))
+            .join(".")}/${prefix}`,
         };
       }
   throw new HomectlError(
@@ -60,10 +59,23 @@ export async function firewallPlan(ip: string) {
       commands: [] as string[][],
     };
   if (Bun.which("firewall-cmd")) {
-    const active = await run({ argv: ["firewall-cmd", "--state"] });
+    const active = await run({
+      argv: ["firewall-cmd", "--state"],
+      timeoutMs: 5000,
+    });
+    if (
+      active.exitCode !== 0 &&
+      active.stdout.trim() !== "not running" &&
+      !active.stderr.includes("not running")
+    )
+      throw new HomectlError(
+        5,
+        "Cannot inspect firewalld (access denied or timeout). Run setup in a local terminal with access to the system D-Bus; no firewall rules were changed.",
+      );
     if (active.exitCode === 0) {
       const zoneResult = await run({
         argv: ["firewall-cmd", "--get-zone-of-interface", lan.name],
+        timeoutMs: 5000,
       });
       let zone = zoneResult.stdout.trim();
       if (!zone || zone === "no zone")
