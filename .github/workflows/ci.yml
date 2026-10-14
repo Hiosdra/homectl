@@ -35,7 +35,8 @@ jobs:
       - name: Diagnose native SSH version process
         shell: pwsh
         run: |
-          bun -e 'import {run} from "./src/process"; import {executable} from "./src/platform"; console.log(await run({argv:[executable("ssh"),"-V"]}))'
+          bun -e 'import {cleanEnv} from "./src/credentials"; import {executable} from "./src/platform"; for(const full of [false,true]) for(const stdin of ["ignore",new Blob([]),"inherit"]) {const p=Bun.spawn([executable("ssh"),"-V"],{env:full?process.env:cleanEnv(),stdin,stdout:"pipe",stderr:"pipe"});const [code,err]=await Promise.all([p.exited,new Response(p.stderr).text()]);console.log({full,input:typeof stdin==="string"?stdin:"empty-pipe",code,err})}'
+
       - name: PowerShell CLI smoke
         shell: pwsh
         run: |
