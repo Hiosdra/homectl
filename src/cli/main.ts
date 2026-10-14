@@ -19,7 +19,6 @@ import {
   sessionConfig,
   sessionStatus,
   ttlSeconds,
-  unlockSession,
 } from "../session";
 import { initDatabase } from "../session/database";
 import { createKey, keyReference } from "../session/keys";
@@ -480,9 +479,11 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           return 0;
         }
         emit(
-          host === "unlock"
-            ? await unlockSession(inv, inventoryPath)
-            : await lockSession(inventoryPath),
+          await (await import("../session/workspace")).sessionWorkspace(
+            host,
+            inv,
+            inventoryPath,
+          ),
         );
         return 0;
       }
