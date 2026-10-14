@@ -46,7 +46,7 @@ export async function createKey(
     await databaseCommand(database, password, ["ls", "--flatten"])
   )
     .toString()
-    .split("\n");
+    .split(/\r?\n/);
   const reused = entries.includes(auth.entry);
   let key: Buffer | undefined;
   let staging: string | undefined;

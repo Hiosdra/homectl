@@ -97,6 +97,7 @@ export async function setup(home = homedir(), dryRun = false) {
     `Generate SSH config: ${p.ssh}`,
     `Add Include to ${join(home, ".ssh", "config")}`,
     `Link CLI in ${p.bin}`,
+    ...(windows ? ["Add CLI directory to Windows user PATH"] : []),
     `Link 3 skills in ~/.agents/skills and ~/.claude/skills`,
   ];
   if (dryRun) return { actions };
@@ -138,6 +139,31 @@ export async function setup(home = homedir(), dryRun = false) {
       );
     await writeFile(cli, script, { mode: 0o755 });
   }
+  if (windows) {
+    const script = `$ErrorActionPreference='Stop'
+$bin=$env:HOMECTL_BIN_PATH
+$old=[Environment]::GetEnvironmentVariable('Path','User')
+$found=@($old -split ';' | Where-Object { $_.TrimEnd('\\') -ieq $bin.TrimEnd('\\') }).Count -gt 0
+if(-not $found){[Environment]::SetEnvironmentVariable('Path',($bin+';'+$old),'User')}
+`;
+    const child = Bun.spawn(
+      [
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+        Buffer.from(script, "utf16le").toString("base64"),
+      ],
+      {
+        env: { ...process.env, HOMECTL_BIN_PATH: p.bin },
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+      },
+    );
+    if (await child.exited)
+      throw new HomectlError(3, "Cannot update Windows user PATH");
+  }
   const sshMain = join(home, ".ssh", "config");
   await mkdir(dirname(sshMain), { recursive: true, mode: 0o700 });
   const include = `Include "${(windows ? p.ssh.replaceAll("\\", "/") : p.ssh.replaceAll("\\", "\\\\")).replaceAll('"', '\\"')}"`;
@@ -147,7 +173,9 @@ export async function setup(home = homedir(), dryRun = false) {
   return {
     actions,
     inventory: p.inventory,
-    next: "Run homectl doctor; ensure ~/.local/bin is on PATH. Keep this checkout in a stable location.",
+    next: windows
+      ? "CLI added to user PATH. Restart your terminal application to load it, then run homectl.cmd doctor. Keep this checkout in a stable location."
+      : "Run homectl doctor; ensure ~/.local/bin is on PATH. Keep this checkout in a stable location.",
   };
 }
 export async function doctor(
@@ -191,14 +219,19 @@ export async function doctor(
         name: tool,
         ok: r.exitCode === 0,
         remediation: r.exitCode
-          ? `Install ${tool} on the agent host`
+          ? windows && tool === "ssh"
+            ? "Enable Windows OpenSSH Client: Settings > Optional features > OpenSSH Client"
+            : `Install ${tool} on the agent host`
           : undefined,
       });
     } catch {
       checks.push({
         name: tool,
         ok: false,
-        remediation: `Install ${tool} on the agent host`,
+        remediation:
+          windows && tool === "ssh"
+            ? "Enable Windows OpenSSH Client: Settings > Optional features > OpenSSH Client"
+            : `Install ${tool} on the agent host`,
       });
     }
   }

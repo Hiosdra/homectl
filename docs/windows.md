@@ -19,7 +19,7 @@ Setup produces three launchers under `%USERPROFILE%\.local\bin`:
 - `homectl.ps1` for PowerShell.
 - `homectl` for Git Bash, using `cygpath` to locate the same Bun executable.
 
-Add that directory to PATH yourself. If PowerShell script execution is restricted, invoke `homectl.cmd`; homectl does not change execution policy. Skills are copied on Windows so setup does not require Developer Mode or elevated symlink rights. Existing different launchers and skills are not silently overwritten.
+Setup adds that directory to your Windows user PATH idempotently. Restart the entire terminal application (including Windows Terminal or VS Code) to load the updated environment. For immediate use in the current PowerShell, run `$env:Path = "$HOME\.local\bin;$env:Path"`. If PowerShell script execution is restricted, invoke `homectl.cmd`; homectl does not change execution policy. Skills are copied on Windows so setup does not require Developer Mode or elevated symlink rights. Existing different launchers and skills are not silently overwritten.
 
 Initialize or import credentials locally, then start the workspace:
 
