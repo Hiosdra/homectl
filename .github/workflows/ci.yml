@@ -32,6 +32,10 @@ jobs:
       - run: bun run typecheck
       - run: bun run lint
       - run: bun test --timeout 30000 tests/platform.test.ts tests/peer.test.ts tests/update.test.ts tests/dependencies.test.ts
+      - name: Diagnose native SSH version process
+        shell: pwsh
+        run: |
+          bun -e 'import {run} from "./src/process"; import {executable} from "./src/platform"; console.log(await run({argv:[executable("ssh"),"-V"]}))'
       - name: PowerShell CLI smoke
         shell: pwsh
         run: |
