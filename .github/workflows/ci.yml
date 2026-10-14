@@ -31,13 +31,13 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run lint
-      - run: bun test --timeout 30000 tests/platform.test.ts tests/peer.test.ts tests/update.test.ts
+      - run: bun test --timeout 30000 tests/platform.test.ts tests/peer.test.ts tests/update.test.ts tests/dependencies.test.ts
       - name: PowerShell CLI smoke
         shell: pwsh
         run: |
           bun src/cli/main.ts setup
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          bun src/cli/main.ts setup
+          bun src/cli/main.ts setup --install-deps
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
           if (($userPath -split ';') -notcontains "$HOME\.local\bin") { throw 'Setup did not persist user PATH' }

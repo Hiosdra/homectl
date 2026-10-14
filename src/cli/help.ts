@@ -276,8 +276,8 @@ for (const [name, usage, description] of [
   ],
   [
     "setup",
-    "homectl setup [--dry-run]",
-    "Install per-user CLI and skill links plus SSH configuration. Existing configuration is preserved. Uses the standard per-user directory; --inventory is not supported.",
+    "homectl setup [--install-deps] [--dry-run]",
+    "Install per-user CLI and skill links plus SSH configuration. On native Windows, --install-deps installs missing OpenSSH Client via UAC and KeePassXC through winget, then runs doctor. Existing configuration is preserved. Uses the standard per-user directory; --inventory is not supported.",
   ],
   [
     "doctor",
