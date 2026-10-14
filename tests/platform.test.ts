@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import { generateKeyPairSync, verify } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseInventory } from "../src/inventory";
 import { collectHostKeys, validateHostKeys } from "../src/peer/hostkeys";
-import { windows } from "../src/platform";
+import { privateDirectory, protect, windows } from "../src/platform";
 import {
   addKey,
   createDedicatedAgent,
@@ -146,4 +146,18 @@ test("managed trusted host keys cannot inject unrelated hosts or extra lines", (
       machines,
     ),
   ).toThrow();
+});
+
+test("private Windows ACL setup handles spaces, Unicode and repeated protection", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "homectl space-ż-"));
+  try {
+    await privateDirectory(dir);
+    await privateDirectory(dir);
+    const file = join(dir, "private file.txt");
+    await writeFile(file, "synthetic");
+    await protect(file);
+    await protect(file);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
