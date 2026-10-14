@@ -29,12 +29,13 @@ import { transportSpec } from "../transports";
 import { HomectlError, type Machine, type ProcessResult } from "../types";
 import { update } from "../update";
 import { renderHelp } from "./help";
+import { formatError, formatHuman } from "./output";
 export const help = renderHelp();
 export async function main(raw = process.argv.slice(2)): Promise<number> {
   const split = raw.indexOf("--");
   const cliArgs = split < 0 ? raw : raw.slice(0, split);
   const commandArgs = split < 0 ? [] : raw.slice(split + 1);
-  let json = false;
+  let json = cliArgs.includes("--json");
   try {
     const { values: v, positionals } = parseArgs({
       args: cliArgs,
@@ -77,11 +78,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
     const dryRun = v["dry-run"] ?? false;
     const emit = (result: unknown) =>
       console.log(
-        json
-          ? JSON.stringify(result)
-          : typeof result === "string"
-            ? result
-            : JSON.stringify(result, null, 2),
+        json ? JSON.stringify(result) : formatHuman(result, command, host),
       );
     if (!command || v.help || command === "help") {
       emit(
@@ -736,11 +733,13 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
             "Invalid input or unavailable resource; details suppressed",
           );
     console.error(
-      JSON.stringify({
-        error: error.message,
-        code: error.code,
-        ...(error.details ? { details: error.details } : {}),
-      }),
+      json
+        ? JSON.stringify({
+            error: error.message,
+            code: error.code,
+            ...(error.details ? { details: error.details } : {}),
+          })
+        : formatError(error.message, error.code, error.details),
     );
     return error.code;
   }

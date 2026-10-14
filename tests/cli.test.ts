@@ -222,3 +222,19 @@ test("peer and pairing dry runs never contact serve or read launch tokens", asyn
     expect(JSON.parse(result.stdout).credentialAccess).toBe(false);
   }
 });
+
+test("default hosts output is human readable while JSON stays structured", async () => {
+  const path = await fixture();
+  const human = await invoke(["hosts", "--inventory", path]);
+  expect(human.stdout).toContain("Machine");
+  expect(human.stdout).toContain("example");
+  expect(human.stdout).not.toContain('"transport"');
+  const json = await invoke(["hosts", "--inventory", path, "--json"]);
+  expect(JSON.parse(json.stdout).example.transport).toBe("local");
+});
+test("argument errors honor JSON even if argument parsing fails", async () => {
+  const result = await invoke(["hosts", "--invalid-option", "--json"]);
+  expect(JSON.parse(result.stderr).code).toBe(2);
+  const human = await invoke(["hosts", "--invalid-option"]);
+  expect(human.stderr).toStartWith("Error:");
+});

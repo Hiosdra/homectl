@@ -160,3 +160,7 @@ VM image import, automatic DHCP discovery and cross-node provisioning are outsid
 - **Under the hood:** [Architecture](docs/architecture.md) · [Primary sources](docs/research.md)
 - **Agent skills:** [Operate](skills/homelab/SKILL.md) · [Set up](skills/homelab-setup/SKILL.md) · [Enroll](skills/homelab-enroll/SKILL.md)
 - **Working on the project:** [Development commands](docs/user-guide.md#troubleshooting-and-development)
+
+### CLI output
+
+Commands print human-readable results by default: tool checks, tables, operation summaries and plain-text errors. Add `--json` for structured stdout/stderr intended for scripts and agents. Exit codes are unchanged. For example, use `homectl doctor` interactively and `homectl doctor --json` from automation.
