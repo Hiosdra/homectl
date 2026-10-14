@@ -59,9 +59,11 @@ test("Windows environment casing preserves PATH and SystemRoot for subprocesses"
   const env = cleanEnv({
     Path: "C:\\Windows",
     SYSTEMROOT: "C:\\Windows",
+    PROGRAMDATA: "C:\\ProgramData",
     secret: "hidden",
   });
   expect(env.PATH).toBe("C:\\Windows");
   expect(env.SystemRoot).toBe("C:\\Windows");
+  expect(env.ProgramData).toBe("C:\\ProgramData");
   expect(env.secret).toBeUndefined();
 });
