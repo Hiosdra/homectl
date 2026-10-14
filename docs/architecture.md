@@ -51,3 +51,12 @@ Template/image import, DHCP discovery and cross-node operations are deferred. St
 UGREEN home directories should be provisioned by enabling Personal Folder in the vendor UI. Do not bypass immutable `/home`. Proxmox authorized_keys may reference cluster-managed storage: preserve its symlink and review all affected nodes before adding access. No bootstrap flow removes old keys, changes users or tightens unrelated sudo rules implicitly.
 
 Human approval remains a conversation workflow. Actual restrictions come from Unix accounts and administrator configuration; an inventory tier cannot undo existing root/sudo privileges.
+
+
+## Peer workspace
+
+`serve` runs two separate HTTP surfaces: an authenticated localhost-only browser panel and an explicit-IP peer protocol listener. `peer/pairing` wraps SRP-6a and dual user confirmation; `peer/crypto` implements authenticated ephemeral X25519/HKDF/AES-GCM message envelopes with single-use challenges. `peer/store` keeps trust/grants and vector metadata under private filesystem permissions, redacting credential payloads from persistent state. `peer/sync` captures revisions, tombstones and conflict choices. `peer/vault` uses kdbxweb/hash-wasm to read and apply homectl credential entries while retaining KDBX encryption at rest; passwords are never transmitted. `peer/hub` combines these with current inventory policies and queues remote mutations for local approval. Network waits occur outside mutation queues so simultaneous symmetric sync cannot deadlock.
+
+`platform` selects native Windows OpenSSH, maintains owner/SYSTEM DACLs and private directories. Windows sessions use a per-inventory named-pipe Ed25519 agent; Unix sessions retain dedicated OpenSSH. Encrypted PKCS8 staging replaces Linux-only plaintext tmpfs key generation. `service` creates a systemd user unit or a supplied WinSW service host. Session state and paths remain local and are reconstructed on import.
+
+Known limits: explicit review-driven sync, sequential multi-file apply with retained backups, no automatic peer discovery across isolated LAN links, and no physical Windows/WSL/service evidence from Linux tests. See peer-workspace.md and windows.md for the operating contracts.

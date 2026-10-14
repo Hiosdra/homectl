@@ -11,6 +11,7 @@ export function credentialSpec(
     argv: [process.execPath, workerPath],
     stdin: JSON.stringify({
       ...spec,
+      managedInventory: auth.inventory,
       env: { ...spec.env, SSH_AUTH_SOCK: auth.socket },
     }),
     timeoutMs: (spec.timeoutMs ?? 120_000) + 5000,
@@ -47,6 +48,16 @@ export function cleanEnv(
   const env: Record<string, string> = {};
   for (const key of [
     "PATH",
+    "SystemRoot",
+    "WINDIR",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "ProgramFiles",
+    "TEMP",
+    "TMP",
+    "PATHEXT",
+    "COMSPEC",
     "HOME",
     "USER",
     "LOGNAME",

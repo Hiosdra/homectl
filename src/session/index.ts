@@ -1,8 +1,11 @@
-import { chmod, lstat, mkdir, unlink } from "node:fs/promises";
+import { createPrivateKey } from "node:crypto";
+import { lstat, unlink } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { resolve } from "node:path";
 import { cleanEnv } from "../credentials";
+import { available, executable, privateDirectory, windows } from "../platform";
 import { HomectlError, type Inventory } from "../types";
+import { addKey, decodeKey } from "./agent";
 import { sessionConfig, sessionPaths, ttlSeconds } from "./config";
 
 export { sessionConfig, sessionPaths, ttlSeconds } from "./config";
@@ -50,12 +53,13 @@ export async function lockSession(inventoryPath: string) {
   const p = sessionPaths(inventoryPath);
   // Clear even an orphaned agent; never touch the user's personal agent.
   try {
-    await privateCommand(["ssh-add", "-D"], undefined, {
-      SSH_AUTH_SOCK: p.socket,
-    });
+    if (!windows)
+      await privateCommand(["ssh-add", "-D"], undefined, {
+        SSH_AUTH_SOCK: p.socket,
+      });
   } catch {}
   await control(inventoryPath, "lock");
-  for (let n = 0; n < 100; n++) {
+  for (let n = 0; !windows && n < 100; n++) {
     try {
       await lstat(p.control);
     } catch {
@@ -72,19 +76,12 @@ export async function startSession(
 ): Promise<SessionStatus> {
   const current = await sessionStatus(inventoryPath);
   if (current.unlocked) return current; // Never extend an existing session.
-  if (!Bun.which("ssh-agent") || !Bun.which("ssh-add"))
+  if ((!windows && !available("ssh-agent")) || !available("ssh-add"))
     throw new HomectlError(5, "Install OpenSSH on the agent host");
   const p = sessionPaths(inventoryPath);
-  await mkdir(p.directory, { recursive: true, mode: 0o700 });
-  const directory = await lstat(p.directory);
-  if (!directory.isDirectory() || directory.uid !== process.getuid?.())
-    throw new HomectlError(
-      3,
-      "Session directory must belong to the current user and must not be a symlink",
-    );
-  await chmod(p.directory, 0o700);
+  await privateDirectory(p.directory);
   await lockSession(inventoryPath);
-  for (const path of [p.socket, p.control]) {
+  for (const path of windows ? [] : [p.socket, p.control]) {
     try {
       const stat = await lstat(path);
       if (!stat.isSocket())
@@ -137,7 +134,7 @@ export async function privateCommand(
 ): Promise<Buffer> {
   const child = (() => {
     try {
-      return Bun.spawn(argv, {
+      return Bun.spawn([executable(argv[0] ?? ""), ...argv.slice(1)], {
         env: { ...cleanEnv(), ...env },
         stdin:
           stdin === undefined
@@ -184,19 +181,21 @@ export async function readPassword(
       "Run this command yourself in a private interactive terminal; never send the database password to the agent",
     );
   const child = Bun.spawn(
-    [
-      "bash",
-      "-c",
-      'IFS= read -r -s -p "$1" password </dev/tty || exit 1; printf "\\n" >/dev/tty; printf "%s" "$password"',
-      "homectl-password",
-      prompt,
-    ],
-    {
-      env: cleanEnv(),
-      stdin: "inherit",
-      stdout: "pipe",
-      stderr: "inherit",
-    },
+    windows
+      ? [
+          "powershell.exe",
+          "-NoProfile",
+          "-Command",
+          "$p=Read-Host -Prompt 'Private password' -AsSecureString; $b=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($p); try {[Console]::Out.Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($b))} finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b)}",
+        ]
+      : [
+          "bash",
+          "-c",
+          'IFS= read -r -s -p "$1" password </dev/tty || exit 1; printf "\\n" >/dev/tty; printf "%s" "$password"',
+          "homectl-password",
+          prompt,
+        ],
+    { env: cleanEnv(), stdin: "inherit", stdout: "pipe", stderr: "inherit" },
   );
   const result = await new Response(child.stdout).text();
   if (
@@ -216,6 +215,7 @@ export async function databaseCommand(
   database: string,
   password: string,
   args: string[],
+  entryPassword?: string,
 ) {
   return privateCommand(
     [
@@ -225,7 +225,7 @@ export async function databaseCommand(
       database,
       ...args.slice(1),
     ],
-    `${password}\n`,
+    `${password}\n${entryPassword === undefined ? "" : `${entryPassword}\n`}`,
   );
 }
 export async function loadKey(
@@ -244,9 +244,19 @@ export async function loadKey(
     ...(remaining === null ? [] : ["-t", String(remaining)]),
     "-",
   ];
-  await privateCommand(args, key, {
-    SSH_AUTH_SOCK: sessionPaths(inventoryPath).socket,
-  });
+  if (windows) await addKey(sessionPaths(inventoryPath).socket, key);
+  else {
+    const pem = Buffer.from(
+      decodeKey(Buffer.from(key)).export({ format: "pem", type: "pkcs8" }),
+    );
+    try {
+      await privateCommand(args, pem, {
+        SSH_AUTH_SOCK: sessionPaths(inventoryPath).socket,
+      });
+    } finally {
+      pem.fill(0);
+    }
+  }
 }
 
 export async function unlockSession(
@@ -263,7 +273,7 @@ export async function unlockSession(
   const hosts = Object.values(inv.machines).filter(
     (m) => m.auth?.type === "keepassxc",
   );
-  if (!Bun.which("keepassxc-cli"))
+  if (!available("keepassxc-cli"))
     throw new HomectlError(5, "Install KeePassXC on the agent host first");
   if (!hosts.length)
     throw new HomectlError(
@@ -285,12 +295,11 @@ export async function unlockSession(
           2,
           "KeePassXC host socket does not match this inventory's managed session",
         );
-      const key = await databaseCommand(config.database, password, [
-        "attachment-export",
-        "--stdout",
+      const key = await readStoredKey(
+        config.database,
+        password,
         m.auth.entry ?? "",
-        "id_ed25519",
-      ]);
+      );
       try {
         await loadKey(key, inventoryPath, state);
       } finally {
@@ -302,4 +311,36 @@ export async function unlockSession(
     throw e;
   }
   return { ...state, keysLoaded: hosts.length };
+}
+
+export async function readStoredKey(
+  database: string,
+  password: string,
+  entry: string,
+) {
+  const bytes = await databaseCommand(database, password, [
+    "attachment-export",
+    "--stdout",
+    entry,
+    "id_ed25519",
+  ]);
+  if (!bytes.toString().includes("BEGIN ENCRYPTED PRIVATE KEY")) return bytes;
+  const passphrase = await databaseCommand(database, password, [
+    "show",
+    "--show-protected",
+    "--attributes",
+    "Password",
+    entry,
+  ]);
+  try {
+    return Buffer.from(
+      createPrivateKey({
+        key: bytes,
+        passphrase: passphrase.toString().trimEnd(),
+      }).export({ type: "pkcs8", format: "pem" }),
+    );
+  } finally {
+    bytes.fill(0);
+    passphrase.fill(0);
+  }
 }

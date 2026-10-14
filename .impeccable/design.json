@@ -1,0 +1,312 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-14T11:55:50.707878+00:00",
+  "title": "Design System: homectl",
+  "extensions": {
+    "colorMeta": {
+      "ground": {
+        "role": "neutral",
+        "displayName": "Ground",
+        "tonalRamp": [
+          "oklch(15% 0.02261 260.43)",
+          "oklch(26% 0.02261 260.43)",
+          "oklch(38% 0.02261 260.43)",
+          "oklch(49% 0.02261 260.43)",
+          "oklch(61% 0.02261 260.43)",
+          "oklch(72% 0.02261 260.43)",
+          "oklch(84% 0.02261 260.43)",
+          "oklch(95% 0.02261 260.43)"
+        ]
+      },
+      "rail": {
+        "role": "neutral",
+        "displayName": "Rail",
+        "tonalRamp": [
+          "oklch(15% 0.02688 258.30)",
+          "oklch(26% 0.02688 258.30)",
+          "oklch(38% 0.02688 258.30)",
+          "oklch(49% 0.02688 258.30)",
+          "oklch(61% 0.02688 258.30)",
+          "oklch(72% 0.02688 258.30)",
+          "oklch(84% 0.02688 258.30)",
+          "oklch(95% 0.02688 258.30)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "tonalRamp": [
+          "oklch(15% 0.03075 256.87)",
+          "oklch(26% 0.03075 256.87)",
+          "oklch(38% 0.03075 256.87)",
+          "oklch(49% 0.03075 256.87)",
+          "oklch(61% 0.03075 256.87)",
+          "oklch(72% 0.03075 256.87)",
+          "oklch(84% 0.03075 256.87)",
+          "oklch(95% 0.03075 256.87)"
+        ]
+      },
+      "raised": {
+        "role": "neutral",
+        "displayName": "Raised",
+        "tonalRamp": [
+          "oklch(15% 0.03653 255.42)",
+          "oklch(26% 0.03653 255.42)",
+          "oklch(38% 0.03653 255.42)",
+          "oklch(49% 0.03653 255.42)",
+          "oklch(61% 0.03653 255.42)",
+          "oklch(72% 0.03653 255.42)",
+          "oklch(84% 0.03653 255.42)",
+          "oklch(95% 0.03653 255.42)"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Rule",
+        "tonalRamp": [
+          "oklch(15% 0.04292 254.10)",
+          "oklch(26% 0.04292 254.10)",
+          "oklch(38% 0.04292 254.10)",
+          "oklch(49% 0.04292 254.10)",
+          "oklch(61% 0.04292 254.10)",
+          "oklch(72% 0.04292 254.10)",
+          "oklch(84% 0.04292 254.10)",
+          "oklch(95% 0.04292 254.10)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "tonalRamp": [
+          "oklch(15% 0.01541 257.20)",
+          "oklch(26% 0.01541 257.20)",
+          "oklch(38% 0.01541 257.20)",
+          "oklch(49% 0.01541 257.20)",
+          "oklch(61% 0.01541 257.20)",
+          "oklch(72% 0.01541 257.20)",
+          "oklch(84% 0.01541 257.20)",
+          "oklch(95% 0.01541 257.20)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "tonalRamp": [
+          "oklch(15% 0.03723 253.50)",
+          "oklch(26% 0.03723 253.50)",
+          "oklch(38% 0.03723 253.50)",
+          "oklch(49% 0.03723 253.50)",
+          "oklch(61% 0.03723 253.50)",
+          "oklch(72% 0.03723 253.50)",
+          "oklch(84% 0.03723 253.50)",
+          "oklch(95% 0.03723 253.50)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Accent",
+        "tonalRamp": [
+          "oklch(15% 0.14361 289.21)",
+          "oklch(26% 0.14361 289.21)",
+          "oklch(38% 0.14361 289.21)",
+          "oklch(49% 0.14361 289.21)",
+          "oklch(61% 0.14361 289.21)",
+          "oklch(72% 0.14361 289.21)",
+          "oklch(84% 0.14361 289.21)",
+          "oklch(95% 0.14361 289.21)"
+        ]
+      },
+      "accent-ink": {
+        "role": "primary",
+        "displayName": "Accent Ink",
+        "tonalRamp": [
+          "oklch(15% 0.05932 290.65)",
+          "oklch(26% 0.05932 290.65)",
+          "oklch(38% 0.05932 290.65)",
+          "oklch(49% 0.05932 290.65)",
+          "oklch(61% 0.05932 290.65)",
+          "oklch(72% 0.05932 290.65)",
+          "oklch(84% 0.05932 290.65)",
+          "oklch(95% 0.05932 290.65)"
+        ]
+      },
+      "success": {
+        "role": "secondary",
+        "displayName": "Success",
+        "tonalRamp": [
+          "oklch(15% 0.09226 168.06)",
+          "oklch(26% 0.09226 168.06)",
+          "oklch(38% 0.09226 168.06)",
+          "oklch(49% 0.09226 168.06)",
+          "oklch(61% 0.09226 168.06)",
+          "oklch(72% 0.09226 168.06)",
+          "oklch(84% 0.09226 168.06)",
+          "oklch(95% 0.09226 168.06)"
+        ]
+      },
+      "warning": {
+        "role": "secondary",
+        "displayName": "Warning",
+        "tonalRamp": [
+          "oklch(15% 0.09810 80.46)",
+          "oklch(26% 0.09810 80.46)",
+          "oklch(38% 0.09810 80.46)",
+          "oklch(49% 0.09810 80.46)",
+          "oklch(61% 0.09810 80.46)",
+          "oklch(72% 0.09810 80.46)",
+          "oklch(84% 0.09810 80.46)",
+          "oklch(95% 0.09810 80.46)"
+        ]
+      },
+      "danger": {
+        "role": "secondary",
+        "displayName": "Danger",
+        "tonalRamp": [
+          "oklch(15% 0.10305 18.05)",
+          "oklch(26% 0.10305 18.05)",
+          "oklch(38% 0.10305 18.05)",
+          "oklch(49% 0.10305 18.05)",
+          "oklch(61% 0.10305 18.05)",
+          "oklch(72% 0.10305 18.05)",
+          "oklch(84% 0.10305 18.05)",
+          "oklch(95% 0.10305 18.05)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Page Heading",
+        "purpose": "Operational page titles."
+      },
+      "body": {
+        "displayName": "Application Body",
+        "purpose": "Readable platform-native operational copy."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "button-background",
+        "value": "120ms ease-out",
+        "purpose": "Button hover feedback; disabled under reduced motion."
+      },
+      {
+        "name": "conflict-resolution",
+        "value": "220ms cubic-bezier(.16,1,.3,1)",
+        "purpose": "Retained conflict feedback; disabled under reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-desktop",
+        "value": "1000px"
+      },
+      {
+        "name": "narrow",
+        "value": "700px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Operational action with keyboard focus.",
+      "html": "<button class=\"ds-button-primary\">Review changes</button>",
+      "css": ".ds-button-primary{font:600 14px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;border:1px solid transparent;border-radius:var(--radius,8px);min-height:38px;padding:8px 14px;cursor:pointer;transition:background-color 120ms ease-out;background:var(--accent,#a99aff);color:var(--accent-ink,#181130);}.ds-button-primary:hover{background:#c1b5ff}.ds-button-primary:focus-visible{outline:2px solid var(--accent,#a99aff);outline-offset:4px}.ds-button-primary:disabled{opacity:.55;cursor:wait}@media(prefers-reduced-motion:reduce){.ds-button-primary{transition:none}}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Operational action with keyboard focus.",
+      "html": "<button class=\"ds-button-secondary\">Review changes</button>",
+      "css": ".ds-button-secondary{font:600 14px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;border:1px solid transparent;border-radius:var(--radius,8px);min-height:38px;padding:8px 14px;cursor:pointer;transition:background-color 120ms ease-out;background:var(--raised,#1b2839);color:var(--ink,#e9f0fa);border-color:var(--rule,#2c3d52);}.ds-button-secondary:hover{background:#26374b}.ds-button-secondary:focus-visible{outline:2px solid var(--accent,#a99aff);outline-offset:4px}.ds-button-secondary:disabled{opacity:.55;cursor:wait}@media(prefers-reduced-motion:reduce){.ds-button-secondary{transition:none}}"
+    },
+    {
+      "name": "Quiet Button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "Operational action with keyboard focus.",
+      "html": "<button class=\"ds-button-quiet\">Review changes</button>",
+      "css": ".ds-button-quiet{font:600 14px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;border:1px solid transparent;border-radius:var(--radius,8px);min-height:38px;padding:8px 14px;cursor:pointer;transition:background-color 120ms ease-out;background:transparent;color:var(--muted,#a7b9cf);}.ds-button-quiet:hover{background:#26374b}.ds-button-quiet:focus-visible{outline:2px solid var(--accent,#a99aff);outline-offset:4px}.ds-button-quiet:disabled{opacity:.55;cursor:wait}@media(prefers-reduced-motion:reduce){.ds-button-quiet{transition:none}}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "description": "Visible label and dark input surface.",
+      "html": "<label class=\"ds-label\" for=\"ds-name\">Device name</label><input class=\"ds-input\" id=\"ds-name\" placeholder=\"Office computer\">",
+      "css": ".ds-label{display:block;color:var(--muted,#a7b9cf);font:13px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;margin-bottom:7px}.ds-input{width:100%;font:14px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;background:#101925;color:var(--ink,#e9f0fa);border:1px solid #3a4c63;border-radius:7px;padding:9px 12px;caret-color:var(--accent,#a99aff)}.ds-input::placeholder{color:#a1b2c8}.ds-input:focus-visible{outline:2px solid var(--accent,#a99aff);outline-offset:4px}"
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "description": "Current page is violet; other links remain muted.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Main navigation\"><a href=\"#machines\" aria-current=\"page\">Machines</a><a href=\"#peers\">Devices</a></nav>",
+      "css": ".ds-nav{display:grid;gap:6px;font:14px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;background:var(--rail,#101824);padding:16px}.ds-nav a{display:flex;text-decoration:none;padding:10px 13px;border-radius:7px;font-weight:550;color:var(--muted,#a7b9cf)}.ds-nav a:hover{background:var(--raised,#1b2839)}.ds-nav a[aria-current=page]{background:#2b2545;color:#d6ccff}.ds-nav a:focus-visible{outline:2px solid var(--accent,#a99aff);outline-offset:4px}"
+    },
+    {
+      "name": "Success Badge",
+      "kind": "chip",
+      "description": "Labelled success state.",
+      "html": "<span class=\"ds-badge\">Unlocked</span>",
+      "css": ".ds-badge{display:inline-flex;align-items:center;gap:6px;font:550 12px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;border:1px solid #2a5044;padding:3px 9px;border-radius:6px;background:#17382f;color:var(--success,#87d9ba);white-space:nowrap}"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Flat tonal task container.",
+      "html": "<section class=\"ds-panel\"><h2>Paired devices</h2><p>Review trusted devices and their permissions.</p></section>",
+      "css": ".ds-panel{font:14px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;color:var(--ink,#e9f0fa);background:var(--surface,#151f2d);border:1px solid var(--rule,#2c3d52);border-radius:10px;padding:24px}.ds-panel h2{font-size:20px;font-weight:620;letter-spacing:-.015em;margin:0 0 12px}.ds-panel p{color:var(--muted,#a7b9cf);margin:8px 0 16px;max-width:72ch}"
+    },
+    {
+      "name": "Version Container",
+      "kind": "custom",
+      "description": "Matching container for either side of a conflict.",
+      "html": "<section class=\"ds-version\"><h3>Local version</h3><pre>{ \"name\": \"Office computer\" }</pre></section>",
+      "css": ".ds-version{font:14px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;color:var(--ink,#e9f0fa);padding:18px;background:#111b29;border:1px solid var(--rule,#2c3d52);border-radius:8px}.ds-version h3{font-size:15px;margin:0 0 8px}.ds-version pre{font:12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Peer Workspace",
+    "overview": "A modern dark application workspace for operating machines and trusted peers. Blue-black framing, slate work surfaces and crisp platform typography keep attention on named targets, trust and explicit choices. All interface copy is English.\n\nThe user-pinned replacement direction supersedes the rejected initial sketches. System typography follows native application conventions; this is an operational interface rather than a promotional surface.",
+    "keyCharacteristics": [
+      "Blue-black shell and slate work surfaces.",
+      "Violet actions and selection; mint success and amber attention.",
+      "Compact, readable platform typography with clear keyboard focus.",
+      "Equal-weight conflict comparison with an explicit retained result."
+    ],
+    "rules": [
+      {
+        "name": "The Semantic Accent Rule",
+        "body": "Violet identifies actions and selection; mint, amber and rose identify success, attention and errors alongside readable labels.",
+        "section": "colors"
+      },
+      {
+        "name": "The Platform Type Rule",
+        "body": "Use the system sans-serif stack for the application hierarchy and monospace for technical values; keep interface copy English.",
+        "section": "typography"
+      },
+      {
+        "name": "The Equal Peers Rule",
+        "body": "Local and received versions receive matching containers before a choice is made.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "Do keep all interface copy English.",
+      "Do identify the target and execution device alongside operations.",
+      "Do retain equal visual weight for local and received conflict versions.",
+      "Do show text labels with semantic status colors.",
+      "Do preserve keyboard focus and reduced-motion behavior."
+    ],
+    "donts": [
+      "Don't revive the rejected initial admin-panel sketches.",
+      "Don't replace platform typography with promotional display assets.",
+      "Don't use color alone to convey trust, errors or selected versions.",
+      "Don't turn the application into a decorative metrics dashboard."
+    ]
+  }
+}

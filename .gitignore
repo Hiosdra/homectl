@@ -11,3 +11,16 @@ state/
 *.session/
 public-keys/
 *.before-keepassxc-*
+
+.worktrees/
+.fixtures/
+peers.json
+known_hosts
+*.before-sync-*
+.impeccable/config.local.json
+.impeccable/mocks/
+.impeccable/review/
+.impeccable/choice.json
+.impeccable/panel-brief.md
+
+.impeccable/questions/

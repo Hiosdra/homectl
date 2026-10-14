@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { windows } from "../platform";
 import { HomectlError, type Inventory } from "../types";
 
 export function ttlSeconds(ttl: string): number | null {
@@ -12,17 +15,24 @@ export function ttlSeconds(ttl: string): number | null {
 }
 
 export function sessionPaths(inventoryPath: string) {
-  const directory = `${resolve(inventoryPath)}.session`;
-  const socket = join(directory, "agent.sock");
-  if (Buffer.byteLength(socket) >= 100)
-    throw new HomectlError(
-      2,
-      "Inventory path is too long for an SSH agent socket",
-    );
+  const hash = createHash("sha256")
+    .update(resolve(inventoryPath))
+    .digest("hex")
+    .slice(0, 32);
+  const fullDirectory = `${resolve(inventoryPath)}.session`;
+  const directory =
+    !windows && Buffer.byteLength(join(fullDirectory, "agent.sock")) >= 100
+      ? join(
+          tmpdir(),
+          `homectl-${process.getuid?.() ?? "user"}-${hash}.session`,
+        )
+      : fullDirectory;
+  const pipe = String.raw`\\.\pipe\homectl-${hash}`;
+  const socket = windows ? `${pipe}-agent` : join(directory, "agent.sock");
   return {
     directory,
     socket,
-    control: join(directory, "control.sock"),
+    control: windows ? `${pipe}-control` : join(directory, "control.sock"),
     keys: join(dirname(inventoryPath), "public-keys"),
   };
 }

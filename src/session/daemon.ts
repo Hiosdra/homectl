@@ -1,6 +1,8 @@
-import { chmod, lstat, mkdir, unlink } from "node:fs/promises";
+import { lstat, unlink } from "node:fs/promises";
 import { createServer } from "node:net";
 import { cleanEnv } from "../credentials";
+import { privateDirectory, windows } from "../platform";
+import { createDedicatedAgent } from "./agent";
 
 // This process holds no database password. Only OpenSSH holds loaded keys.
 const config = JSON.parse(await Bun.stdin.text()) as {
@@ -9,19 +11,21 @@ const config = JSON.parse(await Bun.stdin.text()) as {
   control: string;
   ttl: number | null;
 };
-await mkdir(config.directory, { recursive: true, mode: 0o700 });
-const directory = await lstat(config.directory);
-if (!directory.isDirectory() || directory.uid !== process.getuid?.())
-  process.exit(5);
-await chmod(config.directory, 0o700);
+await privateDirectory(config.directory);
 const startedAt = Date.now();
 const expiresAt = config.ttl === null ? null : startedAt + config.ttl * 1000;
-const agent = Bun.spawn(["ssh-agent", "-D", "-a", config.socket], {
-  env: cleanEnv(),
-  stdin: "ignore",
-  stdout: "ignore",
-  stderr: "ignore",
-});
+const native = windows
+  ? createDedicatedAgent(config.socket, expiresAt)
+  : undefined;
+if (native) await native.listen();
+const agent = windows
+  ? undefined
+  : Bun.spawn(["ssh-agent", "-D", "-a", config.socket], {
+      env: cleanEnv(),
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+    });
 let stopping = false;
 let expiry: ReturnType<typeof setTimeout> | undefined;
 const server = createServer((connection) => {
@@ -46,9 +50,10 @@ async function stop() {
   stopping = true;
   clearTimeout(expiry);
   server.close();
-  agent.kill("SIGTERM");
-  await agent.exited;
-  for (const path of [config.socket, config.control]) {
+  native?.close();
+  agent?.kill("SIGTERM");
+  if (agent) await agent.exited;
+  for (const path of windows ? [] : [config.socket, config.control]) {
     try {
       await unlink(path);
     } catch {}
@@ -57,8 +62,8 @@ async function stop() {
 }
 process.on("SIGTERM", () => void stop());
 process.on("SIGINT", () => void stop());
-for (let attempt = 0; attempt < 100; attempt++) {
-  if (agent.exitCode !== null) process.exit(5);
+for (let attempt = 0; !windows && attempt < 100; attempt++) {
+  if (agent?.exitCode !== null) process.exit(5);
   try {
     if ((await lstat(config.socket)).isSocket()) break;
   } catch {}
@@ -82,4 +87,4 @@ server.listen(config.control, () => {
   console.log(JSON.stringify({ unlocked: true, startedAt, expiresAt }));
 });
 server.on("error", () => void stop());
-void agent.exited.then(() => stop());
+void agent?.exited.then(() => stop());

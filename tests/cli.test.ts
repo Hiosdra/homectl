@@ -199,3 +199,26 @@ test("unknown flags cannot silently change CLI behavior", async () => {
   const r = await invoke(["hosts", "--yes", "--inventory", await fixture()]);
   expect(r.code).toBe(2);
 });
+
+test("peer and pairing dry runs never contact serve or read launch tokens", async () => {
+  for (const args of [
+    ["pair", "open"],
+    ["sync", "apply", "synthetic-preview", "--file", "/does-not-exist"],
+    ["peer", "synthetic-peer", "--target", "nas", "--", "uname", "-s"],
+    ["panel"],
+  ]) {
+    const split = args.indexOf("--");
+    const cliArgs =
+      split < 0
+        ? [...args, "--dry-run", "--json"]
+        : [
+            ...args.slice(0, split),
+            "--dry-run",
+            "--json",
+            ...args.slice(split),
+          ];
+    const result = await invoke(cliArgs);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout).credentialAccess).toBe(false);
+  }
+});

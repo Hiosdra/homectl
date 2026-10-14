@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { credentialSpec } from "./credentials";
 import { probeFailureMessage } from "./diagnostics";
 import { checkApproval, planExecution } from "./policies";
@@ -49,5 +49,9 @@ export async function writeSSHConfig(
   machines: Record<string, Machine>,
 ) {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await writeFile(path, sshConfig(machines), { mode: 0o600 });
+  await writeFile(
+    path,
+    sshConfig(machines, join(dirname(path), "known_hosts")),
+    { mode: 0o600 },
+  );
 }

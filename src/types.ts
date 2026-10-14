@@ -1,6 +1,7 @@
 export type Access = "observe" | "user" | "sudo-approved" | "full";
 export type Auth = {
   type: "keepassxc";
+  inventory?: string;
   socket: string;
   entry: string;
   public_key: string;

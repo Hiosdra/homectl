@@ -1,5 +1,6 @@
 import {
   access,
+  cp,
   lstat,
   mkdir,
   readFile,
@@ -11,6 +12,12 @@ import { dirname, join, resolve } from "node:path";
 import { probeFailureMessage } from "./diagnostics";
 import { saveInventory } from "./inventory";
 import { writeSSHConfig } from "./operations";
+import {
+  executable,
+  privateDirectory,
+  available as toolAvailable,
+  windows,
+} from "./platform";
 import { run } from "./process";
 import { sessionConfig } from "./session/config";
 import {
@@ -43,7 +50,7 @@ async function link(source: string, target: string) {
   try {
     const stat = await lstat(target);
     if (
-      stat.isSymbolicLink() &&
+      (stat.isSymbolicLink() || (windows && stat.isDirectory())) &&
       (await Bun.file(join(target, "SKILL.md")).exists()) &&
       (await Bun.file(join(source, "SKILL.md")).text()) ===
         (await Bun.file(join(target, "SKILL.md")).text())
@@ -57,7 +64,13 @@ async function link(source: string, target: string) {
     if (e instanceof HomectlError) throw e;
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
   }
-  await symlink(source, target);
+  if (windows)
+    await cp(source, target, {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+    });
+  else await symlink(source, target);
 }
 export async function setup(home = homedir(), dryRun = false) {
   const p = paths(home);
@@ -87,6 +100,7 @@ export async function setup(home = homedir(), dryRun = false) {
     `Link 3 skills in ~/.agents/skills and ~/.claude/skills`,
   ];
   if (dryRun) return { actions };
+  await privateDirectory(p.base);
   if (!(await exists(p.inventory))) await saveInventory(p.inventory, initial);
   const inventory = await (await import("./inventory")).loadInventory(
     p.inventory,
@@ -99,17 +113,34 @@ export async function setup(home = homedir(), dryRun = false) {
       await link(join(repoRoot, "skills", skill), join(dest, skill));
   }
   await mkdir(p.bin, { recursive: true, mode: 0o700 });
-  const cli = join(p.bin, "homectl");
-  const script = `#!/bin/sh\nexec '${process.execPath.replaceAll("'", "'\\''")}' '${join(repoRoot, "src", "cli", "main.ts").replaceAll("'", "'\\''")}' "$@"\n`;
-  if ((await exists(cli)) && (await readFile(cli, "utf8")) !== script)
+  const entry = join(repoRoot, "src", "cli", "main.ts");
+  const quote = (v: string) => `'${v.replaceAll("'", "'\\''")}'`;
+  const launchers: Record<string, string> = windows
+    ? {
+        "homectl.cmd": `@echo off\r\n"${process.execPath}" "${entry}" %*\r\n`,
+        "homectl.ps1": `& '${process.execPath.replaceAll("'", "''")}' '${entry.replaceAll("'", "''")}' @args\nexit $LASTEXITCODE\n`,
+        homectl: `#!/bin/sh\nexec "$(cygpath -u ${quote(process.execPath)})" ${quote(entry.replaceAll("\\", "/"))} "$@"\n`,
+      }
+    : {
+        homectl: `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(entry)} "$@"\n`,
+      };
+  if (windows && /[%!\r\n]/.test(process.execPath + entry))
     throw new HomectlError(
-      3,
-      "Existing homectl launcher differs; refuse to overwrite",
+      2,
+      "Windows launcher paths cannot contain percent, exclamation or newlines",
     );
-  await writeFile(cli, script, { mode: 0o755 });
+  for (const [name, script] of Object.entries(launchers)) {
+    const cli = join(p.bin, name);
+    if ((await exists(cli)) && (await readFile(cli, "utf8")) !== script)
+      throw new HomectlError(
+        3,
+        "Existing homectl launcher differs; refuse to overwrite",
+      );
+    await writeFile(cli, script, { mode: 0o755 });
+  }
   const sshMain = join(home, ".ssh", "config");
   await mkdir(dirname(sshMain), { recursive: true, mode: 0o700 });
-  const include = `Include "${p.ssh.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+  const include = `Include "${(windows ? p.ssh.replaceAll("\\", "/") : p.ssh.replaceAll("\\", "\\\\")).replaceAll('"', '\\"')}"`;
   const old = (await exists(sshMain)) ? await readFile(sshMain, "utf8") : "";
   if (!old.split("\n").includes(include))
     await writeFile(sshMain, `${include}\n${old}`, { mode: 0o600 });
@@ -133,11 +164,13 @@ export async function doctor(
   const required = new Set([
     "ssh",
     "bun",
-    ...(usesKeepass ? ["ssh-agent", "ssh-add", "keepassxc-cli"] : []),
+    ...(usesKeepass
+      ? [...(windows ? [] : ["ssh-agent"]), "ssh-add", "keepassxc-cli"]
+      : []),
   ]);
   for (const tool of required) {
     if (["ssh-agent", "ssh-add", "keepassxc-cli"].includes(tool)) {
-      const available = Boolean(Bun.which(tool));
+      const available = toolAvailable(tool);
       checks.push({
         name: tool,
         ok: available,
@@ -151,7 +184,7 @@ export async function doctor(
     }
     try {
       const r = await runner({
-        argv: [tool, tool === "ssh" ? "-V" : "--version"],
+        argv: [executable(tool), tool === "ssh" ? "-V" : "--version"],
         timeoutMs: 10_000,
       });
       checks.push({

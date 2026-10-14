@@ -17,3 +17,27 @@ jobs:
       - run: bun run typecheck
       - run: bun run lint
       - run: bun test
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:ui
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: choco install keepassxc --yes --no-progress
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun test tests/platform.test.ts tests/peer.test.ts
+      - name: PowerShell CLI smoke
+        shell: pwsh
+        run: bun src/cli/main.ts help
+      - name: CMD CLI smoke
+        shell: cmd
+        run: bun src/cli/main.ts help
+      - name: Git Bash CLI smoke
+        shell: bash
+        run: bun src/cli/main.ts help

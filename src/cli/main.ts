@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { credentialSpec } from "../credentials";
 import { enroll, installSudo } from "../enroll";
 import { loadInventory, resolveHost, saveInventory } from "../inventory";
 import { execute, workerPath, writeSSHConfig } from "../operations";
+import { windows } from "../platform";
 import { checkApproval, planExecution } from "../policies";
 import { run } from "../process";
 import { type ProvisionRequest, planProvision, proxmox } from "../provisioners";
@@ -13,6 +14,7 @@ import { proxmoxSSH } from "../provisioners/ssh";
 import {
   lockSession,
   privateCommand,
+  readPassword,
   sessionConfig,
   sessionStatus,
   ttlSeconds,
@@ -37,6 +39,13 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       allowPositionals: true,
       strict: true,
       options: {
+        port: { type: "string" },
+        "peer-port": { type: "string" },
+        interface: { type: "string" },
+        "no-discovery": { type: "boolean" },
+        wrapper: { type: "string" },
+        address: { type: "string" },
+        target: { type: "string" },
         json: { type: "boolean" },
         "dry-run": { type: "boolean" },
         inventory: { type: "string" },
@@ -93,6 +102,267 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         );
       const result = await setup(p.home, dryRun);
       emit(result);
+      return 0;
+    }
+    if (["peers", "pair", "sync", "peer"].includes(command ?? "")) {
+      const expected = command === "sync" ? 3 : command === "peers" ? 1 : 2;
+      if (
+        positionals.length > expected ||
+        (command !== "peer" && commandArgs.length)
+      )
+        throw new HomectlError(2, "Unexpected arguments");
+      if (dryRun) {
+        emit({
+          command,
+          action: host,
+          id: keyName,
+          target: v.target,
+          argv: commandArgs,
+          credentialAccess: false,
+          network: false,
+        });
+        return 0;
+      }
+      if (
+        command === "pair" &&
+        !["open", "join", "confirm", "status", "poll", "cancel"].includes(
+          host ?? "",
+        )
+      )
+        throw new HomectlError(
+          2,
+          "Use pair open, join, confirm, status, poll or cancel",
+        );
+      const { localApi } = await import("../peer/local-api");
+      if (command === "peers") {
+        const state = await localApi<{ peers: unknown }>(
+          inventoryPath,
+          "/api/state",
+        );
+        emit(state.peers);
+        return 0;
+      }
+      if (command === "pair") {
+        if (
+          ["open", "join", "confirm"].includes(host ?? "") &&
+          !process.stdin.isTTY
+        )
+          throw new HomectlError(
+            5,
+            "Run pairing yourself in a private interactive terminal",
+          );
+        if (host === "open") {
+          const result = await localApi<{ pair: unknown }>(
+            inventoryPath,
+            "/api/pair/open",
+            {},
+          );
+          emit(result.pair);
+          return 0;
+        }
+        if (host === "join") {
+          if (!v.address)
+            throw new HomectlError(
+              2,
+              "Use pair join --address with the other device's LAN IP",
+            );
+          const code = await readPassword("One-time pairing code: ");
+          const result = await localApi<{ pair: unknown }>(
+            inventoryPath,
+            "/api/pair/join",
+            { address: v.address, code },
+          );
+          emit(result.pair);
+          return 0;
+        }
+        if (host === "confirm") {
+          const state = await localApi<{ pair: { sas?: string } }>(
+            inventoryPath,
+            "/api/state",
+          );
+          if (!state.pair?.sas)
+            throw new HomectlError(
+              3,
+              "No verified pairing awaiting confirmation",
+            );
+          console.log("Compare on both devices:", state.pair.sas);
+          if (
+            (await readPassword(
+              "Type the matching phrase from both devices: ",
+            )) !== state.pair.sas
+          )
+            throw new HomectlError(3, "Verification phrase does not match");
+          const result = await localApi<{ pair: unknown }>(
+            inventoryPath,
+            "/api/pair/confirm",
+            {
+              permissions: {
+                sync: true,
+                diagnostics: false,
+                operations: [],
+                administer: false,
+              },
+            },
+          );
+          emit(result.pair);
+          return 0;
+        }
+        if (host === "cancel") {
+          emit(await localApi(inventoryPath, "/api/pair/cancel", {}));
+          return 0;
+        }
+        const state = await localApi<{ pair: Record<string, unknown> | null }>(
+          inventoryPath,
+          host === "status" ? "/api/state" : "/api/pair/poll",
+          host === "status" ? undefined : {},
+        );
+        if (state.pair) {
+          const safe = { ...state.pair };
+          delete safe.code;
+          emit(safe);
+        } else emit({ pairing: false });
+        return 0;
+      }
+      if (command === "sync") {
+        if (!keyName)
+          throw new HomectlError(
+            2,
+            "Use sync preview <peer-id>, apply <preview-id> --file choices.json, or cancel <preview-id>",
+          );
+        if (host === "preview") {
+          emit(
+            await localApi(inventoryPath, "/api/sync/start", { id: keyName }),
+          );
+          return 0;
+        }
+        if (host === "apply") {
+          if (!v.file)
+            throw new HomectlError(
+              4,
+              "Review the preview, then provide explicit choices with --file (use {} when there are no conflicts)",
+            );
+          const choices = JSON.parse(await readFile(resolve(v.file), "utf8"));
+          emit(
+            await localApi(inventoryPath, "/api/sync/apply", {
+              id: keyName,
+              choices,
+            }),
+          );
+          return 0;
+        }
+        if (host === "cancel") {
+          emit(
+            await localApi(inventoryPath, "/api/sync/cancel", { id: keyName }),
+          );
+          return 0;
+        }
+        throw new HomectlError(2, "Unknown sync action");
+      }
+      if (command === "peer") {
+        if (!host || !v.target || !commandArgs.length)
+          throw new HomectlError(
+            2,
+            "Use peer <id> --target <host> -- <argv...>",
+          );
+        emit(
+          await localApi(inventoryPath, "/api/peer/request", {
+            id: host,
+            action: "exec",
+            payload: {
+              host: v.target,
+              argv: commandArgs,
+              dryRun,
+              impact: v.impact,
+            },
+          }),
+        );
+        return 0;
+      }
+    }
+    if (command === "service") {
+      emit(
+        await (await import("../service")).service(host ?? "status", {
+          inventory: inventoryPath,
+          interface: v.interface,
+          wrapper: v.wrapper,
+          dryRun,
+        }),
+      );
+      return 0;
+    }
+    if (command === "panel") {
+      if (dryRun) {
+        emit({ wouldOpenLocalPanel: true, credentialAccess: false });
+        return 0;
+      }
+
+      if (!process.stdin.isTTY)
+        throw new HomectlError(
+          5,
+          "Run homectl panel yourself in a private terminal; the launch address contains a local access token",
+        );
+      const launch = JSON.parse(
+        await readFile(
+          join(
+            (await import("node:path")).dirname(inventoryPath),
+            "serve",
+            "panel.json",
+          ),
+          "utf8",
+        ),
+      ) as { url: string; token: string };
+      const url = `${launch.url}/#token=${encodeURIComponent(launch.token)}`;
+      // Open only on direct private invocation; never return the token in JSON.
+      if (v.json)
+        throw new HomectlError(
+          3,
+          "Panel launch tokens cannot be emitted as JSON",
+        );
+      console.log("Opening the local homectl panel.");
+      const child = Bun.spawn(
+        windows
+          ? ["rundll32.exe", "url.dll,FileProtocolHandler", url]
+          : [process.platform === "darwin" ? "open" : "xdg-open", url],
+        { stdout: "ignore", stderr: "ignore" },
+      );
+      if (await child.exited) console.log("Open this address privately:", url);
+      return 0;
+    }
+    if (command === "serve") {
+      const port = (value: string | undefined, fallback: number) => {
+        const n = value === undefined ? fallback : Number(value);
+        if (!Number.isInteger(n) || n < 0 || n > 65535)
+          throw new HomectlError(2, "Port must be 0 through 65535");
+        return n;
+      };
+      if (dryRun) {
+        emit({
+          wouldServe: true,
+          inventory: inventoryPath,
+          panel: "127.0.0.1",
+          interface: v.interface ?? "127.0.0.1",
+          credentialAccess: false,
+        });
+        return 0;
+      }
+      const running = await (await import("../serve")).serve({
+        inventoryPath,
+        configPath,
+        port: port(v.port, 7447),
+        peerPort: port(v["peer-port"], 7448),
+        interface: v.interface,
+        discover: !v["no-discovery"],
+      });
+      emit({
+        panel: running.url,
+        peers: running.address,
+        next: "Run homectl panel in your private terminal. New pairing is closed until opened in the panel.",
+      });
+      await new Promise<void>((done) => {
+        const stop = () => void running.stop().finally(done);
+        process.once("SIGINT", stop);
+        process.once("SIGTERM", stop);
+      });
       return 0;
     }
     const inv = await loadInventory(inventoryPath);

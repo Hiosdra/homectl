@@ -19,7 +19,34 @@ const pages: Record<string, Page> = {
         title: "Get started",
         rows: [
           ["setup", "Install the CLI links, skills and SSH configuration."],
+          [
+            "serve",
+            "Run the local panel, LAN pairing and peer synchronization.",
+          ],
+          [
+            "panel",
+            "Open the panel privately without exposing its access token.",
+          ],
+          ["service <action>", "Install or manage persistent serve execution."],
           ["doctor [host]", "Check tools and, optionally, host access."],
+        ],
+      },
+      {
+        title: "Peer workspace",
+        rows: [
+          ["peers", "List paired devices without secrets."],
+          [
+            "pair <action>",
+            "Pair privately with a code and confirmation on both devices.",
+          ],
+          [
+            "sync <action> <id>",
+            "Preview, resolve and apply bidirectional changes.",
+          ],
+          [
+            "peer <id> --target HOST",
+            "Run an operation through a granted peer.",
+          ],
         ],
       },
       {
@@ -128,7 +155,7 @@ const pages: Record<string, Page> = {
         rows: [
           [
             "create <name>",
-            "Privately create or reuse a KDBX key and load it into the managed agent. Requires Linux tmpfs.",
+            "Privately create or reuse a KDBX key and load it into the managed agent. Uses encrypted staging on all platforms.",
           ],
           [
             "inspect <name>",
@@ -276,6 +303,90 @@ for (const [name, usage, description] of [
     ],
   };
 }
+pages.serve = {
+  usage: "homectl serve [--interface LAN-IP] [--port 7447] [--peer-port 7448]",
+  intro:
+    "Panel binds only localhost. Pairing is opened explicitly. LAN channel requires an explicit interface IP.",
+  sections: [
+    {
+      title: "Options",
+      rows: [
+        ["--interface IP", "One LAN interface address; no wildcard binding."],
+        ["--port PORT", "Local panel port, default 7447."],
+        ["--peer-port PORT", "Peer protocol port, default 7448."],
+        [
+          "--no-discovery",
+          "Disable multicast discovery; use manual IP pairing.",
+        ],
+      ],
+    },
+    globalOptions,
+  ],
+};
+pages.service = {
+  usage: "homectl service <install|start|stop|restart|status|logs|uninstall>",
+  intro:
+    "Linux/WSL use a systemd user service. Windows uses an official WinSW host with an explicitly configured user account.",
+  sections: [
+    {
+      title: "Install",
+      rows: [
+        ["--interface IP", "Persist the LAN interface for serve."],
+        ["--wrapper PATH", "Windows: path to an official WinSW executable."],
+      ],
+    },
+    globalOptions,
+  ],
+};
+pages.panel = {
+  usage: "homectl panel [--inventory PATH]",
+  intro:
+    "Run yourself in a private terminal. Opens the local panel using its private launch token; never run through an agent.",
+  sections: [globalOptions],
+};
+pages.peers = {
+  usage: "homectl peers [--json]",
+  intro:
+    "List paired peers from the running local serve instance, without secrets.",
+  sections: [globalOptions],
+};
+pages.pair = {
+  usage: "homectl pair <open|join|confirm|status|poll|cancel>",
+  intro:
+    "Open, join and confirm yourself in a private terminal. Codes and verification phrases are read interactively, never from argv.",
+  sections: [
+    {
+      title: "Join",
+      rows: [
+        ["--address URL", "Direct LAN endpoint, e.g. http://192.168.1.10:7448"],
+      ],
+    },
+    globalOptions,
+  ],
+};
+pages.sync = {
+  usage: "homectl sync <preview|apply|cancel> <peer-or-preview-id>",
+  intro:
+    "Preview before applying. Choose local, remote or both for each conflict ID in a choices JSON object.",
+  sections: [
+    {
+      title: "Apply",
+      rows: [
+        [
+          "--file PATH",
+          "Reviewed choices object. Use {} when no conflicts exist.",
+        ],
+      ],
+    },
+    globalOptions,
+  ],
+};
+pages.peer = {
+  usage: "homectl peer <peer-id> --target <host> -- <argv...>",
+  intro:
+    "Uses the peer's grants and host policy. Mutations wait for local approval on the execution peer.",
+  sections: [globalOptions],
+};
 pages.ssh = {
   ...(pages.exec as Page),
   usage: "homectl ssh <host> [options] -- <command> [args...]",

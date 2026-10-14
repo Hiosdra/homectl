@@ -1,17 +1,29 @@
 // Managed SSH boundary: checks session expiry; never opens the password database.
+import { executable } from "../platform";
 import { run } from "../process";
 import { sessionStatus } from "../session";
+import { sessionPaths } from "../session/config";
 import { HomectlError, type ProcessSpec } from "../types";
 
 try {
-  const spec = JSON.parse(await Bun.stdin.text()) as ProcessSpec;
+  const spec = JSON.parse(await Bun.stdin.text()) as ProcessSpec & {
+    managedInventory?: string;
+  };
   const socket = spec.env?.SSH_AUTH_SOCK;
-  if (spec.argv[0] !== "ssh" || !socket?.endsWith(".session/agent.sock"))
+  const inventoryPath =
+    spec.managedInventory ??
+    (socket?.endsWith(".session/agent.sock")
+      ? socket.slice(0, -".session/agent.sock".length)
+      : "");
+  if (
+    spec.argv[0] !== executable("ssh") ||
+    !inventoryPath ||
+    socket !== sessionPaths(inventoryPath).socket
+  )
     throw new HomectlError(
       2,
-      "Managed key worker only supports OpenSSH with the dedicated session socket",
+      "Managed worker only supports OpenSSH with the inventory's dedicated SSH agent",
     );
-  const inventoryPath = socket.slice(0, -".session/agent.sock".length);
   if (!(await sessionStatus(inventoryPath)).unlocked)
     throw new HomectlError(
       5,

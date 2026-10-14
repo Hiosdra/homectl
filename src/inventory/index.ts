@@ -1,8 +1,9 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import Ajv from "ajv";
 import { parse, stringify } from "yaml";
 import schema from "../../schema/inventory.schema.json";
+import { privateDirectory, protect } from "../platform";
 import { ttlSeconds } from "../session/config";
 import { HomectlError, type Inventory, type Machine } from "../types";
 
@@ -100,9 +101,10 @@ export async function loadInventory(path: string): Promise<Inventory> {
 export async function saveInventory(path: string, inventory: Inventory) {
   const text = stringify(inventory);
   parseInventory(text);
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await privateDirectory(dirname(path));
   const temp = `${path}.${crypto.randomUUID()}.tmp`;
   await writeFile(temp, text, { mode: 0o600, flag: "wx" });
+  await protect(temp);
   await rename(temp, path);
 }
 export function resolveHost(inventory: Inventory, name: string): Machine {

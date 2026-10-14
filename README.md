@@ -50,7 +50,7 @@ The default session lasts **24 hours**. Choose another TTL or `until-reboot`; lo
 
 ## Quick start
 
-Use a **Linux agent machine** with Bun 1.4.2+, OpenSSH, KeePassXC CLI, Bash and `/dev/shm` mounted as tmpfs. See [installation details](docs/user-guide.md#install) for package setup, and [manual macOS preparation](docs/user-guide.md#configuration-and-credential-storage) if needed.
+Use **Linux/WSL or native Windows** with Bun 1.4.2+, OpenSSH and KeePassXC. Linux private prompts use Bash; Windows preparation is covered in [Windows and WSL](docs/windows.md). See [installation details](docs/user-guide.md#install) for package setup, and [manual macOS preparation](docs/user-guide.md#configuration-and-credential-storage) if needed.
 
 ### 1. Install homectl
 
@@ -86,6 +86,18 @@ homectl doctor lab-printer
 ```
 
 Follow the [host setup walkthrough](docs/user-guide.md#add-an-existing-ssh-host) for public-key installation, sudo configuration and NAS specifics. Once enrolled, ask your agent to use homectl for that host.
+
+## Open your local workspace
+
+```sh
+homectl serve --interface YOUR_LAN_IP
+# In a separate private terminal:
+homectl panel
+```
+
+The English dark workspace manages machines, local access, paired devices and reviewed bidirectional sync. Pair with a one-time code and confirm the same phrase on both devices. Sync credentials into each computer's own encrypted vault, resolve conflicting versions, and grant remote operations separately. Mutations through a peer wait for approval on the execution device.
+
+Use `homectl service install --interface YOUR_LAN_IP` for persistent execution, then `homectl service start`. Native Windows requires a WinSW host and a configured user account. See the [workspace and sync guide](docs/peer-workspace.md) and [Windows/WSL setup](docs/windows.md).
 
 ## Set the access you want
 

@@ -51,7 +51,7 @@
         },
         "database": {
           "type": "string",
-          "pattern": "^/[^\\r\\n\\u0000]+\\.kdbx$"
+          "pattern": "^(?:/|[A-Za-z]:[\\\\/])[^\\r\\n\\u0000]+\\.kdbx$"
         }
       }
     }
@@ -67,7 +67,7 @@
         },
         "socket": {
           "type": "string",
-          "pattern": "^/[^\\r\\n\\u0000]+$"
+          "pattern": "^(?:/|[A-Za-z]:[\\\\/]|\\\\\\\\\\.\\\\pipe\\\\)[^\\r\\n\\u0000]+$"
         },
         "entry": {
           "type": "string",
@@ -75,7 +75,11 @@
         },
         "public_key": {
           "type": "string",
-          "pattern": "^/[^\\r\\n\\u0000]+\\.pub$"
+          "pattern": "^(?:/|[A-Za-z]:[\\\\/])[^\\r\\n\\u0000]+\\.pub$"
+        },
+        "inventory": {
+          "type": "string",
+          "pattern": "^(?:/|[A-Za-z]:[\\\\/])[^\\r\\n\\u0000]+$"
         }
       }
     },
