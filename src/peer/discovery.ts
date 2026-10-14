@@ -13,8 +13,12 @@ export function discovery(
   const instance = `${id}.${service}`;
   const host = `${id}.local`;
   const found = new Map<string, Discovered>();
-  const dns = mdns({ interface: interfaceIP });
+  const dns = mdns({ interface: interfaceIP, bind: "0.0.0.0" });
   let error: string | undefined;
+  dns.on("warning", () => {
+    error =
+      "LAN multicast unavailable; check the selected interface and firewall";
+  });
   dns.on("error", () => {
     error = "LAN discovery unavailable; use a manual IP address";
   });
@@ -76,11 +80,13 @@ export function discovery(
           });
       }
   });
-  const timer = setInterval(() => {
+  const probe = () => {
     for (const [k, v] of found) if (v.expiresAt < Date.now()) found.delete(k);
     dns.query(service, "PTR");
     if (advertise()) announce();
-  }, 5000);
+  };
+  dns.on("ready", probe);
+  const timer = setInterval(probe, 5000);
   timer.unref();
   return {
     list: () => ({ localId: id, devices: [...found.values()], error }),

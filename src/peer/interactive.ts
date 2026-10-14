@@ -130,9 +130,18 @@ export async function interactivePair(
       "Pairing mode enabled for five minutes. Run homectl pair on the other device.\nSearching the LAN… Discovery is untrusted until code and phrase verification.",
     );
     let selected: Discovered | undefined;
+    let warned = false;
     while (!selected) {
       current = await state();
       if (current.pair?.sas) break; // Another device already joined this invitation.
+      if (current.discovery.error)
+        throw new HomectlError(5, current.discovery.error);
+      if (!warned && Date.now() > deadline - 285_000) {
+        warned = true;
+        console.log(
+          "No devices found yet. Check that both computers share this LAN and allow Bun through the private-network firewall (UDP 5353 and TCP 7448). Multicast may be blocked by Wi-Fi isolation or VLANs.",
+        );
+      }
       const devices = current.discovery.devices;
       if (devices.length === 1) selected = devices[0];
       else if (devices.length > 1) {
