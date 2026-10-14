@@ -186,7 +186,7 @@ export async function readPassword(
           "powershell.exe",
           "-NoProfile",
           "-Command",
-          "$p=Read-Host -Prompt 'Private password' -AsSecureString; $b=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($p); try {[Console]::Out.Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($b))} finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b)}",
+          "$p=Read-Host -Prompt $env:HOMECTL_PROMPT -AsSecureString; $b=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($p); try {[Console]::Out.Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($b))} finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b)}",
         ]
       : [
           "bash",
@@ -195,7 +195,12 @@ export async function readPassword(
           "homectl-password",
           prompt,
         ],
-    { env: cleanEnv(), stdin: "inherit", stdout: "pipe", stderr: "inherit" },
+    {
+      env: { ...cleanEnv(), HOMECTL_PROMPT: prompt },
+      stdin: "inherit",
+      stdout: "pipe",
+      stderr: "inherit",
+    },
   );
   const result = await new Response(child.stdout).text();
   if (

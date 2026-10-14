@@ -1,4 +1,5 @@
 import { networkInterfaces } from "node:os";
+import { createInterface } from "node:readline/promises";
 import { readPassword } from "../session";
 import { HomectlError } from "../types";
 import type { Discovered } from "./discovery";
@@ -62,6 +63,23 @@ export async function interactivePair(
       );
   };
   const deadline = Date.now() + 5 * 60_000;
+  const choose = async (prompt: string, count: number) => {
+    const input = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    try {
+      while (true) {
+        const value = await input.question(prompt, { signal: abort.signal });
+        const number = Number(value.trim());
+        if (/^\d+$/.test(value.trim()) && number >= 1 && number <= count)
+          return number - 1;
+        console.log(`Enter a number from 1 to ${count}.`);
+      }
+    } finally {
+      input.close();
+    }
+  };
   try {
     let current: State | undefined;
     try {
@@ -84,7 +102,7 @@ export async function interactivePair(
             console.log(`${i + 1}. ${address}`);
           });
           interfaceIP =
-            addresses[Number(await readPassword("Interface number: ")) - 1];
+            addresses[await choose("Interface number: ", addresses.length)];
           if (!interfaceIP)
             throw new HomectlError(2, "Invalid interface selection");
         }
@@ -122,7 +140,7 @@ export async function interactivePair(
         devices.forEach((device, i) => {
           console.log(`${i + 1}. ${device.address}`);
         });
-        selected = devices[Number(await readPassword("Device number: ")) - 1];
+        selected = devices[await choose("Device number: ", devices.length)];
         if (!selected) throw new HomectlError(2, "Invalid device selection");
       }
       if (!selected) await pause();
