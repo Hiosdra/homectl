@@ -124,11 +124,17 @@ export async function interactivePair(
         3,
         "A pairing is already open; finish it or run homectl pair cancel first",
       );
-    await localApi(inventoryPath, "/api/pair/open", {});
+    const invitation = await localApi<State>(
+      inventoryPath,
+      "/api/pair/open",
+      {},
+    );
     opened = true;
     console.log(
       "Pairing mode enabled for five minutes. Run homectl pair on the other device.\nSearching the LAN… Discovery is untrusted until code and phrase verification.",
     );
+    console.log(`This device's one-time code (private): ${invitation.pair?.code}
+If the other device asks for a code, enter this one there. Never share it in chat.`);
     let selected: Discovered | undefined;
     let warned = false;
     while (!selected) {
@@ -168,7 +174,7 @@ export async function interactivePair(
         });
       } else {
         console.log(
-          `One-time code (private): ${current.pair?.code}\nEnter this code on the other device. Waiting for verification…`,
+          "Enter this device’s code on the other device. Waiting for verification…",
         );
       }
     }
