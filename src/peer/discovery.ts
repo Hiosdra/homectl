@@ -83,7 +83,7 @@ export function discovery(
   }, 5000);
   timer.unref();
   return {
-    list: () => ({ devices: [...found.values()], error }),
+    list: () => ({ localId: id, devices: [...found.values()], error }),
     close: () => {
       clearInterval(timer);
       if (advertise()) announce(0);

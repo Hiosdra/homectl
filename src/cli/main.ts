@@ -151,6 +151,19 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         });
         return 0;
       }
+      if (command === "pair" && !host) {
+        if (json)
+          throw new HomectlError(
+            2,
+            "Interactive pairing does not support --json; use explicit pair subcommands",
+          );
+        await (await import("../peer/interactive")).interactivePair(
+          inventoryPath,
+          configPath,
+          v.interface,
+        );
+        return 0;
+      }
       if (
         command === "pair" &&
         !["open", "join", "confirm", "status", "poll", "cancel"].includes(

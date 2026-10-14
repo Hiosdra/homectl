@@ -40,7 +40,7 @@ const pages: Record<string, Page> = {
         rows: [
           ["peers", "List paired devices without secrets."],
           [
-            "pair <action>",
+            "pair [action]",
             "Pair privately with a code and confirmation on both devices.",
           ],
           [
@@ -360,14 +360,18 @@ pages.peers = {
   sections: [globalOptions],
 };
 pages.pair = {
-  usage: "homectl pair <open|join|confirm|status|poll|cancel>",
+  usage: "homectl pair [open|join|confirm|status|poll|cancel]",
   intro:
-    "Open, join and confirm yourself in a private terminal. Codes and verification phrases are read interactively, never from argv.",
+    "Run homectl pair on BOTH devices for automatic LAN discovery and guided pairing. Starts a temporary workspace when needed; select an interface if multiple private LANs exist. Enter the displayed code on the other device and confirm the same phrase on both. Codes and phrases are private, never argv. Explicit subcommands remain available.",
   sections: [
     {
-      title: "Join",
+      title: "Pairing",
       rows: [
-        ["--address URL", "Direct LAN endpoint, e.g. http://192.168.1.10:7448"],
+        ["--interface IP", "Local LAN interface for the temporary workspace."],
+        [
+          "--address URL",
+          "Manual pair join endpoint, e.g. http://192.168.1.10:7448",
+        ],
       ],
     },
     globalOptions,

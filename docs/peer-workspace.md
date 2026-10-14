@@ -22,11 +22,17 @@ Starting `serve` does not install a service, open pairing, create a vault, unloc
 
 ## Pair two devices
 
-1. Run `serve` on both computers, each with its own LAN address.
-2. Open **Devices** on the first and select **Start pairing**. The window expires after five minutes.
-3. On the second, select the discovered endpoint or enter its IP/port. Enter the one-time code privately.
-4. Compare the verification phrase on both computers. Confirm it **on both**.
-5. Each device records the shared cryptographic peer identity. Only sync is granted initially. Diagnostics and per-host operations are separate local grants under **Permissions**.
+On **both computers**, run in a private interactive terminal:
+
+```sh
+homectl pair
+```
+
+The command starts a temporary workspace if none is running, chooses the only private LAN IPv4 interface (or asks you to select one), opens a five-minute pairing window and discovers other devices running the same command. With multiple devices, select the endpoint. One device displays a one-time code; enter it on the other. Compare the verification phrase and type it **on both** devices. Discovery never replaces this verification. Only sync is granted initially; no auth is transferred during pairing.
+
+A temporary workspace remains running after success so the other device can finish confirming and both can open `homectl panel` from a separate terminal to sync. Ctrl+C closes pairing and stops only the workspace started by this command. Existing serve/service processes stay running. You can choose an interface explicitly with `homectl pair --interface <local-LAN-IP>`. An existing workspace must have LAN discovery enabled on a LAN interface; loopback-only serve cannot advertise to another computer.
+
+For manual fallback, start `serve --interface <local-LAN-IP>` on both devices and use `pair open` on one, `pair join --address http://<other-LAN-IP>:7448` on the other, then `pair confirm` on each. The panel also supports pairing. Diagnostics and per-host operations remain separate local grants under **Permissions**.
 
 Discovery uses mDNS/DNS-SD `_homectl._tcp.local`. Advertisement is temporary and contains a random instance identifier, protocol version and pairing capability, never the code, vault contents, host inventory or stable device identity. The selected interface is used. Discovery is unauthenticated: selecting an endpoint does not establish trust. Multicast may be blocked by Wi-Fi isolation, VLAN boundaries or WSL networking; manual IP pairing uses the same authentication.
 

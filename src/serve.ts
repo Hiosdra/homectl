@@ -184,6 +184,7 @@ export async function serve(options: ServeOptions) {
         if (req.method === "GET" && url.pathname === "/api/state")
           return response({
             ...(await hub.status()),
+            peerAddress: address,
             discovery: discovered?.list() ?? {
               devices: [],
               error: "Use a manual peer IP when LAN discovery is unavailable",
