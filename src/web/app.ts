@@ -431,23 +431,35 @@ function opAction(op: ControlOp) {
     return `<span class="muted">Exit ${op.exitCode ?? 0}</span>`;
   return `<span class="muted">${htmlEscape(op.reason ?? "Closed")}${op.exitCode !== undefined ? ` · exit ${op.exitCode}` : ""}</span>`;
 }
+function classBadge(op: ControlOp) {
+  const kind =
+    op.classification === "destructive"
+      ? "danger"
+      : op.classification === "inspect"
+        ? ""
+        : "warning";
+  return `<span class="badge ${kind}">${htmlEscape(op.classification)}</span>`;
+}
+// Six columns at 1280px: class sits under the state, impact and fingerprint
+// under the command, and the requested cell is two lines at most.
 function opRow(op: ControlOp) {
   const label = displayStateOf(op);
   const open = op.state === "pending" || op.state === "approved";
-  const approver = op.approval
-    ? htmlEscape(op.approval.approver)
-    : op.needsApproval
-      ? `<span class="muted">awaiting approval</span>`
-      : "not needed";
   const expiresAt =
     op.state === "approved" && op.approval
       ? op.approval.expiresAt
       : op.expiresAt;
   const when = open ? relative(expiresAt, true) : relative(op.updatedAt);
-  return `<tr><td data-label="State">${stateBadge(label)}</td><td data-label="Host" class="nowrap"><strong>${htmlEscape(op.host)}</strong></td><td data-label="Class"><span class="badge">${htmlEscape(op.classification)}</span></td><td data-label="Command" class="cell-command"><code class="cmd">${htmlEscape(shellArgv(op.argv))}</code></td><td data-label="Impact" class="cell-impact">${htmlEscape(op.impact || "—")}</td><td data-label="Requested → approved" class="cell-people">${htmlEscape(op.issuer)} → ${approver}</td><td data-label="When" class="nowrap"><time datetime="${htmlEscape(op.updatedAt)}" title="${htmlEscape(localStamp(op.updatedAt))}">${htmlEscape(when)}</time></td><td data-label="${bucketOf(op) === "history" ? "Result" : "Action"}">${opAction(op)}<span class="fp" title="${htmlEscape(op.fingerprint)}">fingerprint ${htmlEscape(shortHash(op.fingerprint))}</span></td></tr>`;
+  const approver = op.approval
+    ? htmlEscape(op.approval.approver)
+    : op.needsApproval
+      ? `<span class="muted">awaiting approval</span>`
+      : `<span class="muted">not needed</span>`;
+  const actionLabel = bucketOf(op) === "history" ? "Result" : "Action";
+  return `<tr><td data-label="State"><div>${stateBadge(label)}</div><div class="cls">${classBadge(op)}</div></td><td data-label="Host" class="nowrap"><strong>${htmlEscape(op.host)}</strong></td><td data-label="Command" class="cell-command"><code class="cmd">${htmlEscape(shellArgv(op.argv))}</code><p class="impact">${htmlEscape(op.impact || "—")}</p><span class="fp" title="${htmlEscape(op.fingerprint)}">fingerprint ${htmlEscape(shortHash(op.fingerprint))}</span></td><td data-label="Requested → approved" class="cell-people"><span class="person">${htmlEscape(op.issuer)}</span><span class="sub">→ ${approver}</span></td><td data-label="When"><time datetime="${htmlEscape(op.updatedAt)}" title="${htmlEscape(localStamp(op.updatedAt))}">${htmlEscape(when)}</time></td><td data-label="${actionLabel}" class="cell-action">${opAction(op)}</td></tr>`;
 }
 function opTable(ops: ControlOp[]) {
-  return `<div class="table-wrap"><table><thead><tr><th>State</th><th>Host</th><th>Class</th><th>Command</th><th>Impact</th><th>Requested → approved</th><th>When</th><th>Action</th></tr></thead><tbody>${ops.map(opRow).join("")}</tbody></table></div>`;
+  return `<div class="table-wrap"><table class="ops"><thead><tr><th>State</th><th>Host</th><th>Command</th><th>Requested → approved</th><th>When</th><th>Action</th></tr></thead><tbody>${ops.map(opRow).join("")}</tbody></table></div>`;
 }
 function auditCard(audit: ControlAudit | undefined) {
   const ok = audit?.ok === true;
