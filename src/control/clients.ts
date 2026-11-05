@@ -6,6 +6,7 @@ import {
 } from "node:crypto";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { HomectlError } from "../types";
+import { isoTime } from "./canonical";
 import type {
   ClientAuthenticator,
   ClientIdentity,
@@ -54,7 +55,7 @@ export function clientView(record: ClientRecord): ClientView {
     name: record.name,
     scopes: [...record.scopes],
     hosts: [...record.hosts],
-    createdAt: record.createdAt,
+    createdAt: isoTime(record.createdAt),
     revoked: record.revokedAt !== undefined,
   };
 }

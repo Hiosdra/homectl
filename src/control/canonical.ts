@@ -27,3 +27,8 @@ function normalize(value: unknown): unknown {
 export function fingerprint(value: unknown): string {
   return sha256(canonicalJson(value));
 }
+
+// API views carry ISO-8601 UTC strings; records on disk keep epoch milliseconds.
+export function isoTime(epochMs: number): string {
+  return new Date(epochMs).toISOString();
+}

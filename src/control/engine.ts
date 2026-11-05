@@ -10,7 +10,7 @@ import {
   type Machine,
   type Runner,
 } from "../types";
-import { fingerprint } from "./canonical";
+import { fingerprint, isoTime } from "./canonical";
 import {
   ClientRegistry,
   clientView,
@@ -234,8 +234,8 @@ function approvalView(approval: ApprovalRecord): ApprovalView {
     fingerprint: approval.fingerprint,
     issuer: approval.issuer,
     approver: approval.approver,
-    issuedAt: approval.issuedAt,
-    expiresAt: approval.expiresAt,
+    issuedAt: isoTime(approval.issuedAt),
+    expiresAt: isoTime(approval.expiresAt),
     state: approval.state,
   };
 }
@@ -256,9 +256,9 @@ function operationView(op: OperationRecord, now: number): OperationView {
     argv: redactArgv(op.plan.argv),
     impact: op.plan.impact,
     issuer: op.issuer,
-    createdAt: op.createdAt,
-    expiresAt: op.expiresAt,
-    updatedAt: op.updatedAt,
+    createdAt: isoTime(op.createdAt),
+    expiresAt: isoTime(op.expiresAt),
+    updatedAt: isoTime(op.updatedAt),
     expired,
     spawnAttempted: op.spawnAttempted,
   };

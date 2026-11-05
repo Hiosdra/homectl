@@ -140,8 +140,8 @@ export interface ApprovalView {
   fingerprint: string;
   issuer: string;
   approver: string;
-  issuedAt: number;
-  expiresAt: number;
+  issuedAt: string; // ISO-8601 UTC
+  expiresAt: string;
   state: "active" | "consumed";
 }
 
@@ -157,9 +157,9 @@ export interface OperationView {
   argv: string[];
   impact: string;
   issuer: string;
-  createdAt: number;
-  expiresAt: number;
-  updatedAt: number;
+  createdAt: string; // ISO-8601 UTC
+  expiresAt: string;
+  updatedAt: string;
   expired: boolean;
   approval?: ApprovalView;
   spawnAttempted: boolean;
@@ -172,7 +172,7 @@ export interface ClientView {
   name: string;
   scopes: Scope[];
   hosts: string[];
-  createdAt: number;
+  createdAt: string; // ISO-8601 UTC
   revoked: boolean;
 }
 

@@ -144,7 +144,7 @@
           }
         },
         "createdAt": {
-          "$ref": "#/definitions/epochMs"
+          "$ref": "#/definitions/isoTime"
         },
         "revoked": {
           "type": "boolean"
@@ -413,10 +413,10 @@
           "$ref": "#/definitions/clientId"
         },
         "issuedAt": {
-          "$ref": "#/definitions/epochMs"
+          "$ref": "#/definitions/isoTime"
         },
         "expiresAt": {
-          "$ref": "#/definitions/epochMs"
+          "$ref": "#/definitions/isoTime"
         },
         "state": {
           "enum": ["active", "consumed"]
@@ -538,13 +538,13 @@
           "$ref": "#/definitions/clientId"
         },
         "createdAt": {
-          "$ref": "#/definitions/epochMs"
+          "$ref": "#/definitions/isoTime"
         },
         "expiresAt": {
-          "$ref": "#/definitions/epochMs"
+          "$ref": "#/definitions/isoTime"
         },
         "updatedAt": {
-          "$ref": "#/definitions/epochMs"
+          "$ref": "#/definitions/isoTime"
         },
         "expired": {
           "type": "boolean"

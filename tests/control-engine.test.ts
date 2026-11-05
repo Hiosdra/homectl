@@ -484,12 +484,17 @@ describe("approval", () => {
     const approval = result.approval as {
       issuer: string;
       approver: string;
-      expiresAt: number;
-      issuedAt: number;
+      expiresAt: string;
+      issuedAt: string;
     };
     expect(approval.issuer).toBe("codex-pc");
     expect(approval.approver).toBe("hermes-admin");
-    expect(approval.expiresAt - approval.issuedAt).toBe(APPROVAL_TTL_MS);
+    expect(Date.parse(approval.expiresAt) - Date.parse(approval.issuedAt)).toBe(
+      APPROVAL_TTL_MS,
+    );
+    expect(approval.issuedAt).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+    );
     expect(JSON.stringify(result)).not.toContain("nonce");
   });
 
