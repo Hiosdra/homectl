@@ -16,10 +16,15 @@ details{margin:10px 0}details summary{cursor:pointer;color:var(--muted)}
 #approval-count:not(:empty){margin-left:8px}
 .badge.ready{background:#123a40;color:#8ee3f0;border-color:#2c6670}
 .nowrap{white-space:nowrap}
-td.cell-command{min-width:260px}td.cell-impact{max-width:200px}
+td.cell-command{min-width:220px}td.cell-people{white-space:nowrap}td.cell-impact{min-width:12rem}
 .fp{display:block;margin-top:6px;font-size:11px;color:var(--muted);white-space:nowrap}
 .result-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.result-head h2{margin:0}
 .visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 #control-result:focus{outline:2px solid var(--accent);outline-offset:4px}
 .filter-tabs button span{opacity:1}
 @media(max-width:700px){.table-wrap td[data-label]::before{content:attr(data-label);display:block;font-size:11px;color:var(--muted);margin-bottom:2px}.table-wrap td.cell-command,.table-wrap td.cell-impact{min-width:0;max-width:none}}
+.change{background:transparent;color:var(--warning);border:1px solid var(--warning)}.change:hover{background:#382c1b}
+/* The workspace paints the rail column full height, so long pages keep the sidebar background. */
+.workspace{background:linear-gradient(var(--rule),var(--rule)) 208px 0/1px 100% no-repeat,linear-gradient(var(--rail),var(--rail)) 0 0/208px 100% no-repeat}
+@media(max-width:1000px){.workspace{background:linear-gradient(var(--rule),var(--rule)) 180px 0/1px 100% no-repeat,linear-gradient(var(--rail),var(--rail)) 0 0/180px 100% no-repeat}}
+@media(max-width:700px){.workspace{background:none}}

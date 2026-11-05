@@ -416,8 +416,14 @@ function shortHash(value: string) {
   return `${value.slice(0, 8)}…${value.slice(-4)}`;
 }
 function opAction(op: ControlOp) {
+  // Inspection is the primary action; changes get a distinct warning outline.
   if (isReady(op))
-    return button("control-execute", "Execute", op.operationId, "primary");
+    return button(
+      "control-execute",
+      "Execute",
+      op.operationId,
+      op.classification === "inspect" ? "primary" : "change",
+    );
   if (op.state === "pending")
     return `<span class="muted">Waiting for approval by another client</span>`;
   if (op.state === "executing") return `<span class="muted">Running…</span>`;
@@ -438,19 +444,22 @@ function opRow(op: ControlOp) {
       ? op.approval.expiresAt
       : op.expiresAt;
   const when = open ? relative(expiresAt, true) : relative(op.updatedAt);
-  return `<tr><td data-label="State">${stateBadge(label)}</td><td data-label="Host" class="nowrap"><strong>${htmlEscape(op.host)}</strong></td><td data-label="Class"><span class="badge">${htmlEscape(op.classification)}</span></td><td data-label="Command" class="cell-command"><code class="cmd">${htmlEscape(shellArgv(op.argv))}</code></td><td data-label="Impact" class="cell-impact">${htmlEscape(op.impact || "—")}</td><td data-label="Requested by → approved by">${htmlEscape(op.issuer)} → ${approver}</td><td data-label="When" class="nowrap"><time datetime="${htmlEscape(op.updatedAt)}" title="${htmlEscape(localStamp(op.updatedAt))}">${htmlEscape(when)}</time></td><td data-label="Action">${opAction(op)}<span class="fp" title="${htmlEscape(op.fingerprint)}">fingerprint ${htmlEscape(shortHash(op.fingerprint))}</span></td></tr>`;
+  return `<tr><td data-label="State">${stateBadge(label)}</td><td data-label="Host" class="nowrap"><strong>${htmlEscape(op.host)}</strong></td><td data-label="Class"><span class="badge">${htmlEscape(op.classification)}</span></td><td data-label="Command" class="cell-command"><code class="cmd">${htmlEscape(shellArgv(op.argv))}</code></td><td data-label="Impact" class="cell-impact">${htmlEscape(op.impact || "—")}</td><td data-label="Requested → approved" class="cell-people">${htmlEscape(op.issuer)} → ${approver}</td><td data-label="When" class="nowrap"><time datetime="${htmlEscape(op.updatedAt)}" title="${htmlEscape(localStamp(op.updatedAt))}">${htmlEscape(when)}</time></td><td data-label="${bucketOf(op) === "history" ? "Result" : "Action"}">${opAction(op)}<span class="fp" title="${htmlEscape(op.fingerprint)}">fingerprint ${htmlEscape(shortHash(op.fingerprint))}</span></td></tr>`;
 }
 function opTable(ops: ControlOp[]) {
-  return `<div class="table-wrap"><table><thead><tr><th>State</th><th>Host</th><th>Class</th><th>Command</th><th>Impact</th><th>Requested by → approved by</th><th>When</th><th>Action</th></tr></thead><tbody>${ops.map(opRow).join("")}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>State</th><th>Host</th><th>Class</th><th>Command</th><th>Impact</th><th>Requested → approved</th><th>When</th><th>Action</th></tr></thead><tbody>${ops.map(opRow).join("")}</tbody></table></div>`;
 }
 function auditCard(audit: ControlAudit | undefined) {
   const ok = audit?.ok === true;
+  // The head hash stays on one line on narrow screens.
   const detail = !audit
-    ? "Audit status is unavailable."
+    ? htmlEscape("Audit status is unavailable.")
     : ok
-      ? `${audit.entries} entries · head ${audit.head.slice(0, 4)}…${audit.head.slice(-4)}${audit.checkedAt ? ` · checked ${localStamp(audit.checkedAt)}` : ""}`
-      : `${audit.error ?? "Check failed"}. Preserve the files and investigate.`;
-  return `<section class="panel audit-card"><div><h2>Audit</h2><p><span class="badge ${ok ? "success" : "danger"}">${ok ? "Verified" : "Attention"}</span> <span class="muted">${htmlEscape(detail)}</span></p></div>${button("control-verify", "Verify now")}</section>`;
+      ? `${htmlEscape(`${audit.entries} entries · `)}<span class="nowrap">${htmlEscape(`head ${audit.head.slice(0, 4)}…${audit.head.slice(-4)}`)}</span>${htmlEscape(audit.checkedAt ? ` · checked ${localStamp(audit.checkedAt)}` : "")}`
+      : htmlEscape(
+          `${audit.error ?? "Check failed"}. Preserve the files and investigate.`,
+        );
+  return `<section class="panel audit-card"><div><h2>Audit</h2><p><span class="badge ${ok ? "success" : "danger"}">${ok ? "Verified" : "Attention"}</span> <span class="muted">${detail}</span></p></div>${button("control-verify", "Verify now")}</section>`;
 }
 function queueSection(ops: ControlOp[]) {
   if (!ops.length)
@@ -546,7 +555,7 @@ function approvals() {
   return content;
 }
 function executionDetails(op: ControlOp) {
-  return `<dl><dt>Host</dt><dd>${htmlEscape(op.host)}</dd><dt>Command</dt><dd><code>${htmlEscape(shellArgv(op.argv))}</code></dd><dt>Impact</dt><dd>${htmlEscape(op.impact || "—")}</dd><dt>Fingerprint</dt><dd><code>${htmlEscape(op.fingerprint)}</code></dd><dt>Approver</dt><dd>${htmlEscape(op.approval?.approver ?? "none needed (inspection)")}</dd></dl>`;
+  return `<p><span class="badge ${op.classification === "destructive" ? "danger" : op.classification === "inspect" ? "" : "warning"}">${htmlEscape(op.classification)}</span> ${op.classification === "destructive" ? '<strong class="danger">This operation can delete or overwrite data.</strong>' : ""}</p><dl><dt>Host</dt><dd>${htmlEscape(op.host)}</dd><dt>Command</dt><dd><code>${htmlEscape(shellArgv(op.argv))}</code></dd><dt>Impact</dt><dd>${htmlEscape(op.impact || "—")}</dd><dt>Fingerprint</dt><dd><code>${htmlEscape(op.fingerprint)}</code></dd><dt>Approver</dt><dd>${htmlEscape(op.approval?.approver ?? "none needed (inspection)")}</dd></dl>`;
 }
 // Announces results to assistive technology through the persistent live region.
 function announce(message: string) {
@@ -794,8 +803,13 @@ document.addEventListener("click", (event) => {
       case "control-execute": {
         const op = control?.operations.find((o) => o.operationId === id);
         if (!op) return;
-        if (!(await confirm("Run this operation?", "", executionDetails(op))))
-          return;
+        const title =
+          op.classification === "destructive"
+            ? "Run this destructive operation?"
+            : op.classification === "inspect"
+              ? "Run this inspection?"
+              : "Run this change?";
+        if (!(await confirm(title, "", executionDetails(op)))) return;
         const response = await api<ControlExecution>("/api/control/execute", {
           operationId: id,
         });
