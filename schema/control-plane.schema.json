@@ -1,0 +1,645 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "homectl control-plane API v1 (slice 1). Mirrors src/control/types.ts. Compiled with Ajv in src/control/schema.ts; entries are addressed as control-plane#/definitions/<name>.",
+  "title": "homectl control-plane API v1",
+  "type": "object",
+  "definitions": {
+    "apiVersion": {
+      "const": "homectl.control/v1"
+    },
+    "clientId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+    },
+    "hostName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+    },
+    "operationId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nonce": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "epochMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "isoTime": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "scope": {
+      "enum": ["status:read", "inspect:read", "plan:create", "approve:decide"]
+    },
+    "operationKind": {
+      "enum": [
+        "inspect",
+        "plan",
+        "validate",
+        "approve",
+        "execute",
+        "verify",
+        "status"
+      ]
+    },
+    "operationState": {
+      "enum": [
+        "pending",
+        "approved",
+        "executing",
+        "succeeded",
+        "failed",
+        "unknown"
+      ]
+    },
+    "classification": {
+      "enum": ["inspect", "mutation", "destructive", "opaque"]
+    },
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      }
+    },
+    "impact": {
+      "type": "string",
+      "maxLength": 1000
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "clientIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "scopes", "hosts"],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/clientId"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "scopes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/scope"
+          }
+        },
+        "hosts": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/definitions/hostName"
+          }
+        }
+      }
+    },
+    "clientView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "scopes", "hosts", "createdAt", "revoked"],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/clientId"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "scopes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/scope"
+          }
+        },
+        "hosts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/hostName"
+          }
+        },
+        "createdAt": {
+          "$ref": "#/definitions/epochMs"
+        },
+        "revoked": {
+          "type": "boolean"
+        }
+      }
+    },
+    "requestInspect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op"],
+      "properties": {
+        "op": {
+          "const": "inspect"
+        },
+        "host": {
+          "$ref": "#/definitions/hostName"
+        }
+      }
+    },
+    "requestStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op"],
+      "properties": {
+        "op": {
+          "const": "status"
+        },
+        "operationId": {
+          "$ref": "#/definitions/operationId"
+        }
+      }
+    },
+    "requestPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "host", "argv"],
+      "properties": {
+        "op": {
+          "const": "plan"
+        },
+        "host": {
+          "$ref": "#/definitions/hostName"
+        },
+        "argv": {
+          "$ref": "#/definitions/argv"
+        },
+        "impact": {
+          "$ref": "#/definitions/impact"
+        },
+        "idempotencyKey": {
+          "$ref": "#/definitions/idempotencyKey"
+        }
+      }
+    },
+    "requestValidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "operationId", "fingerprint"],
+      "properties": {
+        "op": {
+          "const": "validate"
+        },
+        "operationId": {
+          "$ref": "#/definitions/operationId"
+        },
+        "fingerprint": {
+          "$ref": "#/definitions/fingerprint"
+        }
+      }
+    },
+    "requestApprove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "operationId", "fingerprint", "decision"],
+      "properties": {
+        "op": {
+          "const": "approve"
+        },
+        "operationId": {
+          "$ref": "#/definitions/operationId"
+        },
+        "fingerprint": {
+          "$ref": "#/definitions/fingerprint"
+        },
+        "decision": {
+          "enum": ["approve", "reject"]
+        }
+      }
+    },
+    "requestExecute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "operationId"],
+      "properties": {
+        "op": {
+          "const": "execute"
+        },
+        "operationId": {
+          "$ref": "#/definitions/operationId"
+        }
+      }
+    },
+    "requestVerify": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "operationId"],
+      "properties": {
+        "op": {
+          "const": "verify"
+        },
+        "operationId": {
+          "$ref": "#/definitions/operationId"
+        }
+      }
+    },
+    "request": {
+      "description": "Typed operation request. Exactly one variant matches the op field.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/requestInspect"
+        },
+        {
+          "$ref": "#/definitions/requestStatus"
+        },
+        {
+          "$ref": "#/definitions/requestPlan"
+        },
+        {
+          "$ref": "#/definitions/requestValidate"
+        },
+        {
+          "$ref": "#/definitions/requestApprove"
+        },
+        {
+          "$ref": "#/definitions/requestExecute"
+        },
+        {
+          "$ref": "#/definitions/requestVerify"
+        }
+      ]
+    },
+    "execPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "apiVersion",
+        "kind",
+        "host",
+        "machine",
+        "argv",
+        "impact",
+        "classification",
+        "needsApproval",
+        "execApproval"
+      ],
+      "properties": {
+        "apiVersion": {
+          "$ref": "#/definitions/apiVersion"
+        },
+        "kind": {
+          "const": "exec"
+        },
+        "host": {
+          "$ref": "#/definitions/hostName"
+        },
+        "machine": {
+          "type": "object",
+          "description": "Snapshot with the shape of inventory.schema.json#/definitions/machine."
+        },
+        "argv": {
+          "$ref": "#/definitions/argv"
+        },
+        "impact": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "classification": {
+          "$ref": "#/definitions/classification"
+        },
+        "needsApproval": {
+          "type": "boolean"
+        },
+        "execApproval": {
+          "$ref": "#/definitions/fingerprint"
+        }
+      }
+    },
+    "approvalRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "apiVersion",
+        "id",
+        "operationId",
+        "fingerprint",
+        "issuer",
+        "approver",
+        "issuedAt",
+        "expiresAt",
+        "nonce",
+        "state"
+      ],
+      "properties": {
+        "apiVersion": {
+          "$ref": "#/definitions/apiVersion"
+        },
+        "id": {
+          "$ref": "#/definitions/operationId"
+        },
+        "operationId": {
+          "$ref": "#/definitions/operationId"
+        },
+        "fingerprint": {
+          "$ref": "#/definitions/fingerprint"
+        },
+        "issuer": {
+          "$ref": "#/definitions/clientId"
+        },
+        "approver": {
+          "$ref": "#/definitions/clientId"
+        },
+        "issuedAt": {
+          "$ref": "#/definitions/epochMs"
+        },
+        "expiresAt": {
+          "$ref": "#/definitions/epochMs"
+        },
+        "nonce": {
+          "$ref": "#/definitions/nonce"
+        },
+        "state": {
+          "enum": ["active", "consumed"]
+        },
+        "consumedAt": {
+          "$ref": "#/definitions/epochMs"
+        }
+      }
+    },
+    "approvalView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "operationId",
+        "fingerprint",
+        "issuer",
+        "approver",
+        "issuedAt",
+        "expiresAt",
+        "state"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/operationId"
+        },
+        "operationId": {
+          "$ref": "#/definitions/operationId"
+        },
+        "fingerprint": {
+          "$ref": "#/definitions/fingerprint"
+        },
+        "issuer": {
+          "$ref": "#/definitions/clientId"
+        },
+        "approver": {
+          "$ref": "#/definitions/clientId"
+        },
+        "issuedAt": {
+          "$ref": "#/definitions/epochMs"
+        },
+        "expiresAt": {
+          "$ref": "#/definitions/epochMs"
+        },
+        "state": {
+          "enum": ["active", "consumed"]
+        }
+      }
+    },
+    "operationRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "apiVersion",
+        "id",
+        "state",
+        "plan",
+        "fingerprint",
+        "issuer",
+        "createdAt",
+        "expiresAt",
+        "updatedAt",
+        "spawnAttempted"
+      ],
+      "properties": {
+        "apiVersion": {
+          "$ref": "#/definitions/apiVersion"
+        },
+        "id": {
+          "$ref": "#/definitions/operationId"
+        },
+        "state": {
+          "$ref": "#/definitions/operationState"
+        },
+        "plan": {
+          "$ref": "#/definitions/execPlan"
+        },
+        "fingerprint": {
+          "$ref": "#/definitions/fingerprint"
+        },
+        "issuer": {
+          "$ref": "#/definitions/clientId"
+        },
+        "idempotencyKey": {
+          "$ref": "#/definitions/idempotencyKey"
+        },
+        "createdAt": {
+          "$ref": "#/definitions/epochMs"
+        },
+        "expiresAt": {
+          "$ref": "#/definitions/epochMs"
+        },
+        "updatedAt": {
+          "$ref": "#/definitions/epochMs"
+        },
+        "approval": {
+          "$ref": "#/definitions/approvalRecord"
+        },
+        "spawnAttempted": {
+          "type": "boolean"
+        },
+        "exitCode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "reason": {
+          "$ref": "#/definitions/reason"
+        }
+      }
+    },
+    "operationView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationId",
+        "state",
+        "host",
+        "classification",
+        "needsApproval",
+        "fingerprint",
+        "argv",
+        "impact",
+        "issuer",
+        "createdAt",
+        "expiresAt",
+        "updatedAt",
+        "expired",
+        "spawnAttempted"
+      ],
+      "properties": {
+        "operationId": {
+          "$ref": "#/definitions/operationId"
+        },
+        "state": {
+          "$ref": "#/definitions/operationState"
+        },
+        "host": {
+          "$ref": "#/definitions/hostName"
+        },
+        "classification": {
+          "$ref": "#/definitions/classification"
+        },
+        "needsApproval": {
+          "type": "boolean"
+        },
+        "fingerprint": {
+          "$ref": "#/definitions/fingerprint"
+        },
+        "argv": {
+          "$ref": "#/definitions/argv"
+        },
+        "impact": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "issuer": {
+          "$ref": "#/definitions/clientId"
+        },
+        "createdAt": {
+          "$ref": "#/definitions/epochMs"
+        },
+        "expiresAt": {
+          "$ref": "#/definitions/epochMs"
+        },
+        "updatedAt": {
+          "$ref": "#/definitions/epochMs"
+        },
+        "expired": {
+          "type": "boolean"
+        },
+        "approval": {
+          "$ref": "#/definitions/approvalView"
+        },
+        "spawnAttempted": {
+          "type": "boolean"
+        },
+        "exitCode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "reason": {
+          "$ref": "#/definitions/reason"
+        }
+      }
+    },
+    "auditEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event"],
+      "properties": {
+        "event": {
+          "enum": [
+            "auth.rejected",
+            "request.accepted",
+            "request.rejected",
+            "client.created",
+            "client.revoked",
+            "operation.planned",
+            "operation.decided",
+            "operation.executing",
+            "operation.succeeded",
+            "operation.failed",
+            "operation.unknown"
+          ]
+        },
+        "client": {
+          "$ref": "#/definitions/clientId"
+        },
+        "op": {
+          "$ref": "#/definitions/operationKind"
+        },
+        "operationId": {
+          "$ref": "#/definitions/operationId"
+        },
+        "host": {
+          "$ref": "#/definitions/hostName"
+        },
+        "argv": {
+          "$ref": "#/definitions/argv"
+        },
+        "fingerprint": {
+          "$ref": "#/definitions/fingerprint"
+        },
+        "classification": {
+          "$ref": "#/definitions/classification"
+        },
+        "decision": {
+          "enum": ["approve", "reject"]
+        },
+        "reason": {
+          "$ref": "#/definitions/reason"
+        },
+        "exitCode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        }
+      }
+    },
+    "auditEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "seq", "at", "prev", "hash", "event"],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "at": {
+          "$ref": "#/definitions/isoTime"
+        },
+        "prev": {
+          "$ref": "#/definitions/fingerprint"
+        },
+        "hash": {
+          "$ref": "#/definitions/fingerprint"
+        },
+        "event": {
+          "$ref": "#/definitions/auditEvent"
+        }
+      }
+    }
+  }
+}
