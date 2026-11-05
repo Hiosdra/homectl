@@ -13,7 +13,7 @@ import { privateDirectory, protect } from "./platform";
 import { sessionConfig, ttlSeconds } from "./session";
 import { createKey, keyReference } from "./session/keys";
 import { doctor } from "./setup";
-import { HomectlError, type Machine } from "./types";
+import { HomectlError, type Machine, type Runner } from "./types";
 export type ServeOptions = {
   inventoryPath: string;
   configPath: string;
@@ -21,6 +21,8 @@ export type ServeOptions = {
   peerPort?: number;
   interface?: string;
   discover?: boolean;
+  // Test seam: replaces process execution for control-plane runs only.
+  controlRunner?: Runner;
 };
 const security = {
   "Cache-Control": "no-store",
@@ -72,6 +74,7 @@ async function controlPanel(control: ControlPlane) {
       entries: audit.entries,
       head: audit.head,
       anchored: audit.anchored,
+      checkedAt: new Date().toISOString(),
       error: audit.error,
     },
   };
@@ -154,6 +157,7 @@ export async function serve(options: ServeOptions) {
       inventoryPath: options.inventoryPath,
       configPath: options.configPath,
       stateDirectory: controlStateDirectory(options.inventoryPath),
+      runner: options.controlRunner,
     });
     await control.init();
   } catch (error) {

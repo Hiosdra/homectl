@@ -98,8 +98,17 @@ type ControlOp = {
   expired: boolean;
   approval?: { approver: string; expiresAt: string; state: string };
   spawnAttempted: boolean;
+  startedAt?: string;
+  finishedAt?: string;
   exitCode?: number;
   reason?: string;
+};
+type ControlAudit = {
+  ok: boolean;
+  entries: number;
+  head: string;
+  checkedAt?: string;
+  error?: string;
 };
 type ControlClient = {
   id: string;
@@ -112,7 +121,7 @@ type ControlClient = {
 type ControlOverview = {
   operations: ControlOp[];
   clients: ControlClient[];
-  audit: { ok: boolean; entries: number; head: string; error?: string };
+  audit: ControlAudit;
 };
 type ControlExecution = {
   operation: ControlOp;
@@ -120,7 +129,7 @@ type ControlExecution = {
 };
 let control: ControlOverview | undefined;
 let controlTab: "queue" | "clients" = "queue";
-let controlFilter: "pending" | "approved" | "history" = "pending";
+let controlFilter: ControlBucket = "ready";
 let controlResult: ControlExecution | undefined;
 function element<T extends HTMLElement = HTMLElement>(id: string): T {
   const e = document.getElementById(id);
@@ -317,10 +326,22 @@ function settings() {
 }
 // Approvals: the control plane's queue. Approval always comes from another
 // MCP client; this panel only runs work that is already ready to run.
+type ControlBucket = "ready" | "needs" | "history";
 function isReady(op: ControlOp) {
   return (
     op.state === "approved" || (op.state === "pending" && !op.needsApproval)
   );
+}
+function bucketOf(op: ControlOp): ControlBucket {
+  if (isReady(op)) return "ready";
+  if (op.state === "pending") return "needs";
+  return "history";
+}
+function rankOf(op: ControlOp) {
+  const bucket = bucketOf(op);
+  if (bucket === "ready") return 0;
+  if (bucket === "needs") return 1;
+  return op.state === "executing" ? 2 : 3;
 }
 function labelOf(op: ControlOp) {
   return op.state === "failed" &&
@@ -328,18 +349,39 @@ function labelOf(op: ControlOp) {
     ? "expired"
     : op.state;
 }
+// What a person should read at a glance; the stored state is unchanged.
+function displayStateOf(op: ControlOp) {
+  const label = labelOf(op);
+  if (label === "expired") return "expired";
+  if (op.state === "pending")
+    return op.needsApproval ? "needs approval" : "ready";
+  if (op.state === "approved") return "ready";
+  return op.state;
+}
 function stateBadge(label: string) {
   const kind =
-    label === "succeeded"
-      ? "success"
-      : label === "pending" || label === "approved"
+    label === "ready"
+      ? "ready"
+      : label === "needs approval"
         ? "warning"
-        : label === "failed" || label === "unknown" || label === "expired"
-          ? "danger"
-          : label === "executing"
-            ? "info"
-            : "";
+        : label === "succeeded"
+          ? "success"
+          : label === "failed" || label === "unknown" || label === "expired"
+            ? "danger"
+            : label === "executing"
+              ? "info"
+              : "";
   return `<span class="badge ${kind}">${htmlEscape(label)}</span>`;
+}
+function formatMs(ms: number) {
+  if (ms < 1_000) return `${Math.max(0, Math.round(ms))} ms`;
+  if (ms < 60_000) return `${(ms / 1_000).toFixed(1)} s`;
+  const total = Math.round(ms / 1_000);
+  return `${Math.floor(total / 60)} min ${total % 60} s`;
+}
+function durationText(op: ControlOp) {
+  if (!op.startedAt || !op.finishedAt) return undefined;
+  return formatMs(Date.parse(op.finishedAt) - Date.parse(op.startedAt));
 }
 function span(ms: number) {
   const a = Math.abs(ms);
@@ -384,55 +426,74 @@ function opAction(op: ControlOp) {
   return `<span class="muted">${htmlEscape(op.reason ?? "Closed")}${op.exitCode !== undefined ? ` · exit ${op.exitCode}` : ""}</span>`;
 }
 function opRow(op: ControlOp) {
-  const label = labelOf(op);
+  const label = displayStateOf(op);
   const open = op.state === "pending" || op.state === "approved";
-  const approver =
-    op.approval?.approver ?? (op.needsApproval ? "—" : "not needed");
-  const when = open ? relative(op.expiresAt, true) : relative(op.updatedAt);
-  return `<tr><td>${stateBadge(label)}</td><td><strong>${htmlEscape(op.host)}</strong></td><td><span class="badge">${htmlEscape(op.classification)}</span></td><td><code class="cmd">${htmlEscape(shellArgv(op.argv))}</code><p>Fingerprint <code>${htmlEscape(shortHash(op.fingerprint))}</code></p></td><td>${htmlEscape(op.impact || "—")}</td><td>${htmlEscape(op.issuer)} → ${htmlEscape(approver)}</td><td><time datetime="${htmlEscape(op.updatedAt)}" title="${htmlEscape(localStamp(op.updatedAt))}">${htmlEscape(when)}</time></td><td>${opAction(op)}</td></tr>`;
+  const approver = op.approval
+    ? htmlEscape(op.approval.approver)
+    : op.needsApproval
+      ? `<span class="muted">awaiting approval</span>`
+      : "not needed";
+  const expiresAt =
+    op.state === "approved" && op.approval
+      ? op.approval.expiresAt
+      : op.expiresAt;
+  const when = open ? relative(expiresAt, true) : relative(op.updatedAt);
+  return `<tr><td data-label="State">${stateBadge(label)}</td><td data-label="Host" class="nowrap"><strong>${htmlEscape(op.host)}</strong></td><td data-label="Class"><span class="badge">${htmlEscape(op.classification)}</span></td><td data-label="Command" class="cell-command"><code class="cmd">${htmlEscape(shellArgv(op.argv))}</code></td><td data-label="Impact" class="cell-impact">${htmlEscape(op.impact || "—")}</td><td data-label="Requested by → approved by">${htmlEscape(op.issuer)} → ${approver}</td><td data-label="When" class="nowrap"><time datetime="${htmlEscape(op.updatedAt)}" title="${htmlEscape(localStamp(op.updatedAt))}">${htmlEscape(when)}</time></td><td data-label="Action">${opAction(op)}<span class="fp" title="${htmlEscape(op.fingerprint)}">fingerprint ${htmlEscape(shortHash(op.fingerprint))}</span></td></tr>`;
 }
 function opTable(ops: ControlOp[]) {
-  return `<div class="table-wrap"><table><thead><tr><th>State</th><th>Host</th><th>Class</th><th>Command</th><th>Impact</th><th>Issuer → approver</th><th>When</th><th>Action</th></tr></thead><tbody>${ops.map(opRow).join("")}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>State</th><th>Host</th><th>Class</th><th>Command</th><th>Impact</th><th>Requested by → approved by</th><th>When</th><th>Action</th></tr></thead><tbody>${ops.map(opRow).join("")}</tbody></table></div>`;
 }
-function auditCard(audit: ControlOverview["audit"] | undefined) {
+function auditCard(audit: ControlAudit | undefined) {
   const ok = audit?.ok === true;
-  const text = !audit
+  const detail = !audit
     ? "Audit status is unavailable."
     : ok
-      ? `Audit chain verified · ${audit.entries} entries · head ${audit.head.slice(0, 4)}…${audit.head.slice(-4)}`
-      : `Audit check failed: ${audit.error ?? "unknown"}. Preserve the files and investigate.`;
-  return `<section class="panel audit-card"><div><h2>Audit</h2><p><span class="badge ${ok ? "success" : "danger"}">${ok ? "Verified" : "Attention"}</span> <span class="muted">${htmlEscape(text)}</span></p></div>${button("control-verify", "Verify now")}</section>`;
+      ? `${audit.entries} entries · head ${audit.head.slice(0, 4)}…${audit.head.slice(-4)}${audit.checkedAt ? ` · checked ${localStamp(audit.checkedAt)}` : ""}`
+      : `${audit.error ?? "Check failed"}. Preserve the files and investigate.`;
+  return `<section class="panel audit-card"><div><h2>Audit</h2><p><span class="badge ${ok ? "success" : "danger"}">${ok ? "Verified" : "Attention"}</span> <span class="muted">${htmlEscape(detail)}</span></p></div>${button("control-verify", "Verify now")}</section>`;
 }
 function queueSection(ops: ControlOp[]) {
   if (!ops.length)
-    return `<div class="empty"><h2>No operations yet</h2><p>Plans appear here when an MCP client proposes a command with homectl_plan. Inspection plans can run right away; changes wait for another client to approve.</p></div>`;
-  const buckets = {
-    pending: ops.filter((op) => op.state === "pending"),
-    approved: ops.filter((op) => op.state === "approved"),
-    history: ops.filter((op) => !["pending", "approved"].includes(op.state)),
+    return `<div class="empty"><h2>No operations yet</h2><p>Plans appear here when an MCP client proposes a command with homectl_plan. Inspection plans are ready to run at once; changes wait for another client to approve.</p></div>`;
+  const buckets: Record<ControlBucket, ControlOp[]> = {
+    ready: [],
+    needs: [],
+    history: [],
   };
-  const filters: [keyof typeof buckets, string][] = [
-    ["pending", "Pending"],
-    ["approved", "Approved"],
+  for (const op of ops) buckets[bucketOf(op)].push(op);
+  for (const list of Object.values(buckets))
+    list.sort(
+      (a, b) =>
+        rankOf(a) - rankOf(b) ||
+        Date.parse(b.createdAt) - Date.parse(a.createdAt),
+    );
+  const tabs: [ControlBucket, string][] = [
+    ["ready", "Ready to run"],
+    ["needs", "Needs approval"],
     ["history", "History"],
   ];
-  const tabs = filters
+  const buttons = tabs
     .map(
       ([id, label]) =>
         `<button type="button" class="${controlFilter === id ? "primary" : "quiet"}" aria-pressed="${controlFilter === id}" data-action="control-filter" data-id="${id}">${label} <span>${buckets[id].length}</span></button>`,
     )
     .join("");
-  const visible = buckets[controlFilter];
-  const note =
-    controlFilter === "pending"
-      ? `<p class="inline-note">Approval comes from another authorized client's own MCP session. This panel never approves on its behalf. Inspection plans need no approval and can run here.</p>`
-      : "";
+  const note = {
+    ready:
+      "Inspection plans and approved changes run from here. Every run is audited and single-use.",
+    needs:
+      "Approval comes from another authorized client's own MCP session. This panel never approves on its behalf.",
+    history: "",
+  }[controlFilter];
   const empty = {
-    pending: "Nothing is waiting. New plans from MCP clients appear here.",
-    approved: "No approved operations are waiting to run.",
+    ready:
+      "Nothing is ready to run. Approved changes and inspection plans appear here.",
+    needs:
+      "Nothing is waiting for approval. New changes from MCP clients appear here.",
     history: "No finished operations yet.",
   }[controlFilter];
-  return `<div class="filter-tabs" role="group" aria-label="Filter operations">${tabs}</div>${note}${visible.length ? opTable(visible) : `<div class="empty"><p>${htmlEscape(empty)}</p></div>`}`;
+  const visible = buckets[controlFilter];
+  return `<div class="filter-tabs" role="group" aria-label="Filter operations">${buttons}</div>${note ? `<p class="inline-note">${htmlEscape(note)}</p>` : ""}${visible.length ? opTable(visible) : `<div class="empty"><p>${htmlEscape(empty)}</p></div>`}`;
 }
 function clientsSection(clients: ControlClient[]) {
   const command = `homectl control client add codex-pc --name "Codex PC" --scopes status:read,inspect:read,plan:create --hosts &lt;host&gt; --token-file &lt;path&gt;`;
@@ -442,27 +503,33 @@ function clientsSection(clients: ControlClient[]) {
   const rows = clients
     .map(
       (c) =>
-        `<tr><td><strong>${htmlEscape(c.name)}</strong><p><code>${htmlEscape(c.id)}</code></p></td><td><div class="chips">${c.scopes.map((s) => `<span class="chip">${htmlEscape(s)}</span>`).join("")}</div></td><td><div class="chips">${c.hosts.map((h) => `<span class="chip">${htmlEscape(h)}</span>`).join("")}</div></td><td><time datetime="${htmlEscape(c.createdAt)}" title="${htmlEscape(localStamp(c.createdAt))}">${htmlEscape(localStamp(c.createdAt))}</time></td><td>${c.revoked ? `<span class="badge danger">revoked</span>` : `<span class="badge success">active</span>`}</td><td>${c.revoked ? "" : button("control-revoke", "Revoke", c.id, "quiet danger")}</td></tr>`,
+        `<tr><td data-label="Client"><strong>${htmlEscape(c.name)}</strong><p><code>${htmlEscape(c.id)}</code></p></td><td data-label="Scopes"><div class="chips">${c.scopes.map((s) => `<span class="chip">${htmlEscape(s)}</span>`).join("")}</div></td><td data-label="Hosts"><div class="chips">${c.hosts.map((h) => `<span class="chip">${htmlEscape(h)}</span>`).join("")}</div></td><td data-label="Created"><time datetime="${htmlEscape(c.createdAt)}" title="${htmlEscape(localStamp(c.createdAt))}">${htmlEscape(localStamp(c.createdAt))}</time></td><td data-label="Status">${c.revoked ? `<span class="badge danger">revoked</span>` : `<span class="badge success">active</span>`}</td><td data-label="Action">${c.revoked ? "" : button("control-revoke", "Revoke", c.id, "quiet danger")}</td></tr>`,
     )
     .join("");
   return `${intro}<div class="table-wrap"><table><thead><tr><th>Client</th><th>Scopes</th><th>Hosts</th><th>Created</th><th>Status</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
+function resultBlock(title: string, text: string) {
+  const body = text.trimEnd();
+  if (!body.trim()) return "";
+  const lines = body.split("\n").length;
+  return `<details${lines <= 20 ? " open" : ""}><summary>${title} · ${lines} line${lines === 1 ? "" : "s"}</summary><pre>${htmlEscape(body)}</pre></details>`;
+}
 function executionResult(r: ControlExecution) {
   const op = r.operation;
-  const label = labelOf(op);
   const ok = op.state === "succeeded";
   const headline = ok
     ? `✓ succeeded on ${op.host} (exit ${op.exitCode ?? 0})`
     : op.state === "failed" && op.exitCode !== undefined
       ? `✗ failed (exit ${op.exitCode})`
-      : `${label}${op.reason ? ` · ${op.reason}` : ""}`;
-  const out = r.output?.stdout.trimEnd() ?? "";
-  const err = r.output?.stderr.trimEnd() ?? "";
+      : `${displayStateOf(op)}${op.reason ? ` · ${op.reason}` : ""}`;
+  const took = durationText(op);
+  const out = r.output?.stdout ?? "";
+  const err = r.output?.stderr ?? "";
   const body =
     !out.trim() && !err.trim()
       ? `<p class="muted">(no output)</p>`
-      : `${out.trim() ? `<details><summary>stdout</summary><pre>${htmlEscape(out)}</pre></details>` : ""}${err.trim() ? `<details${ok ? "" : " open"}><summary>stderr</summary><pre>${htmlEscape(err)}</pre></details>` : ""}`;
-  return `<section class="section panel"><h2>Execution result</h2><p>${stateBadge(label)} <strong>${htmlEscape(headline)}</strong></p><p class="muted"><code>$ ${htmlEscape(shellArgv(op.argv))}</code></p>${body}</section>`;
+      : `${resultBlock("stdout", out)}${resultBlock("stderr", err)}`;
+  return `<section id="control-result" class="section panel" tabindex="-1" aria-labelledby="control-result-title"><div class="result-head"><h2 id="control-result-title">Execution result</h2><button type="button" class="quiet" aria-label="Close execution result" data-action="control-result-close">×</button></div><p><strong>${htmlEscape(headline)}</strong>${took ? ` <span class="muted">· took ${htmlEscape(took)}</span>` : ""}</p><p class="muted"><code>$ ${htmlEscape(shellArgv(op.argv))}</code></p>${body}</section>`;
 }
 function approvals() {
   let content = heading(
@@ -481,6 +548,19 @@ function approvals() {
 function executionDetails(op: ControlOp) {
   return `<dl><dt>Host</dt><dd>${htmlEscape(op.host)}</dd><dt>Command</dt><dd><code>${htmlEscape(shellArgv(op.argv))}</code></dd><dt>Impact</dt><dd>${htmlEscape(op.impact || "—")}</dd><dt>Fingerprint</dt><dd><code>${htmlEscape(op.fingerprint)}</code></dd><dt>Approver</dt><dd>${htmlEscape(op.approval?.approver ?? "none needed (inspection)")}</dd></dl>`;
 }
+// Announces results to assistive technology through the persistent live region.
+function announce(message: string) {
+  element("control-live").textContent = message;
+}
+// Moves focus to the result card after a run so keyboard and screen-reader
+// users land on the outcome.
+function focusResult() {
+  const card = document.getElementById("control-result");
+  if (!card) return;
+  card.scrollIntoView({ block: "nearest" });
+  card.focus({ preventScroll: true });
+}
+
 function output() {
   let html = "";
   if (operationResult)
@@ -493,19 +573,40 @@ function output() {
 }
 async function confirm(title: string, description: string, html?: string) {
   const d = element<HTMLDialogElement>("confirm-dialog");
+  // Remember the control that opened the dialog so focus can return to it.
+  const returnTo =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : undefined;
   element("confirm-title").textContent = title;
   // Structured details are pre-escaped by the caller; plain text is never HTML.
   if (html !== undefined) element("confirm-description").innerHTML = html;
   else element("confirm-description").textContent = description;
+  // showModal() traps focus, inerts the page, and closes on Escape (cancel).
   d.showModal();
   return new Promise<boolean>((resolve) => {
-    d.addEventListener("close", () => resolve(d.returnValue === "confirm"), {
-      once: true,
-    });
+    d.addEventListener(
+      "close",
+      () => {
+        resolve(d.returnValue === "confirm");
+        // The opener is re-enabled when its task finishes; restore focus after that.
+        setTimeout(() => {
+          if (
+            returnTo?.isConnected &&
+            !(returnTo as HTMLButtonElement).disabled
+          )
+            returnTo.focus();
+        }, 0);
+      },
+      { once: true },
+    );
   });
 }
+
 function navigate(next: string) {
   view = next;
+  // Banners describe the view that produced them; they do not follow the user.
+  for (const id of ["error", "notice"]) element(id).hidden = true;
   editing = undefined;
   permissionPeer = undefined;
   commandHost = undefined;
@@ -683,7 +784,7 @@ document.addEventListener("click", (event) => {
         render();
         return;
       case "control-filter":
-        controlFilter = id === "approved" || id === "history" ? id : "pending";
+        controlFilter = id === "needs" || id === "history" ? id : "ready";
         render();
         return;
       case "control-verify":
@@ -695,13 +796,24 @@ document.addEventListener("click", (event) => {
         if (!op) return;
         if (!(await confirm("Run this operation?", "", executionDetails(op))))
           return;
-        controlResult = await api<ControlExecution>("/api/control/execute", {
+        const response = await api<ControlExecution>("/api/control/execute", {
           operationId: id,
         });
+        controlResult = response;
         controlFilter = "history";
         await refresh();
+        const label = displayStateOf(response.operation);
+        const exit = response.operation.exitCode;
+        announce(
+          `Operation on ${response.operation.host} finished: ${label}${exit !== undefined ? `, exit ${exit}` : ""}. Result shown below.`,
+        );
+        focusResult();
         return;
       }
+      case "control-result-close":
+        controlResult = undefined;
+        render();
+        return;
       case "control-revoke":
         if (
           await confirm(
