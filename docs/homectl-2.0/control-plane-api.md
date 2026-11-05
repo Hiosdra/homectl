@@ -16,7 +16,7 @@ Status: **implemented in this branch, not deployed.** Tests show local behavior 
 - **Separation rules**: each client has its own id, token, scopes and grants. Tokens are never shared. A client cannot approve a plan it issued (`approver != issuer` for `decision: "approve"`). The issuer may still `reject` its own plan to cancel it.
 - **Reserved client ids**: `local-operator` and `control-plane` (used for the local operator and system events in the audit journal).
 - **Authentication interface**: `ClientAuthenticator.authenticate(credential) -> ClientIdentity | null`. Slice 1 implements token authentication; an OIDC implementation can replace it without changing the engine.
-- **Token format and storage**: `hct_` + 32 random bytes (base64url). Only the SHA-256 digest is stored, in `control-plane/clients.json` (mode 0600 or owner-only ACL). Comparison is constant-time (`timingSafeEqual`) over all non-revoked clients. Revocation takes effect on the next request.
+- **Token format and storage**: `hct_` + 32 random bytes (base64url). Only the SHA-256 digest is stored, in `control-plane/clients.json` (mode 0600 or owner-only ACL). The presented token's digest is compared with `timingSafeEqual` against every client record, without an early exit; only non-revoked records can match. Revocation takes effect on the next request.
 
 ## 2. Operations
 
@@ -26,7 +26,7 @@ Every request has an `op` field. Unknown fields are rejected. Each request is va
 | --- | --- | --- | --- | --- |
 | `inspect` | client | `inspect:read`; grant for `host` if given | No (audit entry only) | Redacted machine view, or the list of granted hosts |
 | `status` | client | `status:read`; grant for the operation's host | No (audit entry only) | `OperationView`, or granted-host operations |
-| `plan` | client | `plan:create`; grant for `host` | Creates an operation in `pending` | `OperationView` with `review` fields |
+| `plan` | client | `plan:create`; grant for `host` | Creates an operation in `pending` | `OperationView` (host, classification, redacted argv, impact, fingerprint, expiry) for review |
 | `validate` | client | `inspect:read`; grant for the operation's host | No | `{valid, reason}` recomputed against current inventory |
 | `approve` | client | `approve:decide`; grant for the operation's host; for `decision: "approve"` the approver must differ from the issuer | `pending -> approved`, or `pending -> failed` on reject | `ApprovalView` (no nonce) and `OperationView` |
 | `execute` | **local operator only** | none (local OS account) | `approved -> executing -> succeeded / failed / unknown` | `OperationView` plus stdout/stderr for the local operator |
