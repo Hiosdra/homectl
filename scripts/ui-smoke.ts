@@ -57,6 +57,73 @@ const running = await serve({
 });
 running.hub.state.name = "Linux · demo";
 await running.hub.save();
+// Synthetic control-plane fixtures: two clients, a few operations in each state.
+const control = running.control;
+const codexToken = (
+  await control.createClient({
+    id: "codex-pc",
+    name: "Codex PC",
+    scopes: ["status:read", "inspect:read", "plan:create"],
+    hosts: ["agent-host", "voron-printer"],
+  })
+).token;
+const hermesToken = (
+  await control.createClient({
+    id: "hermes-admin",
+    name: "Hermes Admin",
+    scopes: ["status:read", "inspect:read", "plan:create", "approve:decide"],
+    hosts: ["agent-host", "voron-printer"],
+  })
+).token;
+const codex = await control.authenticate(codexToken);
+const hermes = await control.authenticate(hermesToken);
+if (!codex || !hermes) throw new Error("Fixture clients did not authenticate");
+const planAs = (
+  client: typeof codex,
+  host: string,
+  argv: string[],
+  impact: string,
+) =>
+  control.request(
+    { kind: "client", client },
+    { op: "plan", host, argv, impact },
+  ) as Promise<{ operationId: string; fingerprint: string }>;
+// Inspection: runnable by the operator without a second client.
+await planAs(codex, "agent-host", ["hostname"], "Read the host name");
+// Mutation waiting for another client (pending).
+await planAs(
+  codex,
+  "voron-printer",
+  ["systemctl", "restart", "nginx"],
+  "Restart the web service",
+);
+// Mutation approved by another client (approved).
+const approvedPlan = await planAs(
+  codex,
+  "voron-printer",
+  ["systemctl", "restart", "sshd"],
+  "Restart the SSH service",
+);
+await control.request(
+  { kind: "client", client: hermes },
+  {
+    op: "approve",
+    operationId: approvedPlan.operationId,
+    fingerprint: approvedPlan.fingerprint,
+    decision: "approve",
+  },
+);
+// A finished, harmless run (succeeded) executed by the local operator.
+const finished = await planAs(
+  codex,
+  "agent-host",
+  ["hostname"],
+  "Read the host name",
+);
+await control.request(
+  { kind: "local-operator" },
+  { op: "execute", operationId: finished.operationId },
+);
 const browser = await chromium.launch({
   headless: true,
   executablePath: process.env.HOMECTL_BROWSER_EXECUTABLE,
@@ -160,8 +227,49 @@ try {
   await page.getByLabel("Device name").fill("Linux · demo");
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.getByRole("status")).toContainText("Changes saved");
+  // Approvals: the queue, an inspection run from the panel, and the client list.
+  await page.getByRole("link", { name: /^Approvals/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Approvals", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Waiting for approval by another client"),
+  ).toBeVisible();
+  await expect(page.getByText(/Audit chain verified/)).toBeVisible();
+  await page.screenshot({ path: join(out, "approvals.png"), fullPage: true });
+  await page.getByRole("button", { name: "Execute", exact: true }).click();
+  await expect(
+    page.locator("#confirm-dialog button[value=confirm]"),
+  ).toBeVisible();
+  await page.locator("#confirm-dialog button[value=confirm]").click();
+  await expect(
+    page.getByRole("heading", { name: "Execution result", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("✓ succeeded on agent-host")).toBeVisible();
+  await page.getByRole("tab", { name: "Clients", exact: true }).click();
+  await expect(page.getByText("Codex PC", { exact: true })).toBeVisible();
+  await expect(page.getByText("homectl control client add")).toBeVisible();
+  await page.getByRole("tab", { name: "Operations", exact: true }).click();
+  await page.screenshot({
+    path: join(out, "approvals-done.png"),
+    fullPage: true,
+  });
   await page.getByRole("link", { name: "Machines", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("link", { name: /^Approvals/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Approvals", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: join(out, "approvals-mobile.png"),
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.getByRole("link", { name: "Machines", exact: true }).click();
   await page.screenshot({ path: join(out, "mobile.png"), fullPage: true });
   expect(
     await page.evaluate(
@@ -173,7 +281,7 @@ try {
   ).toBeVisible();
   expect(errors).toEqual([]);
   console.log(
-    "UI smoke passed: desktop/mobile, filtering, machine form, pairing window, private password field, settings, no browser errors.",
+    "UI smoke passed: desktop/mobile, filtering, machine form, pairing window, private password field, settings, approvals queue and execution, no browser errors.",
   );
 } finally {
   await browser.close();
