@@ -154,7 +154,7 @@ Branch `feat/issue-5-control-plane`. Local only; not pushed, no PR, no live host
 | Audit journal | Append-only JSONL hash chain; verify; fail-closed on corruption or secret-like payloads | `src/control/journal.ts` | `tests/control-journal.test.ts` |
 | Clients and tokens | Per-client tokens (digests only), constant-time match, scopes, host grants, revocation | `src/control/clients.ts` | `tests/control-engine.test.ts`, `tests/control-mcp.test.ts` |
 | State and lock | Atomic state file; exclusive-create lock across processes | `src/control/store.ts` | exercised by engine and concurrency tests |
-| Approval engine | Plan, validate, approve/reject, execute (local only), verify, status, inspect; six-state machine; recovery | `src/control/engine.ts` | `tests/control-engine.test.ts` (44 tests) |
+| Approval engine | Plan, validate, approve/reject, execute (local only), verify, status, inspect; six-state machine; recovery | `src/control/engine.ts` | `tests/control-engine.test.ts` (46 tests) |
 | MCP endpoint | JSON-RPC over Streamable HTTP on 127.0.0.1; four tools; Host/Origin/bearer checks; body limit | `src/control/mcp.ts` | `tests/control-mcp.test.ts` |
 | CLI | `serve-mcp`; `control client add|list|revoke`; `control execute`; `control audit verify`; help pages | `src/control/cli.ts`, `src/cli/main.ts` (dispatch and option names only), `src/cli/help.ts` | `tests/control-cli.test.ts` |
 

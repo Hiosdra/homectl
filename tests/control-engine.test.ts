@@ -811,6 +811,68 @@ describe("execution (local operator only)", () => {
     expect(h.calls).toHaveLength(0);
   });
 
+  test("an approval transplanted from another operation never passes", async () => {
+    const h = await harness();
+    const codex = await client(h, CODEX);
+    const hermes = await client(h, HERMES);
+    const first = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const second = await planOn(h, codex.actor, "lab-printer", ["id", "-u"]);
+    for (const plan of [first, second])
+      await h.plane.request(hermes.actor, {
+        op: "approve",
+        operationId: plan.operationId,
+        fingerprint: plan.fingerprint,
+        decision: "approve",
+      });
+    const path = join(h.dir, "control-plane", "state.json");
+    const state = JSON.parse(await readFile(path, "utf8"));
+    state.operations[second.operationId].approval =
+      state.operations[first.operationId].approval;
+    await writeFile(path, JSON.stringify(state));
+    await expectCode(run(h, second.operationId), 3, "integrity check");
+    expect(h.calls).toHaveLength(0);
+  });
+
+  test("read-only requests leave operation, approval and client state untouched", async () => {
+    const h = await harness();
+    const codex = await client(h, CODEX);
+    const hermes = await client(h, HERMES);
+    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    await h.plane.request(hermes.actor, {
+      op: "approve",
+      operationId: plan.operationId,
+      fingerprint: plan.fingerprint,
+      decision: "approve",
+    });
+    const dir = join(h.dir, "control-plane");
+    const before = await Promise.all(
+      ["state.json", "clients.json"].map((f) => readFile(join(dir, f), "utf8")),
+    );
+    await h.plane.request(codex.actor, { op: "inspect", host: "lab-printer" });
+    await h.plane.request(codex.actor, { op: "inspect" });
+    await h.plane.request(codex.actor, { op: "status" });
+    await h.plane.request(codex.actor, {
+      op: "status",
+      operationId: plan.operationId,
+    });
+    await h.plane.request(codex.actor, {
+      op: "validate",
+      operationId: plan.operationId,
+      fingerprint: plan.fingerprint,
+    });
+    await h.plane.request(codex.actor, {
+      op: "verify",
+      operationId: plan.operationId,
+    });
+    const after = await Promise.all(
+      ["state.json", "clients.json"].map((f) => readFile(join(dir, f), "utf8")),
+    );
+    expect(after).toEqual(before);
+    expect(h.calls).toHaveLength(0);
+    const audit = await readFile(join(dir, "audit.jsonl"), "utf8");
+    expect(audit).toContain('"request.accepted"');
+  });
+
   test("concurrent execute requests run the operation exactly once", async () => {
     const h = await harness(async () => {
       await Bun.sleep(50);
