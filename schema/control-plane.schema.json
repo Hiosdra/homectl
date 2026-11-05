@@ -475,6 +475,10 @@
         "spawnAttempted": {
           "type": "boolean"
         },
+        "executorPid": {
+          "type": "integer",
+          "minimum": 1
+        },
         "exitCode": {
           "type": "integer",
           "minimum": 0,

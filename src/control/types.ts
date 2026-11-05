@@ -126,6 +126,9 @@ export interface OperationRecord {
   // True once the runner may have started a process. Set before spawn is
   // attempted, so `unknown` is the conservative outcome when unsure.
   spawnAttempted: boolean;
+  // Process that holds the execution lease while `executing`. Startup recovery
+  // skips operations whose executor is still alive.
+  executorPid?: number;
   exitCode?: number;
   // Fixed reason codes from the engine; never free text from clients.
   reason?: string;
