@@ -296,7 +296,13 @@ export function renderOperationDetail(
       ),
     ]);
   } else if (!op.startedAt) {
-    lines.push(["Closed", `${localTime(op.updatedAt)} (never executed)`]);
+    // Legacy terminal records have no start time; only a closure that never
+    // spawned is "never executed".
+    lines.push(
+      op.spawnAttempted || op.exitCode !== undefined || op.state === "succeeded"
+        ? ["Finished", localTime(op.updatedAt)]
+        : ["Closed", `${localTime(op.updatedAt)} (never executed)`],
+    );
   }
   const width = Math.max(...lines.map(([k]) => k.length));
   return lines.map(([k, v]) => `${k.padEnd(width)}  ${v}`).join("\n");
