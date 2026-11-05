@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ControlPlane } from "../src/control/engine";
 import { cleanEnv } from "../src/credentials";
 import { windows } from "../src/platform";
 
@@ -275,7 +276,7 @@ test("execute refuses unknown operations and unknown subcommands", async () => {
     f.inventory,
   ]);
   expect(unknown.code).toBe(2);
-  expect(unknown.stderr).toContain("Unknown operation");
+  expect(unknown.stderr).toContain("No operation matches that id");
   expect(
     (await invoke(["control", "frobnicate", "--inventory", f.inventory])).code,
   ).toBe(2);
@@ -296,6 +297,7 @@ test("audit verify reports an empty, intact journal", async () => {
     ok: true,
     entries: 0,
     head: "0".repeat(64),
+    anchored: false,
   });
 });
 
@@ -437,4 +439,164 @@ test("serve-mcp refuses non-loopback binding with a plain explanation", async ()
     f.inventory,
   ]);
   expect(misplaced.code).toBe(2);
+});
+
+test("client list is an aligned table with revoked clients last and no bullets", async () => {
+  const f = await fixture();
+  const add = (id: string, hosts: string) =>
+    invoke([
+      "control",
+      "client",
+      "add",
+      id,
+      "--name",
+      `${id} name`,
+      "--scopes",
+      "status:read,inspect:read",
+      "--hosts",
+      hosts,
+      "--token-file",
+      join(f.dir, `${id}.token`),
+      "--inventory",
+      f.inventory,
+    ]);
+  const created = await add("codex-pc", "lab-printer");
+  expect(created.code).toBe(0);
+  expect(created.stdout).toContain("Token saved to");
+  expect(created.stdout).toContain("mcpServers");
+  expect(created.stdout).toContain("http://127.0.0.1:7449/mcp");
+  expect(created.stdout).not.toMatch(/hct_[A-Za-z0-9_-]{20,}/);
+  await add("hermes-admin", "lab-printer,big");
+  await invoke([
+    "control",
+    "client",
+    "revoke",
+    "codex-pc",
+    "--inventory",
+    f.inventory,
+  ]);
+  const listed = await invoke([
+    "control",
+    "client",
+    "list",
+    "--inventory",
+    f.inventory,
+  ]);
+  const lines = listed.stdout.trimEnd().split("\n");
+  expect(lines[0]).toMatch(/^ID\s+NAME\s+SCOPES\s+HOSTS\s+CREATED\s+STATUS$/);
+  expect(lines[1]).toContain("hermes-admin");
+  expect(lines[2]).toContain("codex-pc");
+  expect(lines[2]).toContain("revoked");
+  expect(listed.stdout).not.toContain("•");
+  expect(listed.stdout).not.toContain(String.fromCharCode(27));
+});
+
+test("revoking an already revoked client is idempotent and says so", async () => {
+  const f = await fixture();
+  await invoke([
+    "control",
+    "client",
+    "add",
+    "codex-pc",
+    "--name",
+    "Codex PC",
+    "--scopes",
+    "status:read",
+    "--hosts",
+    "lab-printer",
+    "--token-file",
+    join(f.dir, "r.token"),
+    "--inventory",
+    f.inventory,
+  ]);
+  const first = await invoke([
+    "control",
+    "client",
+    "revoke",
+    "codex-pc",
+    "--inventory",
+    f.inventory,
+  ]);
+  expect(first.stdout).toContain("Client codex-pc revoked.");
+  const second = await invoke([
+    "control",
+    "client",
+    "revoke",
+    "codex-pc",
+    "--inventory",
+    f.inventory,
+  ]);
+  expect(second.code).toBe(0);
+  expect(second.stdout).toContain("already revoked; nothing changed");
+});
+
+test("ops, show and execute accept short ids and print readable summaries", async () => {
+  const f = await fixture();
+  const plane = new ControlPlane({
+    inventoryPath: f.inventory,
+    configPath: join(f.dir, "ssh_config"),
+    stateDirectory: join(f.dir, "control-plane"),
+  });
+  await plane.init();
+  const created = await plane.createClient({
+    id: "codex-pc",
+    name: "Codex PC",
+    scopes: ["plan:create", "status:read"],
+    hosts: ["lab-printer"],
+  });
+  const identity = await plane.authenticate(created.token);
+  if (!identity) throw new Error("token did not authenticate");
+  const plan = (await plane.request(
+    { kind: "client", client: identity },
+    { op: "plan", host: "lab-printer", argv: ["hostname"] },
+  )) as { operationId: string };
+  const short = plan.operationId.slice(0, 8);
+
+  const ops = await invoke(["control", "ops", "--inventory", f.inventory]);
+  expect(ops.code).toBe(0);
+  expect(ops.stdout).toContain("ID");
+  expect(ops.stdout).toContain(short);
+  expect(ops.stdout).toContain("hostname");
+
+  const shown = await invoke([
+    "control",
+    "show",
+    short,
+    "--inventory",
+    f.inventory,
+  ]);
+  expect(shown.stdout).toContain(plan.operationId);
+  expect(shown.stdout).toContain("Approver");
+
+  const tooShort = await invoke([
+    "control",
+    "show",
+    short.slice(0, 4),
+    "--inventory",
+    f.inventory,
+  ]);
+  expect(tooShort.code).toBe(2);
+
+  const ran = await invoke([
+    "control",
+    "execute",
+    short,
+    "--inventory",
+    f.inventory,
+  ]);
+  expect(ran.code).toBe(0);
+  expect(ran.stdout).toContain(
+    "✓ succeeded on lab-printer (exit 0) · no approval needed",
+  );
+  expect(ran.stdout).toContain(`$ hostname`);
+
+  const again = await invoke([
+    "control",
+    "execute",
+    short,
+    "--inventory",
+    f.inventory,
+  ]);
+  expect(again.code).toBe(3);
+  expect(again.stderr).toContain("never retried");
 });

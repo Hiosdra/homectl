@@ -141,7 +141,7 @@ describe("client identities and tokens", () => {
     expect(hermes.identity.id).toBe("hermes-admin");
     expect(codex.identity.scopes).not.toContain("approve:decide");
     expect(hermes.identity.scopes).not.toContain("plan:create");
-    expect(await h.plane.authenticate("hct_" + "A".repeat(43))).toBeNull();
+    expect(await h.plane.authenticate(`hct_${"A".repeat(43)}`)).toBeNull();
     expect(await h.plane.authenticate("not-a-token")).toBeNull();
     expect(await h.plane.authenticate(undefined)).toBeNull();
   });

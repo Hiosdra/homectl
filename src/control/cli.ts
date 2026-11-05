@@ -2,13 +2,25 @@
 // host's own terminal; none of them is reachable through MCP.
 import { stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { confirm } from "../cli/prompts";
 import { loadInventory } from "../inventory";
 import { writeSSHConfig } from "../operations";
 import { protect } from "../platform";
 import { HomectlError } from "../types";
-import { ControlPlane } from "./engine";
+import { ControlPlane, type ExecuteResult } from "./engine";
 import { DEFAULT_MCP_PORT, startMcpServer } from "./mcp";
-import { SCOPES } from "./types";
+import {
+  colorEnabled,
+  mcpSnippet,
+  paint,
+  renderAudit,
+  renderClients,
+  renderExecution,
+  renderOperationDetail,
+  renderOperations,
+  type Style,
+} from "./present";
+import { OPERATION_STATES, type OperationState, SCOPES } from "./types";
 
 export interface ControlCliInput {
   inventoryPath: string;
@@ -21,12 +33,18 @@ export interface ControlCliInput {
     hosts?: string;
     "token-file"?: string;
     host?: string;
+    state?: string;
+    all?: boolean;
   };
   dryRun: boolean;
+  json: boolean;
+  color?: boolean;
 }
 
+// `value` is the JSON form; `human` is the text printed without --json.
 export interface ControlCliResult {
   value: unknown;
+  human: string;
   code: number;
 }
 
@@ -57,10 +75,15 @@ function listOption(value: string | undefined, name: string): string[] {
   return items;
 }
 
-// Starts the loopback MCP endpoint until interrupted. Returns after stop.
+function useColor(input: ControlCliInput): boolean {
+  return input.color ?? (!input.json && colorEnabled());
+}
+
+// Starts the loopback MCP endpoint until interrupted. `onReady` prints the
+// startup line (JSON or text) once the port is bound.
 export async function serveMcp(
   input: ControlCliInput,
-  onReady: (value: unknown) => void,
+  onReady: (value: unknown, human: string) => void,
 ): Promise<void> {
   if (input.values.host !== undefined && input.values.host !== "127.0.0.1")
     throw new HomectlError(
@@ -73,13 +96,22 @@ export async function serveMcp(
       ? DEFAULT_MCP_PORT
       : Number(input.values.port);
   const running = startMcpServer({ control: plane, port });
-  const clients = (await plane.listClients()).filter((c) => !c.revoked).length;
-  onReady({
+  const active = (await plane.listClients()).filter((c) => !c.revoked).length;
+  const value = {
     mcp: running.url,
     bind: "127.0.0.1",
-    activeClients: clients,
+    activeClients: active,
     next: "Give each client its own token file. Press Ctrl+C to stop the endpoint.",
-  });
+  };
+  const color = useColor(input);
+  onReady(
+    value,
+    [
+      `${paint("MCP endpoint ready", "green", color)} at ${running.url}`,
+      `Bound to 127.0.0.1 only. Active clients: ${active}.`,
+      "Give each client its own token file. Press Ctrl+C to stop.",
+    ].join("\n"),
+  );
   await new Promise<void>((done) => {
     const stop = () => {
       running.stop();
@@ -90,17 +122,41 @@ export async function serveMcp(
   });
 }
 
+function parseStates(value: string | undefined): OperationState[] | undefined {
+  if (value === undefined) return undefined;
+  const states = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const unknown = states.filter(
+    (state) => !(OPERATION_STATES as readonly string[]).includes(state),
+  );
+  if (unknown.length > 0 || states.length === 0)
+    throw new HomectlError(
+      2,
+      `Unknown state; valid states: ${OPERATION_STATES.join(", ")}`,
+    );
+  return states as OperationState[];
+}
+
 export async function controlCommand(
   input: ControlCliInput,
 ): Promise<ControlCliResult> {
   const [group, action, argument] = input.positionals;
+  const color = useColor(input);
+  const now = Date.now();
   if (group === "client") {
     if (action === "add") return addClient(input, argument);
     if (action === "list") {
       if (input.positionals.length !== 2)
         throw new HomectlError(2, "Usage: homectl control client list");
       const plane = await openPlane(input);
-      return { value: { clients: await plane.listClients() }, code: 0 };
+      const clients = await plane.listClients();
+      return {
+        value: { clients },
+        human: renderClients(clients, { color }),
+        code: 0,
+      };
     }
     if (action === "revoke") {
       if (!argument || input.positionals.length !== 3)
@@ -108,11 +164,65 @@ export async function controlCommand(
       if (input.dryRun)
         return {
           value: { wouldRevoke: argument, credentialAccess: false },
+          human: `Would revoke ${argument}. No change made.`,
           code: 0,
         };
       const plane = await openPlane(input);
-      return { value: { client: await plane.revokeClient(argument) }, code: 0 };
+      const current = (await plane.listClients()).find(
+        (c) => c.id === argument,
+      );
+      if (
+        current &&
+        !current.revoked &&
+        !input.json &&
+        process.stdin.isTTY &&
+        !(await confirm(
+          `Revoke ${argument}? Its token stops working immediately.`,
+        ))
+      )
+        return {
+          value: { client: current, changed: false, cancelled: true },
+          human: "Not revoked.",
+          code: 0,
+        };
+      const { client, changed } = await plane.revokeClient(argument);
+      return {
+        value: { client, changed },
+        human: changed
+          ? `Client ${client.id} revoked. Its token stops working immediately.`
+          : `Client ${client.id} was already revoked; nothing changed.`,
+        code: 0,
+      };
     }
+  }
+  if (group === "ops") {
+    if (input.positionals.length !== 1)
+      throw new HomectlError(
+        2,
+        "Usage: homectl control ops [--state LIST] [--all]",
+      );
+    const plane = await openPlane(input);
+    const operations = await plane.listOperations({
+      states: parseStates(input.values.state),
+      all: input.values.all === true,
+    });
+    return {
+      value: { operations },
+      human: renderOperations(operations, { color, now }),
+      code: 0,
+    };
+  }
+  if (group === "show") {
+    if (!action || input.positionals.length !== 2)
+      throw new HomectlError(2, "Usage: homectl control show <operation-id>");
+    const plane = await openPlane(input);
+    const operationId = await plane.resolveOperation(action);
+    const operation = await plane.showOperation(operationId);
+    return {
+      value: { operation },
+      human: renderOperationDetail(operation, { color, now }),
+      code: 0,
+    };
   }
   if (group === "execute") {
     if (!action || input.positionals.length !== 2)
@@ -123,9 +233,11 @@ export async function controlCommand(
     if (input.dryRun)
       return {
         value: { wouldExecute: action, credentialAccess: false },
+        human: `Would execute ${action}. No change made.`,
         code: 0,
       };
     const plane = await openPlane(input);
+    const operationId = await plane.resolveOperation(action);
     // Same order as `homectl exec`: refresh the managed SSH config first.
     await writeSSHConfig(
       input.configPath,
@@ -133,8 +245,8 @@ export async function controlCommand(
     );
     const result = (await plane.request(
       { kind: "local-operator" },
-      { op: "execute", operationId: action },
-    )) as { operation: { state: string; exitCode?: number } };
+      { op: "execute", operationId },
+    )) as ExecuteResult;
     const state = result.operation.state;
     const code =
       state === "succeeded"
@@ -144,7 +256,11 @@ export async function controlCommand(
           : result.operation.exitCode !== undefined
             ? 6
             : 3;
-    return { value: result, code };
+    return {
+      value: result,
+      human: renderExecution(result, { color }),
+      code,
+    };
   }
   if (group === "audit" && action === "verify") {
     if (input.positionals.length !== 2)
@@ -157,13 +273,19 @@ export async function controlCommand(
         `Audit journal failed verification (${check.error ?? "unknown"}); preserve the file and investigate`,
       );
     return {
-      value: { ok: true, entries: check.entries, head: check.head },
+      value: {
+        ok: true,
+        entries: check.entries,
+        head: check.head,
+        anchored: check.anchored,
+      },
+      human: renderAudit(check, { color }),
       code: 0,
     };
   }
   throw new HomectlError(
     2,
-    "Use control client add|list|revoke, control execute <operation-id> or control audit verify",
+    "Use control client add|list|revoke, control ops, control show <id>, control execute <id> or control audit verify",
   );
 }
 
@@ -191,6 +313,7 @@ async function addClient(
   if (input.dryRun)
     return {
       value: { wouldCreate: request, tokenFile, credentialAccess: false },
+      human: `Would create client ${id} with token file ${tokenFile}. No change made.`,
       code: 0,
     };
   const unknown = request.scopes.filter(
@@ -231,12 +354,25 @@ async function addClient(
       "Token file could not be created privately (it must not already exist); client was revoked",
     );
   }
+  const snippet = mcpSnippet(`homectl-${id}`, "http://127.0.0.1:7449/mcp");
+  const color = useColor(input);
+  const style: Style = "bold";
   return {
     value: {
       client: created.client,
       tokenFile,
-      note: "The token was written to tokenFile and is not printed. Configure the MCP client to read it from that file.",
+      mcpSnippet: JSON.parse(snippet),
+      note: "The token was saved to tokenFile and is never printed.",
     },
+    human: [
+      `${paint("Created client", "green", color)} ${created.client.id} (${created.client.name}).`,
+      `Token saved to ${tokenFile} (owner-only). Point the MCP client at this file; it is never printed.`,
+      "",
+      paint("Next: add this to your MCP client configuration", style, color),
+      "(replace the header value with the token read from the file):",
+      "",
+      snippet,
+    ].join("\n"),
     code: 0,
   };
 }

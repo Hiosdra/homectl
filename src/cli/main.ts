@@ -60,6 +60,8 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         hosts: { type: "string" },
         "token-file": { type: "string" },
         host: { type: "string" },
+        state: { type: "string" },
+        all: { type: "boolean" },
         approval: { type: "string" },
         impact: { type: "string" },
         "configure-sudo": { type: "boolean" },
@@ -79,14 +81,14 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         "--ttl and --database apply only to session configure",
       );
     if (
-      [v.name, v.scopes, v.hosts, v["token-file"]].some(
+      [v.name, v.scopes, v.hosts, v["token-file"], v.state, v.all].some(
         (option) => option !== undefined,
       ) &&
       command !== "control"
     )
       throw new HomectlError(
         2,
-        "--name, --scopes, --hosts and --token-file apply only to control",
+        "--name, --scopes, --hosts, --token-file, --state and --all apply only to control",
       );
     if (v.host !== undefined && command !== "serve-mcp")
       throw new HomectlError(2, "--host applies only to serve-mcp");
@@ -453,8 +455,8 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         return 0;
       }
       await (await import("../control/cli")).serveMcp(
-        { inventoryPath, configPath, positionals, values: v, dryRun },
-        emit,
+        { inventoryPath, configPath, positionals, values: v, dryRun, json },
+        (value, human) => console.log(json ? JSON.stringify(value) : human),
       );
       return 0;
     }
@@ -465,8 +467,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         positionals: positionals.slice(1),
         values: v,
         dryRun,
+        json,
       });
-      emit(result.value);
+      console.log(json ? JSON.stringify(result.value) : result.human);
       return result.code;
     }
     const inv = await loadInventory(inventoryPath);

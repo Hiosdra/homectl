@@ -471,18 +471,22 @@ export class ControlPlane {
     });
   }
 
-  async revokeClient(id: string): Promise<ClientView> {
+  // Idempotent: revoking an already revoked client reports `changed: false`.
+  async revokeClient(
+    id: string,
+  ): Promise<{ client: ClientView; changed: boolean }> {
     return this.store.withLock(async () => {
       const now = this.clock();
       const clients = await this.registry.load();
       const record = Object.hasOwn(clients, id) ? clients[id] : undefined;
       if (!record) throw new HomectlError(2, "Unknown client");
-      if (record.revokedAt === undefined) {
+      const changed = record.revokedAt === undefined;
+      if (changed) {
         await this.journal.append({ event: "client.revoked", client: id });
         record.revokedAt = now;
         await this.registry.save(clients);
       }
-      return clientView(record);
+      return { client: clientView(record), changed };
     });
   }
 
@@ -490,6 +494,52 @@ export class ControlPlane {
     return Object.values(await this.registry.load())
       .map(clientView)
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  // Local operator views. Read-only: nothing is written, not even audit.
+  async listOperations(
+    options: { states?: OperationState[]; all?: boolean } = {},
+  ): Promise<OperationView[]> {
+    const state = await this.store.loadState();
+    const now = this.clock();
+    const wanted: readonly OperationState[] | undefined =
+      options.states ??
+      (options.all ? undefined : ["pending", "approved", "executing"]);
+    return Object.values(state.operations)
+      .filter((op) => wanted === undefined || wanted.includes(op.state))
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((op) => operationView(op, now));
+  }
+
+  // Full id, or a unique prefix of at least 8 characters.
+  async resolveOperation(idOrPrefix: string): Promise<string> {
+    const state = await this.store.loadState();
+    const ids = Object.keys(state.operations);
+    const lower = idOrPrefix.toLowerCase();
+    if (Object.hasOwn(state.operations, lower)) return lower;
+    if (lower.length < 8)
+      throw new HomectlError(
+        2,
+        "Give at least 8 characters of the operation id",
+      );
+    const matches = ids.filter((id) => id.startsWith(lower));
+    if (matches.length === 0)
+      throw new HomectlError(2, "No operation matches that id");
+    if (matches.length > 1)
+      throw new HomectlError(
+        2,
+        `Ambiguous id; matches ${matches.map((id) => id.slice(0, 12)).join(", ")}. Use more characters.`,
+      );
+    return matches[0] ?? lower;
+  }
+
+  async showOperation(operationId: string): Promise<OperationView> {
+    const state = await this.store.loadState();
+    const op = Object.hasOwn(state.operations, operationId)
+      ? state.operations[operationId]
+      : undefined;
+    if (!op) throw new HomectlError(2, "No operation matches that id");
+    return operationView(op, this.clock());
   }
 
   verifyAudit() {
