@@ -236,6 +236,26 @@ describe("transport and authentication", () => {
     ).toMatchObject({ error: { code: -32601 } });
   });
 
+  test("oversized bodies are refused before parsing", async () => {
+    const f = await fixture();
+    const token = f.tokens["codex-pc"] ?? "";
+    const huge = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "ping",
+      params: { padding: "x".repeat(300 * 1024) },
+    });
+    const response = await fetch(f.server.url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: huge,
+    });
+    expect(response.status).toBe(413);
+  });
+
   test("notifications receive 202 with no body", async () => {
     const f = await fixture();
     const token = f.tokens["codex-pc"] ?? "";
