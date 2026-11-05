@@ -22,12 +22,14 @@ export class ControlStore {
   readonly statePath: string;
   readonly clientsPath: string;
   readonly auditPath: string;
+  readonly anchorPath: string;
   private readonly lockPath: string;
 
   constructor(readonly directory: string) {
     this.statePath = join(directory, "state.json");
     this.clientsPath = join(directory, "clients.json");
     this.auditPath = join(directory, "audit.jsonl");
+    this.anchorPath = join(directory, "audit.anchor");
     this.lockPath = join(directory, ".lock");
   }
 

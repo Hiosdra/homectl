@@ -95,7 +95,9 @@ describe("audit journal hash chain", () => {
 
   async function filled() {
     const { dir, path } = await workspace();
-    const journal = new AuditJournal(path, () => Date.UTC(2026, 10, 5));
+    const journal = new AuditJournal(path, join(dir, "audit.anchor"), () =>
+      Date.UTC(2026, 10, 5),
+    );
     for (const event of events) await journal.append({ ...event });
     return { dir, path, journal };
   }
@@ -157,14 +159,74 @@ describe("audit journal hash chain", () => {
     }
   });
 
-  test("tail truncation is NOT detectable from the journal alone (known limit R1)", async () => {
+  test("tail truncation is detected through the anchor", async () => {
     const { dir, path, journal } = await filled();
     try {
       const lines = (await readFile(path, "utf8")).split("\n").filter(Boolean);
       await writeFile(path, `${lines.slice(0, 2).join("\n")}\n`);
       const check = await journal.verify();
-      expect(check.ok).toBe(true);
-      expect(check.entries).toBe(2);
+      expect(check.ok).toBe(false);
+      expect(check.anchored).toBe(true);
+      expect(check.error).toContain("entries were removed from the end");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("truncating the journal to nothing is also detected", async () => {
+    const { dir, path, journal } = await filled();
+    try {
+      await writeFile(path, "");
+      expect((await journal.verify()).ok).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a deleted anchor is reported, not silently accepted", async () => {
+    const { dir, journal } = await filled();
+    try {
+      await rm(join(dir, "audit.anchor"));
+      const check = await journal.verify();
+      expect(check.ok).toBe(false);
+      expect(check.error).toContain("anchor is missing");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a journal that diverges from its anchor is detected", async () => {
+    const { dir, path, journal } = await filled();
+    try {
+      const lines = (await readFile(path, "utf8")).split("\n").filter(Boolean);
+      // Rebuild a valid two-entry chain that differs from the anchored one.
+      const other = new AuditJournal(
+        join(dir, "other.jsonl"),
+        join(dir, "other.anchor"),
+        () => Date.UTC(2026, 10, 6),
+      );
+      await other.append({ event: "client.created", client: "other" });
+      await other.append({ event: "client.created", client: "third" });
+      const forged = (await readFile(join(dir, "other.jsonl"), "utf8"))
+        .split("\n")
+        .filter(Boolean);
+      await writeFile(path, `${[forged[0], forged[1], lines[2]].join("\n")}\n`);
+      const check = await journal.verify();
+      expect(check.ok).toBe(false);
+      expect(check.error).toMatch(/diverges from its anchor|chain link broken/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a journal append also refuses when truncation is present", async () => {
+    const { dir, path, journal } = await filled();
+    try {
+      const lines = (await readFile(path, "utf8")).split("\n").filter(Boolean);
+      await writeFile(path, `${lines.slice(0, 1).join("\n")}\n`);
+      await expect(
+        journal.append({ event: "request.accepted", client: "codex-pc" }),
+      ).rejects.toBeInstanceOf(HomectlError);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -1,4 +1,5 @@
-import { appendFile, readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { appendFile, readFile, rename, writeFile } from "node:fs/promises";
 import { HomectlError } from "../types";
 import { canonicalJson, sha256 } from "./canonical";
 import { containsSecretMaterial } from "./redact";
@@ -11,7 +12,18 @@ export interface ChainCheck {
   ok: boolean;
   entries: number;
   head: string;
+  // True when the journal was checked against its separate anchor file.
+  anchored?: boolean;
   error?: string;
+}
+
+// The anchor records the latest entry the journal is known to contain. It is
+// rewritten after every append, so removing entries from the end of the
+// journal is detectable even though the chain itself would still verify.
+export interface AuditAnchor {
+  v: 1;
+  seq: number;
+  hash: string;
 }
 
 type EntryBody = Omit<AuditEntry, "hash">;
@@ -42,11 +54,12 @@ export function verifyChain(entries: AuditEntry[]): ChainCheck {
   return { ok: true, entries: entries.length, head: prev };
 }
 
-// Append-only JSONL journal with a SHA-256 hash chain. Callers must hold the
-// control-plane lock while appending; reads do not require it.
+// Append-only JSONL journal with a SHA-256 hash chain and a separate anchor.
+// Callers must hold the control-plane lock while appending; reads do not.
 export class AuditJournal {
   constructor(
     readonly path: string,
+    readonly anchorPath: string,
     private readonly clock: () => number = Date.now,
   ) {}
 
@@ -73,8 +86,72 @@ export class AuditJournal {
       });
   }
 
+  private async readAnchor(): Promise<AuditAnchor | null> {
+    let text: string;
+    try {
+      text = await readFile(this.anchorPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw new HomectlError(5, "Audit anchor cannot be read");
+    }
+    try {
+      const anchor = JSON.parse(text) as AuditAnchor;
+      if (
+        anchor.v !== 1 ||
+        !Number.isSafeInteger(anchor.seq) ||
+        anchor.seq < 1 ||
+        !/^[0-9a-f]{64}$/.test(anchor.hash)
+      )
+        throw new Error("shape");
+      return anchor;
+    } catch {
+      throw new HomectlError(
+        5,
+        "Audit anchor is corrupt; preserve the files and investigate",
+      );
+    }
+  }
+
+  private async writeAnchor(anchor: AuditAnchor): Promise<void> {
+    const temp = `${this.anchorPath}.${randomUUID()}.tmp`;
+    await writeFile(temp, JSON.stringify(anchor), { mode: 0o600, flag: "wx" });
+    await rename(temp, this.anchorPath);
+  }
+
+  // Chain check plus anchor check.
   async verify(): Promise<ChainCheck> {
-    return verifyChain(await this.read());
+    return this.check(await this.read());
+  }
+
+  private async check(entries: AuditEntry[]): Promise<ChainCheck> {
+    const chain = verifyChain(entries);
+    if (!chain.ok) return chain;
+    const anchor = await this.readAnchor();
+    if (anchor === null)
+      return entries.length === 0
+        ? { ...chain, anchored: false }
+        : {
+            ...chain,
+            ok: false,
+            anchored: false,
+            error:
+              "audit anchor is missing; the journal cannot be checked for truncation",
+          };
+    if (entries.length < anchor.seq)
+      return {
+        ...chain,
+        ok: false,
+        anchored: true,
+        error: `journal has ${entries.length} entries but its anchor records ${anchor.seq}; entries were removed from the end`,
+      };
+    if (entries[anchor.seq - 1]?.hash !== anchor.hash)
+      return {
+        ...chain,
+        ok: false,
+        anchored: true,
+        error: `journal diverges from its anchor at entry ${anchor.seq}`,
+      };
+    return { ...chain, anchored: true };
   }
 
   async append(event: AuditEvent): Promise<AuditEntry> {
@@ -85,7 +162,7 @@ export class AuditJournal {
         "Audit event refused: secret-like material detected",
       );
     const entries = await this.read();
-    const check = verifyChain(entries);
+    const check = await this.check(entries);
     if (!check.ok)
       throw new HomectlError(
         5,
@@ -101,6 +178,7 @@ export class AuditJournal {
     };
     const entry: AuditEntry = { ...body, hash: chainHash(body) };
     await appendFile(this.path, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
+    await this.writeAnchor({ v: 1, seq: entry.seq, hash: entry.hash });
     return entry;
   }
 }

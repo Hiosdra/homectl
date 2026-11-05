@@ -21,7 +21,7 @@ import {
   tokenDigest,
   validateClientInput,
 } from "./clients";
-import { AuditJournal, verifyChain } from "./journal";
+import { AuditJournal } from "./journal";
 import { containsSecretMaterial, redactArgv } from "./redact";
 import { schemas } from "./schema";
 import { type ControlState, ControlStore } from "./store";
@@ -345,7 +345,11 @@ export class ControlPlane {
     this.clock = options.clock ?? Date.now;
     this.runner = options.runner ?? run;
     this.store = new ControlStore(options.stateDirectory);
-    this.journal = new AuditJournal(this.store.auditPath, this.clock);
+    this.journal = new AuditJournal(
+      this.store.auditPath,
+      this.store.anchorPath,
+      this.clock,
+    );
     this.registry = new ClientRegistry(this.store.clientsPath);
   }
 
@@ -757,7 +761,7 @@ export class ControlPlane {
     const state = await this.store.loadState();
     const op = visibleOperation(state, client, operationId);
     const entries = await this.journal.read();
-    const chain = verifyChain(entries);
+    const chain = await this.journal.verify();
     const events = entries
       .filter((entry) => entry.event.operationId === op.id)
       .map((entry) => entry.event.event);
