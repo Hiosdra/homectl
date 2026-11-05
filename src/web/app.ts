@@ -82,6 +82,46 @@ let remoteHosts:
     }
   | undefined;
 
+type ControlOp = {
+  operationId: string;
+  state: string;
+  host: string;
+  classification: string;
+  needsApproval: boolean;
+  fingerprint: string;
+  argv: string[];
+  impact: string;
+  issuer: string;
+  createdAt: string;
+  expiresAt: string;
+  updatedAt: string;
+  expired: boolean;
+  approval?: { approver: string; expiresAt: string; state: string };
+  spawnAttempted: boolean;
+  exitCode?: number;
+  reason?: string;
+};
+type ControlClient = {
+  id: string;
+  name: string;
+  scopes: string[];
+  hosts: string[];
+  createdAt: string;
+  revoked: boolean;
+};
+type ControlOverview = {
+  operations: ControlOp[];
+  clients: ControlClient[];
+  audit: { ok: boolean; entries: number; head: string; error?: string };
+};
+type ControlExecution = {
+  operation: ControlOp;
+  output?: { stdout: string; stderr: string };
+};
+let control: ControlOverview | undefined;
+let controlTab: "queue" | "clients" = "queue";
+let controlFilter: "pending" | "approved" | "history" = "pending";
+let controlResult: ControlExecution | undefined;
 function element<T extends HTMLElement = HTMLElement>(id: string): T {
   const e = document.getElementById(id);
   if (!e) throw new Error(`Missing ${id}`);
@@ -156,6 +196,9 @@ async function refresh() {
   element("pending-count").textContent = state.pending.length
     ? String(state.pending.length)
     : "";
+  control = await api<ControlOverview>("/api/control").catch(() => undefined);
+  const ready = (control?.operations ?? []).filter(isReady).length;
+  element("approval-count").textContent = ready ? String(ready) : "";
   render();
 }
 function render() {
@@ -176,7 +219,9 @@ function render() {
             ? sync()
             : view === "access"
               ? access()
-              : settings();
+              : view === "approvals"
+                ? approvals()
+                : settings();
   const focus = screen.querySelector<HTMLElement>("h1");
   if (focus) {
     focus.tabIndex = -1;
@@ -270,6 +315,172 @@ function settings() {
     `<div class="split"><section class="panel"><h2>This device</h2><form id="settings-form" class="stack"><div><label for="device-label">Device name</label><input id="device-label" name="name" value="${htmlEscape(state.device.name)}" maxlength="100" required></div><div><label for="ttl">Session lifetime</label><input id="ttl" name="ttl" value="${htmlEscape(state.inventory.session?.ttl ?? "24h")}" required><p class="inline-note">For example: 12h, 24h, or until-reboot. Changing this locks the current session.</p></div><button class="primary">Save settings</button></form></section><section class="panel"><h2>Server and service</h2><dl><dt>Peer channel</dt><dd><code>${htmlEscape(state.address)}</code></dd><dt>Panel</dt><dd>Localhost only</dd><dt>Identity</dt><dd><code>${htmlEscape(state.device.id)}</code></dd></dl><h3 class="section">Run in the background</h3><p class="muted">Install from a terminal. The service uses this workspace and starts with locked keys.</p><pre>homectl service install --interface &lt;LAN-IP&gt;\nhomectl service start\nhomectl service status</pre><p class="inline-note">Windows requires WinSW and a configured service account. WSL requires systemd. Details: docs/windows.md.</p></section></div>`
   );
 }
+// Approvals: the control plane's queue. Approval always comes from another
+// MCP client; this panel only runs work that is already ready to run.
+function isReady(op: ControlOp) {
+  return (
+    op.state === "approved" || (op.state === "pending" && !op.needsApproval)
+  );
+}
+function labelOf(op: ControlOp) {
+  return op.state === "failed" &&
+    (op.reason === "plan-expired" || op.reason === "approval-expired")
+    ? "expired"
+    : op.state;
+}
+function stateBadge(label: string) {
+  const kind =
+    label === "succeeded"
+      ? "success"
+      : label === "pending" || label === "approved"
+        ? "warning"
+        : label === "failed" || label === "unknown" || label === "expired"
+          ? "danger"
+          : label === "executing"
+            ? "info"
+            : "";
+  return `<span class="badge ${kind}">${htmlEscape(label)}</span>`;
+}
+function span(ms: number) {
+  const a = Math.abs(ms);
+  if (a < 60_000) return "<1 min";
+  if (a < 3_600_000) return `${Math.round(a / 60_000)} min`;
+  if (a < 86_400_000) return `${Math.round(a / 3_600_000)} h`;
+  return `${Math.round(a / 86_400_000)} d`;
+}
+function relative(iso: string, expiry = false) {
+  const delta = Date.parse(iso) - Date.now();
+  if (expiry)
+    return delta >= 0
+      ? `expires in ${span(delta)}`
+      : `expired ${span(delta)} ago`;
+  return delta >= 0 ? `in ${span(delta)}` : `${span(delta)} ago`;
+}
+function localStamp(iso: string) {
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+function shellArgv(argv: string[]) {
+  return argv
+    .map((arg) =>
+      /^[A-Za-z0-9_/.:=@%+,-]+$/.test(arg)
+        ? arg
+        : `'${arg.replaceAll("'", "'\\''")}'`,
+    )
+    .join(" ");
+}
+function shortHash(value: string) {
+  return `${value.slice(0, 8)}…${value.slice(-4)}`;
+}
+function opAction(op: ControlOp) {
+  if (isReady(op))
+    return button("control-execute", "Execute", op.operationId, "primary");
+  if (op.state === "pending")
+    return `<span class="muted">Waiting for approval by another client</span>`;
+  if (op.state === "executing") return `<span class="muted">Running…</span>`;
+  if (op.state === "succeeded")
+    return `<span class="muted">Exit ${op.exitCode ?? 0}</span>`;
+  return `<span class="muted">${htmlEscape(op.reason ?? "Closed")}${op.exitCode !== undefined ? ` · exit ${op.exitCode}` : ""}</span>`;
+}
+function opRow(op: ControlOp) {
+  const label = labelOf(op);
+  const open = op.state === "pending" || op.state === "approved";
+  const approver =
+    op.approval?.approver ?? (op.needsApproval ? "—" : "not needed");
+  const when = open ? relative(op.expiresAt, true) : relative(op.updatedAt);
+  return `<tr><td>${stateBadge(label)}</td><td><strong>${htmlEscape(op.host)}</strong></td><td><span class="badge">${htmlEscape(op.classification)}</span></td><td><code class="cmd">${htmlEscape(shellArgv(op.argv))}</code><p>Fingerprint <code>${htmlEscape(shortHash(op.fingerprint))}</code></p></td><td>${htmlEscape(op.impact || "—")}</td><td>${htmlEscape(op.issuer)} → ${htmlEscape(approver)}</td><td><time datetime="${htmlEscape(op.updatedAt)}" title="${htmlEscape(localStamp(op.updatedAt))}">${htmlEscape(when)}</time></td><td>${opAction(op)}</td></tr>`;
+}
+function opTable(ops: ControlOp[]) {
+  return `<div class="table-wrap"><table><thead><tr><th>State</th><th>Host</th><th>Class</th><th>Command</th><th>Impact</th><th>Issuer → approver</th><th>When</th><th>Action</th></tr></thead><tbody>${ops.map(opRow).join("")}</tbody></table></div>`;
+}
+function auditCard(audit: ControlOverview["audit"] | undefined) {
+  const ok = audit?.ok === true;
+  const text = !audit
+    ? "Audit status is unavailable."
+    : ok
+      ? `Audit chain verified · ${audit.entries} entries · head ${audit.head.slice(0, 4)}…${audit.head.slice(-4)}`
+      : `Audit check failed: ${audit.error ?? "unknown"}. Preserve the files and investigate.`;
+  return `<section class="panel audit-card"><div><h2>Audit</h2><p><span class="badge ${ok ? "success" : "danger"}">${ok ? "Verified" : "Attention"}</span> <span class="muted">${htmlEscape(text)}</span></p></div>${button("control-verify", "Verify now")}</section>`;
+}
+function queueSection(ops: ControlOp[]) {
+  if (!ops.length)
+    return `<div class="empty"><h2>No operations yet</h2><p>Plans appear here when an MCP client proposes a command with homectl_plan. Inspection plans can run right away; changes wait for another client to approve.</p></div>`;
+  const buckets = {
+    pending: ops.filter((op) => op.state === "pending"),
+    approved: ops.filter((op) => op.state === "approved"),
+    history: ops.filter((op) => !["pending", "approved"].includes(op.state)),
+  };
+  const filters: [keyof typeof buckets, string][] = [
+    ["pending", "Pending"],
+    ["approved", "Approved"],
+    ["history", "History"],
+  ];
+  const tabs = filters
+    .map(
+      ([id, label]) =>
+        `<button type="button" class="${controlFilter === id ? "primary" : "quiet"}" aria-pressed="${controlFilter === id}" data-action="control-filter" data-id="${id}">${label} <span>${buckets[id].length}</span></button>`,
+    )
+    .join("");
+  const visible = buckets[controlFilter];
+  const note =
+    controlFilter === "pending"
+      ? `<p class="inline-note">Approval comes from another authorized client's own MCP session. This panel never approves on its behalf. Inspection plans need no approval and can run here.</p>`
+      : "";
+  const empty = {
+    pending: "Nothing is waiting. New plans from MCP clients appear here.",
+    approved: "No approved operations are waiting to run.",
+    history: "No finished operations yet.",
+  }[controlFilter];
+  return `<div class="filter-tabs" role="group" aria-label="Filter operations">${tabs}</div>${note}${visible.length ? opTable(visible) : `<div class="empty"><p>${htmlEscape(empty)}</p></div>`}`;
+}
+function clientsSection(clients: ControlClient[]) {
+  const command = `homectl control client add codex-pc --name "Codex PC" --scopes status:read,inspect:read,plan:create --hosts &lt;host&gt; --token-file &lt;path&gt;`;
+  const intro = `<p class="muted">Clients are added in a private terminal, so the token file is written locally and never shown here. Copy this command and replace the placeholders:</p><pre>${command}</pre>`;
+  if (!clients.length)
+    return `<div class="empty"><h2>No clients yet</h2><p>Each MCP client gets its own identity, scopes and host grants. Add the first one from a terminal.</p></div>${intro}`;
+  const rows = clients
+    .map(
+      (c) =>
+        `<tr><td><strong>${htmlEscape(c.name)}</strong><p><code>${htmlEscape(c.id)}</code></p></td><td><div class="chips">${c.scopes.map((s) => `<span class="chip">${htmlEscape(s)}</span>`).join("")}</div></td><td><div class="chips">${c.hosts.map((h) => `<span class="chip">${htmlEscape(h)}</span>`).join("")}</div></td><td><time datetime="${htmlEscape(c.createdAt)}" title="${htmlEscape(localStamp(c.createdAt))}">${htmlEscape(localStamp(c.createdAt))}</time></td><td>${c.revoked ? `<span class="badge danger">revoked</span>` : `<span class="badge success">active</span>`}</td><td>${c.revoked ? "" : button("control-revoke", "Revoke", c.id, "quiet danger")}</td></tr>`,
+    )
+    .join("");
+  return `${intro}<div class="table-wrap"><table><thead><tr><th>Client</th><th>Scopes</th><th>Hosts</th><th>Created</th><th>Status</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function executionResult(r: ControlExecution) {
+  const op = r.operation;
+  const label = labelOf(op);
+  const ok = op.state === "succeeded";
+  const headline = ok
+    ? `✓ succeeded on ${op.host} (exit ${op.exitCode ?? 0})`
+    : op.state === "failed" && op.exitCode !== undefined
+      ? `✗ failed (exit ${op.exitCode})`
+      : `${label}${op.reason ? ` · ${op.reason}` : ""}`;
+  const out = r.output?.stdout.trimEnd() ?? "";
+  const err = r.output?.stderr.trimEnd() ?? "";
+  const body =
+    !out.trim() && !err.trim()
+      ? `<p class="muted">(no output)</p>`
+      : `${out.trim() ? `<details><summary>stdout</summary><pre>${htmlEscape(out)}</pre></details>` : ""}${err.trim() ? `<details${ok ? "" : " open"}><summary>stderr</summary><pre>${htmlEscape(err)}</pre></details>` : ""}`;
+  return `<section class="section panel"><h2>Execution result</h2><p>${stateBadge(label)} <strong>${htmlEscape(headline)}</strong></p><p class="muted"><code>$ ${htmlEscape(shellArgv(op.argv))}</code></p>${body}</section>`;
+}
+function approvals() {
+  let content = heading(
+    "Approvals",
+    "Plans and runs from MCP clients. Approval comes from another client; this panel runs only what is already approved.",
+  );
+  content += auditCard(control?.audit);
+  content += `<div class="filter-tabs" role="tablist" aria-label="Approvals sections"><button type="button" role="tab" aria-selected="${controlTab === "queue"}" class="${controlTab === "queue" ? "primary" : "quiet"}" data-action="control-tab" data-id="queue">Operations</button><button type="button" role="tab" aria-selected="${controlTab === "clients"}" class="${controlTab === "clients" ? "primary" : "quiet"}" data-action="control-tab" data-id="clients">Clients</button></div>`;
+  content +=
+    controlTab === "queue"
+      ? queueSection(control?.operations ?? [])
+      : clientsSection(control?.clients ?? []);
+  if (controlResult) content += executionResult(controlResult);
+  return content;
+}
+function executionDetails(op: ControlOp) {
+  return `<dl><dt>Host</dt><dd>${htmlEscape(op.host)}</dd><dt>Command</dt><dd><code>${htmlEscape(shellArgv(op.argv))}</code></dd><dt>Impact</dt><dd>${htmlEscape(op.impact || "—")}</dd><dt>Fingerprint</dt><dd><code>${htmlEscape(op.fingerprint)}</code></dd><dt>Approver</dt><dd>${htmlEscape(op.approval?.approver ?? "none needed (inspection)")}</dd></dl>`;
+}
 function output() {
   let html = "";
   if (operationResult)
@@ -280,10 +491,12 @@ function output() {
     html += `<section class="section panel"><h2>Operation result</h2><pre>${htmlEscape(typeof result === "string" ? result : JSON.stringify(result, null, 2))}</pre></section>`;
   return html;
 }
-async function confirm(title: string, description: string) {
+async function confirm(title: string, description: string, html?: string) {
   const d = element<HTMLDialogElement>("confirm-dialog");
   element("confirm-title").textContent = title;
-  element("confirm-description").textContent = description;
+  // Structured details are pre-escaped by the caller; plain text is never HTML.
+  if (html !== undefined) element("confirm-description").innerHTML = html;
+  else element("confirm-description").textContent = description;
   d.showModal();
   return new Promise<boolean>((resolve) => {
     d.addEventListener("close", () => resolve(d.returnValue === "confirm"), {
@@ -463,6 +676,40 @@ document.addEventListener("click", (event) => {
       case "sync-cancel":
         await api("/api/sync/cancel", { id: preview?.id });
         preview = undefined;
+        await refresh();
+        return;
+      case "control-tab":
+        controlTab = id === "clients" ? "clients" : "queue";
+        render();
+        return;
+      case "control-filter":
+        controlFilter = id === "approved" || id === "history" ? id : "pending";
+        render();
+        return;
+      case "control-verify":
+        await api("/api/control/audit/verify", {});
+        await refresh();
+        return;
+      case "control-execute": {
+        const op = control?.operations.find((o) => o.operationId === id);
+        if (!op) return;
+        if (!(await confirm("Run this operation?", "", executionDetails(op))))
+          return;
+        controlResult = await api<ControlExecution>("/api/control/execute", {
+          operationId: id,
+        });
+        controlFilter = "history";
+        await refresh();
+        return;
+      }
+      case "control-revoke":
+        if (
+          await confirm(
+            `Revoke ${id}?`,
+            "Its token stops working immediately. To restore access later, create a new client from a terminal.",
+          )
+        )
+          await api("/api/control/revoke", { id });
         await refresh();
         return;
       case "lock":
@@ -648,9 +895,14 @@ async function boot() {
     element("connection").hidden = false;
     element("workspace").hidden = true;
   }
-  view = ["machines", "peers", "sync", "access", "settings"].includes(
-    location.hash.slice(1),
-  )
+  view = [
+    "machines",
+    "peers",
+    "sync",
+    "access",
+    "approvals",
+    "settings",
+  ].includes(location.hash.slice(1))
     ? location.hash.slice(1)
     : "machines";
   if (state) render();
