@@ -249,6 +249,38 @@ try {
     fullPage: true,
   });
   await page.getByRole("button", { name: /^Ready to run/ }).click();
+  // Every Execute button must sit inside the table card, with no clipping, at
+  // the desktop widths. Clipping or overflow fails the smoke run.
+  const assertExecuteInsideCard = async (label: string) => {
+    const report = await page.evaluate(() => {
+      const card = document.querySelector<HTMLElement>(".table-wrap");
+      if (!card) return { error: "no table card" };
+      const box = card.getBoundingClientRect();
+      const buttons = [
+        ...document.querySelectorAll<HTMLElement>(
+          'button[data-action="control-execute"]',
+        ),
+      ].map((b) => b.getBoundingClientRect());
+      return {
+        count: buttons.length,
+        outside: buttons.filter((b) => b.left < box.left || b.right > box.right)
+          .length,
+        overflowsX: card.scrollWidth > card.clientWidth,
+      };
+    });
+    expect(report, label).not.toHaveProperty("error");
+    expect(report.count, label).toBeGreaterThan(0);
+    expect(report.outside, `${label}: Execute outside card`).toBe(0);
+    expect(report.overflowsX, `${label}: table scrolls sideways`).toBe(false);
+  };
+  await assertExecuteInsideCard("1440px");
+  await page.setViewportSize({ width: 1280, height: 960 });
+  await assertExecuteInsideCard("1280px");
+  await page.screenshot({
+    path: join(out, "approvals-1280.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 960 });
   // Target the inspection row only: the approved SSH change in the same tab must not run.
   const inspectionRun = page
     .locator("tr", { hasText: "hostname" })
