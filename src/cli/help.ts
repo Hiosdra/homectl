@@ -422,6 +422,10 @@ pages["serve-mcp"] = {
       title: "Options",
       rows: [
         ["--port PORT", "Loopback port (default 7449)."],
+        [
+          "--host 127.0.0.1",
+          "Loopback only. Other addresses are refused; use a reverse proxy or tunnel for remote clients.",
+        ],
         ...globalOptions.rows,
       ],
     },
@@ -459,10 +463,48 @@ pages.control = {
       title: "Operations",
       rows: [
         [
-          "execute OPERATION_ID",
-          "Run an approved operation through the existing exec policy. Single use; failed and unknown operations are not retried.",
+          "ops [--state LIST] [--all]",
+          "List open operations (pending, approved, executing). --all includes history.",
         ],
-        ["audit verify", "Check the audit journal hash chain."],
+        [
+          "show ID",
+          "Show one operation in full. ID can be a unique prefix of at least 8 characters.",
+        ],
+        [
+          "execute ID",
+          "Run an approved operation, or an inspection plan, through the existing exec policy. Single use; failed and unknown operations are not retried.",
+        ],
+        ["audit verify", "Check the audit journal hash chain and its anchor."],
+        [
+          "--state LIST",
+          "Comma-separated: pending, approved, executing, succeeded, failed, unknown.",
+        ],
+      ],
+    },
+    {
+      title: "Quickstart",
+      rows: [
+        [
+          "1. Add clients",
+          "client add codex-pc --name ... --scopes ... --hosts ... --token-file PATH (one per agent)",
+        ],
+        [
+          "2. Start the endpoint",
+          "serve-mcp, then keep it running in a private terminal",
+        ],
+        [
+          "3. Configure the agent",
+          "URL http://127.0.0.1:7449/mcp and header Authorization: Bearer <token file contents>",
+        ],
+        [
+          "4. Plan and approve",
+          "The agent calls homectl_plan. Inspection needs no approval; changes need approval by another client.",
+        ],
+        [
+          "5. Execute",
+          "control execute <id>, or Execute in the panel's Approvals view",
+        ],
+        ["6. Verify", "control audit verify, or the Audit card in the panel"],
       ],
     },
     globalOptions,
