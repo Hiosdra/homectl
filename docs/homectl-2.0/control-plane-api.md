@@ -13,7 +13,8 @@ Status: **implemented in this branch, not deployed.** Tests show local behavior 
 
 - **Scopes** (closed set): `status:read`, `inspect:read`, `plan:create`, `approve:decide`.
 - **Host grants**: explicit list of inventory host names per client. No wildcards.
-- **Separation rules**: each client has its own id, token, scopes and grants. Tokens are never shared. A client cannot approve a plan it issued (`approver != issuer`).
+- **Separation rules**: each client has its own id, token, scopes and grants. Tokens are never shared. A client cannot approve a plan it issued (`approver != issuer` for `decision: "approve"`). The issuer may still `reject` its own plan to cancel it.
+- **Reserved client ids**: `local-operator` and `control-plane` (used for the local operator and system events in the audit journal).
 - **Authentication interface**: `ClientAuthenticator.authenticate(credential) -> ClientIdentity | null`. Slice 1 implements token authentication; an OIDC implementation can replace it without changing the engine.
 - **Token format and storage**: `hct_` + 32 random bytes (base64url). Only the SHA-256 digest is stored, in `control-plane/clients.json` (mode 0600 or owner-only ACL). Comparison is constant-time (`timingSafeEqual`) over all non-revoked clients. Revocation takes effect on the next request.
 
@@ -27,7 +28,7 @@ Every request has an `op` field. Unknown fields are rejected. Each request is va
 | `status` | client | `status:read`; grant for the operation's host | No (audit entry only) | `OperationView`, or granted-host operations |
 | `plan` | client | `plan:create`; grant for `host` | Creates an operation in `pending` | `OperationView` with `review` fields |
 | `validate` | client | `inspect:read`; grant for the operation's host | No | `{valid, reason}` recomputed against current inventory |
-| `approve` | client | `approve:decide`; grant for the operation's host; approver must differ from issuer | `pending -> approved`, or `pending -> failed` on reject | `ApprovalView` (no nonce) and `OperationView` |
+| `approve` | client | `approve:decide`; grant for the operation's host; for `decision: "approve"` the approver must differ from the issuer | `pending -> approved`, or `pending -> failed` on reject | `ApprovalView` (no nonce) and `OperationView` |
 | `execute` | **local operator only** | none (local OS account) | `approved -> executing -> succeeded / failed / unknown` | `OperationView` plus stdout/stderr for the local operator |
 | `verify` | client | `status:read`; grant for the operation's host | No | Journal chain validity and per-operation consistency |
 
@@ -56,7 +57,7 @@ Rules that apply to all operations:
 **Plan screening** (at `plan`; refusals are exit 3 unless noted):
 - Unknown host: exit 2. Host not granted: exit 3 with the generic message.
 - `full` access host: refused. There is no general-root path through MCP.
-- Shell, interpreter and privilege-wrapper commands (for example `sh`, `bash`, `python3`, `env`, `xargs`, `su`, `doas`, `pkexec`, `ssh`, `curl`) as the executable: refused. `sudo -n` is accepted only when the existing `sudo-approved` allowlist matches.
+- Shell, interpreter and privilege-wrapper commands (for example `sh`, `bash`, `python3`, `env`, `xargs`, `su`, `doas`, `pkexec`, `ssh`) as the executable, including inside `sudo -n`: refused. `sudo -n` is accepted only when the existing `sudo-approved` allowlist matches. Commands the existing policy classifies as `opaque` (for example `curl`) are refused by the opaque rule.
 - Argv referencing a container runtime socket (`docker.sock`, `/run/podman`): refused.
 - Container and hypervisor control (`docker`, `podman`, `nerdctl`, `ctr`, `kubectl`, `qm`, `pct`, `pvesh`): allowed only when the existing classification is `inspect`.
 - `opaque` classification: refused.
@@ -76,7 +77,7 @@ Created by `approve` with `decision: "approve"`.
 | `nonce` | 128-bit random single-use token. Stored only; not returned to clients. |
 | `state` | `active` until execution starts, then `consumed` |
 
-Checks at `approve` (all exit 3 unless noted): operation exists and is granted; state is `pending`; plan not expired; approver is not the issuer; approver has `approve:decide` and the host grant; supplied fingerprint equals the stored fingerprint; stored plan re-hashes to its fingerprint (otherwise the operation is closed as `failed: integrity-mismatch`).
+Checks at `approve` (all exit 3 unless noted): operation exists and is granted; state is `pending`; plan not expired (reported as "Plan expired"); for `decision: "approve"` the approver is not the issuer; approver has `approve:decide` and the host grant; supplied fingerprint equals the stored fingerprint; stored plan re-hashes to its fingerprint (otherwise the operation is closed as `failed: integrity-mismatch`). A `reject` closes the operation as `failed: rejected` and journals both `operation.decided` and `operation.failed`.
 
 At `execute` the approval is re-validated: it must be `active`, unexpired, its nonce absent from `consumedNonces`, its fingerprint equal to the operation's, the approver still active with the approve scope and host grant (otherwise `failed: approval-invalidated`), and the current inventory must still produce the same `execApproval` (otherwise `failed: stale-plan`).
 
@@ -98,7 +99,7 @@ pending --approve--> approved --execute--> executing --exit 0-----------> succee
 - **`failed` and `unknown` are never re-executed automatically.** A new plan and a new approval are required.
 - `spawnAttempted` is set before the runner is invoked. `unknown` is the conservative answer when the engine cannot tell whether the remote command ran.
 - Expiry is evaluated when a mutating request runs. Read-only views report `expired: true` for stale pending or approved operations without changing them.
-- On startup, any operation recorded as `executing` is closed as `unknown: interrupted`.
+- On startup (`ControlPlane.init`), an operation recorded as `executing` is closed as `unknown: interrupted` **unless** its recorded `executorPid` is still alive, in which case it is left alone. A reused PID can keep an orphaned operation in `executing` until restart; this fails safe (nothing is re-run).
 
 ## 6. Idempotency and replay
 
@@ -129,8 +130,10 @@ File: `control-plane/audit.jsonl`, one JSON object per line, append-only.
 | 2 | Invalid request (schema), unknown host or operation id where the caller is entitled to know it, invalid input |
 | 3 | Forbidden: missing scope or grant, self-approval, policy refusal, state conflict, fingerprint mismatch, replay, expired or invalid approval |
 | 4 | Approval required before execution |
-| 5 | Unavailable: state lock busy, audit journal unavailable or corrupt, internal failure (details suppressed) |
-| 6 | Local `execute` ran and the remote command exited non-zero (CLI exit mapping) |
+| 5 | Unavailable: state lock busy, audit journal unavailable or corrupt, internal failure (details suppressed); also `control execute` ending `unknown` |
+| 6 | `control execute` ran and the command exited non-zero (`failed` with an exit code) |
+
+`control execute` exit mapping: `succeeded` 0; `failed` with exit code 6; `failed` before spawn 3; `unknown` 5.
 
 Error messages are fixed strings in the engine. Exception text from lower layers is not forwarded.
 
@@ -141,7 +144,7 @@ Error messages are fixed strings in the engine. Exception text from lower layers
 - Methods: `initialize`, `ping`, `tools/list`, `tools/call`. Notifications receive `202`. Batches are refused. `GET` returns `405`.
 - Every request needs `Authorization: Bearer <token>`. Missing or invalid tokens return `401` with `WWW-Authenticate: Bearer`. Revoked clients are refused.
 - `Host` must be `127.0.0.1:<port>` or `localhost:<port>`; an `Origin` header, if present, must match. Otherwise `403`.
-- Stateless: no `Mcp-Session-Id`. Request body limit 256 KiB.
+- Stateless: no `Mcp-Session-Id`. Request body limit 256 KiB; larger bodies receive `413` before parsing (tested).
 - `tools/list` shows only tools whose scope the client holds. `tools/call` enforces scope again in the engine.
 
 | Tool | Scope | Maps to | Read-only hint |
@@ -166,8 +169,9 @@ homectl control execute <operation-id>
 homectl control audit verify
 ```
 
-- `client add` writes the token to `--token-file` with owner-only permissions and refuses to overwrite an existing file. The token is never printed.
-- `execute` runs the existing `src/operations.ts` `execute()` path, so the existing tier and classification checks still apply. Its stdout and stderr are printed to the operator and are not stored.
+- `client add` writes the token to `--token-file` with owner-only permissions and refuses to overwrite an existing file. The token is never printed. The destination directory must exist and the file must not exist; both are checked before any client is created. If the file cannot be written after creation, the new client is revoked.
+- `--name`, `--scopes`, `--hosts` and `--token-file` apply only to `control`; other commands refuse them with exit 2.
+- `execute` refreshes the managed SSH config first (as `exec` does), then runs the existing `src/operations.ts` `execute()` path, so the existing tier and classification checks still apply. Its stdout and stderr are printed to the operator and are not stored.
 
 ## 11. Non-goals in this version
 

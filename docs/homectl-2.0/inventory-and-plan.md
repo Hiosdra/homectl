@@ -127,11 +127,14 @@ Deterministic Proxmox plan with a `fingerprint`. Apply writes a per-VMID JSON jo
 - **R5 — Unknown-outcome handling is conservative.** A locked-session refusal that happens after the runner spawned the worker is classified `unknown` even though the remote command likely did not run. Operators must inspect; nothing is retried.
 - **R6 — Output is not persisted.** Local `execute` prints stdout/stderr to the operator; MCP clients see only state and exit code. Consequence: remote clients cannot read command results in slice 1.
 - **R7 — Secret detection is pattern-based.** Refuses obvious forms (PEM headers, `password=`, `token:`, `Bearer ...`, `hct_` tokens). It does not prove absence of secrets. Impact text and argv are both screened.
-- **R8 — Unauthenticated probes are journaled.** Failed auth attempts append `auth.rejected` entries without a client id. No rate limiting in slice 1; a local process could grow the journal. Mitigation later.
+- **R8 — Unauthenticated probes are journaled.** Failed auth attempts append `auth.rejected` entries under the system actor `control-plane` (no client id, no token). No rate limiting in slice 1; a local process could grow the journal. Mitigation later.
 - **R9 — Windows lock semantics.** The state lock uses exclusive-create lock files with a 30 s staleness rule. Adequate for the single-host, low-concurrency use here; not a formal lock. Not verified on Windows beyond unit tests that run on this machine.
 - **R10 — Loopback HTTP only.** The MCP endpoint is plain HTTP on `127.0.0.1`. Non-loopback binding is refused in code. No TLS. Remote access would need a separate design (issue #5 and Authentik work).
 - **R11 — Growth.** Operations, idempotency entries, consumed nonces and the journal grow without retention in slice 1. Each mutating request reads the whole journal to find the chain head; acceptable at homelab volume, needs a tail-read optimization later.
 - **R12 — Proxmox LXC is not supported.** `pct` is only blocked for MCP unless inspection. No LXC lifecycle adapter exists or is claimed.
+- **R13 — Executor liveness uses PIDs.** An operation left `executing` is recovered as `unknown` at startup only if its recorded executor PID is not alive. A reused PID can delay recovery until the next restart. This fails safe: nothing is re-run.
+- **R14 — Two-file write window.** Operation state (`state.json`) and the journal (`audit.jsonl`) are separate files, so a crash between them can leave a transition without its audit entry, or the reverse. Order is chosen per transition: audit-first for plan, decision and expiry (a failed append prevents the change); state-first for the `executing` commit, which reverts if the append fails; state-first for outcomes, which then report an audit failure. `verify` reports per-operation inconsistencies. Not atomic.
+- **R15 — Outcome commit can hit the lock timeout.** If the state lock is busy for more than 10 s when a finished command reports its outcome, the request fails with code 5 and the operation remains `executing`. It is then recovered as `unknown` after the executor exits. Nothing is re-run, but the real result is not recorded.
 
 ## 6. Suggested next slices
 
@@ -139,3 +142,28 @@ Deterministic Proxmox plan with a `fingerprint`. Apply writes a per-VMID JSON jo
 2. Authentik OIDC: implement an authenticator behind `ClientAuthenticator` (the interface is in slice 1); map groups to scopes and host grants.
 3. Output channel for approved executions (bounded, redacted, stored as digests or to the operator only) if remote clients need results.
 4. Proxmox lifecycle adapters (deliverable 4) and Ugreen onboarding (deliverable 5) as separate scoped slices.
+
+## 7. Slice 1 implementation status
+
+Branch `feat/issue-5-control-plane`. Local only; not pushed, no PR, no live host touched.
+
+| Area | Implemented | Files | Tests |
+| --- | --- | --- | --- |
+| Frozen API | TypeScript types, JSON Schema (draft-07, Ajv), contract doc | `src/control/types.ts`, `src/control/schema.ts`, `schema/control-plane.schema.json`, `docs/homectl-2.0/control-plane-api.md` | `tests/control-schema.test.ts` |
+| Canonical fingerprint, redaction | Sorted-key JSON hash; secret-material detection; argv redaction | `src/control/canonical.ts`, `src/control/redact.ts` | `tests/control-journal.test.ts` |
+| Audit journal | Append-only JSONL hash chain; verify; fail-closed on corruption or secret-like payloads | `src/control/journal.ts` | `tests/control-journal.test.ts` |
+| Clients and tokens | Per-client tokens (digests only), constant-time match, scopes, host grants, revocation | `src/control/clients.ts` | `tests/control-engine.test.ts`, `tests/control-mcp.test.ts` |
+| State and lock | Atomic state file; exclusive-create lock across processes | `src/control/store.ts` | exercised by engine and concurrency tests |
+| Approval engine | Plan, validate, approve/reject, execute (local only), verify, status, inspect; six-state machine; recovery | `src/control/engine.ts` | `tests/control-engine.test.ts` (44 tests) |
+| MCP endpoint | JSON-RPC over Streamable HTTP on 127.0.0.1; four tools; Host/Origin/bearer checks; body limit | `src/control/mcp.ts` | `tests/control-mcp.test.ts` |
+| CLI | `serve-mcp`; `control client add|list|revoke`; `control execute`; `control audit verify`; help pages | `src/control/cli.ts`, `src/cli/main.ts` (dispatch and option names only), `src/cli/help.ts` | `tests/control-cli.test.ts` |
+
+Stubbed or intentionally absent in slice 1:
+
+- `verify` checks journal consistency for one operation. It does not inspect the remote system after execution.
+- No OIDC/OAuth implementation; only the `ClientAuthenticator` seam.
+- No output retrieval for MCP clients (R6), no retention or pruning (R11), no rate limiting (R8).
+- No peer, sync, Proxmox lifecycle, LXC or Ugreen work.
+- Execution is covered by fake runners in tests. No real SSH or local command was run through the control plane in this slice.
+
+Coverage gap to close in a later slice: the "refused before spawn" outcome (`failed: refused-before-spawn`) is reachable only through `execute()`'s own pre-spawn checks, which the normal flow does not trigger. It is implemented, but no test forces it.
