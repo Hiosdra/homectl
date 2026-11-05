@@ -85,6 +85,19 @@ const pages: Record<string, Page> = {
           ["provision --file PATH", "Create and enroll a Proxmox VM over SSH."],
         ],
       },
+      {
+        title: "Control plane",
+        rows: [
+          [
+            "serve-mcp",
+            "Run the loopback MCP endpoint for scoped, token-authenticated clients.",
+          ],
+          [
+            "control <action>",
+            "Manage clients, execute approved operations and verify the audit journal.",
+          ],
+        ],
+      },
       globalOptions,
       {
         title: "Examples",
@@ -399,6 +412,61 @@ pages.peer = {
   intro:
     "Uses the peer's grants and host policy. Mutations wait for local approval on the execution peer.",
   sections: [globalOptions],
+};
+pages["serve-mcp"] = {
+  usage: "homectl serve-mcp [--port 7449] [--inventory PATH]",
+  intro:
+    "Starts the MCP endpoint on 127.0.0.1 only. Each client authenticates with its own token and receives only its granted scopes and hosts. Clients can inspect, plan and approve. They cannot execute, open shells or read secrets; the local operator runs approved operations with homectl control execute.",
+  sections: [
+    {
+      title: "Options",
+      rows: [
+        ["--port PORT", "Loopback port (default 7449)."],
+        ...globalOptions.rows,
+      ],
+    },
+  ],
+};
+pages.control = {
+  usage: "homectl control <client|execute|audit> [options]",
+  intro:
+    "Local operator actions for the control plane. Run them in your private terminal; they are not available through MCP.",
+  sections: [
+    {
+      title: "Clients",
+      rows: [
+        [
+          "client add ID --name NAME --scopes LIST --hosts LIST --token-file PATH",
+          "Create a client. The token is written to a new owner-only file and is never printed.",
+        ],
+        ["client list", "List clients without token material."],
+        [
+          "client revoke ID",
+          "Revoke a client; its token stops working at once.",
+        ],
+        [
+          "--scopes LIST",
+          "Comma-separated: status:read, inspect:read, plan:create, approve:decide.",
+        ],
+        ["--hosts LIST", "Comma-separated inventory host names to grant."],
+        [
+          "--token-file PATH",
+          "New file that receives the token. Must not exist.",
+        ],
+      ],
+    },
+    {
+      title: "Operations",
+      rows: [
+        [
+          "execute OPERATION_ID",
+          "Run an approved operation through the existing exec policy. Single use; failed and unknown operations are not retried.",
+        ],
+        ["audit verify", "Check the audit journal hash chain."],
+      ],
+    },
+    globalOptions,
+  ],
 };
 pages.ssh = {
   ...(pages.exec as Page),

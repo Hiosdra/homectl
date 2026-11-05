@@ -55,6 +55,10 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         "configure-firewall": { type: "boolean" },
         inventory: { type: "string" },
         file: { type: "string" },
+        name: { type: "string" },
+        scopes: { type: "string" },
+        hosts: { type: "string" },
+        "token-file": { type: "string" },
         approval: { type: "string" },
         impact: { type: "string" },
         "configure-sudo": { type: "boolean" },
@@ -72,6 +76,16 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       throw new HomectlError(
         2,
         "--ttl and --database apply only to session configure",
+      );
+    if (
+      [v.name, v.scopes, v.hosts, v["token-file"]].some(
+        (option) => option !== undefined,
+      ) &&
+      command !== "control"
+    )
+      throw new HomectlError(
+        2,
+        "--name, --scopes, --hosts and --token-file apply only to control",
       );
     const p = paths();
     const inventoryPath = v.inventory ? resolve(v.inventory) : p.inventory;
@@ -419,6 +433,38 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         process.once("SIGTERM", stop);
       });
       return 0;
+    }
+    if (command === "serve-mcp") {
+      if (positionals.length > 1 || commandArgs.length)
+        throw new HomectlError(
+          2,
+          "Usage: homectl serve-mcp [--port 7449] [--inventory PATH]",
+        );
+      if (dryRun) {
+        emit({
+          wouldServe: "mcp",
+          bind: "127.0.0.1",
+          port: v.port ?? "7449",
+          credentialAccess: false,
+        });
+        return 0;
+      }
+      await (await import("../control/cli")).serveMcp(
+        { inventoryPath, configPath, positionals, values: v, dryRun },
+        emit,
+      );
+      return 0;
+    }
+    if (command === "control") {
+      const result = await (await import("../control/cli")).controlCommand({
+        inventoryPath,
+        configPath,
+        positionals: positionals.slice(1),
+        values: v,
+        dryRun,
+      });
+      emit(result.value);
+      return result.code;
     }
     const inv = await loadInventory(inventoryPath);
     if (positionals.length > (command === "key" ? 3 : 2))
