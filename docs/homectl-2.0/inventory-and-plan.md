@@ -182,3 +182,7 @@ Same branch, local commits only. Scope: review fixes on slice 1 plus the operato
 - UI smoke test seeds synthetic clients and operations, walks the Approvals view, executes an inspection, and asserts no page errors. Screenshots are written to `.impeccable/review/` (gitignored).
 
 Still out of scope after slice 2: peer convergence, OIDC, output retrieval for remote clients, Proxmox and Ugreen work.
+
+## 9. Slice 3 status (peer convergence)
+
+Design only: [peer-convergence-design.md](peer-convergence-design.md). Implementation was stopped after the design because the existing peer layer (fixed record namespaces, generic overwrite merge, pairwise transport keys, manual sync) cannot carry execution state safely without a major refactor. Open questions are listed in that document for review.
