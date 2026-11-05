@@ -1,13 +1,17 @@
 // Local operator commands for the control plane. These run in the homectl
 // host's own terminal; none of them is reachable through MCP.
 import { stat, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { confirm } from "../cli/prompts";
 import { loadInventory } from "../inventory";
 import { writeSSHConfig } from "../operations";
 import { protect } from "../platform";
 import { HomectlError } from "../types";
-import { ControlPlane, type ExecuteResult } from "./engine";
+import {
+  ControlPlane,
+  controlStateDirectory,
+  type ExecuteResult,
+} from "./engine";
 import { DEFAULT_MCP_PORT, startMcpServer } from "./mcp";
 import {
   colorEnabled,
@@ -46,10 +50,6 @@ export interface ControlCliResult {
   value: unknown;
   human: string;
   code: number;
-}
-
-export function controlStateDirectory(inventoryPath: string): string {
-  return join(dirname(resolve(inventoryPath)), "control-plane");
 }
 
 // Loads the inventory first so a missing inventory fails like other commands,

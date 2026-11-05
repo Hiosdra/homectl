@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { basename } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { loadInventory } from "../inventory";
 import { execute as executeCommand } from "../operations";
 import { innerCommand, planExecution } from "../policies";
@@ -1094,4 +1094,9 @@ export class ControlPlane {
       return { operation: operationView(op, now), output };
     });
   }
+}
+
+// Private state directory beside the inventory. Shared by the CLI and the panel.
+export function controlStateDirectory(inventoryPath: string): string {
+  return join(dirname(resolve(inventoryPath)), "control-plane");
 }

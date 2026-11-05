@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { dirname, join, resolve } from "node:path";
+import { ControlPlane, controlStateDirectory } from "./control/engine";
 import { loadInventory, parseInventory, saveInventory } from "./inventory";
 import { execute, writeSSHConfig } from "./operations";
 import { discovery } from "./peer/discovery";
@@ -55,6 +56,27 @@ function failure(error: unknown) {
     e.code === 3 ? 403 : e.code === 4 ? 409 : e.code === 5 ? 503 : 400,
   );
 }
+// Control-plane overview for the Approvals view. Read-only, except that the
+// audit verification itself is an in-memory check of the journal.
+async function controlPanel(control: ControlPlane) {
+  const [operations, clients, audit] = await Promise.all([
+    control.listOperations({ all: true }),
+    control.listClients(),
+    control.verifyAudit(),
+  ]);
+  return {
+    operations: operations.slice(0, 200),
+    clients,
+    audit: {
+      ok: audit.ok,
+      entries: audit.entries,
+      head: audit.head,
+      anchored: audit.anchored,
+      error: audit.error,
+    },
+  };
+}
+
 export async function serve(options: ServeOptions) {
   const interfaceIP = options.interface ?? "127.0.0.1";
   if (!isIP(interfaceIP) || interfaceIP === "0.0.0.0" || interfaceIP === "::")
@@ -69,6 +91,7 @@ export async function serve(options: ServeOptions) {
   const token = randomBytes(32).toString("base64url");
   const cookie = randomBytes(32).toString("base64url");
   let hub: Hub;
+  let control: ControlPlane;
   let localPort = options.port ?? 7447;
   const js = await Bun.build({
     entrypoints: [resolve(import.meta.dir, "web/app.ts")],
@@ -127,6 +150,12 @@ export async function serve(options: ServeOptions) {
       options.configPath,
       address,
     ).init();
+    control = new ControlPlane({
+      inventoryPath: options.inventoryPath,
+      configPath: options.configPath,
+      stateDirectory: controlStateDirectory(options.inventoryPath),
+    });
+    await control.init();
   } catch (error) {
     peerServer.stop(true);
     throw error instanceof HomectlError
@@ -219,9 +248,26 @@ export async function serve(options: ServeOptions) {
                 })),
                 address,
               });
+            if (req.method === "GET" && url.pathname === "/api/control")
+              return response(await controlPanel(control));
             if (req.method !== "POST")
               return response({ error: "Not found" }, 404);
             const v = await body(req);
+            // Control-plane routes use their own lock and never enter the hub
+            // queue: a long SSH run must not block peer requests.
+            // The panel is the local operator: it can execute approved work and
+            // revoke clients, but it never approves on behalf of a client.
+            if (url.pathname === "/api/control/execute")
+              return response(
+                await control.request(
+                  { kind: "local-operator" },
+                  { op: "execute", operationId: String(v.operationId) },
+                ),
+              );
+            if (url.pathname === "/api/control/revoke")
+              return response(await control.revokeClient(String(v.id)));
+            if (url.pathname === "/api/control/audit/verify")
+              return response(await control.verifyAudit());
             // Never hold the local mutation queue while waiting for another peer:
             // simultaneous bidirectional sync must not deadlock both queues.
             if (url.pathname === "/api/sync/start")
@@ -441,6 +487,7 @@ export async function serve(options: ServeOptions) {
   await protect(launch);
   return {
     hub,
+    control,
     url: `http://127.0.0.1:${localPort}`,
     address,
     launch,
