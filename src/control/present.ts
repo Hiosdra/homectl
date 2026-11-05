@@ -392,8 +392,7 @@ export function awaitingApprovalBy(
   caller: Pick<ClientIdentity, "id" | "scopes"> | undefined,
 ): boolean {
   return Boolean(
-    caller &&
-      caller.scopes.includes("approve:decide") &&
+    caller?.scopes.includes("approve:decide") &&
       op.state === "pending" &&
       op.needsApproval &&
       !op.expired &&
