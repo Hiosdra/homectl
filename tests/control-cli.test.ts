@@ -414,3 +414,27 @@ test("client add rejects host names that are not in the inventory", async () => 
   expect(r.stderr).toContain("Valid hosts: big, lab-printer");
   await expect(stat(tokenFile)).rejects.toBeDefined();
 });
+
+test("serve-mcp refuses non-loopback binding with a plain explanation", async () => {
+  const f = await fixture();
+  const r = await invoke([
+    "serve-mcp",
+    "--host",
+    "0.0.0.0",
+    "--port",
+    "0",
+    "--inventory",
+    f.inventory,
+  ]);
+  expect(r.code).toBe(2);
+  expect(r.stderr).toContain("binds only to loopback (127.0.0.1)");
+  expect(r.stderr).not.toContain("details suppressed");
+  const misplaced = await invoke([
+    "hosts",
+    "--host",
+    "x",
+    "--inventory",
+    f.inventory,
+  ]);
+  expect(misplaced.code).toBe(2);
+});

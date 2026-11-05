@@ -20,6 +20,7 @@ export interface ControlCliInput {
     scopes?: string;
     hosts?: string;
     "token-file"?: string;
+    host?: string;
   };
   dryRun: boolean;
 }
@@ -61,6 +62,11 @@ export async function serveMcp(
   input: ControlCliInput,
   onReady: (value: unknown) => void,
 ): Promise<void> {
+  if (input.values.host !== undefined && input.values.host !== "127.0.0.1")
+    throw new HomectlError(
+      2,
+      "serve-mcp binds only to loopback (127.0.0.1); use a reverse proxy or tunnel for remote clients.",
+    );
   const plane = await openPlane(input);
   const port =
     input.values.port === undefined

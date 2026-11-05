@@ -557,3 +557,20 @@ describe("server lifecycle", () => {
     expect(() => startMcpServer({ control, port: -1 })).toThrow(HomectlError);
   });
 });
+
+describe("port conflicts", () => {
+  test("a busy port is reported plainly, not as a generic failure", async () => {
+    const f = await fixture();
+    const busy = Number(new URL(f.server.url).port);
+    let caught: unknown;
+    try {
+      startMcpServer({ control: f.plane, port: busy });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(HomectlError);
+    expect((caught as HomectlError).message).toBe(
+      `Port ${busy} is already in use; stop the other process or choose another port with --port`,
+    );
+  });
+});

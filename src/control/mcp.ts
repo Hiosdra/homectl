@@ -264,7 +264,15 @@ export function startMcpServer(options: {
       idleTimeout: 30,
       fetch: (request) => handle(request),
     });
-  } catch {
+  } catch (error) {
+    if (
+      (error as { code?: string }).code === "EADDRINUSE" ||
+      /in use|EADDRINUSE/i.test(String((error as Error).message))
+    )
+      throw new HomectlError(
+        5,
+        `Port ${port} is already in use; stop the other process or choose another port with --port`,
+      );
     throw new HomectlError(
       5,
       `Cannot start the MCP endpoint on 127.0.0.1:${port}; choose another port`,

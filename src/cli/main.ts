@@ -59,6 +59,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         scopes: { type: "string" },
         hosts: { type: "string" },
         "token-file": { type: "string" },
+        host: { type: "string" },
         approval: { type: "string" },
         impact: { type: "string" },
         "configure-sudo": { type: "boolean" },
@@ -87,6 +88,8 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         2,
         "--name, --scopes, --hosts and --token-file apply only to control",
       );
+    if (v.host !== undefined && command !== "serve-mcp")
+      throw new HomectlError(2, "--host applies only to serve-mcp");
     const p = paths();
     const inventoryPath = v.inventory ? resolve(v.inventory) : p.inventory;
     const configPath = v.inventory ? `${inventoryPath}.ssh_config` : p.ssh;
