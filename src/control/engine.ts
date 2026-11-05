@@ -438,6 +438,17 @@ export class ControlPlane {
     input: Record<string, unknown>,
   ): Promise<{ client: ClientView; token: string }> {
     const parsed = validateClientInput(input);
+    const inventory = await loadInventory(this.options.inventoryPath);
+    const unknown = parsed.hosts.filter(
+      (host) => !Object.hasOwn(inventory.machines, host),
+    );
+    if (unknown.length > 0)
+      throw new HomectlError(
+        2,
+        `Unknown inventory host(s): ${unknown.join(", ")}. Valid hosts: ${
+          Object.keys(inventory.machines).sort().join(", ") || "none configured"
+        }`,
+      );
     return this.store.withLock(async () => {
       const now = this.clock();
       const clients = await this.registry.load();

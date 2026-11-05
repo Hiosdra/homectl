@@ -223,6 +223,23 @@ describe("client identities and tokens", () => {
   });
 });
 
+test("host grants must name hosts that exist in the inventory", async () => {
+  const h = await harness();
+  await expectCode(
+    h.plane.createClient({
+      id: "typo-client",
+      name: "Typo",
+      scopes: ["plan:create"],
+      hosts: ["lab-printr"],
+    }),
+    2,
+    "Unknown inventory host(s): lab-printr. Valid hosts: big, lab-printer, nas",
+  );
+  expect((await h.plane.listClients()).map((c) => c.id)).not.toContain(
+    "typo-client",
+  );
+});
+
 describe("plan creation and screening", () => {
   test("a granted client creates a pending, fingerprinted plan", async () => {
     const h = await harness();

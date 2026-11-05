@@ -390,3 +390,27 @@ test("serve-mcp answers an authenticated initialize over loopback and stops on s
     await reader.cancel().catch(() => undefined);
   }
 });
+
+test("client add rejects host names that are not in the inventory", async () => {
+  const f = await fixture();
+  const tokenFile = join(f.dir, "typo.token");
+  const r = await invoke([
+    "control",
+    "client",
+    "add",
+    "codex-pc",
+    "--name",
+    "Codex PC",
+    "--scopes",
+    "status:read",
+    "--hosts",
+    "nope",
+    "--token-file",
+    tokenFile,
+    "--inventory",
+    f.inventory,
+  ]);
+  expect(r.code).toBe(2);
+  expect(r.stderr).toContain("Valid hosts: big, lab-printer");
+  await expect(stat(tokenFile)).rejects.toBeDefined();
+});
