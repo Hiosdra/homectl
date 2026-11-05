@@ -264,6 +264,8 @@ function operationView(op: OperationRecord, now: number): OperationView {
   };
   if (op.approval) view.approval = approvalView(op.approval);
   if (op.exitCode !== undefined) view.exitCode = op.exitCode;
+  if (op.startedAt !== undefined) view.startedAt = isoTime(op.startedAt);
+  if (op.finishedAt !== undefined) view.finishedAt = isoTime(op.finishedAt);
   if (op.reason !== undefined) view.reason = op.reason;
   return view;
 }
@@ -364,6 +366,7 @@ export class ControlPlane {
         if (op.state !== "executing") continue;
         if (op.executorPid !== undefined && processAlive(op.executorPid))
           continue;
+        op.finishedAt = now;
         await this.close(
           state,
           op,
@@ -966,6 +969,7 @@ export class ControlPlane {
       op.state = "executing";
       op.updatedAt = now;
       op.executorPid = process.pid;
+      op.startedAt = now;
       op.spawnAttempted = false;
       await this.store.saveState(state);
       try {
@@ -992,6 +996,7 @@ export class ControlPlane {
         op.state = startState;
         op.updatedAt = now;
         delete op.executorPid;
+        delete op.startedAt;
         await this.store.saveState(state).catch(() => undefined);
         throw error;
       }
@@ -1069,6 +1074,7 @@ export class ControlPlane {
       op.updatedAt = now;
       op.spawnAttempted = spawned;
       delete op.executorPid;
+      op.finishedAt = now;
       if (outcome.reason === undefined) delete op.reason;
       else op.reason = outcome.reason;
       if (outcome.exitCode !== undefined) op.exitCode = outcome.exitCode;

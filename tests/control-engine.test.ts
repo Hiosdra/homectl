@@ -1170,3 +1170,22 @@ async function clientIdentity(
     hosts: found.hosts,
   };
 }
+
+test("finished runs expose ISO start and finish times", async () => {
+  const h = await harness();
+  const codex = await client(h, CODEX);
+  const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+  h.clock.now += 1_000;
+  await h.plane.request(
+    { kind: "local-operator" },
+    { op: "execute", operationId: plan.operationId },
+  );
+  h.clock.now += 5_000;
+  const view = (await h.plane.request(codex.actor, {
+    op: "status",
+    operationId: plan.operationId,
+  })) as { startedAt?: string; finishedAt?: string };
+  expect(view.startedAt).toBe(new Date(START + 1_000).toISOString());
+  expect(view.finishedAt).toBe(new Date(START + 1_000).toISOString());
+  expect(schemas.operationView(json(view))).toBe(true);
+});

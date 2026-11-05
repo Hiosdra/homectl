@@ -486,6 +486,12 @@
         },
         "reason": {
           "$ref": "#/definitions/reason"
+        },
+        "startedAt": {
+          "$ref": "#/definitions/epochMs"
+        },
+        "finishedAt": {
+          "$ref": "#/definitions/epochMs"
         }
       }
     },
@@ -562,6 +568,12 @@
         },
         "reason": {
           "$ref": "#/definitions/reason"
+        },
+        "startedAt": {
+          "$ref": "#/definitions/isoTime"
+        },
+        "finishedAt": {
+          "$ref": "#/definitions/isoTime"
         }
       }
     },

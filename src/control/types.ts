@@ -129,6 +129,9 @@ export interface OperationRecord {
   // Process that holds the execution lease while `executing`. Startup recovery
   // skips operations whose executor is still alive.
   executorPid?: number;
+  // Epoch ms: set when the operator starts the run, and when it is recorded finished.
+  startedAt?: number;
+  finishedAt?: number;
   exitCode?: number;
   // Fixed reason codes from the engine; never free text from clients.
   reason?: string;
@@ -163,6 +166,8 @@ export interface OperationView {
   expired: boolean;
   approval?: ApprovalView;
   spawnAttempted: boolean;
+  startedAt?: string; // ISO-8601 UTC
+  finishedAt?: string; // ISO-8601 UTC
   exitCode?: number;
   reason?: string;
 }
