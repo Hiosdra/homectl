@@ -606,3 +606,57 @@ describe("agent-facing text", () => {
     );
   });
 });
+
+describe("actionable status and approval text", () => {
+  test("status lists operations one per line, with full ids only for the approver who can act", async () => {
+    const f = await fixture([CODEX, HERMES]);
+    const codex = f.tokens["codex-pc"] ?? "";
+    const hermes = f.tokens["hermes-admin"] ?? "";
+    const change = await call(f, codex, "homectl_plan", {
+      host: "lab-printer",
+      argv: ["systemctl", "restart", "nginx"],
+    });
+    await call(f, codex, "homectl_plan", {
+      host: "lab-printer",
+      argv: ["hostname"],
+    });
+    const asApprover = await call(f, hermes, "homectl_status", {});
+    const text = asApprover.content[0]?.text ?? "";
+    expect(text.split("\n")[0]).toContain("2 operation(s)");
+    expect(text).toContain("needs approval");
+    expect(text).toContain("ready");
+    expect(text).toContain(
+      `operationId ${change.structuredContent?.operationId}`,
+    );
+    expect(text).toContain(
+      `fingerprint ${change.structuredContent?.fingerprint}`,
+    );
+    const asIssuer = await call(f, codex, "homectl_status", {});
+    expect(asIssuer.content[0]?.text).not.toContain(
+      "Approve with homectl_approve",
+    );
+    expect(asIssuer.content[0]?.text).not.toContain(
+      String(change.structuredContent?.fingerprint),
+    );
+  });
+
+  test("approval text names the next step for the operator and the panel", async () => {
+    const f = await fixture();
+    const codex = f.tokens["codex-pc"] ?? "";
+    const hermes = f.tokens["hermes-admin"] ?? "";
+    const plan = await call(f, codex, "homectl_plan", {
+      host: "lab-printer",
+      argv: ["systemctl", "restart", "nginx"],
+    });
+    const approved = await call(f, hermes, "homectl_approve", {
+      operationId: plan.structuredContent?.operationId,
+      fingerprint: plan.structuredContent?.fingerprint,
+      decision: "approve",
+    });
+    const text = approved.content[0]?.text ?? "";
+    expect(text).toContain(
+      `homectl control execute ${plan.structuredContent?.operationId}`,
+    );
+    expect(text).toContain("Execute in the panel → Approvals");
+  });
+});

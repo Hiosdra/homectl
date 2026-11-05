@@ -1,7 +1,7 @@
 // Human-readable rendering for the control plane: CLI tables, detail views,
 // execution summaries and short MCP tool summaries. JSON output never goes
 // through this module.
-import type { ClientView, OperationView } from "./types";
+import type { ClientIdentity, ClientView, OperationView } from "./types";
 
 const ESC = String.fromCharCode(27);
 const ANSI = new RegExp(`${ESC}\\[[0-9;]*m`, "g");
@@ -73,6 +73,21 @@ export function expiryLabel(iso: string, now: number): string {
     : `expired ${span(delta)} ago`;
 }
 
+// "840 ms", "3.2 s", "2 min 5 s".
+export function formatDuration(ms: number): string {
+  if (ms < 1_000) return `${Math.max(0, Math.round(ms))} ms`;
+  if (ms < 60_000) return `${(ms / 1_000).toFixed(1)} s`;
+  const total = Math.round(ms / 1_000);
+  return `${Math.floor(total / 60)} min ${total % 60} s`;
+}
+
+export function durationOf(
+  op: Pick<OperationView, "startedAt" | "finishedAt">,
+): string | undefined {
+  if (!op.startedAt || !op.finishedAt) return undefined;
+  return formatDuration(Date.parse(op.finishedAt) - Date.parse(op.startedAt));
+}
+
 // Shell-style quoting for display only. Never executed.
 export function displayArgv(argv: string[], max = 72): string {
   const text = argv
@@ -116,10 +131,24 @@ export function stateLabel(
   return op.state;
 }
 
+// What a person should understand at a glance. The stored state stays
+// `pending` for inspection plans; only the presentation says "ready".
+export function displayState(
+  op: Pick<OperationView, "state" | "reason" | "needsApproval">,
+): string {
+  const label = stateLabel(op);
+  if (label === "expired") return "expired";
+  if (op.state === "pending")
+    return op.needsApproval ? "needs approval" : "ready";
+  if (op.state === "approved") return "ready";
+  return op.state;
+}
+
 function stateStyle(label: string): Style {
   switch (label) {
-    case "pending":
+    case "needs approval":
       return "yellow";
+    case "ready":
     case "approved":
     case "executing":
       return "cyan";
@@ -131,6 +160,24 @@ function stateStyle(label: string): Style {
     default:
       return "dim";
   }
+}
+
+// Ready items first, then items needing approval, then running, then history.
+function rank(op: Pick<OperationView, "state" | "needsApproval" | "reason">) {
+  const label = displayState(op);
+  if (label === "ready") return 0;
+  if (label === "needs approval") return 1;
+  if (label === "executing") return 2;
+  return 3;
+}
+
+function approverText(
+  op: Pick<OperationView, "approval" | "needsApproval">,
+): string {
+  return (
+    op.approval?.approver ??
+    (op.needsApproval ? "awaiting approval" : "not needed")
+  );
 }
 
 function scopesText(scopes: string[]): string {
@@ -174,6 +221,10 @@ export function renderOperations(
 ): string {
   if (operations.length === 0)
     return "No operations match. Plan one from an MCP client (homectl_plan), or use --all to include history.";
+  const ordered = [...operations].sort(
+    (a, b) =>
+      rank(a) - rank(b) || Date.parse(b.createdAt) - Date.parse(a.createdAt),
+  );
   const headers = [
     "ID",
     "STATE",
@@ -184,8 +235,8 @@ export function renderOperations(
     "APPROVER",
     "WHEN",
   ].map((h) => paint(h, "bold", options.color));
-  const rows = operations.map((op) => {
-    const label = stateLabel(op);
+  const rows = ordered.map((op) => {
+    const label = displayState(op);
     const when =
       op.state === "pending" || op.state === "approved"
         ? expiryLabel(op.expiresAt, options.now)
@@ -197,7 +248,7 @@ export function renderOperations(
       op.classification,
       displayArgv(op.argv, 40),
       op.issuer,
-      op.approval?.approver ?? (op.needsApproval ? "—" : "not needed"),
+      approverText(op),
       when,
     ];
   });
@@ -208,7 +259,8 @@ export function renderOperationDetail(
   op: OperationView,
   options: { color: boolean; now: number },
 ): string {
-  const label = stateLabel(op);
+  const label = displayState(op);
+  const open = op.state === "pending" || op.state === "approved";
   const lines: [string, string][] = [
     ["Operation", op.operationId],
     ["State", paint(label, stateStyle(label), options.color)],
@@ -218,18 +270,34 @@ export function renderOperationDetail(
     ["Impact", op.impact || "—"],
     ["Fingerprint", op.fingerprint],
     ["Issuer", op.issuer],
-    [
-      "Approver",
-      op.approval?.approver ?? (op.needsApproval ? "none yet" : "not needed"),
-    ],
+    ["Approver", approverText(op)],
     [
       "Created",
       `${localTime(op.createdAt)} (${relativeTime(op.createdAt, options.now)})`,
     ],
-    ["Expiry", expiryLabel(op.expiresAt, options.now)],
   ];
+  if (op.startedAt) {
+    lines.push([
+      "Executed",
+      `${localTime(op.startedAt)} (${relativeTime(op.startedAt, options.now)})`,
+    ]);
+    lines.push(["Duration", durationOf(op) ?? "still running"]);
+  }
   if (op.exitCode !== undefined) lines.push(["Exit code", String(op.exitCode)]);
   if (op.reason !== undefined) lines.push(["Reason", op.reason]);
+  if (open) {
+    // Plan expiry while waiting; approval expiry once approved.
+    const approved = op.state === "approved" && op.approval;
+    lines.push([
+      approved ? "Approval" : "Plan",
+      expiryLabel(
+        approved ? (op.approval?.expiresAt ?? op.expiresAt) : op.expiresAt,
+        options.now,
+      ),
+    ]);
+  } else if (!op.startedAt) {
+    lines.push(["Closed", `${localTime(op.updatedAt)} (never executed)`]);
+  }
   const width = Math.max(...lines.map(([k]) => k.length));
   return lines.map(([k, v]) => `${k.padEnd(width)}  ${v}`).join("\n");
 }
@@ -245,6 +313,7 @@ export function renderExecution(
   const who = op.approval
     ? `approved by ${op.approval.approver}`
     : "no approval needed";
+  const took = durationOf(op);
   let head: string;
   if (op.state === "succeeded")
     head = paint(
@@ -266,7 +335,10 @@ export function renderExecution(
       "red",
       options.color,
     );
-  const lines = [`${head} · ${who}`, `  $ ${displayArgv(op.argv, 200)}`];
+  const lines = [
+    `${head} · ${who}${took ? ` · took ${took}` : ""}`,
+    `  $ ${displayArgv(op.argv, 200)}`,
+  ];
   const stdout = output?.stdout ?? "";
   const stderr = output?.stderr ?? "";
   if (!stdout.trim() && !stderr.trim()) {
@@ -312,12 +384,30 @@ export function mcpSnippet(name: string, url: string): string {
   );
 }
 
+// An operation this caller may approve right now: pending, needs approval,
+// not expired, and issued by someone else. Host grants are already enforced
+// by the list that is passed in.
+export function awaitingApprovalBy(
+  op: Pick<OperationView, "state" | "needsApproval" | "expired" | "issuer">,
+  caller: Pick<ClientIdentity, "id" | "scopes"> | undefined,
+): boolean {
+  return Boolean(
+    caller &&
+      caller.scopes.includes("approve:decide") &&
+      op.state === "pending" &&
+      op.needsApproval &&
+      !op.expired &&
+      op.issuer !== caller.id,
+  );
+}
+
 // Short sentence for an agent reading a tool result. Carries the full
 // operation id and fingerprint so an approver can act on the text alone.
 export function summarizeTool(
   tool: string,
   value: unknown,
   now: number,
+  caller?: Pick<ClientIdentity, "id" | "scopes">,
 ): string {
   const v = value as Partial<OperationView> & {
     operation?: OperationView;
@@ -326,27 +416,46 @@ export function summarizeTool(
     hosts?: { host: string; access: string; description: string }[];
     client?: { id: string };
   };
+  const run = (id: string) =>
+    `The local operator can run it: homectl control execute ${id} (or Execute in the panel → Approvals).`;
   if (tool === "homectl_plan" && v.operationId) {
     const approval = v.needsApproval
       ? "needs approval by another client"
-      : "no approval needed";
+      : "ready to run, no approval needed";
     const next = v.needsApproval
-      ? "Ask a different authorized client to approve it with homectl_approve."
-      : `The local operator can run it with: homectl control execute ${v.operationId}`;
+      ? "Ask a different authorized client to approve it with homectl_approve, using the operation id and fingerprint above."
+      : run(v.operationId);
     return `Planned ${shortId(v.operationId)} on ${v.host}: \`${displayArgv(v.argv ?? [], 120)}\` (${v.classification}, ${approval}). Operation ${v.operationId}. Fingerprint ${v.fingerprint}. Expires ${clockTime(v.expiresAt ?? new Date(now).toISOString())}. ${next}`;
   }
   if (tool === "homectl_approve" && v.operation) {
     const op = v.operation;
     if (v.approval)
-      return `Approved ${shortId(op.operationId)} on ${op.host} by ${v.approval.approver}. Operation ${op.operationId}. Approval expires ${clockTime(v.approval.expiresAt)}. The local operator can now run it.`;
+      return `Approved ${shortId(op.operationId)} on ${op.host} by ${v.approval.approver}. Operation ${op.operationId}. Approval expires ${clockTime(v.approval.expiresAt)}. ${run(op.operationId)}`;
     return `Rejected ${shortId(op.operationId)} on ${op.host}; it will not run. Operation ${op.operationId}.`;
   }
   if (tool === "homectl_status") {
-    if (v.operationId)
-      return `Operation ${shortId(v.operationId)} on ${v.host}: ${stateLabel(v as OperationView)}${v.reason ? ` (${v.reason})` : ""}. Operation ${v.operationId}. Fingerprint ${v.fingerprint}.`;
-    const list = v.operations ?? [];
+    if (v.operationId) {
+      const hint = awaitingApprovalBy(v as OperationView, caller)
+        ? " You can approve it with homectl_approve, using the operation id and fingerprint above."
+        : "";
+      return `Operation ${shortId(v.operationId)} on ${v.host}: ${displayState(v as OperationView)}${v.reason ? ` (${v.reason})` : ""}. Operation ${v.operationId}. Fingerprint ${v.fingerprint}.${hint}`;
+    }
+    const list = [...(v.operations ?? [])].sort((a, b) => rank(a) - rank(b));
     if (list.length === 0) return "No operations visible to this client yet.";
-    return `${list.length} operation(s) on your granted hosts; most recent ${shortId(list[0]?.operationId ?? "")} is ${stateLabel(list[0] ?? { state: "pending" })} on ${list[0]?.host}.`;
+    const shown = list.slice(0, 10);
+    const lines = [
+      `${list.length} operation(s) on your granted hosts${list.length > shown.length ? `, showing ${shown.length}` : ""}:`,
+    ];
+    for (const op of shown) {
+      lines.push(
+        `- ${shortId(op.operationId)} ${displayState(op)} · ${op.host} · \`${displayArgv(op.argv, 60)}\``,
+      );
+      if (awaitingApprovalBy(op, caller))
+        lines.push(
+          `  Approve with homectl_approve: operationId ${op.operationId}, fingerprint ${op.fingerprint}`,
+        );
+    }
+    return lines.join("\n");
   }
   if (tool === "homectl_inspect") {
     if (v.hosts)

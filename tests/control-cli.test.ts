@@ -600,3 +600,53 @@ test("ops, show and execute accept short ids and print readable summaries", asyn
   expect(again.code).toBe(3);
   expect(again.stderr).toContain("never retried");
 });
+
+test("show on a finished operation reports when it ran and how long, without plan expiry", async () => {
+  const f = await fixture();
+  const plane = new ControlPlane({
+    inventoryPath: f.inventory,
+    configPath: join(f.dir, "ssh_config"),
+    stateDirectory: join(f.dir, "control-plane"),
+  });
+  await plane.init();
+  const created = await plane.createClient({
+    id: "codex-pc",
+    name: "Codex PC",
+    scopes: ["plan:create", "status:read"],
+    hosts: ["lab-printer"],
+  });
+  const identity = await plane.authenticate(created.token);
+  if (!identity) throw new Error("token did not authenticate");
+  const plan = (await plane.request(
+    { kind: "client", client: identity },
+    {
+      op: "plan",
+      host: "lab-printer",
+      argv: ["whoami"],
+      impact: "Read the account",
+    },
+  )) as { operationId: string };
+  await invoke([
+    "control",
+    "execute",
+    plan.operationId.slice(0, 8),
+    "--inventory",
+    f.inventory,
+  ]);
+  const shown = await invoke([
+    "control",
+    "show",
+    plan.operationId.slice(0, 8),
+    "--inventory",
+    f.inventory,
+  ]);
+  expect(shown.stdout).toMatch(
+    /^Executed\s+\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/m,
+  );
+  expect(shown.stdout).toMatch(/^Duration\s+/m);
+  expect(shown.stdout).toMatch(/^Exit code\s+0$/m);
+  expect(shown.stdout).not.toContain("expires in");
+  expect(shown.stdout).not.toMatch(/^(Plan|Approval)\s/m);
+  expect(shown.stdout).toMatch(/^State\s+succeeded$/m);
+  expect(shown.stdout).toContain("Approver");
+});

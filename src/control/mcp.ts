@@ -169,7 +169,10 @@ async function callTool(
     );
     return {
       content: [
-        { type: "text", text: summarizeTool(tool.name, result, Date.now()) },
+        {
+          type: "text",
+          text: summarizeTool(tool.name, result, Date.now(), client),
+        },
       ],
       structuredContent: result,
       isError: false,
