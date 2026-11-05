@@ -54,6 +54,12 @@ const running = await serve({
   port: 0,
   peerPort: 0,
   discover: false,
+  // Synthetic output for control-plane runs: never the real host's name or account.
+  controlRunner: async () => ({
+    exitCode: 0,
+    stdout: "demo-host\n",
+    stderr: "",
+  }),
 });
 running.hub.state.name = "Linux · demo";
 await running.hub.save();
@@ -117,8 +123,8 @@ await control.request(
 const finished = await planAs(
   codex,
   "agent-host",
-  ["hostname"],
-  "Read the host name",
+  ["whoami"],
+  "Read the account name",
 );
 await control.request(
   { kind: "local-operator" },
@@ -232,12 +238,28 @@ try {
   await expect(
     page.getByRole("heading", { name: "Approvals", exact: true }),
   ).toBeVisible();
+  await expect(page.getByText(/entries · head/)).toBeVisible();
+  await page.screenshot({ path: join(out, "approvals.png"), fullPage: true });
+  await page.getByRole("button", { name: /^Needs approval/ }).click();
   await expect(
     page.getByText("Waiting for approval by another client"),
   ).toBeVisible();
-  await expect(page.getByText(/Audit chain verified/)).toBeVisible();
-  await page.screenshot({ path: join(out, "approvals.png"), fullPage: true });
-  await page.getByRole("button", { name: "Execute", exact: true }).click();
+  await page.screenshot({
+    path: join(out, "approvals-needs.png"),
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: /^Ready to run/ }).click();
+  // Target the inspection row only: the approved SSH change in the same tab must not run.
+  const inspectionRun = page
+    .locator("tr", { hasText: "hostname" })
+    .getByRole("button", { name: "Execute", exact: true });
+  // Escape cancels the confirmation and returns focus to the Execute button.
+  await inspectionRun.click();
+  await expect(page.locator("#confirm-dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#confirm-dialog")).not.toBeVisible();
+  await expect(inspectionRun).toBeFocused();
+  await inspectionRun.click();
   await expect(
     page.locator("#confirm-dialog button[value=confirm]"),
   ).toBeVisible();
@@ -246,10 +268,16 @@ try {
     page.getByRole("heading", { name: "Execution result", exact: true }),
   ).toBeVisible();
   await expect(page.getByText("✓ succeeded on agent-host")).toBeVisible();
+  await expect(page.locator("#control-result")).toBeFocused();
+  await expect(page.locator("#control-live")).toContainText(
+    "finished: succeeded",
+  );
   await page.getByRole("tab", { name: "Clients", exact: true }).click();
   await expect(page.getByText("Codex PC", { exact: true })).toBeVisible();
   await expect(page.getByText("homectl control client add")).toBeVisible();
   await page.getByRole("tab", { name: "Operations", exact: true }).click();
+  // Full-page captures start at the top so the sticky rail is not offset.
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
     path: join(out, "approvals-done.png"),
     fullPage: true,
