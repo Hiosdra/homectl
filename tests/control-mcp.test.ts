@@ -574,3 +574,35 @@ describe("port conflicts", () => {
     );
   });
 });
+
+describe("agent-facing text", () => {
+  test("plan results carry the full operation id and fingerprint in a readable sentence", async () => {
+    const f = await fixture();
+    const plan = await call(f, f.tokens["codex-pc"] ?? "", "homectl_plan", {
+      host: "lab-printer",
+      argv: ["systemctl", "restart", "nginx"],
+    });
+    const text = plan.content[0]?.text ?? "";
+    const operationId = plan.structuredContent?.operationId as string;
+    const fingerprint = plan.structuredContent?.fingerprint as string;
+    expect(text.startsWith("Planned ")).toBe(true);
+    expect(text).toContain(operationId);
+    expect(text).toContain(fingerprint);
+    expect(text).toContain("`systemctl restart nginx`");
+    expect(text).toContain("needs approval by another client");
+    expect(text).not.toContain("{");
+  });
+
+  test("inspection plans say no approval is needed and name the operator command", async () => {
+    const f = await fixture();
+    const plan = await call(f, f.tokens["codex-pc"] ?? "", "homectl_plan", {
+      host: "lab-printer",
+      argv: ["hostname"],
+    });
+    const text = plan.content[0]?.text ?? "";
+    expect(text).toContain("no approval needed");
+    expect(text).toContain(
+      `homectl control execute ${plan.structuredContent?.operationId}`,
+    );
+  });
+});

@@ -5,6 +5,7 @@
 import { HomectlError } from "../types";
 import { hasScope } from "./clients";
 import type { ControlPlane } from "./engine";
+import { summarizeTool } from "./present";
 import { controlPlaneSchema } from "./schema";
 import type { ClientIdentity, OperationKind, Scope } from "./types";
 
@@ -167,7 +168,9 @@ async function callTool(
       { ...args, op: tool.op },
     );
     return {
-      content: [{ type: "text", text: JSON.stringify(result) }],
+      content: [
+        { type: "text", text: summarizeTool(tool.name, result, Date.now()) },
+      ],
       structuredContent: result,
       isError: false,
     };
