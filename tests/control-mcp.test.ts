@@ -245,6 +245,8 @@ describe("transport and authentication", () => {
       method: "ping",
       params: { padding: "x".repeat(300 * 1024) },
     });
+    // The server may answer 413 and close before the upload finishes; a client
+    // may then see a reset instead of the status. Either way nothing is processed.
     const response = await fetch(f.server.url, {
       method: "POST",
       headers: {
@@ -252,8 +254,9 @@ describe("transport and authentication", () => {
         "Content-Type": "application/json",
       },
       body: huge,
-    });
-    expect(response.status).toBe(413);
+    }).catch((error: unknown) => error);
+    if (response instanceof Response) expect(response.status).toBe(413);
+    else expect(response).toBeInstanceOf(Error);
   });
 
   test("notifications receive 202 with no body", async () => {
@@ -379,8 +382,8 @@ describe("tool calls through the engine", () => {
     const hermes = f.tokens["hermes-admin"] ?? "";
     const plan = await call(f, codex, "homectl_plan", {
       host: "lab-printer",
-      argv: ["uname", "-s"],
-      impact: "read kernel name",
+      argv: ["systemctl", "restart", "nginx"],
+      impact: "restart the web service",
     });
     expect(plan.isError).toBe(false);
     expect(schemas.operationView(plan.structuredContent)).toBe(true);
@@ -410,7 +413,7 @@ describe("tool calls through the engine", () => {
     const codex = f.tokens["codex-pc"] ?? "";
     const plan = await call(f, codex, "homectl_plan", {
       host: "lab-printer",
-      argv: ["uname"],
+      argv: ["systemctl", "restart", "nginx"],
     });
     const self = await call(f, codex, "homectl_approve", {
       operationId: plan.structuredContent?.operationId,

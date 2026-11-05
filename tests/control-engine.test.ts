@@ -29,6 +29,8 @@ machines:
     access: full
 `;
 const START = Date.UTC(2026, 10, 5, 10, 0, 0);
+// A mutation: needs a second client to approve. Runs only through the fake runner.
+const CHANGE = ["systemctl", "restart", "nginx"];
 const cleanup: string[] = [];
 afterEach(async () => {
   for (const dir of cleanup.splice(0))
@@ -225,7 +227,7 @@ describe("plan creation and screening", () => {
   test("a granted client creates a pending, fingerprinted plan", async () => {
     const h = await harness();
     const codex = await client(h, CODEX);
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     expect(plan.state).toBe("pending");
     expect(plan.fingerprint).toMatch(/^[0-9a-f]{64}$/);
     const status = (await h.plane.request(codex.actor, {
@@ -281,7 +283,7 @@ describe("plan creation and screening", () => {
     const h = await harness();
     const codex = await client(h, { ...CODEX, hosts: ["big"] });
     await expectCode(
-      planOn(h, codex.actor, "big", ["uname", "-s"]),
+      planOn(h, codex.actor, "big", CHANGE),
       3,
       "Full-access hosts",
     );
@@ -403,10 +405,10 @@ describe("plan creation and screening", () => {
   test("idempotency keys return the same operation and refuse reuse for a different request", async () => {
     const h = await harness();
     const codex = await client(h, CODEX);
-    const first = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"], {
+    const first = await planOn(h, codex.actor, "lab-printer", CHANGE, {
       idempotencyKey: "job-1",
     });
-    const again = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"], {
+    const again = await planOn(h, codex.actor, "lab-printer", CHANGE, {
       idempotencyKey: "job-1",
     });
     expect(again.operationId).toBe(first.operationId);
@@ -427,7 +429,7 @@ describe("plan creation and screening", () => {
     const h = await harness();
     const codex = await client(h, CODEX);
     const hermes = await client(h, HERMES);
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     h.clock.now += PLAN_TTL_MS + 1;
     const status = (await h.plane.request(codex.actor, {
       op: "status",
@@ -453,7 +455,7 @@ describe("approval", () => {
     const h = await harness();
     const codex = await client(h, CODEX);
     const hermes = await client(h, HERMES);
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     const result = (await h.plane.request(hermes.actor, {
       op: "approve",
       operationId: plan.operationId,
@@ -480,7 +482,7 @@ describe("approval", () => {
       ...CODEX,
       scopes: [...CODEX.scopes, "approve:decide"],
     });
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     await expectCode(
       h.plane.request(codex.actor, {
         op: "approve",
@@ -502,7 +504,7 @@ describe("approval", () => {
     const h = await harness();
     const codex = await client(h, { ...CODEX, id: "codex-two" });
     const other = await client(h, { ...CODEX, id: "codex-three" });
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     await expectCode(
       h.plane.request(other.actor, {
         op: "approve",
@@ -523,7 +525,7 @@ describe("approval", () => {
       id: "hermes-narrow",
       hosts: ["lab-printer"],
     });
-    const plan = await planOn(h, codex.actor, "nas", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "nas", CHANGE);
     await expectCode(
       h.plane.request(narrow.actor, {
         op: "approve",
@@ -540,7 +542,7 @@ describe("approval", () => {
     const h = await harness();
     const codex = await client(h, CODEX);
     const hermes = await client(h, HERMES);
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     await expectCode(
       h.plane.request(hermes.actor, {
         op: "approve",
@@ -557,7 +559,7 @@ describe("approval", () => {
     const h = await harness();
     const codex = await client(h, CODEX);
     const hermes = await client(h, HERMES);
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     const approve = () =>
       h.plane.request(hermes.actor, {
         op: "approve",
@@ -573,7 +575,7 @@ describe("approval", () => {
     const h = await harness();
     const codex = await client(h, CODEX);
     const hermes = await client(h, HERMES);
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     const rejected = (await h.plane.request(hermes.actor, {
       op: "approve",
       operationId: plan.operationId,
@@ -605,7 +607,7 @@ describe("approval", () => {
     const h = await harness();
     const codex = await client(h, CODEX);
     const hermes = await client(h, HERMES);
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     await h.plane.request(hermes.actor, {
       op: "approve",
       operationId: plan.operationId,
@@ -634,7 +636,7 @@ describe("approval", () => {
 describe("execution (local operator only)", () => {
   async function approved(
     h: Harness,
-    argv: string[] = ["uname", "-s"],
+    argv: string[] = CHANGE,
     host = "lab-printer",
   ) {
     const codex = await client(h, CODEX);
@@ -666,7 +668,7 @@ describe("execution (local operator only)", () => {
     expect(result.operation.spawnAttempted).toBe(true);
     expect(result.output?.stdout).toBe("Linux\n");
     expect(h.calls).toHaveLength(1);
-    expect(h.calls[0]?.argv).toEqual(["uname", "-s"]);
+    expect(h.calls[0]?.argv).toEqual(CHANGE);
     const audit = await readFile(
       join(h.dir, "control-plane", "audit.jsonl"),
       "utf8",
@@ -703,7 +705,7 @@ describe("execution (local operator only)", () => {
   test("an unapproved plan is refused with the confirmation code", async () => {
     const h = await harness();
     const codex = await client(h, CODEX);
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     await expectCode(run(h, plan.operationId), 4, "requires approval");
     expect(h.calls).toHaveLength(0);
   });
@@ -815,8 +817,12 @@ describe("execution (local operator only)", () => {
     const h = await harness();
     const codex = await client(h, CODEX);
     const hermes = await client(h, HERMES);
-    const first = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
-    const second = await planOn(h, codex.actor, "lab-printer", ["id", "-u"]);
+    const first = await planOn(h, codex.actor, "lab-printer", CHANGE);
+    const second = await planOn(h, codex.actor, "lab-printer", [
+      "systemctl",
+      "restart",
+      "sshd",
+    ]);
     for (const plan of [first, second])
       await h.plane.request(hermes.actor, {
         op: "approve",
@@ -837,7 +843,7 @@ describe("execution (local operator only)", () => {
     const h = await harness();
     const codex = await client(h, CODEX);
     const hermes = await client(h, HERMES);
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     await h.plane.request(hermes.actor, {
       op: "approve",
       operationId: plan.operationId,
@@ -894,7 +900,7 @@ describe("execution (local operator only)", () => {
     const codex = await client(h, CODEX);
     const hermes = await client(h, HERMES);
     const second = await client(h, { ...HERMES, id: "hermes-second" });
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     const settled = await Promise.allSettled(
       [hermes, second].map((a) =>
         h.plane.request(a.actor, {
@@ -931,12 +937,80 @@ describe("execution (local operator only)", () => {
   });
 });
 
+describe("inspection plans run without a second client", () => {
+  test("an inspection plan runs once with no approval record, and the journal says so", async () => {
+    const h = await harness();
+    const codex = await client(h, CODEX);
+    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const shown = (await h.plane.request(codex.actor, {
+      op: "status",
+      operationId: plan.operationId,
+    })) as { needsApproval: boolean; approval?: unknown };
+    expect(shown.needsApproval).toBe(false);
+    expect(shown.approval).toBeUndefined();
+    const result = (await h.plane.request(
+      { kind: "local-operator" },
+      { op: "execute", operationId: plan.operationId },
+    )) as { operation: { state: string } };
+    expect(result.operation.state).toBe("succeeded");
+    expect(h.calls).toHaveLength(1);
+    const audit = await readFile(
+      join(h.dir, "control-plane", "audit.jsonl"),
+      "utf8",
+    );
+    expect(audit).toContain('"reason":"no-approval-required"');
+    await expectCode(
+      h.plane.request(
+        { kind: "local-operator" },
+        { op: "execute", operationId: plan.operationId },
+      ),
+      3,
+      "never retried",
+    );
+    expect(h.calls).toHaveLength(1);
+  });
+
+  test("approval is refused for inspection plans, and mutations still need it", async () => {
+    const h = await harness();
+    const codex = await client(h, CODEX);
+    const hermes = await client(h, HERMES);
+    const inspect = await planOn(h, codex.actor, "lab-printer", [
+      "uname",
+      "-s",
+    ]);
+    await expectCode(
+      h.plane.request(hermes.actor, {
+        op: "approve",
+        operationId: inspect.operationId,
+        fingerprint: inspect.fingerprint,
+        decision: "approve",
+      }),
+      3,
+      "need no approval",
+    );
+    const change = await planOn(h, codex.actor, "lab-printer", CHANGE);
+    const shown = (await h.plane.request(codex.actor, {
+      op: "status",
+      operationId: change.operationId,
+    })) as { needsApproval: boolean };
+    expect(shown.needsApproval).toBe(true);
+    await expectCode(
+      h.plane.request(
+        { kind: "local-operator" },
+        { op: "execute", operationId: change.operationId },
+      ),
+      4,
+      "requires approval",
+    );
+  });
+});
+
 describe("recovery, validation and verification", () => {
   test("an operation left executing by a dead process is closed as unknown on startup", async () => {
     const h = await harness();
     const codex = await client(h, CODEX);
     const hermes = await client(h, HERMES);
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     await h.plane.request(hermes.actor, {
       op: "approve",
       operationId: plan.operationId,
@@ -963,7 +1037,7 @@ describe("recovery, validation and verification", () => {
     const h = await harness();
     const codex = await client(h, CODEX);
     const hermes = await client(h, HERMES);
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     await h.plane.request(hermes.actor, {
       op: "approve",
       operationId: plan.operationId,
@@ -986,7 +1060,7 @@ describe("recovery, validation and verification", () => {
   test("validate reports valid for an unchanged plan and drift otherwise", async () => {
     const h = await harness();
     const codex = await client(h, CODEX);
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     const check = (fp: string) =>
       h.plane.request(codex.actor, {
         op: "validate",
@@ -1015,7 +1089,7 @@ describe("recovery, validation and verification", () => {
     const h = await harness();
     const codex = await client(h, CODEX);
     const hermes = await client(h, HERMES);
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     await h.plane.request(hermes.actor, {
       op: "approve",
       operationId: plan.operationId,
@@ -1039,7 +1113,7 @@ describe("recovery, validation and verification", () => {
     const h = await harness();
     const codex = await client(h, CODEX);
     const hermes = await client(h, HERMES);
-    const plan = await planOn(h, codex.actor, "lab-printer", ["uname", "-s"]);
+    const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
     await h.plane.request(hermes.actor, {
       op: "approve",
       operationId: plan.operationId,

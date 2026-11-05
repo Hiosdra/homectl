@@ -221,7 +221,8 @@ function buildPlan(
     argv: [...argv],
     impact: policy.impact,
     classification: policy.classification,
-    needsApproval: policy.needsApproval,
+    // Only inspection is exempt; the existing policy flag does not cover mutation.
+    needsApproval: policy.classification !== "inspect",
     execApproval: policy.approval,
   };
 }
@@ -672,6 +673,11 @@ export class ControlPlane {
         throw new HomectlError(3, "Plan expired; create a new plan");
       if (op.state !== "pending")
         throw new HomectlError(3, "Operation is not awaiting approval");
+      if (req.decision === "approve" && !op.plan.needsApproval)
+        throw new HomectlError(
+          3,
+          "Inspection plans need no approval; the local operator can run them with homectl control execute",
+        );
       if (req.decision === "approve" && client.id === op.issuer)
         throw new HomectlError(
           3,
@@ -831,25 +837,30 @@ export class ControlPlane {
         ? state.operations[operationId]
         : undefined;
       if (!op) throw new HomectlError(2, "Unknown operation");
-      if (op.state === "pending")
+      // Inspection plans (classification `inspect`) cannot change the target and
+      // run without a second client; they are still audited and single-use.
+      const approvalRequired = op.plan.needsApproval;
+      const startState = op.state;
+      if (op.state === "pending" && approvalRequired)
         throw new HomectlError(
           4,
           "Operation requires approval before execution",
         );
-      if (op.state !== "approved")
+      if (op.state !== "approved" && op.state !== "pending")
         throw new HomectlError(
           3,
           `Operation is ${op.state}; only approved operations run, and failed or unknown operations are never retried`,
         );
-      const approval = op.approval;
+      const approval = approvalRequired ? op.approval : undefined;
       if (
-        !approval ||
-        approval.state !== "active" ||
-        state.consumedNonces.includes(approval.nonce)
+        approvalRequired &&
+        (!approval ||
+          approval.state !== "active" ||
+          state.consumedNonces.includes(approval.nonce))
       )
         throw new HomectlError(3, "Approval was already used");
       if (
-        approval.fingerprint !== op.fingerprint ||
+        (approval !== undefined && approval.fingerprint !== op.fingerprint) ||
         fingerprint(op.plan) !== op.fingerprint
       ) {
         await this.close(state, op, "failed", "integrity-mismatch", now, [
@@ -861,6 +872,7 @@ export class ControlPlane {
         );
       }
       if (
+        approval !== undefined &&
         !(await this.approverStillAuthorized(approval.approver, op.plan.host))
       ) {
         await this.close(state, op, "failed", "approval-invalidated", now, [
@@ -881,9 +893,11 @@ export class ControlPlane {
         );
       }
       // Consume the nonce and mark `executing` durably before any spawn.
-      approval.state = "consumed";
-      approval.consumedAt = now;
-      state.consumedNonces.push(approval.nonce);
+      if (approval !== undefined) {
+        approval.state = "consumed";
+        approval.consumedAt = now;
+        state.consumedNonces.push(approval.nonce);
+      }
       op.state = "executing";
       op.updatedAt = now;
       op.executorPid = process.pid;
@@ -899,15 +913,18 @@ export class ControlPlane {
           fingerprint: op.fingerprint,
           argv: redactArgv(op.plan.argv),
           classification: op.plan.classification,
+          ...(approvalRequired ? {} : { reason: "no-approval-required" }),
         });
       } catch (error) {
-        // Nothing has started: restore the approval and report the failure.
-        approval.state = "active";
-        delete approval.consumedAt;
-        state.consumedNonces = state.consumedNonces.filter(
-          (nonce) => nonce !== approval.nonce,
-        );
-        op.state = "approved";
+        // Nothing has started: restore the previous state and report the failure.
+        if (approval !== undefined) {
+          approval.state = "active";
+          delete approval.consumedAt;
+          state.consumedNonces = state.consumedNonces.filter(
+            (nonce) => nonce !== approval.nonce,
+          );
+        }
+        op.state = startState;
         op.updatedAt = now;
         delete op.executorPid;
         await this.store.saveState(state).catch(() => undefined);
