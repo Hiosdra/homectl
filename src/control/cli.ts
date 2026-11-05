@@ -3,6 +3,7 @@
 import { stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { loadInventory } from "../inventory";
+import { writeSSHConfig } from "../operations";
 import { protect } from "../platform";
 import { HomectlError } from "../types";
 import { ControlPlane } from "./engine";
@@ -119,6 +120,11 @@ export async function controlCommand(
         code: 0,
       };
     const plane = await openPlane(input);
+    // Same order as `homectl exec`: refresh the managed SSH config first.
+    await writeSSHConfig(
+      input.configPath,
+      (await loadInventory(input.inventoryPath)).machines,
+    );
     const result = (await plane.request(
       { kind: "local-operator" },
       { op: "execute", operationId: action },
