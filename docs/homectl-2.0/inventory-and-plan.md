@@ -88,7 +88,7 @@ Deterministic Proxmox plan with a `fingerprint`. Apply writes a per-VMID JSON jo
 
 ### 2.1 Decisions made for slice 1
 
-1. **Approval is uniform.** Every control-plane plan needs an approval by a distinct client, even when the existing policy classifies argv as `inspect`. This is stricter than the CLI path (which runs inspection without a digest). Rationale: one rule for remote callers, simpler to audit.
+1. **Approval rule (slice 2 supersedes slice 1 here).** Mutation and destructive plans need an approval by a distinct client. Inspection plans (classification `inspect`) run without a second client when the local operator executes them, and stay fully audited. Slice 1 required approval for every plan; slice 2 changed that after review because approving read-only commands added friction without protecting anything. The CLI path is unchanged.
 2. **Read-only operations do not change operation, approval or client state.** They do append an audit entry (`request.accepted`). This is a deliberate reading of "never mutate": the audit journal is append-only by design. Reviewers may reject this reading; if so, reads can be made unaudited without touching the rest of the design.
 3. **Execution is a local operator action** (`homectl control execute <operation-id>`), not an MCP tool. No client scope can grant it. The MCP surface matches the approved list: inspect, status, plan, approve.
 4. **Plan TTL 15 min, approval TTL 5 min.** Expiry is evaluated at the moment of use. Records past expiry are closed as `failed` during the next mutating request. Read-only calls report `expired` but do not write.
@@ -120,7 +120,7 @@ Deterministic Proxmox plan with a `fingerprint`. Apply writes a per-VMID JSON jo
 
 ## 5. Open risks and gaps (slice 1)
 
-- **R1 — Same-user attacker.** Anyone who can write the state directory can rewrite `state.json`, `clients.json` or delete `audit.jsonl`. The hash chain detects in-place edits and mid-chain deletion but **not tail truncation**. Mitigation later: anchor the chain head outside the directory (for example, on the peer device) or sign with a key held elsewhere.
+- **R1 — Same-user attacker.** Anyone who can write the state directory can rewrite `state.json`, `clients.json` or the journal. Slice 2 adds `audit.anchor` (latest seq and hash, rewritten after every append): truncating the journal from the end is now detected. A same-user attacker who rewrites the journal and the anchor consistently is still not detected. Mitigation later: publish the anchor head outside the directory (for example, to the peer device) or sign it with a key held elsewhere.
 - **R2 — Plan integrity is fingerprinted, not signed.** Stored plans are re-hashed before use. A same-user attacker who rewrites both the plan and its fingerprint defeats it (see R1).
 - **R3 — Key-order dependence in the existing digest.** Harmless for security (it causes false mismatches, not false matches) but fragile. Not changed.
 - **R4 — Token theft.** A token file readable by another same-user process grants that client's scopes until revoked. Revocation is immediate (registry re-read on each request). Tokens are 256-bit random; they are never printed by `client add`.
@@ -167,3 +167,18 @@ Stubbed or intentionally absent in slice 1:
 - Execution is covered by fake runners in tests. No real SSH or local command was run through the control plane in this slice.
 
 Coverage gap to close in a later slice: the "refused before spawn" outcome (`failed: refused-before-spawn`) is reachable only through `execute()`'s own pre-spawn checks, which the normal flow does not trigger. It is implemented, but no test forces it.
+
+## 8. Slice 2 status (UX, operator views, panel)
+
+Same branch, local commits only. Scope: review fixes on slice 1 plus the operator experience.
+
+- Inspection plans run without a second client, audited (decision 1 above). `needsApproval` now follows the classification.
+- Client host grants must name inventory hosts. `serve-mcp` refuses non-loopback `--host` with an explanation, and reports busy ports plainly.
+- Audit truncation detection via `audit.anchor` (R1 narrowed as above). Journals written before this anchor existed fail verification until re-anchored; slice 1 was never deployed, so no such journals are expected.
+- API timestamps are ISO-8601 UTC strings; records keep epoch milliseconds.
+- CLI: readable tables (`client list`, `ops`), `show`, prefix ids, execution summaries, idempotent revoke, color only on a TTY (`NO_COLOR` respected).
+- MCP tool text is a summary that includes the full operation id and fingerprint.
+- Local panel: an **Approvals** view (queue with Pending / Approved / History, clients with revoke, audit card with verify). The panel executes ready operations and revokes clients; it has no approval route.
+- UI smoke test seeds synthetic clients and operations, walks the Approvals view, executes an inspection, and asserts no page errors. Screenshots are written to `.impeccable/review/` (gitignored).
+
+Still out of scope after slice 2: peer convergence, OIDC, output retrieval for remote clients, Proxmox and Ugreen work.

@@ -49,7 +49,7 @@ Rules that apply to all operations:
 | `argv` | Exact argv (validated: 1–64 items, each 1–4096 characters, no NUL) |
 | `impact` | Free text shown to the approver (up to 1000 characters) |
 | `classification` | Existing `planExecution` classification: `inspect`, `mutation`, `destructive`, `opaque` |
-| `needsApproval` | Existing policy flag. Control-plane approval is required regardless (see decision 1 in the plan) |
+| `needsApproval` | `true` unless `classification` is `inspect`. Inspection plans run without approval; mutations and destructive plans need a second client (slice 2, decision 1) |
 | `execApproval` | Existing digest `hash({host, machine, argv, impact})` from `src/policies` |
 
 **Fingerprint** (`fingerprint`): SHA-256 over canonical JSON (object keys sorted recursively, `undefined` dropped) of the plan body. Any change to host, machine policy, argv, impact or classification changes the fingerprint.
@@ -95,6 +95,7 @@ pending --approve--> approved --execute--> executing --exit 0-----------> succee
    |                    |--expire/stale/invalid--> failed (approval-expired | stale-plan | approval-invalidated | integrity-mismatch)
 ```
 
+- **Inspection shortcut (slice 2):** a plan with classification `inspect` goes `pending -> executing` directly when the local operator executes it, with no approval record and no nonce. Approval is refused for it. Mutation and destructive plans follow the path above.
 - **Terminal states** are `succeeded`, `failed` and `unknown`. Nothing returns from them.
 - **`failed` and `unknown` are never re-executed automatically.** A new plan and a new approval are required.
 - `spawnAttempted` is set before the runner is invoked. `unknown` is the conservative answer when the engine cannot tell whether the remote command ran.
@@ -120,7 +121,7 @@ File: `control-plane/audit.jsonl`, one JSON object per line, append-only.
 - Events: `auth.rejected`, `request.accepted`, `request.rejected`, `client.created`, `client.revoked`, `operation.planned`, `operation.decided`, `operation.executing`, `operation.succeeded`, `operation.failed`, `operation.unknown`.
 - Event payloads contain ids, the fixed reason codes listed above, fingerprints and redacted argv. They never contain tokens, nonces, impact text, stdout or stderr.
 - Before every append the payload is checked for secret-like material; a match aborts the write (fail closed).
-- Verification (`homectl control audit verify`) recomputes the chain and reports the first broken sequence number. **Tail truncation is not detectable from the journal alone** (see inventory-and-plan R1).
+- Verification (`homectl control audit verify`) recomputes the chain, then checks it against `control-plane/audit.anchor`. The anchor holds the latest `{seq, hash}` and is rewritten after every append. Verification fails when the journal is shorter than the anchor (tail truncation), diverges from it, or when the anchor is missing for a non-empty journal. Appends refuse in the same conditions. **Limit:** an attacker who can rewrite both files consistently is not detected; see inventory-and-plan R1.
 - Corrupt journal: appends are refused until an operator repairs or moves the file.
 
 ## 8. Error mapping
@@ -145,6 +146,7 @@ Error messages are fixed strings in the engine. Exception text from lower layers
 - Every request needs `Authorization: Bearer <token>`. Missing or invalid tokens return `401` with `WWW-Authenticate: Bearer`. Revoked clients are refused.
 - `Host` must be `127.0.0.1:<port>` or `localhost:<port>`; an `Origin` header, if present, must match. Otherwise `403`.
 - Stateless: no `Mcp-Session-Id`. Request body limit 256 KiB; larger bodies receive `413` before parsing (tested).
+- `tools/call` results carry a one-sentence summary in `content[0].text` (with the full operation id and fingerprint, so an approver agent can act on it) and the typed result in `structuredContent`. Timestamps in `structuredContent` are ISO-8601 UTC strings. Errors keep their fixed message and code.
 - `tools/list` shows only tools whose scope the client holds. `tools/call` enforces scope again in the engine.
 
 | Tool | Scope | Maps to | Read-only hint |
@@ -163,15 +165,55 @@ These run in the homectl host's terminal. They do not go through MCP.
 ```sh
 homectl serve-mcp [--port 7449] [--inventory PATH]
 homectl control client add <id> --name "Codex PC" --scopes status:read,inspect:read,plan:create --hosts lab-printer --token-file PATH
-homectl control client list
+homectl control client list [--json]
 homectl control client revoke <id>
-homectl control execute <operation-id>
+homectl control ops [--state pending,approved] [--all]
+homectl control show <operation-id-or-prefix>
+homectl control execute <operation-id-or-prefix>
 homectl control audit verify
 ```
 
-- `client add` writes the token to `--token-file` with owner-only permissions and refuses to overwrite an existing file. The token is never printed. The destination directory must exist and the file must not exist; both are checked before any client is created. If the file cannot be written after creation, the new client is revoked.
-- `--name`, `--scopes`, `--hosts` and `--token-file` apply only to `control`; other commands refuse them with exit 2.
-- `execute` refreshes the managed SSH config first (as `exec` does), then runs the existing `src/operations.ts` `execute()` path, so the existing tier and classification checks still apply. Its stdout and stderr are printed to the operator and are not stored.
+- `client add` writes the token to `--token-file` with owner-only permissions and refuses to overwrite an existing file. The token is never printed. The destination directory must exist and the file must not exist; both are checked before any client is created. Hosts in `--hosts` must exist in the inventory; unknown names are refused with the list of valid names (exit 2). If the file cannot be written after creation, the new client is revoked. The human output prints a ready-to-paste MCP client snippet with a placeholder header, never the token.
+- `client list` shows an aligned table (ID, NAME, SCOPES, HOSTS, CREATED, STATUS). Revoked clients are listed last and dimmed.
+- `client revoke` is idempotent: revoking an already revoked client reports that nothing changed. In an interactive terminal (not with `--json`) it asks for confirmation first.
+- `ops` lists open operations by default (pending, approved, executing); `--all` includes history and `--state` filters by state. `show` and `execute` accept a unique id prefix of at least 8 characters.
+- `execute` refreshes the managed SSH config first (as `exec` does), then runs the existing `src/operations.ts` `execute()` path, so the existing tier and classification checks still apply. The human summary shows the outcome, the command, and stdout/stderr blocks (or `(no output)`). Output is printed to the operator and is not stored.
+- Human output uses local time (`2026-11-05 21:55:40`) and relative times. Colors are used only on an interactive terminal and are disabled by `NO_COLOR`. `--json` output keeps the same structure and uses ISO-8601 timestamps.
+- `serve-mcp` binds only to `127.0.0.1`. `--host` with any other value is refused with an explanation (use a reverse proxy or tunnel for remote clients). A busy port reports `Port N is already in use`.
+- `--name`, `--scopes`, `--hosts`, `--token-file`, `--state` and `--all` apply only to `control`; `--host` applies only to `serve-mcp`. Other commands refuse them with exit 2.
+
+## 12. Five-minute quickstart
+
+1. Add two clients, one per agent, each with its own token file:
+
+   ```sh
+   homectl control client add codex-pc --name "Codex PC" --scopes status:read,inspect:read,plan:create --hosts agent-host --token-file ~/.config/homectl/tokens/codex-pc.token
+   homectl control client add hermes-admin --name "Hermes Admin" --scopes status:read,inspect:read,approve:decide --hosts agent-host --token-file ~/.config/homectl/tokens/hermes-admin.token
+   ```
+
+2. Start the endpoint in a private terminal and leave it running: `homectl serve-mcp`.
+3. Configure each MCP client with the URL `http://127.0.0.1:7449/mcp` and the header `Authorization: Bearer <contents of its token file>`. The snippet printed by `client add` shows the shape.
+4. The Codex client plans: `homectl_plan` with `host: "agent-host"` and `argv: ["hostname"]`. An inspection plan needs no approval.
+5. Run it: `homectl control execute <first 8 characters of the id>`, or open **Approvals** in the local panel and press Execute.
+6. For a change (for example `argv: ["systemctl", "restart", "nginx"]`), the Hermes client approves the exact fingerprint with `homectl_approve`; then run it with `homectl control execute`, or Execute in the panel.
+7. Check the trail: `homectl control audit verify` (or the Audit card in the panel).
+
+## 13. Local panel: Approvals
+
+The local panel (`homectl serve`, `homectl panel`) has an **Approvals** view with three parts:
+
+- **Operations**: Pending, Approved and History filters. Rows show state, host, classification, command, impact, issuer → approver, when, and a short fingerprint. Pending changes show "Waiting for approval by another client". Ready operations show **Execute**, which opens a confirmation with host, command, impact, fingerprint and approver. The result appears inline with exit code and collapsed stdout/stderr.
+- **Clients**: scopes and host grants as chips, status, and **Revoke** (with confirmation). Adding clients stays in a terminal; the panel shows the command to copy.
+- **Audit**: the verification status with **Verify now**.
+
+The panel's control routes (all behind the existing local session cookie and origin checks) are `GET /api/control`, `POST /api/control/execute`, `POST /api/control/revoke` and `POST /api/control/audit/verify`. **The panel never approves on behalf of a client**: there is no approve route, and approval stays a separate client identity. Execution through the panel uses the same local-operator path as the CLI and is audited the same way.
+
+## 14. Slice 2 decisions
+
+1. **Inspection runs without a second client.** A plan whose classification is `inspect` has `needsApproval: false` and can be executed by the local operator (CLI or panel) without an approval record. It stays fully audited: `operation.executing` carries `reason: "no-approval-required"`, the operation is single-use, and approval is refused for it (it needs none). Mutation and destructive plans still need approval by another client. Before this change, `needsApproval` could say `false` while execution still required approval; the flag is now derived from the classification so the two always agree.
+2. **API timestamps are ISO-8601 UTC strings** (`createdAt`, `expiresAt`, `updatedAt`, `issuedAt`) in every view and in `structuredContent`. Records on disk keep epoch milliseconds.
+3. **MCP tool text is a summary**, with the full operation id and fingerprint in the sentence, so an approver agent can act on it. `structuredContent` carries the full typed result.
+4. **Audit truncation is detected** through `audit.anchor` (see section 7).
 
 ## 11. Non-goals in this version
 
