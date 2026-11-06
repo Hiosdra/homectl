@@ -129,6 +129,11 @@ export interface ControlPlaneOptions {
   stateDirectory: string;
   runner?: Runner;
   clock?: () => number;
+  // Replication gate (ADR-0002, fencing rule). Returns a refusal reason, or
+  // undefined when this device may run the operation right now.
+  fence?: (operationId: string) => string | undefined;
+  // Authority of an approver whose registration lives on another device.
+  approverAuthorized?: (approverId: string, host: string) => boolean;
 }
 
 export interface ExecuteResult {
@@ -536,6 +541,63 @@ export class ControlPlane {
     return matches[0] ?? lower;
   }
 
+  async hasHost(host: string): Promise<boolean> {
+    const inventory = await loadInventory(this.options.inventoryPath);
+    return machineOf(inventory, host) !== undefined;
+  }
+
+  // Takeover: rebuild a replicated operation on this device. The plan is derived
+  // from this device's own inventory, so the host must be enrolled here. The
+  // operation starts pending and needs a fresh approval (its fingerprint may
+  // differ from the old owner's).
+  async adoptOperation(input: {
+    operationId: string;
+    host: string;
+    argv: string[];
+    impact: string;
+    issuer: string;
+  }): Promise<OperationView> {
+    return this.store.withLock(async () => {
+      const now = this.clock();
+      const state = await this.store.loadState();
+      if (Object.hasOwn(state.operations, input.operationId))
+        throw new HomectlError(2, "Operation already exists on this device");
+      const inventory = await loadInventory(this.options.inventoryPath);
+      const machine = machineOf(inventory, input.host);
+      if (!machine)
+        throw new HomectlError(
+          3,
+          `Host ${input.host} is not in this device's inventory; takeover refused`,
+        );
+      const plan = buildPlan(input.host, machine, input.argv, input.impact);
+      const record: OperationRecord = {
+        apiVersion: CONTROL_API_VERSION,
+        id: input.operationId,
+        state: "pending",
+        plan,
+        fingerprint: fingerprint(plan),
+        issuer: input.issuer,
+        createdAt: now,
+        expiresAt: now + PLAN_TTL_MS,
+        updatedAt: now,
+        spawnAttempted: false,
+      };
+      await this.journal.append({
+        event: "operation.planned",
+        client: SYSTEM_ACTOR,
+        op: "plan",
+        operationId: record.id,
+        host: input.host,
+        fingerprint: record.fingerprint,
+        classification: plan.classification,
+        reason: "adopted-by-takeover",
+      });
+      state.operations[record.id] = record;
+      await this.store.saveState(state);
+      return operationView(record, now);
+    });
+  }
+
   async showOperation(operationId: string): Promise<OperationView> {
     const state = await this.store.loadState();
     const op = Object.hasOwn(state.operations, operationId)
@@ -890,7 +952,11 @@ export class ControlPlane {
     const record = Object.hasOwn(clients, approverId)
       ? clients[approverId]
       : undefined;
-    if (!record || record.revokedAt !== undefined) return false;
+    // Approvers registered on another device are judged by the replicated
+    // registration, which the owner gets through the approver-authority hook.
+    if (!record)
+      return this.options.approverAuthorized?.(approverId, host) ?? false;
+    if (record.revokedAt !== undefined) return false;
     const identity = identityOf(record);
     return hasScope(identity, "approve:decide") && permitsHost(identity, host);
   }
@@ -905,6 +971,10 @@ export class ControlPlane {
         ? state.operations[operationId]
         : undefined;
       if (!op) throw new HomectlError(2, "Unknown operation");
+      // The replication fence comes first: an operation this device may not run
+      // must say why, not that it needs approval.
+      const refusal = this.options.fence?.(op.id);
+      if (refusal) throw new HomectlError(3, refusal);
       // Inspection plans (classification `inspect`) cannot change the target and
       // run without a second client; they are still audited and single-use.
       const approvalRequired = op.plan.needsApproval;
