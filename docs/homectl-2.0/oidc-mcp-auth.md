@@ -1,6 +1,6 @@
 # OIDC authentication for MCP clients (slice 4 design)
 
-Status: design. Not yet implemented. Prepares the Authentik integration (sibling issue); this slice contacts no real identity provider. Tests use a synthetic issuer on loopback.
+Status: implemented on `feat/issue-5-control-plane` (slice 4). Prepares the Authentik integration (sibling issue). This slice contacts no real identity provider; tests use a synthetic issuer on loopback. Code: `src/control/oidc.ts`, the OIDC path in `src/control/engine.ts` (`authenticate`), the protected-resource route in `src/control/mcp.ts`. Tests: `tests/control-oidc.test.ts`, `tests/control-oidc-cli.test.ts`.
 
 ## Decisions
 
@@ -57,3 +57,14 @@ Deploying or contacting Authentik or any other IdP; authorization-code flows; dy
 ## Tests planned
 
 `tests/control-oidc.test.ts` with a synthetic issuer on loopback: valid token; wrong audience; wrong issuer; expired; `nbf` in the future; `alg` none and HS256 refused; unknown `kid` causing exactly one refresh and then refusal; key rotation accepted after one refresh; a revoked client refused with a valid token; a static token still working when OIDC is configured; no token material in logs or audit (only the issuer host and subject hash).
+
+## Implementation notes
+
+- Config file `oidc.json` in the control state directory (no secrets). `control oidc clear` removes it; OIDC tokens are then refused, static tokens are unaffected.
+- Discovery is implemented: without `--jwks-url`, the JWKS URI is read once from the issuer's `.well-known/openid-configuration`.
+- Each OIDC sign-in is audited as `auth.oidc` (client id, issuer host, subject hash). A refusal is `auth.rejected` with the fixed code, for example `OIDC token refused: oidc-audience`.
+- The static client token is still created for an OIDC-mapped client, so one client keeps one route to its scopes, and the mapping is an extra route, not a second identity.
+- A mapping is unique per issuer, claim and value. `client list` and the panel show the issuer host and a 12-hex identity hash, never the subject.
+- `client_id` mapping matches the token's `client_id` claim, or `azp` when `client_id` is absent.
+- `/.well-known/oauth-protected-resource` returns the resource, the scope names and, when configured, `authorization_servers`. A 401 carries `WWW-Authenticate: Bearer resource_metadata=...`.
+- Residual: a bearer JWT is replayable until `exp`; IdP-side revocation is not seen before `exp`; there is no `jti` deny-list.
