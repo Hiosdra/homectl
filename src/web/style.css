@@ -33,3 +33,5 @@ table.ops th,table.ops td{padding:12px 12px}td.cell-command{min-width:200px}td.c
 @media(min-width:701px){.rail{background:transparent;border-right:0}}
 /* Tighter mobile cards: fields sit closer together and labels hug their values. */
 @media(max-width:700px){.table-wrap tr{gap:6px 10px;padding:12px 14px}.table-wrap td[data-label]::before{margin-bottom:0;line-height:1.3}.table-wrap .cls,.table-wrap .fp{margin-top:2px}.table-wrap .impact{margin-top:2px}}
+
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

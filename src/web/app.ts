@@ -114,14 +114,18 @@ type ControlOp = {
     since: string;
   };
   approvedBy?: string;
+  offerTo?: string;
+  offerFrom?: string;
 };
 type ControlSync = {
   running: boolean;
+  disabledBy?: string;
   peers: {
     id: string;
     name: string;
     lastSync?: number;
     leaseOk: boolean;
+    excluded?: boolean;
     refused?: string;
     failures?: number;
     nextAttemptAt?: number;
@@ -129,6 +133,13 @@ type ControlSync = {
   }[];
   blocked: Record<string, string>;
   conflicts: { opId: string; epoch: number; candidates: string[] }[];
+  resolutions?: {
+    opId: string;
+    conflictEpoch: number;
+    winner: string;
+    resolver: string;
+    waitingForSelf?: boolean;
+  }[];
   names?: Record<string, string>;
 };
 type ControlDevices = {
@@ -165,6 +176,8 @@ let control: ControlOverview | undefined;
 let controlTab: "queue" | "clients" = "queue";
 let controlFilter: ControlBucket = "ready";
 let controlResult: ControlExecution | undefined;
+// Operation whose handoff picker is open (owner side).
+let handoffPicker: string | undefined;
 function element<T extends HTMLElement = HTMLElement>(id: string): T {
   const e = document.getElementById(id);
   if (!e) throw new Error(`Missing ${id}`);
@@ -357,42 +370,67 @@ function controlSyncSection() {
   if (!control)
     return `<section class="panel section"><h2>Control sync</h2><p class="muted">Control status is unavailable right now. Refresh to try again.</p></section>`;
   const sync = control.sync;
+  if (sync?.disabledBy)
+    return `<section class="panel section"><h2>Control sync</h2><p class="muted">Control sync is disabled by ${htmlEscape(sync.disabledBy)} on this device. Operations that have paired peers wait for a sync.</p></section>`;
   if (!sync?.running)
     return `<section class="panel section"><h2>Control sync</h2><p class="muted">Control sync runs while homectl serve is running on this device.</p></section>`;
   const now = Date.now();
+  const names = sync.names ?? {};
   const rows = sync.peers.length
     ? `<div class="table-wrap"><table><thead><tr><th>Device</th><th>Last sync</th><th>Lease</th><th>Backoff</th><th>Status</th></tr></thead><tbody>${sync.peers
         .map((p) => {
+          if (p.excluded)
+            return `<tr><td data-label="Device"><strong>${htmlEscape(p.name)}</strong></td><td data-label="Last sync"><span class="muted">never (control)</span></td><td data-label="Lease"><span class="muted">excluded from lease: re-pair required</span></td><td data-label="Backoff"><span class="muted">—</span></td><td data-label="Status"><span class="badge warning">${htmlEscape(p.refused ?? "re-pair required")}</span></td></tr>`;
           const retry =
             p.nextAttemptAt !== undefined &&
             (p.failures ?? 0) > 0 &&
             p.nextAttemptAt > now
               ? `retry ${localStamp(new Date(p.nextAttemptAt).toISOString())}`
               : "none";
-          const status = p.refused
-            ? `<span class="badge warning">${htmlEscape(p.refused)}</span>`
-            : p.lastError
-              ? `<span class="danger">${htmlEscape(p.lastError)}</span>`
-              : `<span class="badge success">ok</span>`;
+          const status = p.lastError
+            ? `<span class="danger">${htmlEscape(p.lastError)}</span>`
+            : `<span class="badge success">ok</span>`;
           return `<tr><td data-label="Device"><strong>${htmlEscape(p.name)}</strong></td><td data-label="Last sync">${p.lastSync === undefined ? `<span class="muted">never</span>` : htmlEscape(relative(new Date(p.lastSync).toISOString()))}</td><td data-label="Lease">${p.leaseOk ? "ok" : `<span class="danger">expired: waiting for sync</span>`}</td><td data-label="Backoff">${htmlEscape(retry)}</td><td data-label="Status">${status}</td></tr>`;
         })
         .join("")}</tbody></table></div>`
     : `<p class="muted">No paired devices take part in control sync yet.</p>`;
   const conflicts = sync.conflicts.length
-    ? `<h3 class="section">Control conflicts</h3><p class="inline-note">Two different handoffs were recorded for the same operation at the same epoch. Nobody can run these operations until an operator resolves them. Resolution is not available in this panel yet.</p><ul>${sync.conflicts
-        .map(
-          (c) =>
-            `<li><code>${htmlEscape(c.opId.slice(0, 8))}</code> at epoch ${c.epoch}: ${htmlEscape(c.candidates.map((id) => sync.names?.[id] ?? id).join(", "))}</li>`,
-        )
-        .join("")}</ul>`
+    ? `<h3 class="section">Control conflicts</h3><p class="inline-note">Two different handoffs were recorded for the same operation. Nobody can run it until the conflict is resolved. Choose the owner here; that device must accept on its own side before the resolution applies.</p>${sync.conflicts
+        .map((c) => conflictRow(c, names, sync.resolutions ?? []))
+        .join("")}`
     : `<p class="inline-note">No control conflicts.</p>`;
   const blocked = Object.entries(sync.blocked)
     .map(
       ([origin, reason]) =>
-        `<p class="inline-note">Log from ${htmlEscape(sync.names?.[origin] ?? origin)} is blocked: ${htmlEscape(reason)}</p>`,
+        `<p class="inline-note">Log from ${htmlEscape(names[origin] ?? origin)} is blocked: ${htmlEscape(reason)}</p>`,
     )
     .join("");
   return `<section class="panel section"><h2>Control sync</h2><p class="muted">Approvals and executions travel on this sync. It runs every 15 seconds while homectl serve runs.</p>${rows}${conflicts}${blocked}</section>`;
+}
+// One conflicting operation: its candidates, any proposal waiting, and the
+// owner choice (any device involved can propose; the chosen one must accept).
+function conflictRow(
+  c: { opId: string; epoch: number; candidates: string[] },
+  names: Record<string, string>,
+  resolutions: NonNullable<ControlSync["resolutions"]>,
+) {
+  const mine = resolutions.filter((r) => r.opId === c.opId);
+  const proposals = mine
+    .map(
+      (r) =>
+        `<p class="inline-note">Proposed by ${htmlEscape(names[r.resolver] ?? r.resolver)}: owner ${htmlEscape(names[r.winner] ?? r.winner)}.</p>`,
+    )
+    .join("");
+  const accept = mine.some((r) => r.waitingForSelf)
+    ? button("control-resolve-accept", "Accept resolution", c.opId, "primary")
+    : "";
+  const options = c.candidates
+    .map(
+      (id) =>
+        `<option value="${htmlEscape(id)}">${htmlEscape(names[id] ?? id)}</option>`,
+    )
+    .join("");
+  return `<div class="peer-row"><div><strong><code>${htmlEscape(c.opId.slice(0, 8))}</code></strong> at epoch ${c.epoch}: ${htmlEscape(c.candidates.map((id) => names[id] ?? id).join(", "))}${proposals}</div><div class="actions">${accept}<label class="sr-only" for="resolve-${htmlEscape(c.opId)}">Owner for ${htmlEscape(c.opId.slice(0, 8))}</label><select id="resolve-${htmlEscape(c.opId)}" data-conflict-select="${htmlEscape(c.opId)}">${options}</select>${button("control-resolve", "Resolve…", c.opId, "quiet")}</div></div>`;
 }
 function access() {
   return (
@@ -515,15 +553,35 @@ function takeoverText(op: ControlOp) {
 function opAction(op: ControlOp) {
   // An operation that another device owns runs there; it is never executed here.
   if (op.runsOn) {
+    const accept = op.offerFrom
+      ? button(
+          "control-handoff-accept",
+          "Accept handoff",
+          op.operationId,
+          "primary",
+        )
+      : "";
     const takeover = op.takeover?.possible
       ? button("control-takeover", "Take over here", op.operationId, "quiet")
       : op.takeover
         ? `<span class="muted">${htmlEscape(takeoverText(op))}</span>`
         : "";
-    return `<span class="muted">Runs on ${htmlEscape(op.runsOn)}</span>${takeover ? `<div class="sub">${takeover}</div>` : ""}`;
+    const extra =
+      accept || takeover ? `<div class="sub">${accept}${takeover}</div>` : "";
+    return `<span class="muted">Runs on ${htmlEscape(op.runsOn)}</span>${extra}`;
   }
   if (op.conflict)
     return `<span class="muted">${htmlEscape(takeoverText(op))}</span>`;
+  // An open offer stops execution here until the receiver accepts or it is cancelled.
+  if (op.offerTo)
+    return `<span class="muted">Offered to ${htmlEscape(op.offerTo)}; not runnable here</span><div class="sub">${button("control-handoff-cancel", "Cancel offer", op.operationId, "quiet danger")}</div>`;
+  const handoff =
+    op.remote || bucketOf(op) === "history"
+      ? ""
+      : `<div class="sub">${button("control-handoff-open", "Hand off…", op.operationId, "quiet")}</div>`;
+  return `${primaryAction(op)}${handoff}`;
+}
+function primaryAction(op: ControlOp) {
   // Inspection is the primary action; changes get a distinct warning outline.
   if (isReady(op))
     return button(
@@ -669,6 +727,16 @@ function executionResult(r: ControlExecution) {
       : `${resultBlock("stdout", out)}${resultBlock("stderr", err)}`;
   return `<section id="control-result" class="section panel" tabindex="-1" aria-labelledby="control-result-title"><div class="result-head"><h2 id="control-result-title">Execution result</h2><button type="button" class="quiet" aria-label="Close execution result" data-action="control-result-close">×</button></div><p><strong>${htmlEscape(headline)}</strong>${took ? ` <span class="muted">· took ${htmlEscape(took)}</span>` : ""}</p><p class="muted"><code>$ ${htmlEscape(shellArgv(op.argv))}</code></p>${body}</section>`;
 }
+// Owner-side picker: choose the receiving device, then confirm the offer.
+function handoffPickerCard() {
+  if (!handoffPicker) return "";
+  const op = control?.operations.find((o) => o.operationId === handoffPicker);
+  if (!op) return "";
+  const devices = (control?.devices?.peers ?? []).filter((p) => !p.legacy);
+  if (!devices.length)
+    return `<section class="panel section"><h2>Hand off ${htmlEscape(op.host)}</h2><p class="muted">No paired device can take a handoff yet. Pair a device again so it has a signing key.</p><div class="form-actions">${button("control-handoff-close", "Close")}</div></section>`;
+  return `<section class="panel section"><h2>Hand off ${htmlEscape(op.host)}</h2><p class="muted">The receiving device must accept. Until it does, this device keeps the operation and will not run it. You can cancel the offer before it is accepted.</p><div><label for="handoff-target">Receiving device</label><select id="handoff-target">${devices.map((d) => `<option value="${htmlEscape(d.id)}">${htmlEscape(d.name)}</option>`).join("")}</select></div><div class="form-actions">${button("control-handoff-close", "Close")}${button("control-handoff-go", "Continue…", op.operationId, "primary")}</div></section>`;
+}
 function approvals() {
   let content = heading(
     "Approvals",
@@ -680,6 +748,7 @@ function approvals() {
     controlTab === "queue"
       ? queueSection(control?.operations ?? [])
       : clientsSection(control?.clients ?? []);
+  content += handoffPickerCard();
   if (controlResult) content += executionResult(controlResult);
   return content;
 }
@@ -970,6 +1039,109 @@ document.addEventListener("click", (event) => {
         announce(
           `Took over ${op.host}. It needs a fresh approval on this device.`,
         );
+        return;
+      }
+      case "control-handoff-open":
+        handoffPicker = id;
+        render();
+        return;
+      case "control-handoff-close":
+        handoffPicker = undefined;
+        render();
+        return;
+      case "control-handoff-go": {
+        const op = control?.operations.find((o) => o.operationId === id);
+        const target = element<HTMLSelectElement>("handoff-target");
+        if (!op || !target.value) return;
+        const name = target.selectedOptions[0]?.textContent ?? target.value;
+        if (
+          !(await confirm(
+            `Offer ${op.host} to ${name}?`,
+            `${name} must accept. Until it does, this device keeps the operation and will not run it. You can cancel the offer before it is accepted.`,
+            `<dl><dt>Host</dt><dd>${htmlEscape(op.host)}</dd><dt>Command</dt><dd><code>${htmlEscape(shellArgv(op.argv))}</code></dd><dt>Receiving device</dt><dd>${htmlEscape(name)}</dd></dl>`,
+          ))
+        )
+          return;
+        await api("/api/control/handoff", {
+          operationId: id,
+          to: target.value,
+        });
+        handoffPicker = undefined;
+        await refresh();
+        announce(
+          `Offered ${op.host} to ${name}. It applies when ${name} accepts.`,
+        );
+        return;
+      }
+      case "control-handoff-cancel": {
+        const op = control?.operations.find((o) => o.operationId === id);
+        if (
+          !(await confirm(
+            "Cancel the offer?",
+            "The receiving device can no longer accept it. This device owns the operation again.",
+          ))
+        )
+          return;
+        await api("/api/control/handoff", { operationId: id, cancel: true });
+        await refresh();
+        announce(`Offer cancelled${op ? ` for ${op.host}` : ""}.`);
+        return;
+      }
+      case "control-handoff-accept": {
+        const op = control?.operations.find((o) => o.operationId === id);
+        if (!op) return;
+        const owner = op.ownerName ?? "the current owner";
+        if (
+          !(await confirm(
+            `Accept the handoff of ${op.host}?`,
+            `This device becomes the owner from ${owner}. The operation then needs a fresh approval here before it can run.`,
+          ))
+        )
+          return;
+        await api("/api/control/handoff", { operationId: id });
+        await refresh();
+        announce(
+          `Accepted ${op.host}. It needs a fresh approval on this device.`,
+        );
+        return;
+      }
+      case "control-resolve": {
+        const select = document.querySelector<HTMLSelectElement>(
+          `select[data-conflict-select="${CSS.escape(id)}"]`,
+        );
+        const owner = select?.value;
+        if (!owner || !select) return;
+        const name = select.selectedOptions[0]?.textContent ?? owner;
+        if (
+          !(await confirm(
+            `Propose ${name} as the owner?`,
+            `The proposal applies only when ${name} accepts it on its own device. Until then the operation has no owner and cannot run.`,
+          ))
+        )
+          return;
+        const answer = await api<{ accepted?: boolean }>(
+          "/api/control/resolve",
+          { operationId: id, owner },
+        );
+        await refresh();
+        announce(
+          answer.accepted
+            ? "Resolution applied on this device."
+            : `Resolution proposed for ${name}; it applies once that device accepts.`,
+        );
+        return;
+      }
+      case "control-resolve-accept": {
+        if (
+          !(await confirm(
+            "Accept this resolution?",
+            "This device becomes the owner of the operation and needs a fresh approval here before it can run.",
+          ))
+        )
+          return;
+        await api("/api/control/resolve", { operationId: id });
+        await refresh();
+        announce("Resolution accepted on this device.");
         return;
       }
       case "control-result-close":
