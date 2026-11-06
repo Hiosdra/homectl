@@ -55,7 +55,7 @@ interface Persisted {
     ops: Record<string, PublishedOp>;
     clients: Record<string, string>;
   };
-  peers: Record<string, { name: string; signingKey: string }>;
+  peers: Record<string, { name: string; signingKey?: string }>;
   syncedAt: Record<string, number>;
   seenAt: Record<string, number>;
 }
@@ -126,7 +126,7 @@ export class ControlReplicator {
   }
 
   // Pairing hands over the peer's name and signing key (ADR-0002 decision 1).
-  async addPeer(id: string, name: string, signingKey: string): Promise<void> {
+  async addPeer(id: string, name: string, signingKey?: string): Promise<void> {
     this.data.peers[id] = { name, signingKey };
     await this.save();
   }
@@ -136,8 +136,26 @@ export class ControlReplicator {
       [this.self.id]: this.self.key.publicKey,
     };
     for (const [id, peer] of Object.entries(this.data.peers))
-      out[id] = peer.signingKey;
+      if (peer.signingKey !== undefined) out[id] = peer.signingKey;
     return out;
+  }
+
+  peerIds(): string[] {
+    return Object.keys(this.data.peers);
+  }
+
+  // A peer paired before signing keys existed cannot be verified; control sync
+  // refuses it until the device is paired again (fail closed).
+  refusalFor(id: string): string | undefined {
+    const peer = this.data.peers[id];
+    if (!peer) return "Unknown peer";
+    return peer.signingKey === undefined
+      ? "Re-pair this device to enable control sync; it has no signing key"
+      : undefined;
+  }
+
+  nameOfPeer(id: string): string {
+    return this.nameOf(id);
   }
 
   private nameOf(id: string): string {
