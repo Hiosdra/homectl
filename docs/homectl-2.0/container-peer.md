@@ -20,7 +20,7 @@ Goal: homectl runs as an always-on peer in a container on the NAS. It pairs with
 3. Lock the hub: clear the vault and unload keys from the session agent.
 4. Stop both listeners.
 5. Delete the launch token (`serve/panel.json`).
-6. Mark the run as stopped (`serve/run.json`, state `stopped`).
+6. Mark the run as stopped (`serve/run.json`, state `stopped`). Stop the heartbeat first, and wait for any heartbeat write in flight, so "stopped" is the last write.
 7. Exit 0.
 
 State files are written by temp-file-and-rename, so a stop does not need a separate flush. Audit entries are appended; a torn final line is caught by the startup verification below and refused (fail closed). Docker `stop_grace_period` is 20 s, longer than the 10 s sync wait.
@@ -31,8 +31,9 @@ Runs before any listener is opened. Each check is logged to stderr with a short 
 
 | Check | Result |
 |---|---|
-| `serve/run.json` says `running` and its pid is alive and not this process | Refuse (exit 3): another homectl uses this volume. |
-| `serve/run.json` says `running` otherwise | Unclean previous shutdown: start, status `degraded` for this run, log it. |
+| `serve/run.json` says `running` for another instance, and its heartbeat is younger than 90 s | Refuse (exit 3): "another homectl instance is using this data directory (host <hostname>, heartbeat <age> ago)". |
+| `serve/run.json` says `running` for another instance, and its heartbeat is older than 90 s, or has none | Unclean previous shutdown: start, status `degraded` for this run, log it. |
+| `serve/run.json` says `running` for this same instance | No duplicate; nothing to report. |
 | `serve/run.json` unreadable | Refuse (exit 5): run state unknown. |
 | Audit journal fails verification (truncated, diverged from its anchor, unparseable tail) | Refuse (exit 5). Nothing is repaired. Restore from backup or run `control audit verify`. A lagging anchor (crash between append and anchor write) is accepted, as the journal already does. |
 | `*.tmp` leftovers from an interrupted atomic write | Start, status `degraded`, names logged. Files are kept, not deleted: the committed file is still the last consistent version. |
@@ -84,7 +85,7 @@ Decision: panel not published. Pairing and control run through `docker exec`. Pu
 - The Bun base digest must be pinned by the operator from a registry they trust (`docker buildx imagetools inspect oven/bun:<tag>`). It is not pinned in this repository.
 - The OpenSSH and KeePassXC packages are not version-pinned in the Dockerfile, and KeePassXC adds a large dependency set to the image.
 - Not verified: the image build, `bun install --production` in the image, `session unlock` inside the container, and whether a session agent survives `docker exec` exit. Verify on a real NAS before relying on it.
-- One container per `/data` volume is an operator rule. The run marker detects a live duplicate only by pid, which does not cross containers.
+- One container per `/data` volume is an operator rule, and the heartbeat is the guard. Each start gets a random instance id, and a running instance rewrites `serve/run.json` (instance id, hostname, start time, heartbeat) every 30 s (`HEARTBEAT_MS`). A second container is refused while the heartbeat is younger than 90 s (`STALE_AFTER_MS`). A container that restarts within 90 s of a crash is therefore refused until that heartbeat ages out, and Docker retries it. Pids are not used for this check, because every container's main process is pid 1. The control-plane lock still records a pid; it is read only inside one process namespace, so it is a warning here, not a guard.
 
 ## Onboarding runbook
 
@@ -151,7 +152,7 @@ Placeholders in this runbook: `192.0.2.20` is the NAS LAN address, `172.28.0.10`
 
 ### 11. Troubleshooting
 
-- Exit 3, "Another homectl process is using this volume": only one container may use a data directory. Check `docker ps -a`, then stop the other one.
+- Exit 3, "another homectl instance is using this data directory (host <hostname>, heartbeat <age> ago)": only one container may use a data directory. Check `docker ps -a` on the host named in the message, then stop the other one. If none is running, wait until the heartbeat is older than 90 s; the next start then proceeds as an unclean previous run.
 - Exit 5, "Audit journal failed startup verification": nothing was changed and nothing will be repaired automatically. Keep the directory as it is. Work on a copy, restore the control-plane directory from backup, or run `control audit verify` on the copy.
 - A `half-written file left by an interrupted write` warning: the committed file is still in use and the temp file is kept. Note its name and investigate before removing it.
 - `unhealthy` with a running container: read the last startup line and the warnings in `docker logs homectl`.
