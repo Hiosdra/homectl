@@ -305,6 +305,11 @@ export function renderOperationDetail(
     lines.push(["Duration", durationOf(op) ?? "still running"]);
   }
   if (op.ownerName !== undefined) lines.push(["Owner", op.ownerName]);
+  if (op.offerTo !== undefined)
+    lines.push([
+      "Offer",
+      `to ${op.offerTo}${op.offerExpires ? `, offer ${expiryLabel(op.offerExpires, options.now)}` : ""}`,
+    ]);
   if (op.takeover)
     lines.push([
       "Takeover",
@@ -413,6 +418,8 @@ export interface SyncRow {
   leaseOk: boolean;
   // A legacy peer without a signing key: excluded from the lease.
   excluded?: boolean;
+  // Suspended from this device's lease by this device.
+  suspended?: { by: string; at: string; reason?: string };
   refused?: string;
   failures?: number;
   nextAttemptAt?: number;
@@ -458,6 +465,16 @@ export function renderSync(
       (h) => paint(h, "bold", options.color),
     );
     const rows = view.peers.map((peer) => {
+      if (peer.suspended)
+        return [
+          peer.name,
+          peer.lastSync === undefined
+            ? "never"
+            : relativeTime(new Date(peer.lastSync).toISOString(), options.now),
+          `suspended by ${peer.suspended.by} at ${clockTime(peer.suspended.at)}`,
+          "—",
+          "not counted in the lease",
+        ];
       if (peer.excluded)
         return [
           peer.name,

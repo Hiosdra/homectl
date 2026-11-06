@@ -481,7 +481,7 @@ pages.control = {
         ],
         [
           "handoff ID --to DEVICE",
-          "On the owner: offer the operation to DEVICE. The owner will not run it until DEVICE accepts or the offer is cancelled. Needs a running homectl serve.",
+          "On the owner: offer the operation to DEVICE. The owner will not run it until DEVICE accepts, the offer is cancelled, or it expires after 15 minutes. Needs a running homectl serve.",
         ],
         [
           "handoff ID",
@@ -490,6 +490,10 @@ pages.control = {
         [
           "handoff ID --cancel",
           "On the owner: withdraw an offer that nobody has accepted.",
+        ],
+        [
+          "peer suspend DEVICE [--reason TEXT]  |  peer resume DEVICE",
+          "Take a paired device out of this device's lease, so operations here do not wait for it, or put it back. Operations here may run without that device confirming the latest state: use it only when the device is offline or will stay offline. Signed, replicated and audited. Needs a running homectl serve.",
         ],
         [
           "resolve ID --owner DEVICE",

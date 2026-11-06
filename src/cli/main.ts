@@ -49,6 +49,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         "no-control-sync": { type: "boolean" },
         owner: { type: "string" },
         cancel: { type: "boolean" },
+        reason: { type: "string" },
         wrapper: { type: "string" },
         address: { type: "string" },
         target: { type: "string" },
@@ -95,12 +96,13 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         v.to,
         v.owner,
         v.cancel,
+        v.reason,
       ].some((option) => option !== undefined) &&
       command !== "control"
     )
       throw new HomectlError(
         2,
-        "--name, --scopes, --hosts, --token-file, --state, --all, --to, --owner and --cancel apply only to control",
+        "--name, --scopes, --hosts, --token-file, --state, --all, --to, --owner, --cancel and --reason apply only to control",
       );
     if (v.host !== undefined && command !== "serve-mcp")
       throw new HomectlError(2, "--host applies only to serve-mcp");

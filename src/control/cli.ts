@@ -53,6 +53,7 @@ export interface ControlCliInput {
     to?: string;
     owner?: string;
     cancel?: boolean;
+    reason?: string;
   };
   dryRun: boolean;
   json: boolean;
@@ -362,6 +363,46 @@ export async function controlCommand(
       code: 0,
     };
   }
+  if (group === "peer") {
+    if (
+      (action !== "suspend" && action !== "resume") ||
+      !argument ||
+      input.positionals.length !== 3
+    )
+      throw new HomectlError(
+        2,
+        "Usage: homectl control peer suspend DEVICE [--reason TEXT]  |  homectl control peer resume DEVICE",
+      );
+    const suspend = action === "suspend";
+    if (input.dryRun)
+      return {
+        value: {
+          wouldSetLease: { device: argument, suspended: suspend },
+          credentialAccess: false,
+        },
+        human: `Would ${suspend ? "suspend" : "resume"} ${argument} in this device's lease. No change made.`,
+        code: 0,
+      };
+    const result = await liveRequest<{ target: string; next?: string }>(
+      input,
+      "/api/control/peer",
+      {
+        target: argument,
+        suspend,
+        ...(input.values.reason !== undefined
+          ? { reason: input.values.reason }
+          : {}),
+      },
+    );
+    if (!result) throw new HomectlError(5, "Start homectl serve first");
+    return {
+      value: result,
+      human: suspend
+        ? `Suspended ${argument} from this device's lease. ${result.next ?? ""}`
+        : `Resumed ${argument}: it counts toward this device's lease again.`,
+      code: 0,
+    };
+  }
   if (group === "resolve") {
     if (!action || input.positionals.length !== 2)
       throw new HomectlError(
@@ -439,6 +480,7 @@ async function savedSync(
       leaseOk: peer.leaseOk,
       refused: peer.refused,
       excluded: peer.excluded,
+      suspended: peer.suspended,
     })),
     conflicts: status.conflicts,
     resolutions: status.resolutions.map((r) => ({
