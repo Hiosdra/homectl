@@ -111,8 +111,9 @@ Implementation status on `feat/issue-5-control-plane`:
 
 - Stage (a), done: device keys (`src/control/device-key.ts`), public key carried in pairing identities and stored on paired peers, fingerprint helper. Tests: `tests/control-device.test.ts`.
 - Stage (b), done: signed record envelope and state-aware rules (`src/control/replicate.ts`): lattice pending < approved < executing < terminal per owner epoch; owner-only state writes; snapshots below the established epoch are stale; handoffs signed by the taking device; conflicting handoffs at one epoch are kept as conflicts with no owner; decisions signed by the approver's device and applied at most once; monotone client revocation. Tests: `tests/control-replicate.test.ts`.
-- Stage (c), not started: continuous sync loop, engine integration (adopting an operation on takeover, routing approvals from non-owner devices, an execute-time owner guard), per-origin log checkpoints for rewritten or truncated replicas, and two- and three-peer convergence tests.
-- Stages (d) and (e), not started: CLI (`control handoff`, sync status), panel surfacing, quickstart.
+- Stage (c), done: continuous sync loop, engine integration (adopting an operation on takeover, routing approvals from non-owner devices, an execute-time owner guard), per-origin log checkpoints, and convergence tests (see section 8).
+- Stage (d), done with gaps: CLI (`control handoff`, `control sync`), panel surfacing, local admin route (see section 9).
+- Stage (e), done: quickstart for replicated mode (see section 10).
 
 Known gaps to close in stage (c):
 
@@ -131,6 +132,28 @@ Decision 5 allowed an operator to take over an offline owner. It left one race o
 
 Tests (`tests/control-convergence.test.ts`): old owner offline, takeover refused inside the window, takeover accepted after it, the returning owner refused both by lease and by ownership, the new owner's operation back in needs-approval, a host missing on the new owner refusing the takeover, and two takeovers at one epoch leaving both devices unable to run.
 
-Status of stage (c) at this point:
-- Done and tested: lease and takeover window, per-origin checkpoints (truncation and rewriting), the replicator (publish, relay, verified pull, decisions routed to the owner, revocation propagation, takeover with adoption, fence), and the continuous sync scheduler with backoff, last-sync status and refusal of legacy peers.
-- Not yet wired: the hub's `control-exchange` action on the authenticated peer channel, the timer that starts the scheduler inside `serve`, MCP approvals arriving on a non-owner device (the replicator's `decide` exists, but the MCP path does not call it yet), and an end-to-end test over the real peer channel. These belong to the next run; they are the last part of stage (c) and precede stages (d) and (e).
+Status of stage (c): done and tested. The lease and takeover window, per-origin checkpoints, the replicator, the continuous sync scheduler with backoff, the hub's `control-exchange` action on the authenticated peer channel, the scheduler timer in `serve`, MCP approvals forwarded from a non-owner device, and a two-device end-to-end test over the real peer channel (`tests/control-e2e.test.ts`).
+
+## 9. Stage (d): CLI and panel surfacing
+
+Implemented on the same branch:
+
+- Local admin route. `serve` exposes `GET /api/control/sync` and `POST /api/control/handoff` behind the existing panel gate: the launch token in `serve/panel.json` exchanged for a session cookie, a loopback Host check, and a same-origin check on POST. Neither route is reachable from the peer channel or MCP. The CLI reads the token file itself and never prints it. `serve` removes `panel.json` on stop, so a stale token is not left behind.
+- `homectl control sync`: per-device last sync, lease, backoff, refusals, conflicts and blocked logs. Without a running `serve` it shows the last saved replica and says "serve not running — showing last saved state; backoff unknown".
+- `homectl control handoff OP --to DEVICE`: needs a running `serve`. A handoff is signed by the device that takes over (`replicate.ts`), so `--to` must name the device running the command; otherwise the command refuses and says where to run it. The receiving device must have the host in its inventory, and the takeover window must be open.
+- Without a running `serve`, the CLI applies the same fence as the engine, reading the saved replica. A paired owner whose lease has lapsed therefore cannot execute from the CLI either. This is a deliberate change: before stage (d) the CLI executed without any fence.
+- Operations held by another device show "Runs on <device>" in the CLI, the MCP status, and the panel. They are never executed from a non-owner. Takeover shows its earliest time, or the reason it is unavailable (no recent contact, host not enrolled here, conflict).
+- Forwarded approvals are tracked until the owner's replicated state reflects them: "approval forwarded to <owner>, awaiting confirmation", then "approved by <client> (via <device>)". Rejections are confirmed the same way. No new protocol was needed.
+- Panel: owner per operation, "Runs on <device>" instead of Execute, takeover behind a confirmation, a Control sync section in the Sync view (peers, backoff, lease, refusals, conflicts), signing fingerprints in Devices, and a re-pair hint for peers without a signing key. The Approvals badge counts only operations this device can run.
+- Device key files: on POSIX, a key that other users can read is refused at load. On Windows the ACL is set at creation and not re-checked on every load.
+- `--no-discovery` disables multicast discovery only; control sync with already-paired devices keeps running.
+
+Known gaps after stage (d):
+
+- Conflicting handoffs (two different takeovers at one epoch) leave the operation with no owner, and nothing can resolve them yet. The panel and CLI show the conflict and say so. A resolution rule needs a design decision (which device may choose, and how the choice is signed).
+- Owner-initiated handoff from a healthy owner is not implemented. The current rule (the receiving device signs) covers takeover of an unreachable owner only.
+- `--no-control-sync` was not added.
+
+## 10. Stage (e): replicated mode
+
+See [`replicated-quickstart.md`](replicated-quickstart.md) for setup, the lease and takeover rules, and troubleshooting ("why can't I execute?").

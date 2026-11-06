@@ -222,3 +222,16 @@ The panel's control routes (all behind the existing local session cookie and ori
 - Peer synchronization of control-plane state.
 - Signing keys for plans or journal anchoring (see risks R1–R2 in the plan).
 - Proxmox lifecycle or LXC control.
+
+## 12. Replicated view (ADR-0002 stages c and d)
+
+Operation views gain optional fields when this device is part of a replicated control plane: `ownerName`, `runsOn` (set when another device owns the operation), `remote` (held only by another device), `conflict` (no owner), `takeover` (`possible`, `reason`, and `at` for the earliest time), `delivery` (a forwarded approval: `awaiting-confirmation`, `approved` or `rejected`), and `approvedBy` (`"<client> (via <device>)"`). MCP status returns the same fields in `structuredContent`, and the summary text names the owner and any forwarded approval.
+
+Execution on a device that does not own an operation is refused with exit 3 and the owner's name. Approval on a device that does not hold the operation is forwarded to the owner and reported as "Approval forwarded to owner <device>; it applies after the next sync".
+
+Local operator routes (panel gate: launch token, session cookie, loopback Host, same-origin POST). They are not on the peer channel and not on MCP:
+
+- `GET /api/control/sync`: per-device sync status, backoff, lease, refusals, conflicts and blocked logs. Returns an error when control sync is not running.
+- `POST /api/control/handoff` with `{ "operationId": "...", "to": "<device>" }`: takeover by this device. `to` must name this device.
+
+CLI: `homectl control sync` (falls back to the saved state when serve is not running), `homectl control handoff <id> --to <device>` (needs a running serve). See [replicated-quickstart.md](replicated-quickstart.md).
