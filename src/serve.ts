@@ -388,6 +388,8 @@ export async function serve(options: ServeOptions) {
               return response(await handoff(v));
             if (url.pathname === "/api/control/resolve")
               return response(await resolveConflict(v));
+            if (url.pathname === "/api/control/peer")
+              return response(await peerRoute(v));
             // Control-plane routes use their own lock and never enter the hub
             // queue: a long SSH run must not block peer requests.
             // The panel is the local operator: it can execute approved work and
@@ -729,6 +731,31 @@ export async function serve(options: ServeOptions) {
   // Conflict resolution. A device involved in an ownership conflict proposes a
   // winner (--owner DEVICE). The winner agrees by running the same command on
   // its own device; a winner that proposes itself agrees at once.
+  // Suspends a paired device from this device's lease, or resumes it. Local
+  // operator only (the panel gate); the decision is signed and replicated.
+  const peerRoute = async (v: {
+    target?: unknown;
+    suspend?: unknown;
+    reason?: unknown;
+  }) => {
+    if (!replicator) throw new HomectlError(5, "Control sync is not running");
+    const target = String(v.target ?? "");
+    if (!target)
+      throw new HomectlError(2, "Name the device to suspend or resume");
+    if (v.suspend === true) {
+      const done = await replicator.suspendPeer(
+        target,
+        typeof v.reason === "string" ? v.reason : undefined,
+      );
+      return {
+        suspended: true,
+        target: done.target,
+        next: "Operations on this device may run without confirming that device has seen the latest state. It rejoins the lease automatically on its next successful sync.",
+      };
+    }
+    const done = await replicator.resumePeer(target);
+    return { resumed: true, target: done.target };
+  };
   const resolveConflict = async (v: {
     operationId?: unknown;
     owner?: unknown;
