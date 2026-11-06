@@ -162,6 +162,9 @@ export interface OperationRecord {
   // Process that holds the execution lease while `executing`. Startup recovery
   // skips operations whose executor is still alive.
   executorPid?: number;
+  // Identifies the process incarnation that set executorPid. A pid alone is
+  // reusable (every container's main process is pid 1).
+  executorInstance?: string;
   // Epoch ms: set when the operator starts the run, and when it is recorded finished.
   startedAt?: number;
   finishedAt?: number;

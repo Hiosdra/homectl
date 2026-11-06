@@ -361,6 +361,22 @@ function sweep(state: ControlState, now: number): AuditEvent[] {
   return events;
 }
 
+// One id per process start. An executing record written by this incarnation is
+// alive by definition; a record from another incarnation that reused this pid is not.
+const PROCESS_INSTANCE = randomUUID();
+
+// A record left "executing" is still alive only if its executor is this
+// incarnation, or a different process whose pid is alive. A different
+// incarnation that reused this process's pid is not alive. A foreign live pid
+// is kept as alive: its instance cannot be observed from here, and recovering a
+// running executor as unknown would misreport it.
+function executorAlive(op: OperationRecord): boolean {
+  if (op.executorPid === undefined) return false;
+  if (op.executorInstance === PROCESS_INSTANCE) return true;
+  if (op.executorPid === process.pid) return false;
+  return processAlive(op.executorPid);
+}
+
 function processAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -413,8 +429,7 @@ export class ControlPlane {
       const state = await this.store.loadState();
       for (const op of Object.values(state.operations)) {
         if (op.state !== "executing") continue;
-        if (op.executorPid !== undefined && processAlive(op.executorPid))
-          continue;
+        if (executorAlive(op)) continue;
         op.finishedAt = now;
         await this.close(
           state,
@@ -1460,6 +1475,7 @@ export class ControlPlane {
       op.state = "executing";
       op.updatedAt = now;
       op.executorPid = process.pid;
+      op.executorInstance = PROCESS_INSTANCE;
       op.startedAt = now;
       op.spawnAttempted = false;
       await this.store.saveState(state);
@@ -1487,6 +1503,7 @@ export class ControlPlane {
         op.state = startState;
         op.updatedAt = now;
         delete op.executorPid;
+        delete op.executorInstance;
         delete op.startedAt;
         await this.store.saveState(state).catch(() => undefined);
         throw error;
@@ -1567,6 +1584,7 @@ export class ControlPlane {
       op.updatedAt = now;
       op.spawnAttempted = spawned;
       delete op.executorPid;
+      delete op.executorInstance;
       op.finishedAt = now;
       if (outcome.reason === undefined) delete op.reason;
       else op.reason = outcome.reason;

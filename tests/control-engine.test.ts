@@ -1069,7 +1069,8 @@ describe("recovery, validation and verification", () => {
     const path = join(h.dir, "control-plane", "state.json");
     const state = JSON.parse(await readFile(path, "utf8"));
     state.operations[plan.operationId].state = "executing";
-    state.operations[plan.operationId].executorPid = process.pid;
+    // A live process other than this one: its instance cannot be checked, so it stays alive.
+    state.operations[plan.operationId].executorPid = process.ppid;
     await writeFile(path, JSON.stringify(state));
     await h.plane.init();
     const after = (await h.plane.request(codex.actor, {
