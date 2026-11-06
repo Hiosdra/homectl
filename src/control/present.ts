@@ -593,7 +593,10 @@ export function summarizeTool(
   };
   const run = (id: string) =>
     `The local operator can run it: homectl control execute ${id} (or Execute in the panel → Approvals).`;
-  if (tool === "homectl_plan" && v.operationId) {
+  if (
+    (tool === "homectl_plan" || tool === "homectl_proxmox_plan") &&
+    v.operationId
+  ) {
     const approval = v.needsApproval
       ? "needs approval by another client"
       : "ready to run, no approval needed";

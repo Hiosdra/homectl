@@ -39,6 +39,7 @@ type ToolName =
   | "homectl_inspect"
   | "homectl_status"
   | "homectl_plan"
+  | "homectl_proxmox_plan"
   | "homectl_approve";
 
 interface ToolDefinition {
@@ -113,6 +114,15 @@ export const TOOLS: readonly ToolDefinition[] = [
     scope: "plan:create",
     op: "plan",
     inputSchema: toolInput("requestPlan"),
+    readOnly: false,
+  },
+  {
+    name: "homectl_proxmox_plan",
+    description:
+      "Plan one typed Proxmox guest action on a granted Proxmox host: list, status, config, start, stop, reboot, shutdown, clone (QEMU), create (LXC from an allowed template) or destroy. You give typed fields, never argv; the node, VMID range, storages and templates come from the inventory. Nothing runs until a different authorized client approves the fingerprint and the local operator executes it.",
+    scope: "plan:create",
+    op: "proxmox-plan",
+    inputSchema: toolInput("requestProxmoxPlan"),
     readOnly: false,
   },
   {

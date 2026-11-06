@@ -6,6 +6,11 @@ import { execute as executeCommand } from "../operations";
 import { innerCommand, planExecution } from "../policies";
 import { run } from "../process";
 import {
+  buildProxmoxPlan,
+  type ProxmoxInput,
+  providerFacts,
+} from "../proxmox/catalogue";
+import {
   HomectlError,
   type Inventory,
   type Machine,
@@ -207,8 +212,10 @@ function screenPlan(
   argv: string[],
   machine: Machine,
   classification: Classification,
+  catalogue = false,
 ): void {
-  if (machine.access === "full")
+  // Proxmox guest plans from the catalogue are the one reviewed path to qm/pct.
+  if (machine.access === "full" && !catalogue)
     throw new HomectlError(
       3,
       "Full-access hosts are not available through the control plane",
@@ -227,7 +234,7 @@ function screenPlan(
       3,
       "Container runtime sockets are not available through the control plane",
     );
-  if (CONTAINER_CONTROL.has(name) && classification !== "inspect")
+  if (CONTAINER_CONTROL.has(name) && classification !== "inspect" && !catalogue)
     throw new HomectlError(
       3,
       "Container and hypervisor control is limited to inspection through the control plane",
@@ -246,9 +253,10 @@ function buildPlan(
   machine: Machine,
   argv: string[],
   impact: string,
+  catalogue = false,
 ): ExecPlan {
-  const policy = planExecution(host, machine, argv, impact);
-  screenPlan(argv, machine, policy.classification);
+  const policy = planExecution(host, machine, argv, impact, { catalogue });
+  screenPlan(argv, machine, policy.classification, catalogue);
   return {
     apiVersion: CONTROL_API_VERSION,
     kind: "exec",
@@ -260,6 +268,7 @@ function buildPlan(
     // Only inspection is exempt; the existing policy flag does not cover mutation.
     needsApproval: policy.classification !== "inspect",
     execApproval: policy.approval,
+    ...(catalogue ? { catalogue: true } : {}),
   };
 }
 
@@ -954,6 +963,8 @@ export class ControlPlane {
         return this.status(client, req.operationId);
       case "plan":
         return this.plan(client, req);
+      case "proxmox-plan":
+        return this.proxmoxPlan(client, req);
       case "validate":
         return this.validate(client, req.operationId, req.fingerprint);
       case "approve":
@@ -1005,25 +1016,83 @@ export class ControlPlane {
   private async plan(client: ClientIdentity, req: PlanRequest) {
     requireScope(client, "plan:create");
     requireHost(client, req.host);
-    const impact = req.impact ?? "";
-    if (containsSecretMaterial(`${req.argv.join("\n")}\n${impact}`))
+    return this.createPlan(
+      client,
+      req.host,
+      req.argv,
+      req.impact ?? "",
+      req.idempotencyKey,
+    );
+  }
+
+  // Proxmox guest plans: the argv comes only from the typed catalogue. The node
+  // and VMID range come from the inventory provider for this host.
+  private async proxmoxPlan(
+    client: ClientIdentity,
+    req: Extract<OperationRequest, { op: "proxmox-plan" }>,
+  ) {
+    requireScope(client, "plan:create");
+    requireHost(client, req.host);
+    const inventory = await loadInventory(this.options.inventoryPath);
+    const machine = machineOf(inventory, req.host);
+    if (!machine) throw new HomectlError(2, "Unknown host");
+    if (machine.access !== "full")
+      throw new HomectlError(
+        3,
+        "Proxmox guest actions need a full-access host",
+      );
+    const provider = Object.values(inventory.providers ?? {}).find(
+      (candidate) => candidate.host === req.host,
+    );
+    if (!provider)
+      throw new HomectlError(
+        3,
+        "This host is not a configured Proxmox provider",
+      );
+    const { op: _op, host: _host, ...input } = req;
+    const built = buildProxmoxPlan(
+      input as ProxmoxInput,
+      providerFacts(provider),
+    );
+    const argv =
+      machine.user === "root" ? built.argv : ["sudo", "-n", ...built.argv];
+    return this.createPlan(
+      client,
+      req.host,
+      argv,
+      built.label,
+      undefined,
+      true,
+    );
+  }
+
+  // Shared by generic and catalogue plans. Only the Proxmox catalogue sets catalogue.
+  private async createPlan(
+    client: ClientIdentity,
+    host: string,
+    argv: string[],
+    impact: string,
+    idempotencyKey?: string,
+    catalogue = false,
+  ) {
+    if (containsSecretMaterial(`${argv.join("\n")}\n${impact}`))
       throw new HomectlError(
         2,
         "Secret-like material is not accepted in control-plane plans",
       );
     return this.mutate(async (state, now) => {
       const inventory = await loadInventory(this.options.inventoryPath);
-      const machine = machineOf(inventory, req.host);
+      const machine = machineOf(inventory, host);
       if (!machine) throw new HomectlError(2, "Unknown host");
-      const plan = buildPlan(req.host, machine, req.argv, impact);
+      const plan = buildPlan(host, machine, argv, impact, catalogue);
       const planFingerprint = fingerprint(plan);
       const key =
-        req.idempotencyKey === undefined
+        idempotencyKey === undefined
           ? undefined
-          : `${client.id}:${req.idempotencyKey}`;
+          : `${client.id}:${idempotencyKey}`;
       const requestDigest = fingerprint({
-        host: req.host,
-        argv: req.argv,
+        host: host,
+        argv: argv,
         impact,
       });
       if (key !== undefined && Object.hasOwn(state.idempotency, key)) {
@@ -1056,8 +1125,8 @@ export class ControlPlane {
         expiresAt: now + PLAN_TTL_MS,
         updatedAt: now,
         spawnAttempted: false,
-        ...(req.idempotencyKey !== undefined
-          ? { idempotencyKey: req.idempotencyKey }
+        ...(idempotencyKey !== undefined
+          ? { idempotencyKey: idempotencyKey }
           : {}),
       };
       await this.journal.append({
@@ -1065,8 +1134,8 @@ export class ControlPlane {
         client: client.id,
         op: "plan",
         operationId: id,
-        host: req.host,
-        argv: redactArgv(req.argv),
+        host: host,
+        argv: redactArgv(argv),
         fingerprint: planFingerprint,
         classification: plan.classification,
       });
@@ -1111,7 +1180,13 @@ export class ControlPlane {
     if (!machine) return "host-missing";
     let fresh: ExecPlan;
     try {
-      fresh = buildPlan(op.plan.host, machine, op.plan.argv, op.plan.impact);
+      fresh = buildPlan(
+        op.plan.host,
+        machine,
+        op.plan.argv,
+        op.plan.impact,
+        op.plan.catalogue === true,
+      );
     } catch {
       return "policy-refused";
     }
@@ -1422,6 +1497,7 @@ export class ControlPlane {
         impact: op.plan.impact,
         approval: op.plan.execApproval,
         machine: structuredClone(op.plan.machine),
+        catalogue: op.plan.catalogue === true,
       };
     });
 
@@ -1446,6 +1522,7 @@ export class ControlPlane {
           approval: prepared.approval,
           impact: prepared.impact,
           runner,
+          catalogue: prepared.catalogue === true,
         },
       );
       const result = executed.result;

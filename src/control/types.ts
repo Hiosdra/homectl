@@ -20,8 +20,21 @@ export const OPERATION_KINDS = [
   "execute",
   "verify",
   "status",
+  "proxmox-plan",
 ] as const;
 export type OperationKind = (typeof OPERATION_KINDS)[number];
+
+export type ProxmoxActionName =
+  | "list"
+  | "status"
+  | "config"
+  | "start"
+  | "stop"
+  | "reboot"
+  | "shutdown"
+  | "clone"
+  | "create"
+  | "destroy";
 
 export const OPERATION_STATES = [
   "pending",
@@ -72,6 +85,24 @@ export type OperationRequest =
       impact?: string;
       idempotencyKey?: string;
     }
+  | {
+      op: "proxmox-plan";
+      host: string;
+      kind: "qemu" | "lxc";
+      action: ProxmoxActionName;
+      vmid?: number;
+      template?: number | string;
+      name?: string;
+      storage?: string;
+      memory_mb?: number;
+      cores?: number;
+      disk_gb?: number;
+      bridge?: string;
+      address?: string;
+      cidr?: number;
+      gateway?: string;
+      timeout_s?: number;
+    }
   | { op: "validate"; operationId: string; fingerprint: string }
   | {
       op: "approve";
@@ -94,6 +125,8 @@ export interface ExecPlan {
   classification: Classification;
   needsApproval: boolean;
   execApproval: string;
+  // Built from the Proxmox guest catalogue: only then are qm/pct argv accepted.
+  catalogue?: boolean;
 }
 
 export interface ApprovalRecord {
