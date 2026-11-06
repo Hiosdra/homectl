@@ -320,9 +320,11 @@ describe("MCP methods", () => {
       (r.json?.result as { tools: { name: string }[] }).tools
         .map((t) => t.name)
         .sort();
+    // The typed Proxmox plan tool carries plan:create, like homectl_plan.
     expect(names(codex)).toEqual([
       "homectl_inspect",
       "homectl_plan",
+      "homectl_proxmox_plan",
       "homectl_status",
     ]);
     expect(names(hermes)).toEqual([
