@@ -297,3 +297,40 @@ describe("client registrations", () => {
     );
   });
 });
+
+describe("finished operations", () => {
+  test("a higher-epoch snapshot cannot move a succeeded operation back", async () => {
+    const { a, b, devices } = await fleet();
+    const replica = emptyReplica();
+    expect(applyOp(replica, op(a, a.id, {}), devices)).toBe("applied");
+    expect(
+      applyOp(replica, op(a, a.id, { state: "approved", seq: 2 }), devices),
+    ).toBe("applied");
+    expect(
+      applyOp(replica, op(a, a.id, { state: "executing", seq: 3 }), devices),
+    ).toBe("applied");
+    expect(
+      applyOp(
+        replica,
+        op(a, a.id, { state: "succeeded", seq: 4, exitCode: 0 }),
+        devices,
+      ),
+    ).toBe("applied");
+    // The normal API cannot reach this state (a handoff is refused once an
+    // operation has finished), so the replica is set up directly: an accepted
+    // epoch-2 handoff to device b. A snapshot from b then passes the epoch and
+    // owner checks, and only the finished-state guard can refuse it.
+    replica.handoffs[opId] = { 2: [handoff(a, a.id, b.id, 2).body] };
+    for (const state of ["pending", "approved", "executing"] as const) {
+      expect(
+        applyOp(
+          replica,
+          op(b, a.id, { owner: b.id, epoch: 2, seq: 1, state }),
+          devices,
+        ),
+      ).toBe("stale");
+    }
+    expect(replica.ops[opId]?.state).toBe("succeeded");
+    expect(replica.ops[opId]?.epoch).toBe(1);
+  });
+});
