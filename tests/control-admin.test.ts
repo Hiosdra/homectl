@@ -400,3 +400,18 @@ describe("device key file mode", () => {
     },
   );
 });
+
+describe("control peer suspend and resume from the CLI", () => {
+  test("needs a running serve and rejects bad usage", async () => {
+    const { inventory } = await workspace();
+    await expect(
+      cli(inventory, ["peer", "suspend", "Windows"], { reason: "offline" }),
+    ).rejects.toMatchObject({ code: 5, message: "Start homectl serve first" });
+    await expect(cli(inventory, ["peer", "suspend"])).rejects.toBeInstanceOf(
+      HomectlError,
+    );
+    await expect(
+      cli(inventory, ["peer", "frob", "Windows"]),
+    ).rejects.toBeInstanceOf(HomectlError);
+  });
+});
