@@ -132,13 +132,41 @@ export interface ReplicaOverlay {
 export async function loadReplicaFile(
   stateDirectory: string,
 ): Promise<ReplicaFile | undefined> {
+  return (await readPersisted(join(stateDirectory, "replica.json"))) as
+    | ReplicaFile
+    | undefined;
+}
+
+// Missing file: nothing replicated yet. Any other read or parse problem is an
+// integrity doubt: refuse, and leave the file untouched so damaged state is
+// never replaced silently.
+async function readPersisted(path: string): Promise<Persisted | undefined> {
+  let text: string;
   try {
-    return JSON.parse(
-      await readFile(join(stateDirectory, "replica.json"), "utf8"),
-    ) as ReplicaFile;
-  } catch {
-    return undefined;
+    text = await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw new HomectlError(
+      5,
+      "Replica state cannot be read; nothing was changed. Restore replica.json from backup before starting.",
+    );
   }
+  try {
+    const parsed = JSON.parse(text) as Persisted | null;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof parsed.replica === "object" &&
+      parsed.replica !== null
+    )
+      return parsed;
+  } catch {
+    // Reported below with the same message.
+  }
+  throw new HomectlError(
+    5,
+    "Replica state is not valid JSON; nothing was overwritten. Restore replica.json from backup before starting.",
+  );
 }
 
 function deviceName(data: ReplicaFile, id: string): string {
@@ -433,22 +461,18 @@ export class ControlReplicator {
     clock?: () => number;
   }): Promise<ControlReplicator> {
     const path = join(options.stateDirectory, "replica.json");
-    let data: Persisted;
-    try {
-      data = JSON.parse(await readFile(path, "utf8")) as Persisted;
-    } catch {
-      data = {
-        version: 1,
-        replica: emptyReplica(),
-        logs: {},
-        checkpoints: {},
-        blocked: {},
-        published: { ops: {}, clients: {} },
-        peers: {},
-        syncedAt: {},
-        seenAt: {},
-      };
-    }
+    const loaded = await readPersisted(path);
+    const data: Persisted = loaded ?? {
+      version: 1,
+      replica: emptyReplica(),
+      logs: {},
+      checkpoints: {},
+      blocked: {},
+      published: { ops: {}, clients: {} },
+      peers: {},
+      syncedAt: {},
+      seenAt: {},
+    };
     data.self = { id: options.self.id, name: options.self.name };
     // Replica files written before handoff offers and resolutions existed.
     data.replica = { ...emptyReplica(), ...data.replica };
