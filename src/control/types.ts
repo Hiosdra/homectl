@@ -170,6 +170,30 @@ export interface OperationView {
   finishedAt?: string; // ISO-8601 UTC
   exitCode?: number;
   reason?: string;
+  // Replicated view (ADR-0002): who owns the operation and what this device can do.
+  remote?: boolean; // true when the operation is held by another device only
+  ownerName?: string;
+  runsOn?: string; // set when another device owns the operation
+  conflict?: boolean; // ownership is unresolved; nobody may run it
+  takeover?: TakeoverNote;
+  delivery?: DeliveryNote; // this device's approval forwarded to the owner
+  approvedBy?: string; // "<client> (via <device>)" when the owner recorded an approval
+}
+
+// Earliest takeover of an operation held by an unreachable owner (fencing rule).
+export interface TakeoverNote {
+  possible: boolean;
+  reason?: string;
+  at?: string; // ISO-8601 UTC: earliest time the takeover window opens
+}
+
+// An approval forwarded from this device to the owner. It is confirmed only
+// when the owner's replicated state reflects it.
+export interface DeliveryNote {
+  decision: "approve" | "reject";
+  status: "awaiting-confirmation" | "approved" | "rejected";
+  ownerName: string;
+  since: string; // ISO-8601 UTC when the decision was forwarded
 }
 
 export interface ClientView {

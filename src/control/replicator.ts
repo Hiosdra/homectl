@@ -19,6 +19,7 @@ import {
 import type { DeviceKey } from "./device-key";
 import type { ControlPlane } from "./engine";
 import { LEASE_MS, leaseCheck, takeoverWindow } from "./lease";
+import { redactArgv } from "./redact";
 import {
   applyClient,
   applyDecision,
@@ -33,10 +34,11 @@ import {
   type HandoffBody,
   type OpBody,
   ownerAt,
+  RANK,
   type Replica,
   sealRecord,
 } from "./replicate";
-import type { ClientIdentity } from "./types";
+import type { ClientIdentity, OperationView, TakeoverNote } from "./types";
 
 interface PublishedOp {
   key: string;
@@ -58,11 +60,237 @@ interface Persisted {
   peers: Record<string, { name: string; signingKey?: string }>;
   syncedAt: Record<string, number>;
   seenAt: Record<string, number>;
+  // This device, recorded so read-only views can name devices without serve.
+  self?: { id: string; name: string };
+  // Approvals this device forwarded to an owner, until the owner reflects them.
+  forwarded?: Record<string, Forwarded>;
 }
+
+interface Forwarded {
+  decisionId: string;
+  opId: string;
+  owner: string;
+  approverClient: string;
+  decision: "approve" | "reject";
+  at: string;
+}
+
+export const MAX_FORWARDED = 200;
+export const CONFLICT_REASON =
+  "Ownership is in conflict; resolve the conflicting takeovers first";
+
+export type ReplicaFile = Persisted;
 
 export interface Pull {
   applied: number;
   blocked: string[];
+}
+
+// The replicated view for one device: notes for operations this device holds,
+// and full views for operations it only sees through replication.
+export interface ReplicaOverlay {
+  notes: Record<
+    string,
+    Pick<
+      OperationView,
+      | "ownerName"
+      | "runsOn"
+      | "conflict"
+      | "takeover"
+      | "delivery"
+      | "approvedBy"
+    >
+  >;
+  remote: OperationView[];
+}
+
+// Reads the saved replica without a running serve. Read-only: missing or
+// unreadable state means nothing has been replicated yet.
+export async function loadReplicaFile(
+  stateDirectory: string,
+): Promise<ReplicaFile | undefined> {
+  try {
+    return JSON.parse(
+      await readFile(join(stateDirectory, "replica.json"), "utf8"),
+    ) as ReplicaFile;
+  } catch {
+    return undefined;
+  }
+}
+
+function deviceName(data: ReplicaFile, id: string): string {
+  if (id === data.self?.id) return data.self.name;
+  return data.peers[id]?.name ?? id;
+}
+
+// Fail closed: the owner must be established, must be this device, and must
+// hold a fresh lease with every paired peer.
+export function fenceOf(
+  data: ReplicaFile,
+  selfId: string,
+  operationId: string,
+  now: number,
+): string | undefined {
+  const replica = data.replica;
+  if (replica.ops[operationId]) {
+    const owner = ownerAt(
+      replica,
+      operationId,
+      establishedEpoch(replica, operationId),
+    );
+    if (owner === undefined)
+      return "Operation owner is not established; conflicting takeovers are waiting for an operator";
+    if (owner !== selfId)
+      return `Operation now belongs to ${deviceName(data, owner)}; it will not run here`;
+  }
+  const peers = Object.keys(data.peers);
+  if (peers.length > 0) {
+    const lease = leaseCheck(peers, data.syncedAt, now, LEASE_MS);
+    if (!lease.ok)
+      return `Owner lease expired; waiting for sync with ${lease.waitingFor
+        .map((id) => deviceName(data, id))
+        .join(", ")}`;
+  }
+  return undefined;
+}
+
+// Whether `owner` can be taken over right now, and when the window opens.
+// Shared by the engine's views and by takeover() so both always agree.
+export async function takeoverStatusOf(
+  data: ReplicaFile,
+  base: OpBody,
+  owner: string | undefined,
+  now: number,
+  hostKnown: (host: string) => Promise<boolean>,
+): Promise<TakeoverNote> {
+  if (owner === undefined) return { possible: false, reason: CONFLICT_REASON };
+  const window = takeoverWindow(data.seenAt[owner], now);
+  if (!window.allowed)
+    return window.at === undefined
+      ? {
+          possible: false,
+          reason: `No recent contact with ${deviceName(data, owner)}; takeover is not possible`,
+        }
+      : {
+          possible: false,
+          reason: `Takeover possible after ${new Date(window.at).toISOString()}`,
+          at: new Date(window.at).toISOString(),
+        };
+  if (!(await hostKnown(base.host)))
+    return {
+      possible: false,
+      reason: `Host ${base.host} is not in this device's inventory; add it here before taking over`,
+    };
+  return { possible: true };
+}
+
+// Pure summary of the replica for status views (serve and read-only CLI).
+export function summarize(data: ReplicaFile, now: number) {
+  const peers = Object.keys(data.peers);
+  const lease = leaseCheck(peers, data.syncedAt, now, LEASE_MS);
+  return {
+    peers: peers.map((id) => ({
+      id,
+      name: data.peers[id]?.name ?? id,
+      lastSync: data.syncedAt[id],
+      lastContact: data.seenAt[id],
+      leaseOk: lease.ok || !lease.waitingFor.includes(id),
+      ...(data.peers[id]?.signingKey === undefined
+        ? {
+            refused:
+              "Re-pair this device to enable control sync; it has no signing key",
+          }
+        : {}),
+    })),
+    blocked: { ...data.blocked },
+    conflicts: [...data.replica.conflicts],
+  };
+}
+
+// Device ids to display names, for presentation only.
+export function deviceNames(data: ReplicaFile): Record<string, string> {
+  const names: Record<string, string> = {};
+  for (const [id, peer] of Object.entries(data.peers)) names[id] = peer.name;
+  if (data.self) names[data.self.id] = data.self.name;
+  return names;
+}
+
+// Builds the replicated view for every operation this device does not hold
+// locally, and the notes (owner, delivery, takeover) for those it does.
+export async function overlayOf(
+  data: ReplicaFile,
+  selfId: string,
+  localIds: Set<string>,
+  now: number,
+  hostKnown: (host: string) => Promise<boolean>,
+): Promise<ReplicaOverlay> {
+  const replica = data.replica;
+  const overlay: ReplicaOverlay = { notes: {}, remote: [] };
+  for (const [opId, base] of Object.entries(replica.ops)) {
+    const owner = ownerAt(replica, opId, establishedEpoch(replica, opId));
+    const runsOn =
+      owner !== undefined && owner !== selfId
+        ? deviceName(data, owner)
+        : undefined;
+    const approval = base.approver;
+    const approvedBy =
+      approval !== undefined
+        ? `${replica.clients[approval]?.name ?? approval} (via ${deviceName(data, replica.clients[approval]?.device ?? "")})`
+        : undefined;
+    const note: ReplicaOverlay["notes"][string] = {
+      ownerName:
+        owner === undefined ? "no owner (conflict)" : deviceName(data, owner),
+      conflict: owner === undefined,
+      ...(runsOn !== undefined ? { runsOn } : {}),
+      ...(approvedBy !== undefined ? { approvedBy } : {}),
+    };
+    if (owner !== selfId)
+      note.takeover = await takeoverStatusOf(data, base, owner, now, hostKnown);
+    const forwarded = Object.values(data.forwarded ?? {})
+      .filter((f) => f.opId === opId)
+      .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+    if (forwarded) {
+      const confirmed =
+        forwarded.decision === "approve"
+          ? base.approver === forwarded.approverClient &&
+            RANK[base.state] >= RANK.approved
+          : base.state === "failed" && base.reason === "rejected";
+      note.delivery = {
+        decision: forwarded.decision,
+        status: confirmed
+          ? forwarded.decision === "approve"
+            ? "approved"
+            : "rejected"
+          : "awaiting-confirmation",
+        ownerName: deviceName(data, forwarded.owner),
+        since: forwarded.at,
+      };
+    }
+    overlay.notes[opId] = note;
+    if (!localIds.has(opId) && owner !== selfId) {
+      overlay.remote.push({
+        operationId: opId,
+        state: base.state,
+        host: base.host,
+        classification: base.classification as OperationView["classification"],
+        needsApproval: base.needsApproval,
+        fingerprint: base.fingerprint,
+        argv: redactArgv(base.argv),
+        impact: base.impact,
+        issuer: base.issuer,
+        createdAt: base.updatedAt,
+        expiresAt: base.updatedAt,
+        updatedAt: base.updatedAt,
+        expired: false,
+        spawnAttempted: false,
+        remote: true,
+        ...note,
+        ...(base.exitCode !== undefined ? { exitCode: base.exitCode } : {}),
+        ...(base.reason !== undefined ? { reason: base.reason } : {}),
+      });
+    }
+  }
+  return overlay;
 }
 
 export class ControlReplicator {
@@ -103,13 +331,16 @@ export class ControlReplicator {
         seenAt: {},
       };
     }
-    return new ControlReplicator(
+    data.self = { id: options.self.id, name: options.self.name };
+    const replicator = new ControlReplicator(
       options.plane,
       options.stateDirectory,
       options.self,
       options.clock ?? Date.now,
       data,
     );
+    await replicator.save();
+    return replicator;
   }
 
   private async save(): Promise<void> {
@@ -123,6 +354,14 @@ export class ControlReplicator {
 
   get stateDir(): string {
     return this.stateDirectory;
+  }
+
+  // Keeps this device's displayed name current after a rename in the panel.
+  async refreshSelfName(name: string): Promise<void> {
+    if (this.self.name === name && this.data.self?.name === name) return;
+    this.self.name = name;
+    this.data.self = { id: this.self.id, name };
+    await this.save();
   }
 
   // Pairing hands over the peer's name and signing key (ADR-0002 decision 1).
@@ -172,32 +411,15 @@ export class ControlReplicator {
   // The fence (ADR-0002 fencing rule): this device runs an operation only when
   // it is the established owner and holds a fresh lease with every peer.
   fence(operationId: string): string | undefined {
-    const replica = this.data.replica;
-    if (replica.ops[operationId]) {
-      const owner = ownerAt(
-        replica,
-        operationId,
-        establishedEpoch(replica, operationId),
-      );
-      if (owner === undefined)
-        return "Operation owner is not established; conflicting takeovers are waiting for an operator";
-      if (owner !== this.self.id)
-        return `Operation now belongs to ${this.nameOf(owner)}; it will not run here`;
-    }
-    const peers = Object.keys(this.data.peers);
-    if (peers.length > 0) {
-      const lease = leaseCheck(
-        peers,
-        this.data.syncedAt,
-        this.clock(),
-        LEASE_MS,
-      );
-      if (!lease.ok)
-        return `Owner lease expired; waiting for sync with ${lease.waitingFor
-          .map((id) => this.nameOf(id))
-          .join(", ")}`;
-    }
-    return undefined;
+    return fenceOf(this.data, this.self.id, operationId, this.clock());
+  }
+
+  // Replicated view for the engine: notes for local operations, full views for
+  // operations this device only sees through replication.
+  async overlay(localIds: Set<string>): Promise<ReplicaOverlay> {
+    return overlayOf(this.data, this.self.id, localIds, this.clock(), (host) =>
+      this.plane.hasHost(host),
+    );
   }
 
   // Publishes this device's view of its own operations and clients into its
@@ -414,6 +636,20 @@ export class ControlReplicator {
       at: new Date(this.clock()).toISOString(),
     };
     this.emit(sealRecord(this.self, body));
+    // Remembered until the owner's replicated state reflects the decision.
+    this.data.forwarded ??= {};
+    const forwarded = this.data.forwarded;
+    forwarded[body.decisionId] = {
+      decisionId: body.decisionId,
+      opId: operationId,
+      owner,
+      approverClient: client.id,
+      decision,
+      at: body.at,
+    };
+    const ids = Object.keys(forwarded);
+    for (const id of ids.slice(0, Math.max(0, ids.length - MAX_FORWARDED)))
+      delete forwarded[id];
     await this.save();
     return {
       decisionId: body.decisionId,
@@ -491,26 +727,18 @@ export class ControlReplicator {
     if (!base) throw new HomectlError(2, "Unknown operation");
     const epoch = establishedEpoch(replica, operationId);
     const owner = ownerAt(replica, operationId, epoch);
-    if (owner === undefined)
-      throw new HomectlError(
-        3,
-        "Ownership is in conflict; resolve the conflicting takeovers first",
-      );
     if (owner === this.self.id)
       throw new HomectlError(2, "This device already owns the operation");
-    const window = takeoverWindow(this.data.seenAt[owner], this.clock());
-    if (!window.allowed)
-      throw new HomectlError(
-        3,
-        window.at === undefined
-          ? `No recent contact with ${this.nameOf(owner)}; takeover is not possible`
-          : `Takeover possible after ${new Date(window.at).toISOString()}`,
-      );
-    if (!(await this.plane.hasHost(base.host)))
-      throw new HomectlError(
-        3,
-        `Host ${base.host} is not in this device's inventory; takeover refused`,
-      );
+    const status = await takeoverStatusOf(
+      this.data,
+      base,
+      owner,
+      this.clock(),
+      (host) => this.plane.hasHost(host),
+    );
+    if (!status.possible)
+      throw new HomectlError(3, status.reason ?? "Takeover is not possible");
+    if (owner === undefined) throw new HomectlError(3, CONFLICT_REASON);
     await this.plane.adoptOperation({
       operationId,
       host: base.host,
@@ -532,30 +760,8 @@ export class ControlReplicator {
   }
 
   // Read-only views for CLI and panel.
-  status(): {
-    peers: {
-      id: string;
-      name: string;
-      lastSync?: number;
-      lastContact?: number;
-      leaseOk: boolean;
-    }[];
-    blocked: Record<string, string>;
-    conflicts: Replica["conflicts"];
-  } {
-    const peers = Object.keys(this.data.peers);
-    const lease = leaseCheck(peers, this.data.syncedAt, this.clock(), LEASE_MS);
-    return {
-      peers: peers.map((id) => ({
-        id,
-        name: this.nameOf(id),
-        lastSync: this.data.syncedAt[id],
-        lastContact: this.data.seenAt[id],
-        leaseOk: lease.ok || !lease.waitingFor.includes(id),
-      })),
-      blocked: { ...this.data.blocked },
-      conflicts: [...this.data.replica.conflicts],
-    };
+  status(): ReturnType<typeof summarize> {
+    return summarize(this.data, this.clock());
   }
 
   get replica(): Replica {

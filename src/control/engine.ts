@@ -23,6 +23,7 @@ import {
 } from "./clients";
 import { AuditJournal } from "./journal";
 import { containsSecretMaterial, redactArgv } from "./redact";
+import type { ReplicaOverlay } from "./replicator";
 import { schemas } from "./schema";
 import { type ControlState, ControlStore } from "./store";
 import {
@@ -131,7 +132,12 @@ export interface ControlPlaneOptions {
   clock?: () => number;
   // Replication gate (ADR-0002, fencing rule). Returns a refusal reason, or
   // undefined when this device may run the operation right now.
-  fence?: (operationId: string) => string | undefined;
+  fence?: (
+    operationId: string,
+  ) => string | undefined | Promise<string | undefined>;
+  // Replicated view: owners, delivery of forwarded approvals, operations held
+  // only by other devices (ADR-0002 stage d).
+  replicaOverlay?: (localIds: Set<string>) => Promise<ReplicaOverlay>;
   // Authority of an approver whose registration lives on another device.
   approverAuthorized?: (approverId: string, host: string) => boolean;
   // Forwards an approval for an operation owned by another device.
@@ -518,18 +524,39 @@ export class ControlPlane {
     const wanted: readonly OperationState[] | undefined =
       options.states ??
       (options.all ? undefined : ["pending", "approved", "executing"]);
-    return Object.values(state.operations)
+    return (await this.allViews(now, state))
       .filter((op) => wanted === undefined || wanted.includes(op.state))
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .map((op) => operationView(op, now));
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  }
+
+  // Every operation this device knows about: held locally (annotated with the
+  // replicated owner, delivery and takeover) or held only by another device.
+  private async allViews(
+    now: number,
+    state: ControlState,
+  ): Promise<OperationView[]> {
+    const overlay = await this.overlayFor(state);
+    const local = Object.values(state.operations).map((op) => {
+      const view = operationView(op, now);
+      const note = overlay.notes[op.id];
+      return note ? { ...view, ...note } : view;
+    });
+    return [...local, ...overlay.remote];
+  }
+
+  private async overlayFor(state: ControlState): Promise<ReplicaOverlay> {
+    if (!this.options.replicaOverlay) return { notes: {}, remote: [] };
+    return this.options.replicaOverlay(new Set(Object.keys(state.operations)));
   }
 
   // Full id, or a unique prefix of at least 8 characters.
   async resolveOperation(idOrPrefix: string): Promise<string> {
     const state = await this.store.loadState();
-    const ids = Object.keys(state.operations);
+    const ids = (await this.allViews(this.clock(), state)).map(
+      (view) => view.operationId,
+    );
     const lower = idOrPrefix.toLowerCase();
-    if (Object.hasOwn(state.operations, lower)) return lower;
+    if (ids.includes(lower)) return lower;
     if (lower.length < 8)
       throw new HomectlError(
         2,
@@ -605,11 +632,11 @@ export class ControlPlane {
 
   async showOperation(operationId: string): Promise<OperationView> {
     const state = await this.store.loadState();
-    const op = Object.hasOwn(state.operations, operationId)
-      ? state.operations[operationId]
-      : undefined;
-    if (!op) throw new HomectlError(2, "No operation matches that id");
-    return operationView(op, this.clock());
+    const view = (await this.allViews(this.clock(), state)).find(
+      (candidate) => candidate.operationId === operationId,
+    );
+    if (!view) throw new HomectlError(2, "No operation matches that id");
+    return view;
   }
 
   verifyAudit() {
@@ -672,15 +699,19 @@ export class ControlPlane {
     requireScope(client, "status:read");
     const state = await this.store.loadState();
     const now = this.clock();
-    if (operationId !== undefined)
-      return operationView(visibleOperation(state, client, operationId), now);
+    const views = await this.allViews(now, state);
+    if (operationId !== undefined) {
+      const view = views.find((v) => v.operationId === operationId);
+      if (!view || !permitsHost(client, view.host))
+        throw new HomectlError(3, "Operation unavailable");
+      return view;
+    }
     return {
       client,
-      operations: Object.values(state.operations)
-        .filter((op) => permitsHost(client, op.plan.host))
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .slice(0, 50)
-        .map((op) => operationView(op, now)),
+      operations: views
+        .filter((v) => permitsHost(client, v.host))
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+        .slice(0, 50),
     };
   }
 
@@ -987,10 +1018,20 @@ export class ControlPlane {
       const op = Object.hasOwn(state.operations, operationId)
         ? state.operations[operationId]
         : undefined;
-      if (!op) throw new HomectlError(2, "Unknown operation");
+      if (!op) {
+        const remote = (await this.allViews(now, state)).find(
+          (view) => view.operationId === operationId && view.remote === true,
+        );
+        if (remote?.runsOn)
+          throw new HomectlError(
+            3,
+            `Operation runs on ${remote.runsOn}; run homectl control execute there`,
+          );
+        throw new HomectlError(2, "Unknown operation");
+      }
       // The replication fence comes first: an operation this device may not run
       // must say why, not that it needs approval.
-      const refusal = this.options.fence?.(op.id);
+      const refusal = await this.options.fence?.(op.id);
       if (refusal) throw new HomectlError(3, refusal);
       // Inspection plans (classification `inspect`) cannot change the target and
       // run without a second client; they are still audited and single-use.
