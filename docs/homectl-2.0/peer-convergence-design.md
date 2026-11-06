@@ -168,7 +168,7 @@ Decisions implemented (`src/control/replicate.ts`, `src/control/replicator.ts`, 
 Follow-up round (section 12) changed these:
 
 - Suspension, the operator's answer to an offline signing peer, is described in section 12.
-- Offers expire after 15 minutes, as section 12 describes.
+- Offers expire after five minutes, clamped to the plan or approval expiry, as section 12 describes.
 
 Known residual risks, not closed by this round:
 
@@ -183,9 +183,16 @@ Decided by the owner for the offline-device case, and implemented:
 1. Suspend. `control peer suspend DEVICE [--reason TEXT]` (or "Suspend from lease" in the Sync view, behind a confirm that says operations here may run without the device confirming the latest state). The suspension is a signed `suspension` record, replicated to every device; only the suspending device excludes the peer from its own lease. Other devices show it as "suspended by <device> at <time>". Audited locally as `peer.suspended` with the device id and a short reason.
 2. Resume. Automatic on the next successful control sync with the peer (audited as `peer.resumed`, reason `synced`), so the peer counts toward the lease again. Manual: `control peer resume DEVICE` or "Resume" in the Sync view.
 3. Safety, unchanged rules: a suspended peer cannot run operations the suspending device owns (the fence refuses them as "runs on <owner>"). A handoff to a suspended peer is refused until it resumes, and so is an accept by a device its owner has suspended. When a suspended peer comes back, its own lease still requires a sync before it runs anything.
-4. Offer expiry. An open handoff offer expires 15 minutes after it is made (a constant, `OFFER_TTL_MS`; the settings file has no natural place for it). Expiry uses the signed timestamps, so every device agrees: an accept signed after expiry is rejected everywhere, and the receiver's own check refuses an expired offer. After expiry the owner's fence no longer refuses execution, and the next offer cancels the expired one first. The panel and CLI show "offer expires in N min" and "offer expired".
+4. Offer expiry. An open handoff offer expires at min(five minutes after it is made, the plan or approval expiry). The expiry is signed in the offer, so every device agrees. `OFFER_TTL_MS` is the five-minute constant; there is no setting for it. Expiry uses the signed timestamps, so every device agrees: an accept signed after expiry is rejected everywhere, and the receiver's own check refuses an expired offer. After expiry the owner's fence no longer refuses execution, and the next offer cancels the expired one first. The panel and CLI show "offer expires in N min" and "offer expired".
 5. Conflict rows in the Sync view put the description, the owner select and the Resolve button on one aligned row, wrapping on narrow screens.
 
 Tests: `tests/control-suspend.test.ts` (an offline signing peer blocks execution; after suspend, execution works and is audited; the suspension replicates to a third peer; the peer comes back, syncs, is auto-resumed and counts again; a suspended peer must sync before it runs; a suspended peer cannot run the owner's operation; a handoff to a suspended peer is refused until resumed; double suspend and resume of a non-suspended peer are refused; an expired offer restores the owner's fence; a late accept is rejected).
 
 Residual risk, not closed: suspension is a local operator decision with no consent from the suspended device. Its only protection is the device's own lease when it comes back, plus the audit trail on both sides.
+
+## 13. Slice 3 close-out: offer lifetime and finished operations
+
+- Offer lifetime is five minutes (`OFFER_TTL_MS`), shorter than the 15-minute plan lifetime. The owner signs `expiresAt = min(at + 5 min, plan expiry, approval expiry)` into the offer, and peers reject an offer whose lifetime exceeds five minutes. An offer therefore never outlives the operation it hands off.
+- A finished or running operation cannot change owner. Offers, accepts, takeovers and resolutions are refused for it, and no snapshot may move a finished operation back to an earlier state, whatever its epoch.
+- Accept race. An accept signed before expiry, arriving after the owner executed, is rejected on the owner and on any third device that has the finished state (`tests/control-handoff.test.ts`). The window is narrow: the owner may run only within its 120 s lease, so the accept has to be signed after the owner's last sync and the owner has to run after the expiry, inside that lease.
+- Residual, unchanged: the accepting device itself. If it accepted before it saw the owner's finished state, it still shows itself as owner until the operator reconciles. Closing that needs the owner's acknowledgement, a separate design.

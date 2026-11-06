@@ -241,4 +241,4 @@ CLI: `homectl control sync` (falls back to the saved state when serve is not run
 
 Audit events for ownership changes: `handoff.offered`, `handoff.cancelled`, `handoff.accepted`, `handoff.resolution-proposed`, `handoff.resolution-accepted`. Each carries the operation id, host and a fixed reason; device identifiers appear only in the reason text. See [replicated-quickstart.md](replicated-quickstart.md).
 
-Follow-up additions: `peer.suspended` and `peer.resumed` audit events; `offerExpires` on operation views (an open offer expires 15 minutes after it is made); `suspended` on device rows in the sync view. See [replicated-quickstart.md](replicated-quickstart.md).
+Follow-up additions: `peer.suspended` and `peer.resumed` audit events; `offerExpires` on operation views (an open offer expires at the earlier of five minutes after it is made and the plan or approval expiry); `suspended` on device rows in the sync view. See [replicated-quickstart.md](replicated-quickstart.md).
