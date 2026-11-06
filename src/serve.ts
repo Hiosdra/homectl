@@ -607,6 +607,9 @@ export async function serve(options: ServeOptions) {
                       2,
                       "Select a machine and command arguments",
                     );
+                  // Managed SSH config from the current inventory before any dry run or run.
+                  if (v.dryRun !== true)
+                    await writeSSHConfig(options.configPath, inv.machines);
                   return response(
                     await execute(String(v.host), m, v.argv as string[], {
                       configPath: options.configPath,

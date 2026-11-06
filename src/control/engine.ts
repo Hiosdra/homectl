@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { loadInventory } from "../inventory";
-import { execute as executeCommand } from "../operations";
+import { execute as executeCommand, writeSSHConfig } from "../operations";
 import { innerCommand, planExecution } from "../policies";
 import { run } from "../process";
 import {
@@ -1466,6 +1466,13 @@ export class ControlPlane {
           "Machine or command changed since approval; create a fresh plan",
         );
       }
+      // The managed SSH config must name the inventory's current addresses before
+      // anything is sent: a stale file would route the command to the old host.
+      // Refusing here leaves the operation unchanged.
+      await writeSSHConfig(
+        this.options.configPath,
+        (await loadInventory(this.options.inventoryPath)).machines,
+      );
       // Consume the nonce and mark `executing` durably before any spawn.
       if (approval !== undefined) {
         approval.state = "consumed";
