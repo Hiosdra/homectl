@@ -104,7 +104,11 @@ async function mcpCall(
   };
 }
 
-async function expectRefused(promise: Promise<unknown>, code: number) {
+async function expectRefused(
+  promise: Promise<unknown>,
+  code: number,
+  text?: string,
+) {
   let caught: unknown;
   try {
     await promise;
@@ -113,6 +117,7 @@ async function expectRefused(promise: Promise<unknown>, code: number) {
   }
   expect(caught).toBeInstanceOf(HomectlError);
   expect((caught as HomectlError).code).toBe(code);
+  if (text) expect((caught as HomectlError).message).toContain(text);
 }
 
 describe("control-plane convergence over the real peer channel", () => {
@@ -151,9 +156,19 @@ describe("control-plane convergence over the real peer channel", () => {
     expect(approved.content[0]?.text).toContain(
       "it applies after the next sync",
     );
+    // B shows the operation as held by Linux, with its approval still in flight.
+    const onB = async () =>
+      (await B.control.listOperations({ all: true })).find(
+        (op) => op.operationId === plan.operationId,
+      );
+    expect((await onB())?.runsOn).toBe("Linux");
+    expect((await onB())?.delivery?.status).toBe("awaiting-confirmation");
 
     await rounds(A, B);
     expect(B.replicator?.replica.ops[plan.operationId]?.state).toBe("approved");
+    // Once the owner's replicated state reflects the decision, it is confirmed.
+    expect((await onB())?.delivery?.status).toBe("approved");
+    expect((await onB())?.approvedBy).toBe("hermes-admin (via Windows)");
 
     // Execute on the owner, then the result is visible on B.
     const ran = (await A.control.request(
@@ -179,7 +194,8 @@ describe("control-plane convergence over the real peer channel", () => {
         { kind: "local-operator" },
         { op: "execute", operationId: plan.operationId },
       ),
-      2,
+      3,
+      "runs on Linux",
     );
 
     // Revocation of B's client propagates to A; its later decision is not applied.
