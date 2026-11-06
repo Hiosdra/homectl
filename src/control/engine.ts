@@ -164,7 +164,12 @@ export interface ControlPlaneOptions {
   // Transport for JWKS and discovery. Defaults to fetch; tests may inject one.
   oidcFetch?: Fetcher;
   // Authority of an approver whose registration lives on another device.
-  approverAuthorized?: (approverId: string, host: string) => boolean;
+  // Authority of an approver registered on another device. undefined means it
+  // cannot be determined here; the operation then stays as it is.
+  approverAuthorized?: (
+    approverId: string,
+    host: string,
+  ) => boolean | undefined;
   // Forwards an approval for an operation owned by another device.
   remoteDecision?: (
     client: ClientIdentity,
@@ -1380,8 +1385,16 @@ export class ControlPlane {
       : undefined;
     // Approvers registered on another device are judged by the replicated
     // registration, which the owner gets through the approver-authority hook.
-    if (!record)
-      return this.options.approverAuthorized?.(approverId, host) ?? false;
+    if (!record) {
+      const remote = this.options.approverAuthorized?.(approverId, host);
+      // Never close an operation because the authority cannot be read here.
+      if (remote === undefined)
+        throw new HomectlError(
+          5,
+          "The approver is registered on another device and its replicated authority is not available here. Run this through a running homectl serve, or sync first. Nothing was changed.",
+        );
+      return remote;
+    }
     if (record.revokedAt !== undefined) return false;
     const identity = identityOf(record);
     return hasScope(identity, "approve:decide") && permitsHost(identity, host);

@@ -440,7 +440,12 @@ export async function serve(options: ServeOptions) {
               return response(
                 await control.request(
                   { kind: "local-operator" },
-                  { op: "execute", operationId: String(v.operationId) },
+                  {
+                    op: "execute",
+                    operationId: await control.resolveOperation(
+                      String(v.operationId),
+                    ),
+                  },
                 ),
               );
             if (url.pathname === "/api/control/revoke")

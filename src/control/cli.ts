@@ -7,7 +7,7 @@ import { loadInventory } from "../inventory";
 import { writeSSHConfig } from "../operations";
 import { localApi } from "../peer/local-api";
 import { protect } from "../platform";
-import { HomectlError } from "../types";
+import { HomectlError, type Runner } from "../types";
 import {
   ControlPlane,
   controlStateDirectory,
@@ -34,6 +34,7 @@ import {
   fenceOf,
   loadReplicaFile,
   overlayOf,
+  replicatedApproverAuthority,
   summarize,
 } from "./replicator";
 import { OPERATION_STATES, type OperationState, SCOPES } from "./types";
@@ -41,6 +42,8 @@ import { OPERATION_STATES, type OperationState, SCOPES } from "./types";
 export interface ControlCliInput {
   inventoryPath: string;
   configPath: string;
+  // Test seam: replaces process execution. The command line never sets it.
+  runner?: Runner;
   positionals: string[];
   values: {
     port?: string;
@@ -79,10 +82,18 @@ export interface ControlCliResult {
 async function openPlane(input: ControlCliInput): Promise<ControlPlane> {
   await loadInventory(input.inventoryPath);
   const stateDirectory = controlStateDirectory(input.inventoryPath);
+  // Replicated authority for approvers registered on other devices, from the
+  // saved replica. Without a saved replica, such approvers cannot be judged here.
+  const replica = await loadReplicaFile(stateDirectory);
   const plane = new ControlPlane({
     inventoryPath: input.inventoryPath,
     configPath: input.configPath,
     stateDirectory,
+    runner: input.runner,
+    approverAuthorized: replica
+      ? (approverId, host) =>
+          replicatedApproverAuthority(replica, approverId, host)
+      : undefined,
     // Without a running serve, the CLI reads the last saved replica. It applies
     // the same fence, so a paired owner whose lease has lapsed cannot run here.
     fence: async (operationId) => {
@@ -132,6 +143,24 @@ function listOption(value: string | undefined, name: string): string[] {
 
 function useColor(input: ControlCliInput): boolean {
   return input.color ?? (!input.json && colorEnabled());
+}
+
+// No serve is running: execute from this process. The managed SSH config is
+// refreshed first, in the same order as `homectl exec`.
+async function executeHere(
+  input: ControlCliInput,
+  action: string,
+): Promise<ExecuteResult> {
+  const plane = await openPlane(input);
+  const operationId = await plane.resolveOperation(action);
+  await writeSSHConfig(
+    input.configPath,
+    (await loadInventory(input.inventoryPath)).machines,
+  );
+  return (await plane.request(
+    { kind: "local-operator" },
+    { op: "execute", operationId },
+  )) as ExecuteResult;
 }
 
 // Starts the loopback MCP endpoint until interrupted. `onReady` prints the
@@ -291,17 +320,16 @@ export async function controlCommand(
         human: `Would execute ${action}. No change made.`,
         code: 0,
       };
-    const plane = await openPlane(input);
-    const operationId = await plane.resolveOperation(action);
-    // Same order as `homectl exec`: refresh the managed SSH config first.
-    await writeSSHConfig(
-      input.configPath,
-      (await loadInventory(input.inventoryPath)).machines,
+    // A running serve is the single writer and holds the replicated authority;
+    // without one, this process executes with the saved replica's authority.
+    const live = await liveRequest<ExecuteResult>(
+      input,
+      "/api/control/execute",
+      {
+        operationId: action,
+      },
     );
-    const result = (await plane.request(
-      { kind: "local-operator" },
-      { op: "execute", operationId },
-    )) as ExecuteResult;
+    const result = live ?? (await executeHere(input, action));
     const state = result.operation.state;
     const code =
       state === "succeeded"

@@ -101,6 +101,22 @@ export const CONFLICT_REASON =
 
 export type ReplicaFile = Persisted;
 
+// Authority of a remote approver, from a replicated registration. Pure: used by
+// the CLI fallback that reads replica.json without a running serve.
+export function replicatedApproverAuthority(
+  data: ReplicaFile,
+  approverId: string,
+  host: string,
+): boolean {
+  const registration = data.replica.clients[approverId];
+  return (
+    registration !== undefined &&
+    !registration.revoked &&
+    registration.scopes.includes("approve:decide") &&
+    registration.hosts.includes(host)
+  );
+}
+
 export interface Pull {
   applied: number;
   blocked: string[];
@@ -865,13 +881,7 @@ export class ControlReplicator {
   // the engine when an approval is executed (ADR-0002 decision 2: revocation
   // propagates, so a revoked approver's approvals stop counting).
   approverAuthorized(approverId: string, host: string): boolean {
-    const registration = this.data.replica.clients[approverId];
-    return (
-      registration !== undefined &&
-      !registration.revoked &&
-      registration.scopes.includes("approve:decide") &&
-      registration.hosts.includes(host)
-    );
+    return replicatedApproverAuthority(this.data, approverId, host);
   }
 
   // Owner side: applies decisions addressed to this device through the normal
