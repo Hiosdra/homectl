@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { dirname, join, resolve } from "node:path";
@@ -24,6 +24,8 @@ export type ServeOptions = {
   peerPort?: number;
   interface?: string;
   discover?: boolean;
+  // false (--no-control-sync): no control sync with peers on this device.
+  controlSync?: boolean;
   // Test seam: replaces process execution for control-plane runs only.
   controlRunner?: Runner;
 };
@@ -44,6 +46,13 @@ async function body(request: Request): Promise<Record<string, unknown>> {
   if (!data || typeof data !== "object" || Array.isArray(data))
     throw new HomectlError(2, "JSON object required");
   return data;
+}
+// Constant-time comparison of a presented secret with the expected one.
+function sameSecret(given: unknown, expected: string): boolean {
+  if (typeof given !== "string") return false;
+  const a = Buffer.from(given, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 function response(value: unknown, status = 200) {
   return Response.json(value, { status, headers: security });
@@ -198,66 +207,71 @@ export async function serve(options: ServeOptions) {
       stateDirectory: controlStateDirectory(options.inventoryPath),
       self: { id: hub.state.id, name: hub.state.name, key: hub.device },
     });
-    hub.controlExchange = async (_peer, payload) => {
-      const known = (payload as { known?: unknown } | null)?.known;
-      if (
-        !known ||
-        typeof known !== "object" ||
-        Array.isArray(known) ||
-        Object.values(known).some(
-          (c) =>
-            !c ||
-            typeof (c as { seq?: unknown }).seq !== "number" ||
-            typeof (c as { hash?: unknown }).hash !== "string",
+    // Control sync (the peer receiver, the scheduler and its timer) is one
+    // switch: with --no-control-sync, peers get "not running" and no round starts.
+    if (options.controlSync !== false) {
+      hub.controlExchange = async (_peer, payload) => {
+        const known = (payload as { known?: unknown } | null)?.known;
+        if (
+          !known ||
+          typeof known !== "object" ||
+          Array.isArray(known) ||
+          Object.values(known).some(
+            (c) =>
+              !c ||
+              typeof (c as { seq?: unknown }).seq !== "number" ||
+              typeof (c as { hash?: unknown }).hash !== "string",
+          )
         )
-      )
-        throw new HomectlError(2, "Invalid control sync request");
-      if (!replicator) throw new HomectlError(5, "Control sync is not running");
-      return replicator.serve({
-        known: known as Record<string, { seq: number; hash: string }>,
-      });
-    };
-    const rep = replicator;
-    refreshPeers = async () => syncPeers();
-    // Paired peers that grant sync are the only control-sync peers. Forgotten
-    // peers are dropped; the replicator never contacts them again.
-    const syncPeers = async () => {
-      await rep.refreshSelfName(hub.state.name);
-      const wanted = new Set<string>();
-      for (const [id, peer] of Object.entries(hub.state.peers)) {
-        if (!peer.permissions.sync) continue;
-        wanted.add(id);
-        await rep.addPeer(id, peer.name, peer.signingKey);
-      }
-      for (const id of rep.peerIds()) if (!wanted.has(id)) rep.removePeer(id);
-    };
-    syncLoop = new SyncLoop(rep, async (peerId, request) => {
-      await syncPeers();
-      return (await hub.peerRequest(
-        peerId,
-        "control-exchange",
-        request,
-      )) as Awaited<ReturnType<ControlReplicator["serve"]>>;
-    });
-    await syncPeers();
-    const loop = syncLoop;
-    // The peer list is refreshed before every round, so the scheduler always
-    // sees the current pairings.
-    const round = async () => {
-      await syncPeers();
-      return loop.tick();
-    };
-    let ticking = false;
-    controlTimer = setInterval(() => {
-      if (ticking) return;
-      ticking = true;
-      void round()
-        .catch(() => undefined)
-        .finally(() => {
-          ticking = false;
+          throw new HomectlError(2, "Invalid control sync request");
+        if (!replicator)
+          throw new HomectlError(5, "Control sync is not running");
+        return replicator.serve({
+          known: known as Record<string, { seq: number; hash: string }>,
         });
-    }, SYNC_INTERVAL_MS);
-    controlTimer.unref?.();
+      };
+      const rep = replicator;
+      refreshPeers = async () => syncPeers();
+      // Paired peers that grant sync are the only control-sync peers. Forgotten
+      // peers are dropped; the replicator never contacts them again.
+      const syncPeers = async () => {
+        await rep.refreshSelfName(hub.state.name);
+        const wanted = new Set<string>();
+        for (const [id, peer] of Object.entries(hub.state.peers)) {
+          if (!peer.permissions.sync) continue;
+          wanted.add(id);
+          await rep.addPeer(id, peer.name, peer.signingKey);
+        }
+        for (const id of rep.peerIds()) if (!wanted.has(id)) rep.removePeer(id);
+      };
+      syncLoop = new SyncLoop(rep, async (peerId, request) => {
+        await syncPeers();
+        return (await hub.peerRequest(
+          peerId,
+          "control-exchange",
+          request,
+        )) as Awaited<ReturnType<ControlReplicator["serve"]>>;
+      });
+      await syncPeers();
+      const loop = syncLoop;
+      // The peer list is refreshed before every round, so the scheduler always
+      // sees the current pairings.
+      const round = async () => {
+        await syncPeers();
+        return loop.tick();
+      };
+      let ticking = false;
+      controlTimer = setInterval(() => {
+        if (ticking) return;
+        ticking = true;
+        void round()
+          .catch(() => undefined)
+          .finally(() => {
+            ticking = false;
+          });
+      }, SYNC_INTERVAL_MS);
+      controlTimer.unref?.();
+    }
   } catch (error) {
     peerServer.stop(true);
     throw error instanceof HomectlError
@@ -316,7 +330,7 @@ export async function serve(options: ServeOptions) {
               if (req.headers.get("Origin") !== origin)
                 throw new HomectlError(3, "Open the local panel directly");
               const v = await body(req);
-              if (v.token !== token)
+              if (!sameSecret(v.token, token))
                 throw new HomectlError(3, "Invalid local panel access code");
               const r = response({ connected: true });
               r.headers.set(
@@ -326,10 +340,10 @@ export async function serve(options: ServeOptions) {
               return r;
             }
             if (
-              req.headers
+              !req.headers
                 .get("Cookie")
                 ?.split("; ")
-                .find((v) => v === `homectl=${cookie}`) === undefined
+                .some((v) => sameSecret(v, `homectl=${cookie}`))
             )
               throw new HomectlError(3, "Connect to this local panel first");
             if (req.method === "POST" && req.headers.get("Origin") !== origin)
@@ -350,13 +364,16 @@ export async function serve(options: ServeOptions) {
                 })),
                 address,
               });
-            if (req.method === "GET" && url.pathname === "/api/control")
+            if (req.method === "GET" && url.pathname === "/api/control") {
+              // A rename in settings reaches the replicated names on the next read.
+              await replicator?.refreshSelfName(hub.state.name);
               return response(
                 await controlPanel(control, {
                   sync: syncView(),
                   devices: devicesView(),
                 }),
               );
+            }
             // Local operator view of sync (the CLI reads this; never peer or MCP).
             if (req.method === "GET" && url.pathname === "/api/control/sync") {
               const view = syncView();
@@ -369,6 +386,8 @@ export async function serve(options: ServeOptions) {
             const v = await body(req);
             if (url.pathname === "/api/control/handoff")
               return response(await handoff(v));
+            if (url.pathname === "/api/control/resolve")
+              return response(await resolveConflict(v));
             // Control-plane routes use their own lock and never enter the hub
             // queue: a long SSH run must not block peer requests.
             // The panel is the local operator: it can execute approved work and
@@ -594,12 +613,17 @@ export async function serve(options: ServeOptions) {
   localPort = localServer.port ?? localPort;
   // Sync status for the local operator: the replicator's view merged with the
   // scheduler's per-peer state (failures, next attempt, last error).
+  const isSelf = (nameOrId: string) =>
+    nameOrId === hub.state.id || nameOrId === hub.state.name;
+  // Sync status for the local operator: the replicator's view merged with the
+  // scheduler's per-peer state. With --no-control-sync the view says so.
   const syncView = () => {
-    if (!replicator || !syncLoop) return undefined;
-    const live = new Map(syncLoop.statuses().map((s) => [s.id, s]));
+    if (!replicator) return undefined;
+    const live = new Map((syncLoop?.statuses() ?? []).map((s) => [s.id, s]));
     const status = replicator.status();
     return {
-      running: true,
+      running: syncLoop !== undefined,
+      ...(syncLoop === undefined ? { disabledBy: "--no-control-sync" } : {}),
       intervalMs: SYNC_INTERVAL_MS,
       checkedAt: new Date().toISOString(),
       peers: status.peers.map((peer) => {
@@ -613,6 +637,10 @@ export async function serve(options: ServeOptions) {
       }),
       blocked: status.blocked,
       conflicts: status.conflicts,
+      resolutions: status.resolutions.map((r) => ({
+        ...r,
+        waitingForSelf: r.winner === hub.state.id,
+      })),
       names: {
         [hub.state.id]: hub.state.name,
         ...Object.fromEntries(
@@ -635,23 +663,111 @@ export async function serve(options: ServeOptions) {
       legacy: peer.signingKey === undefined,
     })),
   });
-  // Takeover by this device. A handoff is signed by the device that takes
-  // over, so `to` may only name this device.
-  const handoff = async (v: { operationId?: unknown; to?: unknown }) => {
+  // Local operator handoff. What happens depends on this device's role:
+  // the owner offers the operation to a named device (--to DEVICE), the named
+  // receiver accepts a pending offer, or a device takes over an unreachable
+  // owner. `cancel` withdraws an offer the owner made and nobody accepted.
+  const handoff = async (v: {
+    operationId?: unknown;
+    to?: unknown;
+    cancel?: unknown;
+  }) => {
     if (!replicator) throw new HomectlError(5, "Control sync is not running");
-    const to = v.to === undefined ? undefined : String(v.to);
-    if (to !== undefined && to !== hub.state.id && to !== hub.state.name)
+    const rep = replicator;
+    const to = v.to === undefined || v.to === "" ? undefined : String(v.to);
+    const operationId = await control.resolveOperation(String(v.operationId));
+    // Publish first so a freshly planned operation has its owner recorded.
+    await rep.publish();
+    if (v.cancel === true) {
+      await rep.cancelOffer(operationId);
+      return {
+        operationId,
+        cancelled: true,
+        next: "The offer is withdrawn. This device owns the operation again.",
+      };
+    }
+    if (rep.ownerOf(operationId) === hub.state.id) {
+      if (to === undefined)
+        throw new HomectlError(
+          2,
+          "Name the device to hand off to with --to DEVICE",
+        );
+      const offer = await rep.offerHandoff(operationId, to);
+      return {
+        operationId,
+        offered: true,
+        to: offer.to,
+        next: "This device will not run the operation while the offer is open. The receiving device accepts with the same command on its own device, or the offer is cancelled.",
+      };
+    }
+    if (rep.openOfferTo(operationId)) {
+      if (to !== undefined && !isSelf(to))
+        throw new HomectlError(
+          3,
+          `The pending offer names this device; accept it here without --to ${to}.`,
+        );
+      await rep.acceptOffer(operationId);
+      return {
+        operationId,
+        accepted: true,
+        next: "This device owns the operation now. It needs a fresh approval here before it can run.",
+      };
+    }
+    if (to !== undefined && !isSelf(to))
       throw new HomectlError(
         3,
-        `A handoff is signed by the device that takes over; run this command on ${to} instead.`,
+        `A takeover is signed by the device that takes over; run this command on ${to} instead.`,
       );
-    const operationId = await control.resolveOperation(String(v.operationId));
-    await replicator.takeover(operationId, "local-operator");
+    await rep.takeover(operationId, "local-operator");
     return {
       operationId,
       taken: true,
       operation: await control.showOperation(operationId),
       next: "This device owns the operation now. It needs a fresh approval here before it can run.",
+    };
+  };
+  // Conflict resolution. A device involved in an ownership conflict proposes a
+  // winner (--owner DEVICE). The winner agrees by running the same command on
+  // its own device; a winner that proposes itself agrees at once.
+  const resolveConflict = async (v: {
+    operationId?: unknown;
+    owner?: unknown;
+  }) => {
+    if (!replicator) throw new HomectlError(5, "Control sync is not running");
+    const rep = replicator;
+    const operationId = await control.resolveOperation(String(v.operationId));
+    const owner =
+      v.owner === undefined || v.owner === "" ? undefined : String(v.owner);
+    if (
+      rep.resolutionWaitingFor(operationId) &&
+      (owner === undefined || isSelf(owner))
+    ) {
+      await rep.acceptResolution(operationId);
+      return {
+        operationId,
+        accepted: true,
+        next: "This device owns the operation now. It needs a fresh approval here before it can run.",
+      };
+    }
+    if (owner === undefined)
+      throw new HomectlError(
+        2,
+        "Name the device that should own the operation with --owner DEVICE",
+      );
+    const proposal = await rep.resolveConflict(operationId, owner);
+    if (proposal.winner === hub.state.id) {
+      await rep.acceptResolution(operationId);
+      return {
+        operationId,
+        accepted: true,
+        next: "This device owns the operation now. It needs a fresh approval here before it can run.",
+      };
+    }
+    return {
+      operationId,
+      proposed: true,
+      winner: proposal.winner,
+      next: "The resolution applies once the named device runs the same command on its own device.",
     };
   };
   const directory = join(dirname(options.inventoryPath), "serve");
