@@ -979,7 +979,7 @@ export class ControlReplicator {
     if (!status.possible)
       throw new HomectlError(3, status.reason ?? "Takeover is not possible");
     if (owner === undefined) throw new HomectlError(3, CONFLICT_REASON);
-    await this.plane.adoptOperation(adoptionInput(operationId, base));
+    await this.adoptIfAbsent(operationId, base);
     const body: HandoffBody = {
       kind: "handoff",
       opId: operationId,
@@ -1247,7 +1247,11 @@ export class ControlReplicator {
     operationId: string,
     base: OpBody,
   ): Promise<void> {
-    if (await this.plane.holdsOperation(operationId)) return;
+    // Held already (taken back): reset it to pending. Otherwise adopt it.
+    if (await this.plane.holdsOperation(operationId)) {
+      await this.plane.resetForOwnership(operationId);
+      return;
+    }
     await this.plane.adoptOperation(adoptionInput(operationId, base));
   }
 

@@ -465,3 +465,56 @@ describe("offer lifetime and finished operations", () => {
     expect(A.rep.replica.ops[operationId]?.state).toBe("succeeded");
   });
 });
+
+describe("taking an operation back starts it pending", () => {
+  test("A to B and back to A: the approval given before the first handoff does not carry over", async () => {
+    const clock = { now: 8_100_000 };
+    const { A, B, C } = await network(["A", "B", "C"], clock).then((d) => ({
+      A: d.A as Device,
+      B: d.B as Device,
+      C: d.C as Device,
+    }));
+    const operationId = await plan(A, CHANGE);
+    const hermes = await clientOn(A, "hermes-admin", [
+      "approve:decide",
+      "status:read",
+    ]);
+    const before = (await A.plane.listOperations({ all: true })).find(
+      (op) => op.operationId === operationId,
+    );
+    await A.plane.request(
+      { kind: "client", client: hermes },
+      {
+        op: "approve",
+        operationId,
+        fingerprint: before?.fingerprint ?? "",
+        decision: "approve",
+      },
+    );
+    await round([A, B, C]);
+    expect(
+      (await A.plane.listOperations({ all: true })).find(
+        (op) => op.operationId === operationId,
+      )?.state,
+    ).toBe("approved");
+
+    await A.rep.offerHandoff(operationId, "B");
+    await round([A, B, C]);
+    await B.rep.acceptOffer(operationId);
+    await round([A, B, C]);
+    await B.rep.offerHandoff(operationId, "A");
+    await round([A, B, C]);
+    await A.rep.acceptOffer(operationId);
+    await round([A, B, C]);
+    expect(A.rep.ownerOf(operationId)).toBe(A.id);
+
+    // Back on A the operation is pending, with no approval that could still run it.
+    const back = (await A.plane.listOperations({ all: true })).find(
+      (op) => op.operationId === operationId,
+    );
+    expect(back?.state).toBe("pending");
+    expect(back?.approval).toBeUndefined();
+    await expectCode(execute(A, operationId), 4, "requires approval");
+    expect(A.runs.length).toBe(0);
+  });
+});

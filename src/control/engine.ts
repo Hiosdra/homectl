@@ -954,6 +954,39 @@ export class ControlPlane {
   // from this device's own inventory, so the host must be enrolled here. The
   // operation starts pending and needs a fresh approval (its fingerprint may
   // differ from the old owner's).
+  // A device that already holds an operation and takes it over again (A to B and
+  // back to A) starts it pending. An approval given for an earlier owner never
+  // carries over: the approval record is removed, so a fresh one is needed.
+  async resetForOwnership(operationId: string): Promise<void> {
+    await this.store.withLock(async () => {
+      const now = this.clock();
+      const state = await this.store.loadState();
+      const op = Object.hasOwn(state.operations, operationId)
+        ? state.operations[operationId]
+        : undefined;
+      if (!op) throw new HomectlError(2, "Unknown operation");
+      if (op.state === "executing" || TERMINAL_STATES.includes(op.state))
+        throw new HomectlError(
+          3,
+          "This operation already ran or is running; it cannot be taken over",
+        );
+      await this.journal.append({
+        event: "operation.planned",
+        client: SYSTEM_ACTOR,
+        op: "plan",
+        operationId,
+        host: op.plan.host,
+        fingerprint: op.fingerprint,
+        classification: op.plan.classification,
+        reason: "re-adopted-by-takeover",
+      });
+      op.state = "pending";
+      op.updatedAt = now;
+      delete op.approval;
+      await this.store.saveState(state);
+    });
+  }
+
   async adoptOperation(input: {
     operationId: string;
     host: string;
