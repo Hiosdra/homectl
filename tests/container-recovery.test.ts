@@ -1,13 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  INSTANCE_ID,
   LAUNCH_FILE,
   markRunning,
   markStopped,
   RUN_FILE,
   recoverStartup,
+  STALE_AFTER_MS,
   serveDirectoryOf,
 } from "../src/container/recovery";
 import { AuditJournal } from "../src/control/journal";
@@ -65,41 +67,102 @@ describe("startup recovery", () => {
     );
   });
 
-  test("a run marker that still says running means an unclean shutdown; start degraded", async () => {
+  test("a fresh heartbeat from another instance refuses the start (exit 3) and names the host and age", async () => {
     const v = await volume();
     await mkdir(v.serveDir, { recursive: true });
+    const heartbeat = new Date(Date.now() - 5_000).toISOString();
     await writeFile(
       join(v.serveDir, RUN_FILE),
       JSON.stringify({
         state: "running",
-        pid: 424242,
         startedAt: "2026-11-01T00:00:00.000Z",
+        instanceId: "00000000-0000-4000-8000-000000000001",
+        hostname: "nas-test-a",
+        heartbeatAt: heartbeat,
       }),
     );
-    const result = await recoverStartup({
-      inventoryPath: v.inventory,
-      isAlive: () => false,
-    });
+    const error = await refusal(recoverStartup({ inventoryPath: v.inventory }));
+    expect(error?.code).toBe(3);
+    expect(error?.message).toMatch(
+      /^another homectl instance is using this data directory \(host nas-test-a, heartbeat \d+ s ago\)$/,
+    );
+  });
+
+  test("a stale heartbeat from another instance is an unclean previous run: start degraded", async () => {
+    const v = await volume();
+    await mkdir(v.serveDir, { recursive: true });
+    const heartbeat = new Date(
+      Date.now() - (STALE_AFTER_MS + 60_000),
+    ).toISOString();
+    await writeFile(
+      join(v.serveDir, RUN_FILE),
+      JSON.stringify({
+        state: "running",
+        startedAt: "2026-11-01T00:00:00.000Z",
+        instanceId: "00000000-0000-4000-8000-000000000001",
+        hostname: "nas-test-a",
+        heartbeatAt: heartbeat,
+      }),
+    );
+    const result = await recoverStartup({ inventoryPath: v.inventory });
     expect(result.status).toBe("recovered");
     expect(result.warnings[0]).toContain("did not stop cleanly");
   });
 
-  test("a live process other than this one refuses the start (exit 3)", async () => {
+  test("a running record without a heartbeat (older format) is an unclean run, not a duplicate", async () => {
     const v = await volume();
     await mkdir(v.serveDir, { recursive: true });
     await writeFile(
       join(v.serveDir, RUN_FILE),
       JSON.stringify({
         state: "running",
-        pid: 424242,
         startedAt: "2026-11-01T00:00:00.000Z",
       }),
     );
-    const error = await refusal(
-      recoverStartup({ inventoryPath: v.inventory, isAlive: () => true }),
+    const result = await recoverStartup({ inventoryPath: v.inventory });
+    expect(result.status).toBe("recovered");
+  });
+
+  test("this instance's own record is not a duplicate", async () => {
+    const v = await volume();
+    await markRunning(v.inventory, "0.0.0-test");
+    const run = JSON.parse(await readFile(join(v.serveDir, RUN_FILE), "utf8"));
+    expect(run.instanceId).toBe(INSTANCE_ID);
+    expect(run.hostname).toBe(hostname());
+    expect(typeof run.heartbeatAt).toBe("string");
+    expect(await recoverStartup({ inventoryPath: v.inventory })).toEqual({
+      status: "clean",
+      warnings: [],
+    });
+  });
+
+  test("a heartbeat refresh keeps the start time and moves the heartbeat forward", async () => {
+    const v = await volume();
+    await markRunning(v.inventory, "0.0.0-test");
+    const first = JSON.parse(
+      await readFile(join(v.serveDir, RUN_FILE), "utf8"),
     );
-    expect(error?.code).toBe(3);
-    expect(error?.message).toContain("Another homectl process");
+    await Bun.sleep(5);
+    await markRunning(v.inventory, "0.0.0-test");
+    const second = JSON.parse(
+      await readFile(join(v.serveDir, RUN_FILE), "utf8"),
+    );
+    expect(second.startedAt).toBe(first.startedAt);
+    expect(Date.parse(second.heartbeatAt)).toBeGreaterThan(
+      Date.parse(first.heartbeatAt),
+    );
+  });
+
+  test("a stopped record from another instance never blocks the start", async () => {
+    const v = await volume();
+    await mkdir(v.serveDir, { recursive: true });
+    await writeFile(
+      join(v.serveDir, RUN_FILE),
+      JSON.stringify({ state: "stopped", instanceId: "other" }),
+    );
+    expect((await recoverStartup({ inventoryPath: v.inventory })).status).toBe(
+      "clean",
+    );
   });
 
   test("an unreadable or malformed run marker refuses the start (exit 5)", async () => {

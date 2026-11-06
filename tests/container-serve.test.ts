@@ -249,3 +249,64 @@ describe("container signal wiring (in process)", () => {
     ).toBe(false);
   });
 });
+
+describe("stop and an in-flight sync round", () => {
+  // The round is replaced by a synthetic slow one; the interval is shortened so
+  // a round starts within the test. No peer is contacted.
+  test("a round in flight at stop finishes before stop returns, and no new round starts", async () => {
+    const v = await volume();
+    let started = 0;
+    let finished = false;
+    const running = await serve({
+      inventoryPath: v.inventory,
+      configPath: v.configPath,
+      port: 0,
+      peerPort: 0,
+      discover: false,
+      container: { recovered: false },
+      syncIntervalMs: 20,
+      syncRound: async () => {
+        started += 1;
+        await Bun.sleep(1200);
+        finished = true;
+      },
+    });
+    cleanup.push(() => running.stop());
+    const deadline = Date.now() + 10_000;
+    while (started === 0 && Date.now() < deadline) await Bun.sleep(10);
+    expect(started).toBeGreaterThan(0);
+    expect(finished).toBe(false);
+    await running.stop();
+    expect(finished).toBe(true);
+    const atStop = started;
+    await Bun.sleep(150);
+    expect(started).toBe(atStop);
+  });
+
+  test("a round that never ends is abandoned after the shutdown bound", async () => {
+    const v = await volume();
+    let started = 0;
+    const running = await serve({
+      inventoryPath: v.inventory,
+      configPath: v.configPath,
+      port: 0,
+      peerPort: 0,
+      discover: false,
+      container: { recovered: false },
+      syncIntervalMs: 20,
+      syncRound: () => {
+        started += 1;
+        return new Promise(() => undefined);
+      },
+    });
+    cleanup.push(() => running.stop());
+    const deadline = Date.now() + 10_000;
+    while (started === 0 && Date.now() < deadline) await Bun.sleep(10);
+    expect(started).toBeGreaterThan(0);
+    const t0 = Date.now();
+    await running.stop();
+    const waited = Date.now() - t0;
+    expect(waited).toBeGreaterThanOrEqual(9_500);
+    expect(waited).toBeLessThan(15_000);
+  });
+});
