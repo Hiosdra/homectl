@@ -51,6 +51,8 @@ export interface ControlCliInput {
     state?: string;
     all?: boolean;
     to?: string;
+    owner?: string;
+    cancel?: boolean;
   };
   dryRun: boolean;
   json: boolean;
@@ -310,12 +312,11 @@ export async function controlCommand(
   if (group === "sync") {
     if (input.positionals.length !== 1)
       throw new HomectlError(2, "Usage: homectl control sync");
-    const live = await liveRequest<SyncView & { checkedAt?: string }>(
-      input,
-      "/api/control/sync",
-    );
+    const live = await liveRequest<
+      SyncView & { checkedAt?: string; running?: boolean }
+    >(input, "/api/control/sync");
     const view: SyncView = live
-      ? { ...live, live: true }
+      ? { ...live, live: live.running === true }
       : await savedSync(input.inventoryPath, now);
     return {
       value: view,
@@ -324,15 +325,26 @@ export async function controlCommand(
     };
   }
   if (group === "handoff") {
-    if (!action || input.positionals.length !== 2 || !input.values.to)
+    if (!action || input.positionals.length !== 2)
       throw new HomectlError(
         2,
-        "Usage: homectl control handoff <operation-id> --to DEVICE",
+        "Usage: homectl control handoff <operation-id> --to DEVICE  (or --cancel to withdraw an offer)",
       );
+    const to = input.values.to;
+    const cancel = input.values.cancel === true;
+    if (cancel && to !== undefined)
+      throw new HomectlError(2, "Use either --to DEVICE or --cancel, not both");
     if (input.dryRun)
       return {
-        value: { wouldHandoff: { operationId: action, to: input.values.to } },
-        human: `Would hand ${action} to ${input.values.to}. No change made.`,
+        value: cancel
+          ? { wouldCancelOffer: action, credentialAccess: false }
+          : {
+              wouldHandoff: { operationId: action, to },
+              credentialAccess: false,
+            },
+        human: cancel
+          ? `Would withdraw the handoff offer for ${action}. No change made.`
+          : `Would hand ${action} to ${to ?? "the device that takes over"}. No change made.`,
         code: 0,
       };
     const result = await liveRequest<{
@@ -340,12 +352,45 @@ export async function controlCommand(
       next: string;
     }>(input, "/api/control/handoff", {
       operationId: action,
-      to: input.values.to,
+      ...(to !== undefined ? { to } : {}),
+      ...(cancel ? { cancel: true } : {}),
     });
     if (!result) throw new HomectlError(5, "Start homectl serve first");
     return {
       value: result,
-      human: `Ownership of ${shortId(result.operationId)} moved to this device. ${result.next}`,
+      human: `${shortId(result.operationId)}: ${result.next}`,
+      code: 0,
+    };
+  }
+  if (group === "resolve") {
+    if (!action || input.positionals.length !== 2)
+      throw new HomectlError(
+        2,
+        "Usage: homectl control resolve <operation-id> --owner DEVICE",
+      );
+    if (input.dryRun)
+      return {
+        value: {
+          wouldResolve: action,
+          owner: input.values.owner ?? null,
+          credentialAccess: false,
+        },
+        human: `Would propose ${input.values.owner ?? "a winner"} for ${action}. No change made.`,
+        code: 0,
+      };
+    const result = await liveRequest<{
+      operationId: string;
+      next: string;
+    }>(input, "/api/control/resolve", {
+      operationId: action,
+      ...(input.values.owner !== undefined
+        ? { owner: input.values.owner }
+        : {}),
+    });
+    if (!result) throw new HomectlError(5, "Start homectl serve first");
+    return {
+      value: result,
+      human: `${shortId(result.operationId)}: ${result.next}`,
       code: 0,
     };
   }
@@ -372,7 +417,7 @@ export async function controlCommand(
   }
   throw new HomectlError(
     2,
-    "Use control client add|list|revoke, control ops, control show <id>, control execute <id>, control handoff <id> --to DEVICE, control sync or control audit verify",
+    "Use control client add|list|revoke, control ops, control show <id>, control execute <id>, control handoff <id> --to DEVICE, control resolve <id> --owner DEVICE, control sync or control audit verify",
   );
 }
 
@@ -393,8 +438,15 @@ async function savedSync(
       lastSync: peer.lastSync,
       leaseOk: peer.leaseOk,
       refused: peer.refused,
+      excluded: peer.excluded,
     })),
     conflicts: status.conflicts,
+    resolutions: status.resolutions.map((r) => ({
+      opId: r.opId,
+      conflictEpoch: r.conflictEpoch,
+      winner: r.winner,
+      resolver: r.resolver,
+    })),
     names: deviceNames(data),
     blocked: status.blocked,
   };

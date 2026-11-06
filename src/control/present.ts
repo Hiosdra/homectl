@@ -407,9 +407,12 @@ export function renderAudit(
 }
 
 export interface SyncRow {
+  id?: string;
   name: string;
   lastSync?: number;
   leaseOk: boolean;
+  // A legacy peer without a signing key: excluded from the lease.
+  excluded?: boolean;
   refused?: string;
   failures?: number;
   nextAttemptAt?: number;
@@ -418,22 +421,34 @@ export interface SyncRow {
 
 export interface SyncView {
   live: boolean;
+  disabledBy?: string;
   peers: SyncRow[];
   conflicts: { opId: string; epoch: number; candidates: string[] }[];
+  resolutions?: {
+    opId: string;
+    conflictEpoch: number;
+    winner: string;
+    resolver: string;
+  }[];
   blocked: Record<string, string>;
   // Device id to display name; ids are shown when a name is unknown.
   names?: Record<string, string>;
 }
 
 // Per-peer control sync status. Backoff is known only from a running serve;
-// the saved-state view says so instead of guessing.
+// the saved-state view says so instead of guessing. Excluded (legacy) peers
+// show dashes: they have no control sync, so there is no lease or backoff.
 export function renderSync(
   view: SyncView,
   options: { color: boolean; now: number },
 ): string {
+  const name = (id: string) => view.names?.[id] ?? id;
+  if (view.disabledBy) {
+    return `Control sync is disabled by ${view.disabledBy} on this device. Operations that have paired peers wait for a sync.`;
+  }
   const lines = [
     view.live
-      ? `Control sync: running on this device.`
+      ? "Control sync: running on this device."
       : "serve not running — showing last saved state; backoff unknown.",
   ];
   if (view.peers.length === 0) {
@@ -443,6 +458,14 @@ export function renderSync(
       (h) => paint(h, "bold", options.color),
     );
     const rows = view.peers.map((peer) => {
+      if (peer.excluded)
+        return [
+          peer.name,
+          "never (control)",
+          "excluded from lease: re-pair required",
+          "—",
+          peer.refused ?? "—",
+        ];
       const backoff = !view.live
         ? "unknown"
         : peer.nextAttemptAt !== undefined &&
@@ -470,11 +493,15 @@ export function renderSync(
     );
     for (const c of view.conflicts)
       lines.push(
-        `  ${shortId(c.opId)}: two different handoffs at epoch ${c.epoch} (${c.candidates.map((id) => view.names?.[id] ?? id).join(", ")}).`,
+        `  ${shortId(c.opId)}: two different handoffs at epoch ${c.epoch} (${c.candidates.map(name).join(", ")}).`,
       );
   }
+  for (const r of view.resolutions ?? [])
+    lines.push(
+      `  Resolution for ${shortId(r.opId)} proposed by ${name(r.resolver)} names ${name(r.winner)}; it applies once ${name(r.winner)} runs control resolve on its device.`,
+    );
   for (const [origin, reason] of Object.entries(view.blocked))
-    lines.push(`Blocked log from ${origin}: ${reason}`);
+    lines.push(`Blocked log from ${name(origin)}: ${reason}`);
   return lines.join("\n");
 }
 

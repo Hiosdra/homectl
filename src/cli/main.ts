@@ -46,6 +46,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         "peer-port": { type: "string" },
         interface: { type: "string" },
         "no-discovery": { type: "boolean" },
+        "no-control-sync": { type: "boolean" },
+        owner: { type: "string" },
+        cancel: { type: "boolean" },
         wrapper: { type: "string" },
         address: { type: "string" },
         target: { type: "string" },
@@ -82,14 +85,22 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         "--ttl and --database apply only to session configure",
       );
     if (
-      [v.name, v.scopes, v.hosts, v["token-file"], v.state, v.all, v.to].some(
-        (option) => option !== undefined,
-      ) &&
+      [
+        v.name,
+        v.scopes,
+        v.hosts,
+        v["token-file"],
+        v.state,
+        v.all,
+        v.to,
+        v.owner,
+        v.cancel,
+      ].some((option) => option !== undefined) &&
       command !== "control"
     )
       throw new HomectlError(
         2,
-        "--name, --scopes, --hosts, --token-file, --state, --all and --to apply only to control",
+        "--name, --scopes, --hosts, --token-file, --state, --all, --to, --owner and --cancel apply only to control",
       );
     if (v.host !== undefined && command !== "serve-mcp")
       throw new HomectlError(2, "--host applies only to serve-mcp");
@@ -427,6 +438,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         peerPort: port(v["peer-port"], 7448),
         interface: v.interface,
         discover: !v["no-discovery"],
+        controlSync: !v["no-control-sync"],
       });
       emit({
         panel: running.url,

@@ -340,6 +340,10 @@ pages.serve = {
           "--no-discovery",
           "Disable multicast discovery only; use manual IP pairing. Control sync with already-paired devices keeps running.",
         ],
+        [
+          "--no-control-sync",
+          "Turn control sync off on this device. Peers get no sync from it, and operations here with signing peers wait for a sync.",
+        ],
       ],
     },
     globalOptions,
@@ -477,7 +481,19 @@ pages.control = {
         ],
         [
           "handoff ID --to DEVICE",
-          "Take over an operation whose owner is unreachable. Run it on DEVICE: a handoff is signed by the device that takes over. Needs a running homectl serve. The operation needs a fresh approval on DEVICE.",
+          "On the owner: offer the operation to DEVICE. The owner will not run it until DEVICE accepts or the offer is cancelled. Needs a running homectl serve.",
+        ],
+        [
+          "handoff ID",
+          "On the named receiver: accept the pending offer. Without a pending offer, takes over an unreachable owner (the takeover window must be open). The operation needs a fresh approval on this device.",
+        ],
+        [
+          "handoff ID --cancel",
+          "On the owner: withdraw an offer that nobody has accepted.",
+        ],
+        [
+          "resolve ID --owner DEVICE",
+          "Conflicting takeovers: propose DEVICE as the owner. It applies only once DEVICE runs the same command on its own device. A device that proposes itself agrees at once.",
         ],
         [
           "sync",
