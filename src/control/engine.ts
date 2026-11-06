@@ -134,6 +134,11 @@ export interface ControlPlaneOptions {
   fence?: (operationId: string) => string | undefined;
   // Authority of an approver whose registration lives on another device.
   approverAuthorized?: (approverId: string, host: string) => boolean;
+  // Forwards an approval for an operation owned by another device.
+  remoteDecision?: (
+    client: ClientIdentity,
+    req: ApproveRequest,
+  ) => Promise<unknown>;
 }
 
 export interface ExecuteResult {
@@ -795,8 +800,20 @@ export class ControlPlane {
     return fingerprint(fresh) === op.fingerprint ? "ok" : "machine-changed";
   }
 
+  private async holdsOperation(operationId: string): Promise<boolean> {
+    const state = await this.store.loadState();
+    return Object.hasOwn(state.operations, operationId);
+  }
+
   private async approve(client: ClientIdentity, req: ApproveRequest) {
     requireScope(client, "approve:decide");
+    // An operation this device does not hold is decided by its owner: the
+    // replicator signs the decision and forwards it (ADR-0002 stage c).
+    if (
+      this.options.remoteDecision &&
+      !(await this.holdsOperation(req.operationId))
+    )
+      return this.options.remoteDecision(client, req);
     return this.mutate(async (state, now) => {
       const op = visibleOperation(state, client, req.operationId);
       if (op.state === "failed" && op.reason === "plan-expired")

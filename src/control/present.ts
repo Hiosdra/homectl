@@ -416,6 +416,8 @@ export function summarizeTool(
 ): string {
   const v = value as Partial<OperationView> & {
     operation?: OperationView;
+    operationId?: string;
+    forwarded?: { ownerName: string; lastSync?: number };
     approval?: { approver: string; expiresAt: string };
     operations?: OperationView[];
     hosts?: { host: string; access: string; description: string }[];
@@ -431,6 +433,13 @@ export function summarizeTool(
       ? "Ask a different authorized client to approve it with homectl_approve, using the operation id and fingerprint above."
       : run(v.operationId);
     return `Planned ${shortId(v.operationId)} on ${v.host}: \`${displayArgv(v.argv ?? [], 120)}\` (${v.classification}, ${approval}). Operation ${v.operationId}. Fingerprint ${v.fingerprint}. Expires ${clockTime(v.expiresAt ?? new Date(now).toISOString())}. ${next}`;
+  }
+  if (tool === "homectl_approve" && v.forwarded) {
+    const f = v.forwarded;
+    const last = f.lastSync
+      ? relativeTime(new Date(f.lastSync).toISOString(), now)
+      : "never";
+    return `Approval forwarded to owner ${f.ownerName}; it applies after the next sync (last sync ${last}). Operation ${v.operationId ?? ""}.`;
   }
   if (tool === "homectl_approve" && v.operation) {
     const op = v.operation;

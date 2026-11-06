@@ -140,6 +140,12 @@ export class ControlReplicator {
     return out;
   }
 
+  removePeer(id: string): void {
+    delete this.data.peers[id];
+    delete this.data.syncedAt[id];
+    delete this.data.seenAt[id];
+  }
+
   peerIds(): string[] {
     return Object.keys(this.data.peers);
   }
@@ -376,7 +382,12 @@ export class ControlReplicator {
     operationId: string,
     fingerprint: string,
     decision: "approve" | "reject",
-  ): Promise<string> {
+  ): Promise<{
+    decisionId: string;
+    owner: string;
+    ownerName: string;
+    lastSync?: number;
+  }> {
     if (!client.scopes.includes("approve:decide"))
       throw new HomectlError(3, "Client lacks the scope for this operation");
     const replica = this.data.replica;
@@ -404,7 +415,12 @@ export class ControlReplicator {
     };
     this.emit(sealRecord(this.self, body));
     await this.save();
-    return body.decisionId;
+    return {
+      decisionId: body.decisionId,
+      owner,
+      ownerName: this.nameOf(owner),
+      lastSync: this.data.syncedAt[owner],
+    };
   }
 
   // Authority of a remote approver, from the replicated registration. Used by
