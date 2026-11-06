@@ -172,12 +172,33 @@ function rank(op: Pick<OperationView, "state" | "needsApproval" | "reason">) {
 }
 
 function approverText(
-  op: Pick<OperationView, "approval" | "needsApproval">,
+  op: Pick<
+    OperationView,
+    "approval" | "needsApproval" | "approvedBy" | "delivery"
+  >,
 ): string {
-  return (
-    op.approval?.approver ??
-    (op.needsApproval ? "awaiting approval" : "not needed")
-  );
+  if (op.approval) return op.approval.approver;
+  if (op.approvedBy) return op.approvedBy;
+  if (op.delivery?.status === "awaiting-confirmation")
+    return `forwarded to ${op.delivery.ownerName}, awaiting confirmation`;
+  return op.needsApproval ? "awaiting approval" : "not needed";
+}
+
+// One line on who holds an operation and where a forwarded approval stands.
+export function replicaNote(
+  op: Pick<
+    OperationView,
+    "runsOn" | "delivery" | "approvedBy" | "conflict" | "ownerName"
+  >,
+): string | undefined {
+  if (op.delivery?.status === "awaiting-confirmation")
+    return `approval forwarded to ${op.delivery.ownerName}, awaiting confirmation`;
+  if (op.delivery?.status === "rejected")
+    return `rejection confirmed by ${op.delivery.ownerName}`;
+  if (op.approvedBy) return `approved by ${op.approvedBy}`;
+  if (op.conflict) return "no owner: conflicting takeovers need an operator";
+  if (op.runsOn) return `runs on ${op.runsOn}`;
+  return undefined;
 }
 
 function scopesText(scopes: string[]): string {
@@ -244,7 +265,7 @@ export function renderOperations(
     return [
       shortId(op.operationId),
       paint(label, stateStyle(label), options.color),
-      op.host,
+      op.runsOn ? `${op.host} · runs on ${op.runsOn}` : op.host,
       op.classification,
       displayArgv(op.argv, 40),
       op.issuer,
@@ -283,6 +304,17 @@ export function renderOperationDetail(
     ]);
     lines.push(["Duration", durationOf(op) ?? "still running"]);
   }
+  if (op.ownerName !== undefined) lines.push(["Owner", op.ownerName]);
+  if (op.takeover)
+    lines.push([
+      "Takeover",
+      op.takeover.possible
+        ? "possible now (operator action: homectl control handoff)"
+        : `${op.takeover.reason ?? "not possible"}${op.takeover.at ? ` (${localTime(op.takeover.at)})` : ""}`,
+    ]);
+  const note = replicaNote(op);
+  if (note !== undefined && (op.delivery || op.approvedBy || op.conflict))
+    lines.push(["Replication", note]);
   if (op.exitCode !== undefined) lines.push(["Exit code", String(op.exitCode)]);
   if (op.reason !== undefined) lines.push(["Reason", op.reason]);
   if (open) {
@@ -374,6 +406,78 @@ export function renderAudit(
   return `${paint("Audit verification failed", "red", options.color)}: ${check.error ?? "unknown"}. Preserve the files and investigate.`;
 }
 
+export interface SyncRow {
+  name: string;
+  lastSync?: number;
+  leaseOk: boolean;
+  refused?: string;
+  failures?: number;
+  nextAttemptAt?: number;
+  lastError?: string;
+}
+
+export interface SyncView {
+  live: boolean;
+  peers: SyncRow[];
+  conflicts: { opId: string; epoch: number; candidates: string[] }[];
+  blocked: Record<string, string>;
+  // Device id to display name; ids are shown when a name is unknown.
+  names?: Record<string, string>;
+}
+
+// Per-peer control sync status. Backoff is known only from a running serve;
+// the saved-state view says so instead of guessing.
+export function renderSync(
+  view: SyncView,
+  options: { color: boolean; now: number },
+): string {
+  const lines = [
+    view.live
+      ? `Control sync: running on this device.`
+      : "serve not running — showing last saved state; backoff unknown.",
+  ];
+  if (view.peers.length === 0) {
+    lines.push("No paired devices take part in control sync yet.");
+  } else {
+    const headers = ["DEVICE", "LAST SYNC", "LEASE", "BACKOFF", "STATUS"].map(
+      (h) => paint(h, "bold", options.color),
+    );
+    const rows = view.peers.map((peer) => {
+      const backoff = !view.live
+        ? "unknown"
+        : peer.nextAttemptAt !== undefined &&
+            (peer.failures ?? 0) > 0 &&
+            peer.nextAttemptAt > options.now
+          ? `retry ${clockTime(new Date(peer.nextAttemptAt).toISOString())}`
+          : "none";
+      return [
+        peer.name,
+        peer.lastSync === undefined
+          ? "never"
+          : relativeTime(new Date(peer.lastSync).toISOString(), options.now),
+        peer.leaseOk ? "ok" : "expired: waiting for sync",
+        backoff,
+        peer.refused ?? peer.lastError ?? "ok",
+      ];
+    });
+    lines.push(table(headers, rows));
+  }
+  if (view.conflicts.length === 0) {
+    lines.push("Control conflicts: none.");
+  } else {
+    lines.push(
+      `Control conflicts: ${view.conflicts.length}. These operations have no owner and cannot run until an operator resolves them.`,
+    );
+    for (const c of view.conflicts)
+      lines.push(
+        `  ${shortId(c.opId)}: two different handoffs at epoch ${c.epoch} (${c.candidates.map((id) => view.names?.[id] ?? id).join(", ")}).`,
+      );
+  }
+  for (const [origin, reason] of Object.entries(view.blocked))
+    lines.push(`Blocked log from ${origin}: ${reason}`);
+  return lines.join("\n");
+}
+
 export function mcpSnippet(name: string, url: string): string {
   return JSON.stringify(
     {
@@ -394,7 +498,10 @@ export function mcpSnippet(name: string, url: string): string {
 // not expired, and issued by someone else. Host grants are already enforced
 // by the list that is passed in.
 export function awaitingApprovalBy(
-  op: Pick<OperationView, "state" | "needsApproval" | "expired" | "issuer">,
+  op: Pick<
+    OperationView,
+    "state" | "needsApproval" | "expired" | "issuer" | "delivery"
+  >,
   caller: Pick<ClientIdentity, "id" | "scopes"> | undefined,
 ): boolean {
   return Boolean(
@@ -402,7 +509,9 @@ export function awaitingApprovalBy(
       op.state === "pending" &&
       op.needsApproval &&
       !op.expired &&
-      op.issuer !== caller.id,
+      op.issuer !== caller.id &&
+      // A forwarded approval is already on its way to the owner.
+      op.delivery?.status !== "awaiting-confirmation",
   );
 }
 
@@ -452,7 +561,9 @@ export function summarizeTool(
       const hint = awaitingApprovalBy(v as OperationView, caller)
         ? " You can approve it with homectl_approve, using the operation id and fingerprint above."
         : "";
-      return `Operation ${shortId(v.operationId)} on ${v.host}: ${displayState(v as OperationView)}${v.reason ? ` (${v.reason})` : ""}. Operation ${v.operationId}. Fingerprint ${v.fingerprint}.${hint}`;
+      const runs = v.runsOn ? ` (runs on ${v.runsOn})` : "";
+      const note = replicaNote(v as OperationView);
+      return `Operation ${shortId(v.operationId)} on ${v.host}${runs}: ${displayState(v as OperationView)}${v.reason ? ` (${v.reason})` : ""}. Operation ${v.operationId}. Fingerprint ${v.fingerprint}.${note ? ` ${note[0]?.toUpperCase()}${note.slice(1)}.` : ""}${hint}`;
     }
     const list = [...(v.operations ?? [])].sort((a, b) => rank(a) - rank(b));
     if (list.length === 0) return "No operations visible to this client yet.";
@@ -462,8 +573,11 @@ export function summarizeTool(
     ];
     for (const op of shown) {
       lines.push(
-        `- ${shortId(op.operationId)} ${displayState(op)} · ${op.host} · \`${displayArgv(op.argv, 60)}\``,
+        `- ${shortId(op.operationId)} ${displayState(op)} · ${op.host} · \`${displayArgv(op.argv, 60)}\`${op.runsOn ? ` · runs on ${op.runsOn}` : ""}`,
       );
+      const note = replicaNote(op);
+      if (note !== undefined && (op.delivery || op.approvedBy || op.conflict))
+        lines.push(`  ${note[0]?.toUpperCase()}${note.slice(1)}.`);
       if (awaitingApprovalBy(op, caller))
         lines.push(
           `  Approve with homectl_approve: operationId ${op.operationId}, fingerprint ${op.fingerprint}`,

@@ -59,6 +59,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         scopes: { type: "string" },
         hosts: { type: "string" },
         "token-file": { type: "string" },
+        to: { type: "string" },
         host: { type: "string" },
         state: { type: "string" },
         all: { type: "boolean" },
@@ -81,14 +82,14 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         "--ttl and --database apply only to session configure",
       );
     if (
-      [v.name, v.scopes, v.hosts, v["token-file"], v.state, v.all].some(
+      [v.name, v.scopes, v.hosts, v["token-file"], v.state, v.all, v.to].some(
         (option) => option !== undefined,
       ) &&
       command !== "control"
     )
       throw new HomectlError(
         2,
-        "--name, --scopes, --hosts, --token-file, --state and --all apply only to control",
+        "--name, --scopes, --hosts, --token-file, --state, --all and --to apply only to control",
       );
     if (v.host !== undefined && command !== "serve-mcp")
       throw new HomectlError(2, "--host applies only to serve-mcp");

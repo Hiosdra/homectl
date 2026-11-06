@@ -338,7 +338,7 @@ pages.serve = {
         ["--peer-port PORT", "Peer protocol port, default 7448."],
         [
           "--no-discovery",
-          "Disable multicast discovery; use manual IP pairing.",
+          "Disable multicast discovery only; use manual IP pairing. Control sync with already-paired devices keeps running.",
         ],
       ],
     },
@@ -432,7 +432,8 @@ pages["serve-mcp"] = {
   ],
 };
 pages.control = {
-  usage: "homectl control <client|execute|audit> [options]",
+  usage:
+    "homectl control <client|ops|show|execute|handoff|sync|audit> [options]",
   intro:
     "Local operator actions for the control plane. Run them in your private terminal; they are not available through MCP.",
   sections: [
@@ -473,6 +474,14 @@ pages.control = {
         [
           "execute ID",
           "Run an approved operation, or an inspection plan, through the existing exec policy. Single use; failed and unknown operations are not retried.",
+        ],
+        [
+          "handoff ID --to DEVICE",
+          "Take over an operation whose owner is unreachable. Run it on DEVICE: a handoff is signed by the device that takes over. Needs a running homectl serve. The operation needs a fresh approval on DEVICE.",
+        ],
+        [
+          "sync",
+          "Per-device control sync: last sync, lease, backoff, refusals and conflicts. Without a running serve it shows the last saved state and says that backoff is unknown.",
         ],
         ["audit verify", "Check the audit journal hash chain and its anchor."],
         [

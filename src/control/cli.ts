@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { confirm } from "../cli/prompts";
 import { loadInventory } from "../inventory";
 import { writeSSHConfig } from "../operations";
+import { localApi } from "../peer/local-api";
 import { protect } from "../platform";
 import { HomectlError } from "../types";
 import {
@@ -22,8 +23,18 @@ import {
   renderExecution,
   renderOperationDetail,
   renderOperations,
+  renderSync,
   type Style,
+  type SyncView,
+  shortId,
 } from "./present";
+import {
+  deviceNames,
+  fenceOf,
+  loadReplicaFile,
+  overlayOf,
+  summarize,
+} from "./replicator";
 import { OPERATION_STATES, type OperationState, SCOPES } from "./types";
 
 export interface ControlCliInput {
@@ -39,6 +50,7 @@ export interface ControlCliInput {
     host?: string;
     state?: string;
     all?: boolean;
+    to?: string;
   };
   dryRun: boolean;
   json: boolean;
@@ -56,13 +68,46 @@ export interface ControlCliResult {
 // then opens the control plane (creating its private state directory).
 async function openPlane(input: ControlCliInput): Promise<ControlPlane> {
   await loadInventory(input.inventoryPath);
+  const stateDirectory = controlStateDirectory(input.inventoryPath);
   const plane = new ControlPlane({
     inventoryPath: input.inventoryPath,
     configPath: input.configPath,
-    stateDirectory: controlStateDirectory(input.inventoryPath),
+    stateDirectory,
+    // Without a running serve, the CLI reads the last saved replica. It applies
+    // the same fence, so a paired owner whose lease has lapsed cannot run here.
+    fence: async (operationId) => {
+      const data = await loadReplicaFile(stateDirectory);
+      if (!data) return undefined;
+      return fenceOf(data, data.self?.id ?? "", operationId, Date.now());
+    },
+    replicaOverlay: async (localIds) => {
+      const data = await loadReplicaFile(stateDirectory);
+      if (!data?.self) return { notes: {}, remote: [] };
+      const inventory = await loadInventory(input.inventoryPath);
+      return overlayOf(data, data.self.id, localIds, Date.now(), async (host) =>
+        Object.hasOwn(inventory.machines, host),
+      );
+    },
   });
   await plane.init();
   return plane;
+}
+
+// Calls the running serve through its local panel gate (launch token, cookie,
+// loopback Host and Origin checks). Returns undefined when no serve answers.
+async function liveRequest<T>(
+  input: ControlCliInput,
+  path: string,
+  value?: unknown,
+): Promise<T | undefined> {
+  try {
+    return await localApi<T>(input.inventoryPath, path, value);
+  } catch (error) {
+    // "Start homectl serve..." (no launch file) or a failed connection: no serve.
+    if (!(error instanceof HomectlError)) return undefined;
+    if (error.message.startsWith("Start homectl serve")) return undefined;
+    throw error;
+  }
 }
 
 function listOption(value: string | undefined, name: string): string[] {
@@ -262,6 +307,48 @@ export async function controlCommand(
       code,
     };
   }
+  if (group === "sync") {
+    if (input.positionals.length !== 1)
+      throw new HomectlError(2, "Usage: homectl control sync");
+    const live = await liveRequest<SyncView & { checkedAt?: string }>(
+      input,
+      "/api/control/sync",
+    );
+    const view: SyncView = live
+      ? { ...live, live: true }
+      : await savedSync(input.inventoryPath, now);
+    return {
+      value: view,
+      human: renderSync(view, { color, now }),
+      code: 0,
+    };
+  }
+  if (group === "handoff") {
+    if (!action || input.positionals.length !== 2 || !input.values.to)
+      throw new HomectlError(
+        2,
+        "Usage: homectl control handoff <operation-id> --to DEVICE",
+      );
+    if (input.dryRun)
+      return {
+        value: { wouldHandoff: { operationId: action, to: input.values.to } },
+        human: `Would hand ${action} to ${input.values.to}. No change made.`,
+        code: 0,
+      };
+    const result = await liveRequest<{
+      operationId: string;
+      next: string;
+    }>(input, "/api/control/handoff", {
+      operationId: action,
+      to: input.values.to,
+    });
+    if (!result) throw new HomectlError(5, "Start homectl serve first");
+    return {
+      value: result,
+      human: `Ownership of ${shortId(result.operationId)} moved to this device. ${result.next}`,
+      code: 0,
+    };
+  }
   if (group === "audit" && action === "verify") {
     if (input.positionals.length !== 2)
       throw new HomectlError(2, "Usage: homectl control audit verify");
@@ -285,8 +372,32 @@ export async function controlCommand(
   }
   throw new HomectlError(
     2,
-    "Use control client add|list|revoke, control ops, control show <id>, control execute <id> or control audit verify",
+    "Use control client add|list|revoke, control ops, control show <id>, control execute <id>, control handoff <id> --to DEVICE, control sync or control audit verify",
   );
+}
+
+// The last saved replica, for when no serve is running. Backoff is unknown
+// because it lives only in the running scheduler.
+async function savedSync(
+  inventoryPath: string,
+  now: number,
+): Promise<SyncView> {
+  const data = await loadReplicaFile(controlStateDirectory(inventoryPath));
+  if (!data)
+    return { live: false, peers: [], conflicts: [], blocked: {}, names: {} };
+  const status = summarize(data, now);
+  return {
+    live: false,
+    peers: status.peers.map((peer) => ({
+      name: peer.name,
+      lastSync: peer.lastSync,
+      leaseOk: peer.leaseOk,
+      refused: peer.refused,
+    })),
+    conflicts: status.conflicts,
+    names: deviceNames(data),
+    blocked: status.blocked,
+  };
 }
 
 async function addClient(
