@@ -4,7 +4,15 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium, expect } from "@playwright/test";
-import type { ClientBody, OpBody } from "../src/control/replicate";
+import { loadOrCreateDeviceKey } from "../src/control/device-key";
+import {
+  applyClient,
+  applyHandoff,
+  applyOp,
+  type ClientBody,
+  type OpBody,
+  sealRecord,
+} from "../src/control/replicate";
 import { saveInventory } from "../src/inventory";
 import { serve } from "../src/serve";
 import { keyReference } from "../src/session/keys";
@@ -193,7 +201,7 @@ try {
   const peerId = "11111111-1111-4111-8111-111111111111";
   running.hub.state.peers[peerId] = {
     id: peerId,
-    name: "Windows · demo",
+    name: "Legacy · demo",
     platform: "win32",
     address: "http://127.0.0.1:19999",
     key: "00".repeat(32),
@@ -234,21 +242,58 @@ try {
   await page.getByLabel("Device name").fill("Linux · demo");
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.getByRole("status")).toContainText("Changes saved");
-  // Replicated state (synthetic). Operations owned by the paired device are
-  // written into the in-memory replica in the shape a signed sync produces; the
-  // signed path itself is covered by tests/control-e2e.test.ts.
+  // Replicated state (synthetic), written through the real signing path. Each
+  // fixture device has its own Ed25519 key; every record is sealed by its
+  // device and applied through the same verification that sync uses.
   const rep = running.replicator;
   if (!rep) throw new Error("Control replicator is not running");
-  await rep.addPeer(peerId, "Windows · demo");
-  // Any exchange sets the last contact; an empty pull is enough for the fixture.
-  await rep.receive({ origins: {} }, peerId);
   const now = new Date().toISOString();
+  const windows = {
+    id: "22222222-2222-4222-8222-222222222222",
+    name: "Windows · demo",
+    key: await loadOrCreateDeviceKey(join(root, "keys-windows")),
+  };
+  const mac = {
+    id: "33333333-3333-4333-8333-333333333333",
+    name: "Mac · demo",
+    key: await loadOrCreateDeviceKey(join(root, "keys-mac")),
+  };
+  for (const device of [windows, mac]) {
+    await rep.addPeer(device.id, device.name, device.key.publicKey);
+    running.hub.state.peers[device.id] = {
+      id: device.id,
+      name: device.name,
+      platform: "win32",
+      address: "http://127.0.0.1:19998",
+      key: "00".repeat(32),
+      signingKey: device.key.publicKey,
+      permissions: {
+        sync: true,
+        diagnostics: false,
+        operations: [],
+        administer: false,
+      },
+      pairedAt: Date.now(),
+    };
+  }
+  // The legacy peer (paired before signing keys) cannot sign: it is excluded from the lease.
+  await rep.addPeer(peerId, "Legacy · demo");
+  // Any verified exchange sets the last contact; an empty pull is enough here.
+  await rep.receive({ origins: {} }, windows.id);
+  await rep.receive({ origins: {} }, mac.id);
+  const publish = (device: typeof windows, body: OpBody) => {
+    const outcome = applyOp(rep.replica, sealRecord(device, body), {
+      [device.id]: device.key.publicKey,
+    });
+    if (outcome !== "applied")
+      throw new Error(`Fixture record rejected: ${outcome}`);
+  };
   const remoteOp = (opId: string, state: string, approver?: string) =>
     ({
       kind: "op",
       opId,
-      owner: peerId,
-      planner: peerId,
+      owner: windows.id,
+      planner: windows.id,
       epoch: 1,
       seq: 1,
       state,
@@ -264,22 +309,58 @@ try {
     }) as OpBody;
   const approvedRemote = "aaaaaaaa-0000-4000-8000-00000000a001";
   const pendingRemote = "bbbbbbbb-0000-4000-8000-00000000b001";
-  rep.replica.clients["hermes-admin"] = {
+  const conflicted = "cccccccc-0000-4000-8000-00000000c001";
+  const hermesClient = {
     kind: "client",
     clientId: "hermes-admin",
-    device: peerId,
+    device: windows.id,
     name: "Hermes Admin",
     scopes: ["status:read", "inspect:read", "plan:create", "approve:decide"],
     hosts: ["agent-host", "voron-printer"],
     createdAt: now,
     revoked: false,
   } as ClientBody;
-  rep.replica.ops[approvedRemote] = remoteOp(
-    approvedRemote,
-    "approved",
-    "hermes-admin",
+  const clientOutcome = applyClient(
+    rep.replica,
+    sealRecord(windows, hermesClient),
+    { [windows.id]: windows.key.publicKey },
   );
-  rep.replica.ops[pendingRemote] = remoteOp(pendingRemote, "pending");
+  if (clientOutcome !== "applied")
+    throw new Error(`Fixture client rejected: ${clientOutcome}`);
+  publish(windows, remoteOp(approvedRemote, "approved", "hermes-admin"));
+  publish(windows, remoteOp(pendingRemote, "pending"));
+  publish(windows, remoteOp(conflicted, "pending"));
+  // Two handoffs at epoch 2 from the same owner, to this device and to the Mac:
+  // a real ownership conflict, applied through the handoff rules.
+  const handoffTo = (
+    device: { id: string; key: typeof windows.key },
+    toOwner: string,
+  ) =>
+    sealRecord(device, {
+      kind: "handoff",
+      opId: conflicted,
+      fromOwner: windows.id,
+      toOwner,
+      epoch: 2,
+      by: "operator",
+      at: now,
+    });
+  const handoffDevices = {
+    [rep.self.id]: rep.self.key.publicKey,
+    [mac.id]: mac.key.publicKey,
+  };
+  const first = applyHandoff(
+    rep.replica,
+    handoffTo(rep.self, rep.self.id),
+    handoffDevices,
+  );
+  const second = applyHandoff(
+    rep.replica,
+    handoffTo(mac, mac.id),
+    handoffDevices,
+  );
+  if (first !== "applied" || second !== "conflict")
+    throw new Error(`Fixture handoffs: ${first}, ${second}`);
   // This device forwards an approval; it shows as awaiting confirmation.
   await rep.decide(hermes, pendingRemote, "7c1e0d2a9b44f1c8", "approve");
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
@@ -287,7 +368,12 @@ try {
   await expect(
     page.getByRole("heading", { name: "Control sync", exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("No control conflicts.")).toBeVisible();
+  await expect(
+    page.getByText("excluded from lease: re-pair required"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Resolve…" }).first(),
+  ).toBeVisible();
   await page.screenshot({
     path: join(out, "control-sync.png"),
     fullPage: true,
@@ -296,7 +382,17 @@ try {
   await expect(
     page.getByText("Re-pair this device to enable control sync").first(),
   ).toBeVisible();
+  await expect(page.getByText("Signing key").first()).toBeVisible();
   await page.screenshot({ path: join(out, "devices.png"), fullPage: true });
+  // Approvals: the queue, an inspection run from the panel, and the client list.
+  await page.getByRole("link", { name: /^Approvals/ }).click();
+  await expect(page.getByText("Runs on Windows · demo").first()).toBeVisible();
+  await expect(page.getByText(/Takeover possible after/).first()).toBeVisible();
+  await expect(
+    page
+      .locator("tr", { hasText: "Runs on Windows · demo" })
+      .getByRole("button", { name: "Execute", exact: true }),
+  ).toHaveCount(0);
   // Approvals: the queue, an inspection run from the panel, and the client list.
   await page.getByRole("link", { name: /^Approvals/ }).click();
   await expect(page.getByText("Runs on Windows · demo").first()).toBeVisible();
@@ -356,6 +452,36 @@ try {
     fullPage: true,
   });
   await page.setViewportSize({ width: 1440, height: 960 });
+  // Cooperative handoff from the panel: offer the inspection to the Windows
+  // device (the only candidate with a signing key), then withdraw the offer.
+  await page
+    .locator("tr", { hasText: "hostname" })
+    .getByRole("button", { name: "Hand off…", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Hand off agent-host" }),
+  ).toBeVisible();
+  await page.getByLabel("Receiving device").selectOption({
+    label: "Windows · demo",
+  });
+  await page.getByRole("button", { name: "Continue…", exact: true }).click();
+  await expect(page.locator("#confirm-dialog")).toBeVisible();
+  await page.locator("#confirm-dialog button[value=confirm]").click();
+  await expect(
+    page.getByText("Offered to Windows · demo; not runnable here"),
+  ).toBeVisible();
+  await expect(page.locator("#control-live")).toContainText(
+    "Offered agent-host to Windows · demo",
+  );
+  await page.screenshot({
+    path: join(out, "handoff-offered.png"),
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Cancel offer", exact: true }).click();
+  await page.locator("#confirm-dialog button[value=confirm]").click();
+  await expect(page.locator("#control-live")).toContainText(
+    "Offer cancelled for agent-host",
+  );
   // Target the inspection row only: the approved SSH change in the same tab must not run.
   const inspectionRun = page
     .locator("tr", { hasText: "hostname" })
