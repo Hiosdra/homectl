@@ -31,3 +31,5 @@ table.ops th,table.ops td{padding:12px 12px}td.cell-command{min-width:200px}td.c
 @media(max-width:700px){td.cell-action{white-space:normal}}
 /* On desktop the workspace paints the rail column, so the rail itself is transparent and cannot stop short of the page bottom. */
 @media(min-width:701px){.rail{background:transparent;border-right:0}}
+/* Tighter mobile cards: fields sit closer together and labels hug their values. */
+@media(max-width:700px){.table-wrap tr{gap:6px 10px;padding:12px 14px}.table-wrap td[data-label]::before{margin-bottom:0;line-height:1.3}.table-wrap .cls,.table-wrap .fp{margin-top:2px}.table-wrap .impact{margin-top:2px}}

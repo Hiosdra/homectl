@@ -467,7 +467,7 @@ function auditCard(audit: ControlAudit | undefined) {
   const detail = !audit
     ? htmlEscape("Audit status is unavailable.")
     : ok
-      ? `${htmlEscape(`${audit.entries} entries · `)}<span class="nowrap">${htmlEscape(`head ${audit.head.slice(0, 4)}…${audit.head.slice(-4)}`)}</span>${htmlEscape(audit.checkedAt ? ` · checked ${localStamp(audit.checkedAt)}` : "")}`
+      ? `${htmlEscape(`${audit.entries} entries · `)}<span class="nowrap">${htmlEscape(`head ${audit.head.slice(0, 4)}…${audit.head.slice(-4)}`)}</span>${audit.checkedAt ? ` · checked <span class="nowrap">${htmlEscape(localStamp(audit.checkedAt))}</span>` : ""}`
       : htmlEscape(
           `${audit.error ?? "Check failed"}. Preserve the files and investigate.`,
         );
