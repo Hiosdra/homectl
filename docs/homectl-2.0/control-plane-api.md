@@ -232,6 +232,10 @@ Execution on a device that does not own an operation is refused with exit 3 and 
 Local operator routes (panel gate: launch token, session cookie, loopback Host, same-origin POST). They are not on the peer channel and not on MCP:
 
 - `GET /api/control/sync`: per-device sync status, backoff, lease, refusals, conflicts and blocked logs. Returns an error when control sync is not running.
-- `POST /api/control/handoff` with `{ "operationId": "...", "to": "<device>" }`: takeover by this device. `to` must name this device.
+- `POST /api/control/handoff` with `{ "operationId": "...", "to": "<device>" }`: on the owner, offers the operation to `to` (owner refuses to run it while the offer is open). On the named receiver, without `to`, accepts the pending offer. Otherwise it is a takeover of an unreachable owner, and `to` must name this device.
+- `POST /api/control/handoff` with `{ "operationId": "...", "cancel": true }`: withdraws an open offer that nobody has accepted.
+- `POST /api/control/resolve` with `{ "operationId": "...", "owner": "<device>" }`: proposes a winner for an ownership conflict. Without `owner`, the named winner's pending resolution is accepted here.
 
-CLI: `homectl control sync` (falls back to the saved state when serve is not running), `homectl control handoff <id> --to <device>` (needs a running serve). See [replicated-quickstart.md](replicated-quickstart.md).
+CLI: `homectl control sync` (falls back to the saved state when serve is not running), `homectl control handoff <id> --to <device>` and `--cancel`, `homectl control resolve <id> --owner <device>` (these need a running serve).
+
+Audit events for ownership changes: `handoff.offered`, `handoff.cancelled`, `handoff.accepted`, `handoff.resolution-proposed`, `handoff.resolution-accepted`. Each carries the operation id, host and a fixed reason; device identifiers appear only in the reason text. See [replicated-quickstart.md](replicated-quickstart.md).

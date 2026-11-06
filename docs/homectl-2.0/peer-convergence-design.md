@@ -148,12 +148,25 @@ Implemented on the same branch:
 - Device key files: on POSIX, a key that other users can read is refused at load. On Windows the ACL is set at creation and not re-checked on every load.
 - `--no-discovery` disables multicast discovery only; control sync with already-paired devices keeps running.
 
-Known gaps after stage (d):
-
-- Conflicting handoffs (two different takeovers at one epoch) leave the operation with no owner, and nothing can resolve them yet. The panel and CLI show the conflict and say so. A resolution rule needs a design decision (which device may choose, and how the choice is signed).
-- Owner-initiated handoff from a healthy owner is not implemented. The current rule (the receiving device signs) covers takeover of an unreachable owner only.
-- `--no-control-sync` was not added.
+Gaps after the first stage (d) run were closed in the final round (section 11).
 
 ## 10. Stage (e): replicated mode
 
 See [`replicated-quickstart.md`](replicated-quickstart.md) for setup, the lease and takeover rules, and troubleshooting ("why can't I execute?").
+
+## 11. Final round: two-signature handoff, resolution, legacy lease rule
+
+Decisions implemented (`src/control/replicate.ts`, `src/control/replicator.ts`, `src/serve.ts`):
+
+1. Cooperative handoff. Records: `offer` (signed by the owner, names the receiver, epoch = established + 1), `cancel` (signed by the owner), `accept` (signed by the receiver). An accept starts the new epoch through the same handoff record store as takeover. Rules: one open offer per operation; a cancel applies only to an offer with no accept; an accept applies only to an open, uncancelled offer at the epoch it names; the owner's fence refuses execution from the offer on. The receiver's accept takes the operation as pending, so it needs a fresh approval.
+2. Conflict resolution. Records: `resolve` (signed by a device involved in the conflict; the winner must be a candidate) and `resolve-accept` (signed by the winner). A resolution applies at epoch conflict + 1 only after the winner's accept. A second, different resolution at the same epoch produces a new conflict at that epoch, visible in the Sync view.
+3. Legacy peers. A peer without a signing key is excluded from the lease set and never counts as synced. Sync and `control sync` show it as excluded. Signing peers still block their peers when they stop syncing; that is unchanged and documented as the fail-closed rule.
+4. Pull application. Records that depend on another origin in the same pull (a resolution on a conflict, an accept on an offer) can arrive first. A rejected record is retried until a pass makes no progress, because the origin's checkpoint moves on and would never resend it. Without this, two devices could disagree after a pull.
+5. Audit. Offer, cancel, accept and both resolution steps are written to the local journal (`handoff.*` events, identifiers and fixed reasons only). Schema updated.
+6. Admin hardening. `/api/connect` and the session cookie compare in constant time. The POSIX key-mode error no longer prints the key path. `--no-control-sync` switches off the peer receiver, the scheduler and its timer together.
+
+Known residual risks, not closed by this round:
+
+- Cancel versus accept race: an accept signed before the receiver saw the cancel is applied on the receiver and rejected on the owner. The divergence is visible to an operator and needs a fresh approval to run, but it is not automatically reconciled.
+- An offline signing peer blocks execution on its peers after the lease window. This is the fail-closed rule from section 8, and it is likely to be felt in practice. Option for the owner: an explicit "leave the control plane" action, or a shorter, operator-set lease.
+- Owner-side route for the MCP view: remote operations show device names to MCP clients that hold the host. Names are not secrets, but they are device identifiers.
