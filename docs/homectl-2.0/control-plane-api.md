@@ -246,3 +246,7 @@ Follow-up additions: `peer.suspended` and `peer.resumed` audit events; `offerExp
 ## 14. OIDC for MCP clients (slice 4)
 
 Optional per client. Static `hct_` tokens are unchanged. `control oidc set --issuer URL --audience AUD [--jwks-url URL]`, `control oidc show`, `control oidc clear`; `control client add ... --oidc-subject SUB` or `--oidc-client-id CID` (without `--token-file` the client is OIDC only: no static token is issued). Audit events `auth.oidc` and `oidc.configured`. Design, verification rules and residual risks: [oidc-mcp-auth.md](oidc-mcp-auth.md).
+
+## 15. Proxmox guest actions (slice 5)
+
+`op: "proxmox-plan"` (MCP tool `homectl_proxmox_plan`, scope `plan:create`) takes typed fields: `host`, `kind` (`qemu` or `lxc`), `action` (list, status, config, start, stop, reboot, shutdown, clone, create, destroy), and the optional `vmid`, `template`, `name`, `storage`, `memory_mb`, `cores`, `disk_gb`, `bridge`, `address`, `cidr`, `gateway`, `timeout_s`. There is no argv and no node field. The node, VMID range, storages and templates come from the inventory provider for the host. The result is an ordinary plan. A change (start, stop, reboot, shutdown, clone, create, destroy) is refused unless the provider sets `vmid_range`. Destroy needs `name` and refuses any VMID in the provider's `protected_vmids`. The generic `plan` op refuses `qm` and `pct` argv. Design and capability review: [proxmox-adapters.md](proxmox-adapters.md).

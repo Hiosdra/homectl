@@ -1,6 +1,6 @@
 # Proxmox adapters (slice 5, basic QEMU and LXC lifecycle)
 
-Status: design, then implementation on this branch. Nothing here has been run against a real Proxmox node. Tests use recorded, synthetic fixtures (node `pve-test`, VMIDs 9001–9010). Scope is homelab #5 "D6B": basic QEMU and LXC lifecycle.
+Status: implemented on this branch (catalogue, planning, MCP tool, tests). **Nothing here has been run against a real Proxmox node**; the capability review below is unverified. Tests use a fake runner and synthetic fixtures (node `pve-test`, VMIDs 9001–9010). Scope is homelab #5 "D6B": basic QEMU and LXC lifecycle.
 
 ## Starting point (what exists, and what does not)
 
@@ -13,7 +13,7 @@ Status: design, then implementation on this branch. Nothing here has been run ag
 1. **Typed catalogue, exact argv.** Every operation is one entry in a fixed catalogue. Each entry builds one exact argv from validated fields. No free-form argv is accepted for `qm` or `pct`.
 2. **Same plan path.** Each catalogue entry becomes an ordinary plan (`op: "plan"` semantics): same fingerprint, approval, lease, fence and audit. Only the planning front door is new.
 3. **Separate MCP tool, `homectl_proxmox_plan`.** Chosen over typed actions on `homectl_plan` because (a) the agent never types argv for a guest, so the schema can carry the typed fields and nothing else; (b) the tool's own schema is smaller and cannot be confused with a free-form plan; (c) a separate request op (`proxmox-plan`) keeps the generic `plan` refusal for `qm`/`pct` intact. The tool still returns the plan summary in the same text style.
-4. **Facts from the inventory.** Provider entries (`providers.<name>`, type `proxmox`) already name the host and the node. This slice adds optional facts: `vmid_range` (default 100–999999999), `storages` (ids allowed for clone and LXC root disks) and `templates` (LXC template names allowed for create). Validation refuses any value outside these facts. Node names are never taken from the request.
+4. **Facts from the inventory.** Provider entries (`providers.<name>`, type `proxmox`) already name the host and the node. This slice adds optional facts: `vmid_range` (inspection defaults to 100–999999999; every change needs it set), `protected_vmids` (VMIDs that destroy always refuses), `storages` (ids allowed for clone and LXC root disks) and `templates` (LXC template names allowed for create). Validation refuses any value outside these facts. Node names are never taken from the request.
 5. **Access tier: `full`, catalogue path only.** A Proxmox host must be `full` (the existing provider rule), because `qm`/`pct` run through `sudo -n`. The control plane refuses full-access hosts and refuses `qm`/`pct` control in general. This slice relaxes exactly those two checks for plans that come from the catalogue, marked by a `catalogue` flag on the plan. The flag is carried into execution, so the exec policy accepts the same argv there. Generic `plan`, `exec` and every other host keep the old refusals.
 6. **Labels.** The impact text is the friendly label, for example `Start VM 9003 (sample-vm)`. The Approvals row already shows the impact above the exact argv, so the panel needs no change. A label that names a VM uses the name the planner supplies; the label is informational and the exact argv is what runs.
 
@@ -35,6 +35,8 @@ Argv shown after the optional `sudo -n` prefix (added when the SSH user is not `
 | destroy | qemu / lxc | `qm destroy VMID --purge` / `pct destroy VMID --purge` | destructive |
 
 Patterns: VMID is an integer in the provider's range. NAME is `^[a-z][a-z0-9-]{0,62}$`. TEMPLATE (LXC) is `^[A-Za-z0-9._+-]{1,128}\.tar\.(gz|xz|zst)$` and must be in `templates`. STORAGE must be in `storages`. BRIDGE is `^vmbr[0-9]{1,3}$`. Memory is 128–1048576 MB, cores 1–256, root disk 1–65536 GB. Static addresses are IPv4 with a CIDR of 1–32 and an IPv4 gateway. Clone never uses the template VMID as the target. `--unprivileged 1` is always set for LXC create: a privileged container is not in the catalogue.
+
+Range rules: `start`, `stop`, `reboot`, `shutdown`, `clone`, `create` and `destroy` refuse to plan unless the inventory sets `vmid_range` for the host, with the message `Set vmid_range for <host> in the inventory before planning VM changes`. `list`, `status` and `config` use the default range. `destroy` also needs the guest name, which appears in the label and impact (for example `Destroy VM 9007 (sample-old) and purge its disks`), and refuses any VMID listed in `protected_vmids`.
 
 Refused, always: any other `qm`/`pct` subcommand, any free-form argv for `qm`/`pct`, `--purge` on anything but destroy, node names from the request, and any argv that the existing screening already refuses (shells, interpreters, runtime sockets).
 
@@ -63,3 +65,14 @@ Tier mapping: inspect and mutation both need `sudo -n` on a `full` host in this 
 - No real Proxmox node was contacted. The recorded outputs are synthetic.
 - The existing QEMU cloud-init provisioner is unchanged.
 - No pvesh API-token variant, no VM console or snapshot actions, no LXC templates download.
+
+## Implementation
+
+- Catalogue and validation: `src/proxmox/catalogue.ts`. `buildProxmoxPlan` builds the exact argv and the friendly label; `catalogueClass` is the shape-only check the exec policy uses; `providerFacts` reads the provider entry.
+- Inventory facts: optional `vmid_range`, `protected_vmids`, `storages` and `templates` on a `providers` entry (schema and parser checked). Without `vmid_range`, inspection uses 100–999999999 and every change is refused. Without `storages` or `templates`, no storage or template is allowed for clone or create.
+- Planning: MCP tool `homectl_proxmox_plan` (op `proxmox-plan`, scope `plan:create`). The engine resolves the provider for the host, builds the argv, prefixes `sudo -n` unless the SSH user is `root`, and creates an ordinary plan through the shared `createPlan`. Fingerprint, approval, lease, fence and audit are unchanged.
+- Policy: a generic plan (`op: plan`, `homectl exec`) refuses every `qm` and `pct` argv. A catalogue plan is accepted only in one of the exact forms, and its `catalogue` flag is kept on the plan so execution and the fingerprint re-check apply the same rule.
+- Screening: the control plane refuses full-access hosts and `qm`/`pct` control in general. Catalogue plans are the one exception; shells, interpreters, runtime sockets and the other existing refusals still apply.
+- Labels: the friendly label is the operation's impact text, which the Approvals row already shows above the exact argv, so the panel is unchanged.
+- Found while testing: the re-check at execution rebuilt the plan without the catalogue flag and would have refused every catalogue operation as stale. It now rebuilds with the flag.
+- LXC create and LXC lifecycle are new in this slice and are unverified on a node. The existing QEMU cloud-init provisioner is unchanged.
