@@ -38,7 +38,10 @@ export class SyncLoop {
   ) {}
 
   // One round over every due peer. Returns what each attempted peer delivered.
-  async tick(): Promise<Record<string, Pull | { error: string } | "refused">> {
+  // `force` ignores the per-peer interval and backoff: used for manual rounds.
+  async tick(
+    options: { force?: boolean } = {},
+  ): Promise<Record<string, Pull | { error: string } | "refused">> {
     await this.rep.publish();
     const results: Record<string, Pull | { error: string } | "refused"> = {};
     for (const id of this.rep.peerIds()) {
@@ -49,7 +52,7 @@ export class SyncLoop {
         results[id] = "refused";
         continue;
       }
-      if (this.clock() < current.nextAttemptAt) continue;
+      if (!options.force && this.clock() < current.nextAttemptAt) continue;
       try {
         const response = await this.transport(id, this.rep.request());
         const pull = await this.rep.receive(response, id);

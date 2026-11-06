@@ -3,6 +3,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { ControlPlane, controlStateDirectory } from "./control/engine";
+import { ControlReplicator } from "./control/replicator";
+import { SYNC_INTERVAL_MS, SyncLoop } from "./control/sync-loop";
 import { loadInventory, parseInventory, saveInventory } from "./inventory";
 import { execute, writeSSHConfig } from "./operations";
 import { discovery } from "./peer/discovery";
@@ -95,6 +97,10 @@ export async function serve(options: ServeOptions) {
   const cookie = randomBytes(32).toString("base64url");
   let hub: Hub;
   let control: ControlPlane;
+  let replicator: ControlReplicator | undefined;
+  let syncLoop: SyncLoop | undefined;
+  let controlTimer: ReturnType<typeof setInterval> | undefined;
+  let refreshPeers: (() => Promise<void>) | undefined;
   let localPort = options.port ?? 7447;
   const js = await Bun.build({
     entrypoints: [resolve(import.meta.dir, "web/app.ts")],
@@ -158,8 +164,90 @@ export async function serve(options: ServeOptions) {
       configPath: options.configPath,
       stateDirectory: controlStateDirectory(options.inventoryPath),
       runner: options.controlRunner,
+      fence: (id) => replicator?.fence(id),
+      approverAuthorized: (id, host) =>
+        replicator?.approverAuthorized(id, host) ?? false,
+      remoteDecision: async (client, req) => {
+        if (!replicator)
+          throw new HomectlError(5, "Control sync is not running");
+        const sent = await replicator.decide(
+          client,
+          req.operationId,
+          req.fingerprint,
+          req.decision,
+        );
+        return {
+          operationId: req.operationId,
+          forwarded: sent,
+        };
+      },
     });
     await control.init();
+    if (!hub.device) throw new HomectlError(5, "Device key is not loaded");
+    replicator = await ControlReplicator.open({
+      plane: control,
+      stateDirectory: controlStateDirectory(options.inventoryPath),
+      self: { id: hub.state.id, name: hub.state.name, key: hub.device },
+    });
+    hub.controlExchange = async (_peer, payload) => {
+      const known = (payload as { known?: unknown } | null)?.known;
+      if (
+        !known ||
+        typeof known !== "object" ||
+        Array.isArray(known) ||
+        Object.values(known).some(
+          (c) =>
+            !c ||
+            typeof (c as { seq?: unknown }).seq !== "number" ||
+            typeof (c as { hash?: unknown }).hash !== "string",
+        )
+      )
+        throw new HomectlError(2, "Invalid control sync request");
+      if (!replicator) throw new HomectlError(5, "Control sync is not running");
+      return replicator.serve({
+        known: known as Record<string, { seq: number; hash: string }>,
+      });
+    };
+    const rep = replicator;
+    refreshPeers = async () => syncPeers();
+    // Paired peers that grant sync are the only control-sync peers. Forgotten
+    // peers are dropped; the replicator never contacts them again.
+    const syncPeers = async () => {
+      const wanted = new Set<string>();
+      for (const [id, peer] of Object.entries(hub.state.peers)) {
+        if (!peer.permissions.sync) continue;
+        wanted.add(id);
+        await rep.addPeer(id, peer.name, peer.signingKey);
+      }
+      for (const id of rep.peerIds()) if (!wanted.has(id)) rep.removePeer(id);
+    };
+    syncLoop = new SyncLoop(rep, async (peerId, request) => {
+      await syncPeers();
+      return (await hub.peerRequest(
+        peerId,
+        "control-exchange",
+        request,
+      )) as Awaited<ReturnType<ControlReplicator["serve"]>>;
+    });
+    await syncPeers();
+    const loop = syncLoop;
+    // The peer list is refreshed before every round, so the scheduler always
+    // sees the current pairings.
+    const round = async () => {
+      await syncPeers();
+      return loop.tick();
+    };
+    let ticking = false;
+    controlTimer = setInterval(() => {
+      if (ticking) return;
+      ticking = true;
+      void round()
+        .catch(() => undefined)
+        .finally(() => {
+          ticking = false;
+        });
+    }, SYNC_INTERVAL_MS);
+    controlTimer.unref?.();
   } catch (error) {
     peerServer.stop(true);
     throw error instanceof HomectlError
@@ -496,6 +584,7 @@ export async function serve(options: ServeOptions) {
     address,
     launch,
     stop: async () => {
+      if (controlTimer) clearInterval(controlTimer);
       discovered?.close();
       await hub.lock();
       localServer.stop(true);
@@ -503,5 +592,12 @@ export async function serve(options: ServeOptions) {
     },
     localServer,
     peerServer,
+    replicator,
+    // Runs one control-sync round now (tests and diagnostics).
+    syncNow: async () => {
+      if (!syncLoop) throw new HomectlError(5, "Control sync is not running");
+      await refreshPeers?.();
+      return syncLoop.tick({ force: true });
+    },
   };
 }
