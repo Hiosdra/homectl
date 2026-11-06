@@ -88,7 +88,67 @@ export interface DecisionBody {
   at: string;
 }
 
-export type Body = OpBody | HandoffBody | ClientBody | DecisionBody;
+// Cooperative handoff (ADR-0002 stage d): the owner offers, the receiver
+// accepts, and the owner may cancel an offer that was not accepted.
+export interface OfferBody {
+  kind: "offer";
+  offerId: string;
+  opId: string;
+  fromOwner: string; // the current owner; signs the offer
+  toOwner: string; // the device the offer names
+  epoch: number; // established epoch + 1 when offered
+  at: string;
+}
+
+export interface CancelBody {
+  kind: "cancel";
+  offerId: string;
+  opId: string;
+  fromOwner: string; // signs the cancel
+  at: string;
+}
+
+export interface AcceptBody {
+  kind: "accept";
+  offerId: string;
+  opId: string;
+  fromOwner: string;
+  toOwner: string; // signs the accept
+  epoch: number;
+  at: string;
+}
+
+// Conflict resolution (ADR-0002 stage d): a device involved in a conflict
+// proposes a winner; the winner's own accept makes it the owner at epoch + 1.
+export interface ResolveBody {
+  kind: "resolve";
+  resolutionId: string;
+  opId: string;
+  conflictEpoch: number;
+  winner: string;
+  resolver: string; // must equal the signer; a candidate of the conflict
+  at: string;
+}
+
+export interface ResolveAcceptBody {
+  kind: "resolve-accept";
+  resolutionId: string;
+  opId: string;
+  conflictEpoch: number;
+  winner: string; // must equal the signer
+  at: string;
+}
+
+export type Body =
+  | OpBody
+  | HandoffBody
+  | ClientBody
+  | DecisionBody
+  | OfferBody
+  | CancelBody
+  | AcceptBody
+  | ResolveBody
+  | ResolveAcceptBody;
 
 export interface Replica {
   version: 1;
@@ -100,6 +160,10 @@ export interface Replica {
   inbox: Record<string, DecisionBody>;
   seenDecisions: string[];
   conflicts: { opId: string; epoch: number; candidates: string[] }[];
+  offers: Record<string, OfferBody>;
+  offerStatus: Record<string, "open" | "accepted" | "cancelled">;
+  resolutions: Record<string, ResolveBody>;
+  resolutionStatus: Record<string, "pending" | "accepted">;
 }
 
 export function emptyReplica(): Replica {
@@ -111,6 +175,10 @@ export function emptyReplica(): Replica {
     inbox: {},
     seenDecisions: [],
     conflicts: [],
+    offers: {},
+    offerStatus: {},
+    resolutions: {},
+    resolutionStatus: {},
   };
 }
 
@@ -218,6 +286,12 @@ export function applyHandoff(
   // The takeover must come from the owner of the previous epoch.
   if (ownerAt(replica, body.opId, body.epoch - 1) !== body.fromOwner)
     return "rejected";
+  return recordHandoff(replica, body);
+}
+
+// Records an accepted handoff at its epoch. Two different owners at one epoch
+// become a conflict with no owner (fail closed).
+function recordHandoff(replica: Replica, body: HandoffBody): Outcome {
   const record = replica.handoffs[body.opId] ?? {};
   const existing = record[body.epoch] ?? [];
   if (existing.some((h) => h.toOwner === body.toOwner)) return "duplicate";
@@ -238,6 +312,166 @@ export function applyHandoff(
     return "conflict";
   }
   return "applied";
+}
+
+// The open offer for an operation, if any. At most one is open at a time.
+export function openOfferFor(
+  replica: Replica,
+  opId: string,
+): OfferBody | undefined {
+  return Object.values(replica.offers).find(
+    (o) => o.opId === opId && replica.offerStatus[o.offerId] === "open",
+  );
+}
+
+// The conflict that still leaves the operation without an owner, if any.
+export function openConflictFor(
+  replica: Replica,
+  opId: string,
+): { opId: string; epoch: number; candidates: string[] } | undefined {
+  const epoch = establishedEpoch(replica, opId);
+  if (ownerAt(replica, opId, epoch) !== undefined) return undefined;
+  return replica.conflicts.find((c) => c.opId === opId && c.epoch === epoch);
+}
+
+export function applyOffer(
+  replica: Replica,
+  envelope: Envelope<OfferBody>,
+  devices: Record<string, string>,
+): Outcome {
+  const body = openRecord(envelope, devices);
+  if (!body || body.kind !== "offer") return "rejected";
+  // Only the current owner offers its operation away.
+  if (envelope.signer !== body.fromOwner) return "rejected";
+  if (body.toOwner === body.fromOwner) return "rejected";
+  if (!replica.ops[body.opId]) return "rejected";
+  if (replica.offers[body.offerId]) return "duplicate";
+  const established = establishedEpoch(replica, body.opId);
+  if (ownerAt(replica, body.opId, established) !== body.fromOwner)
+    return "rejected";
+  if (body.epoch !== established + 1) return "stale";
+  if (openOfferFor(replica, body.opId)) return "rejected";
+  replica.offers[body.offerId] = body;
+  replica.offerStatus[body.offerId] = "open";
+  return "applied";
+}
+
+export function applyCancel(
+  replica: Replica,
+  envelope: Envelope<CancelBody>,
+  devices: Record<string, string>,
+): Outcome {
+  const body = openRecord(envelope, devices);
+  if (!body || body.kind !== "cancel") return "rejected";
+  const offer = replica.offers[body.offerId];
+  if (!offer || offer.opId !== body.opId) return "rejected";
+  if (envelope.signer !== offer.fromOwner || body.fromOwner !== offer.fromOwner)
+    return "rejected";
+  const status = replica.offerStatus[body.offerId];
+  // A cancel wins only over an offer nobody has accepted.
+  if (status === "cancelled") return "duplicate";
+  if (status !== "open") return "rejected";
+  replica.offerStatus[body.offerId] = "cancelled";
+  return "applied";
+}
+
+export function applyAccept(
+  replica: Replica,
+  envelope: Envelope<AcceptBody>,
+  devices: Record<string, string>,
+): Outcome {
+  const body = openRecord(envelope, devices);
+  if (!body || body.kind !== "accept") return "rejected";
+  const offer = replica.offers[body.offerId];
+  if (!offer || offer.opId !== body.opId) return "rejected";
+  // Only the device the offer names can accept it.
+  if (envelope.signer !== offer.toOwner) return "rejected";
+  if (
+    body.toOwner !== offer.toOwner ||
+    body.fromOwner !== offer.fromOwner ||
+    body.epoch !== offer.epoch
+  )
+    return "rejected";
+  const status = replica.offerStatus[body.offerId];
+  // A stale accept after a cancel is rejected: the owner cancelled first.
+  if (status === "cancelled") return "rejected";
+  if (status === "accepted") return "duplicate";
+  if (establishedEpoch(replica, body.opId) !== offer.epoch - 1) return "stale";
+  replica.offerStatus[body.offerId] = "accepted";
+  return recordHandoff(replica, {
+    kind: "handoff",
+    opId: body.opId,
+    fromOwner: body.fromOwner,
+    toOwner: body.toOwner,
+    epoch: body.epoch,
+    by: "accept",
+    at: body.at,
+  });
+}
+
+// A resolution is valid while the conflict epoch is the established one, or
+// the one right after it (a first resolution may already have applied).
+function resolutionOpen(replica: Replica, opId: string, epoch: number) {
+  const established = establishedEpoch(replica, opId);
+  return (
+    (established === epoch || established === epoch + 1) &&
+    replica.conflicts.some((c) => c.opId === opId && c.epoch === epoch)
+  );
+}
+
+export function applyResolve(
+  replica: Replica,
+  envelope: Envelope<ResolveBody>,
+  devices: Record<string, string>,
+): Outcome {
+  const body = openRecord(envelope, devices);
+  if (!body || body.kind !== "resolve") return "rejected";
+  if (envelope.signer !== body.resolver) return "rejected";
+  if (!replica.ops[body.opId]) return "rejected";
+  if (replica.resolutions[body.resolutionId]) return "duplicate";
+  // The conflict may arrive from another origin in the same pull: retry, not stale.
+  const conflict = replica.conflicts.find(
+    (c) => c.opId === body.opId && c.epoch === body.conflictEpoch,
+  );
+  if (!conflict) return "rejected";
+  if (!resolutionOpen(replica, body.opId, body.conflictEpoch)) return "stale";
+  // Only a device involved in the conflict may propose a winner among them.
+  if (
+    !conflict?.candidates.includes(body.resolver) ||
+    !conflict.candidates.includes(body.winner)
+  )
+    return "rejected";
+  replica.resolutions[body.resolutionId] = body;
+  replica.resolutionStatus[body.resolutionId] = "pending";
+  return "applied";
+}
+
+export function applyResolveAccept(
+  replica: Replica,
+  envelope: Envelope<ResolveAcceptBody>,
+  devices: Record<string, string>,
+): Outcome {
+  const body = openRecord(envelope, devices);
+  if (!body || body.kind !== "resolve-accept") return "rejected";
+  const proposal = replica.resolutions[body.resolutionId];
+  if (!proposal || proposal.opId !== body.opId) return "rejected";
+  // The named winner must sign its own accept.
+  if (envelope.signer !== proposal.winner || body.winner !== proposal.winner)
+    return "rejected";
+  if (replica.resolutionStatus[body.resolutionId] === "accepted")
+    return "duplicate";
+  if (!resolutionOpen(replica, body.opId, proposal.conflictEpoch))
+    return "stale";
+  replica.resolutionStatus[body.resolutionId] = "accepted";
+  return recordHandoff(replica, {
+    kind: "handoff",
+    opId: body.opId,
+    fromOwner: "resolution",
+    toOwner: body.winner,
+    epoch: proposal.conflictEpoch + 1,
+    by: "resolution",
+    at: body.at,
+  });
 }
 
 export function applyClient(

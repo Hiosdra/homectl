@@ -178,6 +178,8 @@ export interface OperationView {
   takeover?: TakeoverNote;
   delivery?: DeliveryNote; // this device's approval forwarded to the owner
   approvedBy?: string; // "<client> (via <device>)" when the owner recorded an approval
+  offerTo?: string; // this device offered the operation to the named device
+  offerFrom?: string; // the named owner offered the operation to this device
 }
 
 // Earliest takeover of an operation held by an unreachable owner (fencing rule).
@@ -216,7 +218,12 @@ export type AuditEventName =
   | "operation.executing"
   | "operation.succeeded"
   | "operation.failed"
-  | "operation.unknown";
+  | "operation.unknown"
+  | "handoff.offered"
+  | "handoff.cancelled"
+  | "handoff.accepted"
+  | "handoff.resolution-proposed"
+  | "handoff.resolution-accepted";
 
 // Audit payloads carry identifiers, fixed reason codes and redacted argv only.
 export interface AuditEvent {

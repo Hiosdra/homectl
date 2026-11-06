@@ -594,7 +594,12 @@
             "operation.executing",
             "operation.succeeded",
             "operation.failed",
-            "operation.unknown"
+            "operation.unknown",
+            "handoff.offered",
+            "handoff.cancelled",
+            "handoff.accepted",
+            "handoff.resolution-proposed",
+            "handoff.resolution-accepted"
           ]
         },
         "client": {

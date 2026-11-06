@@ -643,6 +643,11 @@ export class ControlPlane {
     return this.journal.verify();
   }
 
+  // Handoff and resolution events from the replicator (identifiers and fixed reasons only).
+  async recordHandoff(event: AuditEvent): Promise<void> {
+    await this.audit(event);
+  }
+
   private async audit(event: AuditEvent): Promise<void> {
     await this.store.withLock(() => this.journal.append(event));
   }
@@ -831,7 +836,8 @@ export class ControlPlane {
     return fingerprint(fresh) === op.fingerprint ? "ok" : "machine-changed";
   }
 
-  private async holdsOperation(operationId: string): Promise<boolean> {
+  // Local possession only: replicated views of other devices' operations do not count.
+  async holdsOperation(operationId: string): Promise<boolean> {
     const state = await this.store.loadState();
     return Object.hasOwn(state.operations, operationId);
   }
