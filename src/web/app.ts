@@ -102,6 +102,38 @@ type ControlOp = {
   finishedAt?: string;
   exitCode?: number;
   reason?: string;
+  remote?: boolean;
+  ownerName?: string;
+  runsOn?: string;
+  conflict?: boolean;
+  takeover?: { possible: boolean; reason?: string; at?: string };
+  delivery?: {
+    decision: "approve" | "reject";
+    status: "awaiting-confirmation" | "approved" | "rejected";
+    ownerName: string;
+    since: string;
+  };
+  approvedBy?: string;
+};
+type ControlSync = {
+  running: boolean;
+  peers: {
+    id: string;
+    name: string;
+    lastSync?: number;
+    leaseOk: boolean;
+    refused?: string;
+    failures?: number;
+    nextAttemptAt?: number;
+    lastError?: string;
+  }[];
+  blocked: Record<string, string>;
+  conflicts: { opId: string; epoch: number; candidates: string[] }[];
+  names?: Record<string, string>;
+};
+type ControlDevices = {
+  self: { id: string; name: string; fingerprint?: string };
+  peers: { id: string; name: string; fingerprint?: string; legacy: boolean }[];
 };
 type ControlAudit = {
   ok: boolean;
@@ -122,6 +154,8 @@ type ControlOverview = {
   operations: ControlOp[];
   clients: ControlClient[];
   audit: ControlAudit;
+  sync?: ControlSync;
+  devices?: ControlDevices;
 };
 type ControlExecution = {
   operation: ControlOp;
@@ -206,7 +240,10 @@ async function refresh() {
     ? String(state.pending.length)
     : "";
   control = await api<ControlOverview>("/api/control").catch(() => undefined);
-  const ready = (control?.operations ?? []).filter(isReady).length;
+  // Only operations this device can run count toward the badge.
+  const ready = (control?.operations ?? []).filter(
+    (op) => isReady(op) && !op.runsOn,
+  ).length;
   element("approval-count").textContent = ready ? String(ready) : "";
   render();
 }
@@ -236,6 +273,15 @@ function render() {
     focus.tabIndex = -1;
     focus.focus({ preventScroll: true });
   }
+}
+// Fingerprint of a peer's signing key, or the re-pair hint for a legacy peer.
+function signingNote(id: string) {
+  const device = control?.devices?.peers.find((p) => p.id === id);
+  if (!device)
+    return `<p class="inline-note">Signing key not reported yet.</p>`;
+  return device.legacy
+    ? `<p class="inline-note">Re-pair this device to enable control sync; it has no signing key.</p>`
+    : `<p class="inline-note">Signing key <code>${htmlEscape(device.fingerprint ?? "")}</code></p>`;
 }
 function permissionPanel(id: string) {
   const p = state.peers.find((p) => p.id === id);
@@ -287,7 +333,7 @@ function peers() {
       "Equal peers. Syncing entries and running operations have separate permissions.",
       button("pair-open", "Start pairing", "", "primary"),
     ) +
-    `${p ? `<section class="panel"><h2>${p.sas ? "Verify this device" : "Pairing window open"}</h2><p class="muted">Expires at ${new Date(p.expiresAt).toLocaleTimeString("en-GB")}.</p>${p.code ? `<p>On the other computer, select this device and enter the code:</p><div class="pair-code">${htmlEscape(p.code)}</div><p class="inline-note">Do not send this code in chat or save it in logs.</p>` : ""}${p.sas ? `<p>Compare this verification phrase on both computers. Device: <strong>${htmlEscape(p.remote?.name)}</strong>.</p><div class="verification">${htmlEscape(p.sas)}</div><p>${p.localConfirmed ? "Local confirmation saved." : "Confirm only if both devices show the same phrase."} ${p.remoteConfirmed ? "The other device has confirmed." : "Waiting for the other device."}</p>${!p.localConfirmed ? button("pair-confirm", "The phrases match", "", "primary") : button("pair-poll", "Check confirmation")}` : ""}<div class="form-actions">${button("pair-cancel", "Close pairing")}</div></section>` : ""}<section class="section split"><div class="panel"><h2>Devices on your LAN</h2>${state.discovery.devices.length ? state.discovery.devices.map((d) => `<div class="peer-row"><div><strong>Device ready to pair</strong><p>${htmlEscape(d.address)}</p></div>${button("discovered", "Select", d.address)}</div>`).join("") : `<p class="muted">No devices with an open pairing window found.</p><p class="inline-note">${htmlEscape(state.discovery.error ?? "Open pairing on the other computer, or enter its IP address.")}</p>`}</div><div class="panel"><h2>Join a pairing session</h2><form id="pair-form" class="stack"><div><label for="peer-address">Other computer’s address</label><input id="peer-address" name="address" placeholder="http://192.168.1.10:7448" required></div><div><label for="pair-code">One-time code</label><input id="pair-code" name="code" inputmode="numeric" placeholder="1234-5678" autocomplete="off" required></div><button class="primary">Connect and compare phrases</button></form></div></section><section class="section"><h2>Paired devices</h2>${state.peers.length ? `<div class="panel peer-list">${state.peers.map((peer) => `<div class="peer-row"><div><strong>${htmlEscape(peer.name)}</strong> <span class="badge">${htmlEscape(peer.platform)}</span><p>${htmlEscape(peer.address)}</p><p>${peer.permissions.sync ? "Sync" : "Sync disabled"} · ${peer.permissions.diagnostics ? "Diagnostics" : "Diagnostics disabled"} · operations: ${peer.permissions.operations.length}</p></div><div class="actions">${button("sync-start", "Sync", peer.id)}${button("peer-status", "Status", peer.id)}${button("peer-permissions", "Permissions", peer.id, "quiet")}${button("peer-forget", "Remove trust", peer.id, "quiet danger")}</div></div>`).join("")}</div>` : `<div class="empty"><h2>No paired devices yet</h2><p>Open pairing on one computer and enter its code on the other. Confirm on both devices to establish mutual trust.</p></div>`}</section>` +
+    `${p ? `<section class="panel"><h2>${p.sas ? "Verify this device" : "Pairing window open"}</h2><p class="muted">Expires at ${new Date(p.expiresAt).toLocaleTimeString("en-GB")}.</p>${p.code ? `<p>On the other computer, select this device and enter the code:</p><div class="pair-code">${htmlEscape(p.code)}</div><p class="inline-note">Do not send this code in chat or save it in logs.</p>` : ""}${p.sas ? `<p>Compare this verification phrase on both computers. Device: <strong>${htmlEscape(p.remote?.name)}</strong>.</p><div class="verification">${htmlEscape(p.sas)}</div><p>${p.localConfirmed ? "Local confirmation saved." : "Confirm only if both devices show the same phrase."} ${p.remoteConfirmed ? "The other device has confirmed." : "Waiting for the other device."}</p>${!p.localConfirmed ? button("pair-confirm", "The phrases match", "", "primary") : button("pair-poll", "Check confirmation")}` : ""}<div class="form-actions">${button("pair-cancel", "Close pairing")}</div></section>` : ""}<section class="section split"><div class="panel"><h2>Devices on your LAN</h2>${state.discovery.devices.length ? state.discovery.devices.map((d) => `<div class="peer-row"><div><strong>Device ready to pair</strong><p>${htmlEscape(d.address)}</p></div>${button("discovered", "Select", d.address)}</div>`).join("") : `<p class="muted">No devices with an open pairing window found.</p><p class="inline-note">${htmlEscape(state.discovery.error ?? "Open pairing on the other computer, or enter its IP address.")}</p>`}</div><div class="panel"><h2>Join a pairing session</h2><form id="pair-form" class="stack"><div><label for="peer-address">Other computer’s address</label><input id="peer-address" name="address" placeholder="http://192.168.1.10:7448" required></div><div><label for="pair-code">One-time code</label><input id="pair-code" name="code" inputmode="numeric" placeholder="1234-5678" autocomplete="off" required></div><button class="primary">Connect and compare phrases</button></form></div></section><section class="section"><h2>Paired devices</h2>${control?.devices ? `<p class="inline-note">This device signs control records with <code>${htmlEscape(control.devices.self.fingerprint ?? "no key yet")}</code>.</p>` : ""}${state.peers.length ? `<div class="panel peer-list">${state.peers.map((peer) => `<div class="peer-row"><div><strong>${htmlEscape(peer.name)}</strong> <span class="badge">${htmlEscape(peer.platform)}</span><p>${htmlEscape(peer.address)}</p>${signingNote(peer.id)}<p>${peer.permissions.sync ? "Sync" : "Sync disabled"} · ${peer.permissions.diagnostics ? "Diagnostics" : "Diagnostics disabled"} · operations: ${peer.permissions.operations.length}</p></div><div class="actions">${button("sync-start", "Sync", peer.id)}${button("peer-status", "Status", peer.id)}${button("peer-permissions", "Permissions", peer.id, "quiet")}${button("peer-forget", "Remove trust", peer.id, "quiet danger")}</div></div>`).join("")}</div>` : `<div class="empty"><h2>No paired devices yet</h2><p>Open pairing on one computer and enter its code on the other. Confirm on both devices to establish mutual trust.</p></div>`}</section>` +
     output()
   );
 }
@@ -303,7 +349,50 @@ function sync() {
       ? `<section class="panel"><h2>Awaiting your review</h2>${state.pending.map((p) => `<div class="peer-row"><div><strong>${htmlEscape(p.remoteName)}</strong><p>A peer is proposing changes. Open the comparison before applying them.</p></div>${button("sync-preview", "Review", p.id)}</div>`).join("")}</section>`
       : `<div class="empty"><h2>You decide what changes</h2><p>Choose a paired device to compare entries. Unlock both vaults to sync SSH credentials.</p>${button("navigate-peers", "Choose a device", "", "primary")}</div>`;
   }
-  return s + output();
+  return s + controlSyncSection() + output();
+}
+// Continuous control sync: approvals and executions travel on it. Shows each
+// device's last sync, backoff, lease and refusals, plus control conflicts.
+function controlSyncSection() {
+  if (!control)
+    return `<section class="panel section"><h2>Control sync</h2><p class="muted">Control status is unavailable right now. Refresh to try again.</p></section>`;
+  const sync = control.sync;
+  if (!sync?.running)
+    return `<section class="panel section"><h2>Control sync</h2><p class="muted">Control sync runs while homectl serve is running on this device.</p></section>`;
+  const now = Date.now();
+  const rows = sync.peers.length
+    ? `<div class="table-wrap"><table><thead><tr><th>Device</th><th>Last sync</th><th>Lease</th><th>Backoff</th><th>Status</th></tr></thead><tbody>${sync.peers
+        .map((p) => {
+          const retry =
+            p.nextAttemptAt !== undefined &&
+            (p.failures ?? 0) > 0 &&
+            p.nextAttemptAt > now
+              ? `retry ${localStamp(new Date(p.nextAttemptAt).toISOString())}`
+              : "none";
+          const status = p.refused
+            ? `<span class="badge warning">${htmlEscape(p.refused)}</span>`
+            : p.lastError
+              ? `<span class="danger">${htmlEscape(p.lastError)}</span>`
+              : `<span class="badge success">ok</span>`;
+          return `<tr><td data-label="Device"><strong>${htmlEscape(p.name)}</strong></td><td data-label="Last sync">${p.lastSync === undefined ? `<span class="muted">never</span>` : htmlEscape(relative(new Date(p.lastSync).toISOString()))}</td><td data-label="Lease">${p.leaseOk ? "ok" : `<span class="danger">expired: waiting for sync</span>`}</td><td data-label="Backoff">${htmlEscape(retry)}</td><td data-label="Status">${status}</td></tr>`;
+        })
+        .join("")}</tbody></table></div>`
+    : `<p class="muted">No paired devices take part in control sync yet.</p>`;
+  const conflicts = sync.conflicts.length
+    ? `<h3 class="section">Control conflicts</h3><p class="inline-note">Two different handoffs were recorded for the same operation at the same epoch. Nobody can run these operations until an operator resolves them. Resolution is not available in this panel yet.</p><ul>${sync.conflicts
+        .map(
+          (c) =>
+            `<li><code>${htmlEscape(c.opId.slice(0, 8))}</code> at epoch ${c.epoch}: ${htmlEscape(c.candidates.map((id) => sync.names?.[id] ?? id).join(", "))}</li>`,
+        )
+        .join("")}</ul>`
+    : `<p class="inline-note">No control conflicts.</p>`;
+  const blocked = Object.entries(sync.blocked)
+    .map(
+      ([origin, reason]) =>
+        `<p class="inline-note">Log from ${htmlEscape(sync.names?.[origin] ?? origin)} is blocked: ${htmlEscape(reason)}</p>`,
+    )
+    .join("");
+  return `<section class="panel section"><h2>Control sync</h2><p class="muted">Approvals and executions travel on this sync. It runs every 15 seconds while homectl serve runs.</p>${rows}${conflicts}${blocked}</section>`;
 }
 function access() {
   return (
@@ -415,7 +504,26 @@ function shellArgv(argv: string[]) {
 function shortHash(value: string) {
   return `${value.slice(0, 8)}…${value.slice(-4)}`;
 }
+// Takeover is shown with its earliest time, or the reason it is unavailable.
+function takeoverText(op: ControlOp) {
+  const t = op.takeover;
+  if (!t) return "";
+  if (t.possible) return "Takeover available";
+  if (t.at) return `Takeover possible after ${localStamp(t.at)}`;
+  return t.reason ?? "Takeover unavailable";
+}
 function opAction(op: ControlOp) {
+  // An operation that another device owns runs there; it is never executed here.
+  if (op.runsOn) {
+    const takeover = op.takeover?.possible
+      ? button("control-takeover", "Take over here", op.operationId, "quiet")
+      : op.takeover
+        ? `<span class="muted">${htmlEscape(takeoverText(op))}</span>`
+        : "";
+    return `<span class="muted">Runs on ${htmlEscape(op.runsOn)}</span>${takeover ? `<div class="sub">${takeover}</div>` : ""}`;
+  }
+  if (op.conflict)
+    return `<span class="muted">${htmlEscape(takeoverText(op))}</span>`;
   // Inspection is the primary action; changes get a distinct warning outline.
   if (isReady(op))
     return button(
@@ -449,14 +557,23 @@ function opRow(op: ControlOp) {
     op.state === "approved" && op.approval
       ? op.approval.expiresAt
       : op.expiresAt;
-  const when = open ? relative(expiresAt, true) : relative(op.updatedAt);
+  // Remote operations have no local expiry; they show when they last changed.
+  const when =
+    open && !op.remote ? relative(expiresAt, true) : relative(op.updatedAt);
   const approver = op.approval
     ? htmlEscape(op.approval.approver)
-    : op.needsApproval
-      ? `<span class="muted">awaiting approval</span>`
-      : `<span class="muted">not needed</span>`;
+    : op.approvedBy
+      ? htmlEscape(op.approvedBy)
+      : op.delivery?.status === "awaiting-confirmation"
+        ? `<span class="muted">forwarded, awaiting confirmation</span>`
+        : op.needsApproval
+          ? `<span class="muted">awaiting approval</span>`
+          : `<span class="muted">not needed</span>`;
   const actionLabel = bucketOf(op) === "history" ? "Result" : "Action";
-  return `<tr><td data-label="State"><div>${stateBadge(label)}</div><div class="cls">${classBadge(op)}</div></td><td data-label="Host" class="nowrap"><strong>${htmlEscape(op.host)}</strong></td><td data-label="Command" class="cell-command"><code class="cmd">${htmlEscape(shellArgv(op.argv))}</code><p class="impact">${htmlEscape(op.impact || "—")}</p><span class="fp" title="${htmlEscape(op.fingerprint)}">fingerprint ${htmlEscape(shortHash(op.fingerprint))}</span></td><td data-label="Requested → approved" class="cell-people"><span class="person">${htmlEscape(op.issuer)}</span><span class="sub">→ ${approver}</span></td><td data-label="When"><time datetime="${htmlEscape(op.updatedAt)}" title="${htmlEscape(localStamp(op.updatedAt))}">${htmlEscape(when)}</time></td><td data-label="${actionLabel}" class="cell-action">${opAction(op)}</td></tr>`;
+  const owner = op.ownerName
+    ? `<span class="sub">owner ${htmlEscape(op.ownerName)}</span>`
+    : "";
+  return `<tr><td data-label="State"><div>${stateBadge(label)}</div><div class="cls">${classBadge(op)}</div></td><td data-label="Host" class="nowrap"><strong>${htmlEscape(op.host)}</strong>${owner}</td><td data-label="Command" class="cell-command"><code class="cmd">${htmlEscape(shellArgv(op.argv))}</code><p class="impact">${htmlEscape(op.impact || "—")}</p><span class="fp" title="${htmlEscape(op.fingerprint)}">fingerprint ${htmlEscape(shortHash(op.fingerprint))}</span></td><td data-label="Requested → approved" class="cell-people"><span class="person">${htmlEscape(op.issuer)}</span><span class="sub">→ ${approver}</span></td><td data-label="When"><time datetime="${htmlEscape(op.updatedAt)}" title="${htmlEscape(localStamp(op.updatedAt))}">${htmlEscape(when)}</time></td><td data-label="${actionLabel}" class="cell-action">${opAction(op)}</td></tr>`;
 }
 function opTable(ops: ControlOp[]) {
   return `<div class="table-wrap"><table class="ops"><thead><tr><th>State</th><th>Host</th><th>Command</th><th>Requested → approved</th><th>When</th><th>Action</th></tr></thead><tbody>${ops.map(opRow).join("")}</tbody></table></div>`;
@@ -501,7 +618,7 @@ function queueSection(ops: ControlOp[]) {
     .join("");
   const note = {
     ready:
-      "Inspection plans and approved changes run from here. Every run is audited and single-use.",
+      "Inspection plans and approved changes run from here. Operations marked Runs on belong to another device and run there. Every run is audited and single-use.",
     needs:
       "Approval comes from another authorized client's own MCP session. This panel never approves on its behalf.",
     history: "",
@@ -834,6 +951,25 @@ document.addEventListener("click", (event) => {
           `Operation on ${response.operation.host} finished: ${label}${exit !== undefined ? `, exit ${exit}` : ""}. Result shown below.`,
         );
         focusResult();
+        return;
+      }
+      case "control-takeover": {
+        const op = control?.operations.find((o) => o.operationId === id);
+        if (!op?.takeover?.possible) return;
+        const owner = op.ownerName ?? "the current owner";
+        if (
+          !(await confirm(
+            `Take over ${op.host} on this device?`,
+            `This device becomes the owner from ${owner}. The operation then needs a fresh approval here before it can run, and ${owner} is refused if it returns.`,
+            `<dl><dt>Host</dt><dd>${htmlEscape(op.host)}</dd><dt>Command</dt><dd><code>${htmlEscape(shellArgv(op.argv))}</code></dd><dt>Current owner</dt><dd>${htmlEscape(owner)}</dd></dl>`,
+          ))
+        )
+          return;
+        await api("/api/control/handoff", { operationId: id });
+        await refresh();
+        announce(
+          `Took over ${op.host}. It needs a fresh approval on this device.`,
+        );
         return;
       }
       case "control-result-close":
