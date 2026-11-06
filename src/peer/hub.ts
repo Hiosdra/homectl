@@ -9,6 +9,8 @@ import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { type DeviceKey, loadOrCreateDeviceKey } from "../control/device-key";
+import { controlStateDirectory } from "../control/engine";
 import { loadInventory, parseInventory, saveInventory } from "../inventory";
 import { execute, writeSSHConfig } from "../operations";
 import { privateDirectory, protect } from "../platform";
@@ -122,6 +124,7 @@ export class Hub {
   pair?: Pair;
   pending = new Map<string, Pending>();
   operations = new Map<string, Operation>();
+  device?: DeviceKey;
   private challenges = new Map<
     string,
     {
@@ -142,6 +145,9 @@ export class Hub {
     this.state = await loadState(peerPath(this.inventoryPath));
     const inv = await loadInventory(this.inventoryPath);
     this.vault = new Vault(sessionConfig(inv, this.inventoryPath).database);
+    this.device = await loadOrCreateDeviceKey(
+      controlStateDirectory(this.inventoryPath),
+    );
     return this;
   }
   serial<T>(fn: () => Promise<T>): Promise<T> {
@@ -153,7 +159,7 @@ export class Hub {
     await saveState(peerPath(this.inventoryPath), this.state);
   }
   localIdentity() {
-    return identity(this.state);
+    return { ...identity(this.state), signingKey: this.device?.publicKey };
   }
   async status() {
     if (this.pair && this.pair.expiresAt <= Date.now()) {

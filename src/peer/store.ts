@@ -18,6 +18,8 @@ export type Peer = {
   key: string;
   permissions: Permissions;
   pairedAt: number;
+  // Base64 SPKI of the peer's device signing key (ADR-0002).
+  signingKey?: string;
 };
 export type Version = { clock: Record<string, number>; value: unknown | null };
 export type PeerState = {
