@@ -4,6 +4,7 @@
 // contents or secret material.
 import { randomUUID } from "node:crypto";
 import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { controlStateDirectory } from "../control/engine";
 import { AuditJournal } from "../control/journal";
@@ -13,13 +14,29 @@ import { HomectlError } from "../types";
 export const RUN_FILE = "run.json";
 export const LAUNCH_FILE = "panel.json";
 
+// A running instance rewrites its heartbeat this often. A record whose heartbeat
+// is younger than STALE_AFTER_MS belongs to a live instance. Pid numbers are not
+// usable here: every container's main process is pid 1.
+export const HEARTBEAT_MS = 30_000;
+export const STALE_AFTER_MS = 90_000;
+
+// Identifies this process start. A restarted container gets a new id.
+export const INSTANCE_ID = randomUUID();
+const STARTED_AT = new Date().toISOString();
+
 export type StartupStatus = {
   status: "clean" | "recovered";
   warnings: string[];
 };
 
 type RunRecord =
-  | { state: "running"; pid: number; startedAt: string }
+  | {
+      state: "running";
+      startedAt: string;
+      instanceId?: string;
+      hostname?: string;
+      heartbeatAt?: string;
+    }
   | { state: "stopped" };
 
 export function serveDirectoryOf(inventoryPath: string): string {
@@ -31,6 +48,7 @@ function isMissing(error: unknown): boolean {
 }
 
 // True when the process exists. EPERM means it exists under another user.
+// Used only for the control-plane lock, which is written by one process.
 export function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -67,16 +85,17 @@ async function readRunRecord(serveDir: string): Promise<RunRecord | undefined> {
     data = null;
   }
   if (data?.state === "stopped") return { state: "stopped" };
-  if (
-    data?.state === "running" &&
-    Number.isInteger(data.pid) &&
-    typeof data.startedAt === "string"
-  )
+  if (data?.state === "running" && typeof data.startedAt === "string") {
+    const optional = (value: unknown) =>
+      typeof value === "string" ? value : undefined;
     return {
       state: "running",
-      pid: data.pid as number,
       startedAt: data.startedAt,
+      instanceId: optional(data.instanceId),
+      hostname: optional(data.hostname),
+      heartbeatAt: optional(data.heartbeatAt),
     };
+  }
   throw new HomectlError(
     5,
     "Run state is unreadable; refusing to start. Restore the volume from backup.",
@@ -119,21 +138,30 @@ async function exists(path: string): Promise<boolean> {
 export async function recoverStartup(options: {
   inventoryPath: string;
   isAlive?: (pid: number) => boolean;
+  now?: () => number;
 }): Promise<StartupStatus> {
   const isAlive = options.isAlive ?? pidAlive;
+  const now = options.now ?? Date.now;
   const serveDir = serveDirectoryOf(options.inventoryPath);
   const controlDir = controlStateDirectory(options.inventoryPath);
   const warnings: string[] = [];
 
-  // A run marker that still says "running" means the previous process did not
-  // reach its shutdown path. A live pid other than ours is a second instance.
+  // A "running" record from another instance is a live duplicate while its
+  // heartbeat is fresh. An old heartbeat, or none, means the previous instance
+  // did not reach its shutdown path: start degraded, without repair.
   const run = await readRunRecord(serveDir);
-  if (run?.state === "running") {
-    if (run.pid !== process.pid && isAlive(run.pid))
-      throw new HomectlError(
-        3,
-        "Another homectl process is using this volume; stop it before starting this container",
-      );
+  if (run?.state === "running" && run.instanceId !== INSTANCE_ID) {
+    const heartbeat = run.heartbeatAt
+      ? Date.parse(run.heartbeatAt)
+      : Number.NaN;
+    if (Number.isFinite(heartbeat)) {
+      const ageMs = Math.max(0, now() - heartbeat);
+      if (ageMs < STALE_AFTER_MS)
+        throw new HomectlError(
+          3,
+          `another homectl instance is using this data directory (host ${run.hostname ?? "unknown"}, heartbeat ${Math.round(ageMs / 1000)} s ago)`,
+        );
+    }
     warnings.push(
       `previous run did not stop cleanly (started ${run.startedAt}); starting without repair`,
     );
@@ -179,7 +207,7 @@ export async function recoverStartup(options: {
 
 async function writeRunRecord(
   inventoryPath: string,
-  record: RunRecord,
+  record: Record<string, unknown> & { state: "running" | "stopped" },
   version: string,
 ): Promise<void> {
   const serveDir = serveDirectoryOf(inventoryPath);
@@ -194,14 +222,21 @@ async function writeRunRecord(
   await rename(temp, path);
 }
 
-// Written once the listeners are up: "running" means this process serves.
+// Written when the listeners come up, then every HEARTBEAT_MS by serve. The
+// same call refreshes the heartbeat, so it carries no state change of its own.
 export async function markRunning(
   inventoryPath: string,
   version: string,
 ): Promise<void> {
   await writeRunRecord(
     inventoryPath,
-    { state: "running", pid: process.pid, startedAt: new Date().toISOString() },
+    {
+      state: "running",
+      instanceId: INSTANCE_ID,
+      hostname: hostname(),
+      startedAt: STARTED_AT,
+      heartbeatAt: new Date().toISOString(),
+    },
     version,
   );
 }

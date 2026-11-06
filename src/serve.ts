@@ -3,7 +3,12 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { healthBody, VERSION } from "./container/health";
-import { LAUNCH_FILE, markRunning, markStopped } from "./container/recovery";
+import {
+  HEARTBEAT_MS,
+  LAUNCH_FILE,
+  markRunning,
+  markStopped,
+} from "./container/recovery";
 import { fingerprintOf } from "./control/device-key";
 import { ControlPlane, controlStateDirectory } from "./control/engine";
 import { ControlReplicator } from "./control/replicator";
@@ -30,6 +35,10 @@ export type ServeOptions = {
   controlSync?: boolean;
   // Test seam: replaces process execution for control-plane runs only.
   controlRunner?: Runner;
+  // Test seams: the sync interval, and a replacement for one scheduled round so
+  // a test can hold a round in flight.
+  syncIntervalMs?: number;
+  syncRound?: () => Promise<unknown>;
   // Container mode (docs/homectl-2.0/container-peer.md). "recovered" means the
   // startup checks repaired or flagged something, so health reports degraded.
   container?: { recovered: boolean };
@@ -138,6 +147,8 @@ export async function serve(options: ServeOptions) {
   let refreshPeers: (() => Promise<void>) | undefined;
   // The round in progress, awaited on shutdown. Stopping is one-way.
   let inFlight: Promise<unknown> | undefined;
+  let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  let heartbeatWrite: Promise<void> | undefined;
   let stopping = false;
   let stopped = false;
   const degradedNow = () =>
@@ -292,12 +303,12 @@ export async function serve(options: ServeOptions) {
       controlTimer = setInterval(() => {
         if (ticking) return;
         ticking = true;
-        inFlight = round()
+        inFlight = (options.syncRound ? options.syncRound() : round())
           .catch(() => undefined)
           .finally(() => {
             ticking = false;
           });
-      }, SYNC_INTERVAL_MS);
+      }, options.syncIntervalMs ?? SYNC_INTERVAL_MS);
       controlTimer.unref?.();
     }
   } catch (error) {
@@ -834,6 +845,13 @@ export async function serve(options: ServeOptions) {
   if (options.container) {
     try {
       await markRunning(options.inventoryPath, VERSION);
+      // Heartbeat: other instances on this volume refuse while it is fresh.
+      heartbeatTimer = setInterval(() => {
+        heartbeatWrite = markRunning(options.inventoryPath, VERSION).catch(
+          () => undefined,
+        );
+      }, HEARTBEAT_MS);
+      heartbeatTimer.unref?.();
     } catch (error) {
       localServer.stop(true);
       peerServer.stop(true);
@@ -857,6 +875,7 @@ export async function serve(options: ServeOptions) {
       stopped = true;
       stopping = true;
       if (controlTimer) clearInterval(controlTimer);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
       discovered?.close();
       // Stop sync: let an in-flight round finish, up to a bound.
       if (inFlight) await settle(inFlight, SHUTDOWN_WAIT_MS);
@@ -865,6 +884,8 @@ export async function serve(options: ServeOptions) {
       peerServer.stop(true);
       // The launch token dies with the server; the CLI then reports "not running".
       await rm(launch, { force: true }).catch(() => undefined);
+      // A heartbeat write already in flight must land before "stopped" is written.
+      if (heartbeatWrite) await heartbeatWrite;
       if (options.container)
         await markStopped(options.inventoryPath, VERSION).catch(
           () => undefined,
