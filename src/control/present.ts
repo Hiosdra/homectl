@@ -214,9 +214,15 @@ export function renderClients(
   const ordered = [...clients].sort(
     (a, b) => Number(a.revoked) - Number(b.revoked) || a.id.localeCompare(b.id),
   );
-  const headers = ["ID", "NAME", "SCOPES", "HOSTS", "CREATED", "STATUS"].map(
-    (h) => paint(h, "bold", options.color),
-  );
+  const headers = [
+    "ID",
+    "NAME",
+    "SCOPES",
+    "HOSTS",
+    "OIDC",
+    "CREATED",
+    "STATUS",
+  ].map((h) => paint(h, "bold", options.color));
   const rows = ordered.map((c) => {
     const status = c.revoked
       ? paint("revoked", "dim", options.color)
@@ -226,6 +232,10 @@ export function renderClients(
       c.name,
       scopesText(c.scopes),
       c.hosts.join(", "),
+      // The subject is never printed: the issuer host and a short hash only.
+      c.oidc
+        ? `${c.oidc.issuerHost} (${c.oidc.claim} ${c.oidc.identityHash})`
+        : "—",
       localTime(c.createdAt),
       status,
     ];

@@ -54,6 +54,11 @@ export interface ControlCliInput {
     owner?: string;
     cancel?: boolean;
     reason?: string;
+    issuer?: string;
+    audience?: string;
+    "jwks-url"?: string;
+    "oidc-subject"?: string;
+    "oidc-client-id"?: string;
   };
   dryRun: boolean;
   json: boolean;
@@ -435,6 +440,71 @@ export async function controlCommand(
       code: 0,
     };
   }
+  if (group === "oidc") {
+    if (action === "set" && input.positionals.length === 2) {
+      if (!input.values.issuer || !input.values.audience)
+        throw new HomectlError(
+          2,
+          "Usage: homectl control oidc set --issuer URL --audience AUD [--jwks-url URL]",
+        );
+      if (input.dryRun)
+        return {
+          value: {
+            wouldConfigureOidc: { issuer: input.values.issuer },
+            credentialAccess: false,
+          },
+          human: "Would configure OIDC for this device. No change made.",
+          code: 0,
+        };
+      const plane = await openPlane(input);
+      const view = await plane.configureOidc({
+        issuer: input.values.issuer,
+        audience: input.values.audience,
+        ...(input.values["jwks-url"] !== undefined
+          ? { jwksUrl: input.values["jwks-url"] }
+          : {}),
+      });
+      return {
+        value: { configured: true, ...view },
+        human: `OIDC configured: issuer ${view.issuerHost}, audience ${view.audience}. Keys are fetched on the first sign-in, from ${view.jwks === "configured" ? "the configured JWKS URL" : "the issuer's discovery document"}. Map a client with: control client add ... --oidc-subject SUB`,
+        code: 0,
+      };
+    }
+    if (action === "show" && input.positionals.length === 2) {
+      const plane = await openPlane(input);
+      const view = await plane.oidcView();
+      const value = view
+        ? {
+            configured: true,
+            issuerHost: view.issuerHost,
+            audience: view.audience,
+            jwks: view.jwks,
+            mappedClients: view.mappedClients,
+          }
+        : { configured: false };
+      return {
+        value,
+        human: view
+          ? `OIDC: issuer ${view.issuerHost}, audience ${view.audience}, JWKS ${view.jwks}, ${view.mappedClients} mapped client(s). Static tokens keep working.`
+          : "OIDC is not configured. Static client tokens are the only credentials.",
+        code: 0,
+      };
+    }
+    if (action === "clear" && input.positionals.length === 2) {
+      const plane = await openPlane(input);
+      await plane.clearOidc();
+      return {
+        value: { configured: false },
+        human:
+          "OIDC configuration removed. OIDC tokens are refused until it is configured again; static tokens are unaffected.",
+        code: 0,
+      };
+    }
+    throw new HomectlError(
+      2,
+      "Use control oidc set --issuer URL --audience AUD [--jwks-url URL], control oidc show or control oidc clear",
+    );
+  }
   if (group === "audit" && action === "verify") {
     if (input.positionals.length !== 2)
       throw new HomectlError(2, "Usage: homectl control audit verify");
@@ -508,11 +578,25 @@ async function addClient(
       2,
       "--token-file is required; the token is written there and never printed",
     );
+  const oidcSubject = input.values["oidc-subject"];
+  const oidcClientId = input.values["oidc-client-id"];
+  if (oidcSubject !== undefined && oidcClientId !== undefined)
+    throw new HomectlError(
+      2,
+      "Use either --oidc-subject or --oidc-client-id, not both",
+    );
+  const oidc =
+    oidcSubject !== undefined
+      ? { claim: "sub", value: oidcSubject }
+      : oidcClientId !== undefined
+        ? { claim: "client_id", value: oidcClientId }
+        : undefined;
   const request = {
     id,
     name: input.values.name ?? "",
     scopes: listOption(input.values.scopes, "scopes"),
     hosts: listOption(input.values.hosts, "hosts"),
+    ...(oidc ? { oidc } : {}),
   };
   const tokenFile = resolve(input.values["token-file"]);
   if (input.dryRun)

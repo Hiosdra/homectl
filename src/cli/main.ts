@@ -50,6 +50,11 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         owner: { type: "string" },
         cancel: { type: "boolean" },
         reason: { type: "string" },
+        issuer: { type: "string" },
+        audience: { type: "string" },
+        "jwks-url": { type: "string" },
+        "oidc-subject": { type: "string" },
+        "oidc-client-id": { type: "string" },
         wrapper: { type: "string" },
         address: { type: "string" },
         target: { type: "string" },
@@ -97,12 +102,17 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         v.owner,
         v.cancel,
         v.reason,
+        v.issuer,
+        v.audience,
+        v["jwks-url"],
+        v["oidc-subject"],
+        v["oidc-client-id"],
       ].some((option) => option !== undefined) &&
       command !== "control"
     )
       throw new HomectlError(
         2,
-        "--name, --scopes, --hosts, --token-file, --state, --all, --to, --owner, --cancel and --reason apply only to control",
+        "--name, --scopes, --hosts, --token-file, --state, --all, --to, --owner, --cancel, --reason and the OIDC options apply only to control",
       );
     if (v.host !== undefined && command !== "serve-mcp")
       throw new HomectlError(2, "--host applies only to serve-mcp");
