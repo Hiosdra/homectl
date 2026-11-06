@@ -7,6 +7,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { controlCommand } from "../src/control/cli";
@@ -65,6 +66,22 @@ async function launchToken(s: Server): Promise<string> {
     token: string;
   };
   return launch.token;
+}
+
+// Sends one raw HTTP/1.1 request on loopback and returns the status code.
+function rawStatus(port: number, request: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    let head = "";
+    const socket = connect(port, "127.0.0.1", () => socket.write(request));
+    socket.on("data", (chunk) => {
+      head += chunk.toString();
+      if (head.includes("\r\n")) {
+        resolve(Number(head.split(" ")[1]));
+        socket.destroy();
+      }
+    });
+    socket.on("error", reject);
+  });
 }
 
 function cli(
@@ -138,11 +155,16 @@ describe("local admin route (panel gate)", () => {
       body: JSON.stringify({ operationId: "00000000", to: "Linux" }),
     });
     expect(foreign.status).toBe(403);
-    const badHost = await fetch(`${s.url}/api/control/sync`, {
-      headers: { Host: "evil.example:7447", Cookie: cookie },
-    }).catch(() => undefined);
-    // Either the runtime refuses to send the forged Host, or the server does.
-    expect(badHost === undefined || badHost.status === 403).toBe(true);
+    // A raw request keeps the Host header exactly as written. The same request
+    // with the loopback Host succeeds, so the refusal is the Host check itself.
+    const port = Number(s.localServer.port);
+    const sent = (host: string) =>
+      rawStatus(
+        port,
+        `GET /api/control/sync HTTP/1.1\r\nHost: ${host}\r\nCookie: ${cookie}\r\nConnection: close\r\n\r\n`,
+      );
+    expect(await sent(`evil.example:${port}`)).toBe(403);
+    expect(await sent(`127.0.0.1:${port}`)).toBe(200);
   });
 
   test("handoff to another device is refused and names the device that must run it", async () => {
