@@ -47,6 +47,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         interface: { type: "string" },
         "no-discovery": { type: "boolean" },
         "no-control-sync": { type: "boolean" },
+        container: { type: "boolean" },
         owner: { type: "string" },
         cancel: { type: "boolean" },
         reason: { type: "string" },
@@ -118,6 +119,8 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       );
     if (v.host !== undefined && command !== "serve-mcp")
       throw new HomectlError(2, "--host applies only to serve-mcp");
+    if (v.container && command !== "serve")
+      throw new HomectlError(2, "--container applies only to serve");
     const p = paths();
     const inventoryPath = v.inventory ? resolve(v.inventory) : p.inventory;
     const configPath = v.inventory ? `${inventoryPath}.ssh_config` : p.ssh;
@@ -418,6 +421,20 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           credentialAccess: false,
         });
         return 0;
+      }
+      if (v.container) {
+        if (v.interface === undefined)
+          throw new HomectlError(
+            2,
+            "Container mode needs --interface with the container LAN address; wildcard binding is refused",
+          );
+        return await (await import("../container/run")).serveContainer({
+          inventoryPath,
+          configPath,
+          interface: v.interface,
+          port: port(v.port, 7447),
+          peerPort: port(v["peer-port"], 7448),
+        });
       }
       let existing: { peerAddress?: string } | undefined;
       try {

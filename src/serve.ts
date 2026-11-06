@@ -2,6 +2,8 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { dirname, join, resolve } from "node:path";
+import { healthBody, VERSION } from "./container/health";
+import { LAUNCH_FILE, markRunning, markStopped } from "./container/recovery";
 import { fingerprintOf } from "./control/device-key";
 import { ControlPlane, controlStateDirectory } from "./control/engine";
 import { ControlReplicator } from "./control/replicator";
@@ -28,6 +30,9 @@ export type ServeOptions = {
   controlSync?: boolean;
   // Test seam: replaces process execution for control-plane runs only.
   controlRunner?: Runner;
+  // Container mode (docs/homectl-2.0/container-peer.md). "recovered" means the
+  // startup checks repaired or flagged something, so health reports degraded.
+  container?: { recovered: boolean };
 };
 const security = {
   "Cache-Control": "no-store",
@@ -98,6 +103,20 @@ async function controlPanel(
   };
 }
 
+// Upper bound for waiting on an in-flight control-sync round during shutdown.
+const SHUTDOWN_WAIT_MS = 10_000;
+
+async function settle(work: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    work.catch(() => undefined),
+    new Promise<void>((done) => {
+      timer = setTimeout(done, ms);
+    }),
+  ]);
+  clearTimeout(timer);
+}
+
 export async function serve(options: ServeOptions) {
   const interfaceIP = options.interface ?? "127.0.0.1";
   if (!isIP(interfaceIP) || interfaceIP === "0.0.0.0" || interfaceIP === "::")
@@ -117,6 +136,14 @@ export async function serve(options: ServeOptions) {
   let syncLoop: SyncLoop | undefined;
   let controlTimer: ReturnType<typeof setInterval> | undefined;
   let refreshPeers: (() => Promise<void>) | undefined;
+  // The round in progress, awaited on shutdown. Stopping is one-way.
+  let inFlight: Promise<unknown> | undefined;
+  let stopping = false;
+  let stopped = false;
+  const degradedNow = () =>
+    stopping ||
+    options.container?.recovered === true ||
+    options.controlSync === false;
   let localPort = options.port ?? 7447;
   const js = await Bun.build({
     entrypoints: [resolve(import.meta.dir, "web/app.ts")],
@@ -265,7 +292,7 @@ export async function serve(options: ServeOptions) {
       controlTimer = setInterval(() => {
         if (ticking) return;
         ticking = true;
-        void round()
+        inFlight = round()
           .catch(() => undefined)
           .finally(() => {
             ticking = false;
@@ -305,6 +332,9 @@ export async function serve(options: ServeOptions) {
         async fetch(req) {
           try {
             const url = new URL(req.url);
+            // Health: unauthenticated, loopback only, status and version only.
+            if (req.method === "GET" && url.pathname === "/healthz")
+              return response(healthBody(degradedNow()));
             const host = req.headers.get("Host");
             if (
               host !== `127.0.0.1:${localPort}` &&
@@ -800,7 +830,16 @@ export async function serve(options: ServeOptions) {
   };
   const directory = join(dirname(options.inventoryPath), "serve");
   await privateDirectory(directory);
-  const launch = join(directory, "panel.json");
+  const launch = join(directory, LAUNCH_FILE);
+  if (options.container) {
+    try {
+      await markRunning(options.inventoryPath, VERSION);
+    } catch (error) {
+      localServer.stop(true);
+      peerServer.stop(true);
+      throw error;
+    }
+  }
   await writeFile(
     launch,
     JSON.stringify({ url: `http://127.0.0.1:${localPort}`, token }),
@@ -814,13 +853,22 @@ export async function serve(options: ServeOptions) {
     address,
     launch,
     stop: async () => {
+      if (stopped) return;
+      stopped = true;
+      stopping = true;
       if (controlTimer) clearInterval(controlTimer);
       discovered?.close();
+      // Stop sync: let an in-flight round finish, up to a bound.
+      if (inFlight) await settle(inFlight, SHUTDOWN_WAIT_MS);
       await hub.lock();
       localServer.stop(true);
       peerServer.stop(true);
       // The launch token dies with the server; the CLI then reports "not running".
       await rm(launch, { force: true }).catch(() => undefined);
+      if (options.container)
+        await markStopped(options.inventoryPath, VERSION).catch(
+          () => undefined,
+        );
     },
     localServer,
     peerServer,
