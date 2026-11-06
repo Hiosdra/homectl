@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { controlCommand } from "../src/control/cli";
 import { loadOrCreateDeviceKey } from "../src/control/device-key";
 import { ControlPlane, controlStateDirectory } from "../src/control/engine";

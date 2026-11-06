@@ -42,7 +42,7 @@ async function fixture() {
   // The managed config on disk is stale: it still names the old address.
   await writeFile(configPath, "Host pve-host\n  HostName 192.0.2.99\n");
   const seenConfigs: string[] = [];
-  const runner = async (spec: ProcessSpec): Promise<ProcessResult> => {
+  const runner = async (_spec: ProcessSpec): Promise<ProcessResult> => {
     // What the transport would read when it connects.
     seenConfigs.push(await readFile(configPath, "utf8").catch(() => ""));
     return { exitCode: 0, stdout: "Linux\n", stderr: "" };
