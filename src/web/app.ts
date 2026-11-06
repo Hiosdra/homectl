@@ -116,6 +116,7 @@ type ControlOp = {
   approvedBy?: string;
   offerTo?: string;
   offerFrom?: string;
+  offerExpires?: string;
 };
 type ControlSync = {
   running: boolean;
@@ -126,6 +127,7 @@ type ControlSync = {
     lastSync?: number;
     leaseOk: boolean;
     excluded?: boolean;
+    suspended?: { by: string; at: string; reason?: string };
     refused?: string;
     failures?: number;
     nextAttemptAt?: number;
@@ -377,21 +379,8 @@ function controlSyncSection() {
   const now = Date.now();
   const names = sync.names ?? {};
   const rows = sync.peers.length
-    ? `<div class="table-wrap"><table><thead><tr><th>Device</th><th>Last sync</th><th>Lease</th><th>Backoff</th><th>Status</th></tr></thead><tbody>${sync.peers
-        .map((p) => {
-          if (p.excluded)
-            return `<tr><td data-label="Device"><strong>${htmlEscape(p.name)}</strong></td><td data-label="Last sync"><span class="muted">never (control)</span></td><td data-label="Lease"><span class="muted">excluded from lease: re-pair required</span></td><td data-label="Backoff"><span class="muted">—</span></td><td data-label="Status"><span class="badge warning">${htmlEscape(p.refused ?? "re-pair required")}</span></td></tr>`;
-          const retry =
-            p.nextAttemptAt !== undefined &&
-            (p.failures ?? 0) > 0 &&
-            p.nextAttemptAt > now
-              ? `retry ${localStamp(new Date(p.nextAttemptAt).toISOString())}`
-              : "none";
-          const status = p.lastError
-            ? `<span class="danger">${htmlEscape(p.lastError)}</span>`
-            : `<span class="badge success">ok</span>`;
-          return `<tr><td data-label="Device"><strong>${htmlEscape(p.name)}</strong></td><td data-label="Last sync">${p.lastSync === undefined ? `<span class="muted">never</span>` : htmlEscape(relative(new Date(p.lastSync).toISOString()))}</td><td data-label="Lease">${p.leaseOk ? "ok" : `<span class="danger">expired: waiting for sync</span>`}</td><td data-label="Backoff">${htmlEscape(retry)}</td><td data-label="Status">${status}</td></tr>`;
-        })
+    ? `<div class="table-wrap"><table><thead><tr><th>Device</th><th>Last sync</th><th>Lease</th><th>Backoff</th><th>Status</th><th>Action</th></tr></thead><tbody>${sync.peers
+        .map((p) => syncRow(p, now))
         .join("")}</tbody></table></div>`
     : `<p class="muted">No paired devices take part in control sync yet.</p>`;
   const conflicts = sync.conflicts.length
@@ -406,6 +395,29 @@ function controlSyncSection() {
     )
     .join("");
   return `<section class="panel section"><h2>Control sync</h2><p class="muted">Approvals and executions travel on this sync. It runs every 15 seconds while homectl serve runs.</p>${rows}${conflicts}${blocked}</section>`;
+}
+// One paired device. A suspended device is out of this device's lease until it
+// syncs again or is resumed; a legacy device has no control sync at all.
+function syncRow(p: ControlSync["peers"][number], now: number) {
+  const name = `<td data-label="Device"><strong>${htmlEscape(p.name)}</strong></td>`;
+  const lastSync =
+    p.lastSync === undefined
+      ? `<span class="muted">never</span>`
+      : htmlEscape(relative(new Date(p.lastSync).toISOString()));
+  if (p.suspended)
+    return `<tr>${name}<td data-label="Last sync">${lastSync}</td><td data-label="Lease"><span class="warn-text">suspended by ${htmlEscape(p.suspended.by)} at ${htmlEscape(localStamp(p.suspended.at))}</span></td><td data-label="Backoff"><span class="muted">—</span></td><td data-label="Status"><span class="muted">not counted in the lease</span></td><td data-label="Action" class="cell-action">${button("control-peer-resume", "Resume", p.id, "quiet")}</td></tr>`;
+  if (p.excluded)
+    return `<tr>${name}<td data-label="Last sync"><span class="muted">never (control)</span></td><td data-label="Lease"><span class="muted">excluded from lease: re-pair required</span></td><td data-label="Backoff"><span class="muted">—</span></td><td data-label="Status"><span class="badge warning" title="${htmlEscape(p.refused ?? "")}">re-pair required</span></td><td data-label="Action"><span class="muted">—</span></td></tr>`;
+  const retry =
+    p.nextAttemptAt !== undefined &&
+    (p.failures ?? 0) > 0 &&
+    p.nextAttemptAt > now
+      ? `retry ${localStamp(new Date(p.nextAttemptAt).toISOString())}`
+      : "none";
+  const status = p.lastError
+    ? `<span class="danger">${htmlEscape(p.lastError)}</span>`
+    : `<span class="badge success">ok</span>`;
+  return `<tr>${name}<td data-label="Last sync">${lastSync}</td><td data-label="Lease">${p.leaseOk ? "ok" : `<span class="danger">expired: waiting for sync</span>`}</td><td data-label="Backoff">${htmlEscape(retry)}</td><td data-label="Status">${status}</td><td data-label="Action" class="cell-action">${button("control-peer-suspend", "Suspend from lease", p.id, "quiet danger")}</td></tr>`;
 }
 // One conflicting operation: its candidates, any proposal waiting, and the
 // owner choice (any device involved can propose; the chosen one must accept).
@@ -430,7 +442,7 @@ function conflictRow(
         `<option value="${htmlEscape(id)}">${htmlEscape(names[id] ?? id)}</option>`,
     )
     .join("");
-  return `<div class="peer-row"><div><strong><code>${htmlEscape(c.opId.slice(0, 8))}</code></strong> at epoch ${c.epoch}: ${htmlEscape(c.candidates.map((id) => names[id] ?? id).join(", "))}${proposals}</div><div class="actions">${accept}<label class="sr-only" for="resolve-${htmlEscape(c.opId)}">Owner for ${htmlEscape(c.opId.slice(0, 8))}</label><select id="resolve-${htmlEscape(c.opId)}" data-conflict-select="${htmlEscape(c.opId)}">${options}</select>${button("control-resolve", "Resolve…", c.opId, "quiet")}</div></div>`;
+  return `<div class="peer-row conflict-row"><div class="conflict-text"><strong><code>${htmlEscape(c.opId.slice(0, 8))}</code></strong> at epoch ${c.epoch}: ${htmlEscape(c.candidates.map((id) => names[id] ?? id).join(", "))}${proposals}</div><div class="conflict-controls">${accept}<label class="sr-only" for="resolve-${htmlEscape(c.opId)}">Owner for ${htmlEscape(c.opId.slice(0, 8))}</label><select id="resolve-${htmlEscape(c.opId)}" data-conflict-select="${htmlEscape(c.opId)}">${options}</select>${button("control-resolve", "Resolve…", c.opId, "quiet")}</div></div>`;
 }
 function access() {
   return (
@@ -553,13 +565,20 @@ function takeoverText(op: ControlOp) {
 function opAction(op: ControlOp) {
   // An operation that another device owns runs there; it is never executed here.
   if (op.runsOn) {
-    const accept = op.offerFrom
-      ? button(
-          "control-handoff-accept",
-          "Accept handoff",
-          op.operationId,
-          "primary",
-        )
+    const expired =
+      op.offerExpires !== undefined &&
+      Date.parse(op.offerExpires) <= Date.now();
+    const accept =
+      op.offerFrom && !expired
+        ? button(
+            "control-handoff-accept",
+            "Accept handoff",
+            op.operationId,
+            "primary",
+          )
+        : "";
+    const offer = op.offerFrom
+      ? `<div class="sub muted">Offered by ${htmlEscape(op.runsOn)}; ${htmlEscape(offerExpiry(op))}</div>`
       : "";
     const takeover = op.takeover?.possible
       ? button("control-takeover", "Take over here", op.operationId, "quiet")
@@ -568,18 +587,22 @@ function opAction(op: ControlOp) {
         : "";
     const extra =
       accept || takeover ? `<div class="sub">${accept}${takeover}</div>` : "";
-    return `<span class="muted">Runs on ${htmlEscape(op.runsOn)}</span>${extra}`;
+    return `<span class="muted">Runs on ${htmlEscape(op.runsOn)}</span>${offer}${extra}`;
   }
   if (op.conflict)
     return `<span class="muted">${htmlEscape(takeoverText(op))}</span>`;
-  // An open offer stops execution here until the receiver accepts or it is cancelled.
+  // An open offer stops execution here until the receiver accepts, it is cancelled, or it expires.
   if (op.offerTo)
-    return `<span class="muted">Offered to ${htmlEscape(op.offerTo)}; not runnable here</span><div class="sub">${button("control-handoff-cancel", "Cancel offer", op.operationId, "quiet danger")}</div>`;
+    return `<span class="muted">Offered to ${htmlEscape(op.offerTo)}; not runnable here</span><div class="sub muted">${htmlEscape(offerExpiry(op))}</div><div class="sub">${button("control-handoff-cancel", "Cancel offer", op.operationId, "quiet danger")}</div>`;
   const handoff =
     op.remote || bucketOf(op) === "history"
       ? ""
       : `<div class="sub">${button("control-handoff-open", "Hand off…", op.operationId, "quiet")}</div>`;
   return `${primaryAction(op)}${handoff}`;
+}
+// "offer expires in 12 min" or "offer expired 2 min ago".
+function offerExpiry(op: ControlOp) {
+  return op.offerExpires ? `offer ${relative(op.offerExpires, true)}` : "";
 }
 function primaryAction(op: ControlOp) {
   // Inspection is the primary action; changes get a distinct warning outline.
@@ -699,7 +722,7 @@ function clientsSection(clients: ControlClient[]) {
   const rows = clients
     .map(
       (c) =>
-        `<tr><td data-label="Client"><strong>${htmlEscape(c.name)}</strong><p><code>${htmlEscape(c.id)}</code></p></td><td data-label="Scopes"><div class="chips">${c.scopes.map((s) => `<span class="chip">${htmlEscape(s)}</span>`).join("")}</div></td><td data-label="Hosts"><div class="chips">${c.hosts.map((h) => `<span class="chip">${htmlEscape(h)}</span>`).join("")}</div></td><td data-label="Created"><time datetime="${htmlEscape(c.createdAt)}" title="${htmlEscape(localStamp(c.createdAt))}">${htmlEscape(localStamp(c.createdAt))}</time></td><td data-label="Status">${c.revoked ? `<span class="badge danger">revoked</span>` : `<span class="badge success">active</span>`}</td><td data-label="Action">${c.revoked ? "" : button("control-revoke", "Revoke", c.id, "quiet danger")}</td></tr>`,
+        `<tr><td data-label="Client"><strong>${htmlEscape(c.name)}</strong><p><code>${htmlEscape(c.id)}</code></p></td><td data-label="Scopes"><div class="chips">${c.scopes.map((s) => `<span class="chip">${htmlEscape(s)}</span>`).join("")}</div></td><td data-label="Hosts"><div class="chips">${c.hosts.map((h) => `<span class="chip">${htmlEscape(h)}</span>`).join("")}</div></td><td data-label="Created"><time datetime="${htmlEscape(c.createdAt)}" title="${htmlEscape(localStamp(c.createdAt))}">${htmlEscape(localStamp(c.createdAt))}</time></td><td data-label="Status">${c.revoked ? `<span class="badge danger">revoked</span>` : `<span class="badge success">active</span>`}</td><td data-label="Action" class="cell-action">${c.revoked ? "" : button("control-revoke", "Revoke", c.id, "quiet danger")}</td></tr>`,
     )
     .join("");
   return `${intro}<div class="table-wrap"><table><thead><tr><th>Client</th><th>Scopes</th><th>Hosts</th><th>Created</th><th>Status</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -1142,6 +1165,36 @@ document.addEventListener("click", (event) => {
         await api("/api/control/resolve", { operationId: id });
         await refresh();
         announce("Resolution accepted on this device.");
+        return;
+      }
+      case "control-peer-suspend": {
+        const peer = control?.sync?.peers.find((p) => p.id === id);
+        if (!peer) return;
+        if (
+          !(await confirm(
+            `Suspend ${peer.name} from this device's lease?`,
+            `Operations on this device may run without confirming ${peer.name} has seen the latest state. Use only if ${peer.name} is offline or will stay offline.`,
+          ))
+        )
+          return;
+        await api("/api/control/peer", { target: id, suspend: true });
+        await refresh();
+        announce(`${peer.name} is suspended from this device's lease.`);
+        return;
+      }
+      case "control-peer-resume": {
+        const peer = control?.sync?.peers.find((p) => p.id === id);
+        if (!peer) return;
+        if (
+          !(await confirm(
+            `Resume ${peer.name} in the lease?`,
+            `${peer.name} counts toward this device's lease again, so operations here wait for it to sync.`,
+          ))
+        )
+          return;
+        await api("/api/control/peer", { target: id, suspend: false });
+        await refresh();
+        announce(`${peer.name} counts toward the lease again.`);
         return;
       }
       case "control-result-close":
