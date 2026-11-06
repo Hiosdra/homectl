@@ -11,7 +11,7 @@ import {
   sign,
   verify,
 } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { privateDirectory, protect } from "../platform";
 import { HomectlError } from "../types";
@@ -61,6 +61,16 @@ export async function loadOrCreateDeviceKey(
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT")
       throw new HomectlError(5, "Device key cannot be read");
+  }
+  // POSIX: refuse a key that other users can read. Windows ACLs are applied
+  // at creation by protect() and are not re-checked on every load.
+  if (text !== undefined && process.platform !== "win32") {
+    const mode = (await stat(path)).mode & 0o777;
+    if ((mode & 0o077) !== 0)
+      throw new HomectlError(
+        5,
+        `Device key ${path} is accessible to other users (mode ${mode.toString(8)}); restrict it to owner-only (chmod 600) before starting homectl`,
+      );
   }
   if (text === undefined) {
     await privateDirectory(stateDirectory);
