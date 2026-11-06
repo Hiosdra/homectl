@@ -1,0 +1,30 @@
+# Keep the build context small and free of local state and secrets.
+.git
+**/.git
+**/node_modules
+docs
+tests
+scripts
+examples
+plans
+log
+state
+skills
+templates
+.impeccable
+.github
+Dockerfile
+.dockerignore
+
+# Local state, credentials and databases must never enter the image.
+**/*.kdbx
+**/*.key
+**/*.pem
+**/.env
+**/.env.*
+**/serve
+**/control-plane
+**/public-keys
+**/*.session
+**/*.log
+**/*.png

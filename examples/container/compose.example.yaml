@@ -1,0 +1,68 @@
+# Example only. Every address and path here is synthetic or a placeholder:
+# 172.28.0.0/24 is a private example subnet and /volume2/appdata/homectl is an
+# example path. Copy this file, then set your own values.
+#
+# Run from examples/container with:
+#   HOMECTL_LAN_IP=<the NAS LAN address> docker compose up -d --build
+#
+# The panel is not published. Pair and control through docker exec, see
+# docs/homectl-2.0/container-peer.md.
+name: homectl
+
+services:
+  homectl:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        # Digest-pinned Bun base (Debian variant). Replace with a digest you verified.
+        BUN_IMAGE: oven/bun@sha256:REPLACE-WITH-VERIFIED-DIGEST
+    image: homectl-peer:local
+    container_name: homectl
+    init: true
+    user: "10001:10001"
+    privileged: false
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Starts again after a host reboot. A failed startup check (exit 5) retries
+    # with Docker backoff and never writes: the logs say why.
+    restart: unless-stopped
+    stop_grace_period: 20s
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    volumes:
+      # The only writable path. Owned by UID 10001 on the host.
+      - /volume2/appdata/homectl:/data
+    networks:
+      lan:
+        ipv4_address: 172.28.0.10
+    # Peer port only, bound to one explicit LAN address. Never 0.0.0.0.
+    ports:
+      - "${HOMECTL_LAN_IP:?set HOMECTL_LAN_IP to the NAS LAN address}:7448:7448"
+    command:
+      [
+        "serve",
+        "--container",
+        "--interface",
+        "172.28.0.10",
+        "--no-discovery",
+      ]
+    healthcheck:
+      test: ["CMD", "bun", "/app/src/container/health.ts"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+networks:
+  lan:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
