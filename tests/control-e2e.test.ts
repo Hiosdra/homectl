@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startMcpServer } from "../src/control/mcp";
 import type { ClientIdentity } from "../src/control/types";
+import { localApi } from "../src/peer/local-api";
 import { defaults } from "../src/peer/store";
 import { serve } from "../src/serve";
 import { HomectlError } from "../src/types";
@@ -25,7 +26,9 @@ afterEach(async () => {
   for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true });
 });
 
-type Server = Awaited<ReturnType<typeof serve>>;
+// The inventory path lets the test reach the local admin routes through the
+// same launch-token gate the CLI uses.
+type Server = Awaited<ReturnType<typeof serve>> & { inventory: string };
 
 // A real serve() instance on loopback. Commands never spawn: the runner is a fake.
 async function server(name: string): Promise<Server> {
@@ -44,7 +47,7 @@ async function server(name: string): Promise<Server> {
   s.hub.state.name = name;
   await s.hub.save();
   stops.push(() => s.stop());
-  return s;
+  return Object.assign(s, { inventory });
 }
 
 // The same sequence the existing peer tests use: open, join with the code, confirm on both.
@@ -119,6 +122,118 @@ async function expectRefused(
   expect((caught as HomectlError).code).toBe(code);
   if (text) expect((caught as HomectlError).message).toContain(text);
 }
+
+describe("cooperative handoff over the real peer channel", () => {
+  test("offer on the owner, accept on the receiver, and the owner stops running it", async () => {
+    const A = await server("Linux");
+    const B = await server("Windows");
+    await pair(A, B);
+    const codex = await identity(A, "codex-pc", ["plan:create", "status:read"]);
+    await rounds(A, B);
+    const made = (await A.control.request(
+      { kind: "client", client: codex.client },
+      { op: "plan", host: "agent-host", argv: ["hostname"] },
+    )) as { operationId: string };
+    await rounds(A, B);
+
+    // The owner offers through its local admin route (the CLI's path).
+    const offered = await localApi<{ offered: boolean; to: string }>(
+      A.inventory,
+      "/api/control/handoff",
+      { operationId: made.operationId, to: "Windows" },
+    );
+    expect(offered).toMatchObject({ offered: true, to: B.hub.state.id });
+    // From the offer on, the owner refuses to run it.
+    await expectRefused(
+      A.control.request(
+        { kind: "local-operator" },
+        { op: "execute", operationId: made.operationId },
+      ),
+      3,
+      "Handoff offered to Windows",
+    );
+    await rounds(A, B);
+
+    // The receiver accepts through its own admin route.
+    const accepted = await localApi<{ accepted: boolean }>(
+      B.inventory,
+      "/api/control/handoff",
+      { operationId: made.operationId },
+    );
+    expect(accepted.accepted).toBe(true);
+    await rounds(A, B);
+    await expectRefused(
+      A.control.request(
+        { kind: "local-operator" },
+        { op: "execute", operationId: made.operationId },
+      ),
+      3,
+      "now belongs to Windows",
+    );
+    const onB = (await B.control.listOperations({ all: true })).find(
+      (op) => op.operationId === made.operationId,
+    );
+    expect(onB?.state).toBe("pending");
+  });
+
+  test("offer then cancel: the owner runs again, and the receiver's accept is refused", async () => {
+    const A = await server("Linux");
+    const B = await server("Windows");
+    await pair(A, B);
+    const codex = await identity(A, "codex-pc", ["plan:create", "status:read"]);
+    await rounds(A, B);
+    const made = (await A.control.request(
+      { kind: "client", client: codex.client },
+      { op: "plan", host: "agent-host", argv: ["hostname"] },
+    )) as { operationId: string };
+    await rounds(A, B);
+    await localApi(A.inventory, "/api/control/handoff", {
+      operationId: made.operationId,
+      to: "Windows",
+    });
+    await rounds(A, B);
+    const cancelled = await localApi<{ cancelled: boolean }>(
+      A.inventory,
+      "/api/control/handoff",
+      { operationId: made.operationId, cancel: true },
+    );
+    expect(cancelled.cancelled).toBe(true);
+    await rounds(A, B);
+
+    await expect(
+      localApi(B.inventory, "/api/control/handoff", {
+        operationId: made.operationId,
+      }),
+      // No offer is open for B any more, so B falls back to a takeover, which the reachable owner refuses.
+    ).rejects.toMatchObject({
+      code: 3,
+      message: expect.stringContaining("Takeover possible after"),
+    });
+    const ran = (await A.control.request(
+      { kind: "local-operator" },
+      { op: "execute", operationId: made.operationId },
+    )) as { operation: { state: string } };
+    expect(ran.operation.state).toBe("succeeded");
+  });
+
+  test("a paired device with a signing key shows in the sync status with no conflicts", async () => {
+    const A = await server("Linux");
+    const B = await server("Windows");
+    await pair(A, B);
+    await rounds(A, B);
+    const view = await localApi<{
+      running: boolean;
+      peers: { name: string; excluded?: boolean; leaseOk: boolean }[];
+      conflicts: unknown[];
+    }>(A.inventory, "/api/control/sync");
+    expect(view.running).toBe(true);
+    expect(view.peers).toEqual([
+      expect.objectContaining({ name: "Windows", leaseOk: true }),
+    ]);
+    expect(view.peers[0]?.excluded).toBeUndefined();
+    expect(view.conflicts).toEqual([]);
+  });
+});
 
 describe("control-plane convergence over the real peer channel", () => {
   test("plan on A, approve through MCP on B, execute on A, result visible on B, replays and revocation refused", async () => {

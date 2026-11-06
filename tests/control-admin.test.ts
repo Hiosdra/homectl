@@ -167,18 +167,76 @@ describe("local admin route (panel gate)", () => {
     expect(await sent(`127.0.0.1:${port}`)).toBe(200);
   });
 
-  test("handoff to another device is refused and names the device that must run it", async () => {
+  test("handoff refuses unknown operations, unknown devices, and a missing device name", async () => {
     const { inventory } = await workspace();
-    await running(inventory);
+    const s = await running(inventory);
     await expect(
       localApi(inventory, "/api/control/handoff", {
         operationId: "00000000",
         to: "Windows",
       }),
-    ).rejects.toMatchObject({
-      code: 3,
-      message: expect.stringContaining("run this command on Windows"),
+    ).rejects.toMatchObject({ code: 2 });
+    const client = await s.control.createClient({
+      id: "codex-pc",
+      name: "codex-pc",
+      scopes: ["plan:create", "status:read"],
+      hosts: ["agent-host"],
     });
+    const identity = await s.control.authenticate(client.token);
+    if (!identity) throw new Error("token did not authenticate");
+    const made = (await s.control.request(
+      { kind: "client", client: identity },
+      { op: "plan", host: "agent-host", argv: ["hostname"] },
+    )) as { operationId: string };
+    // Owned here with no paired device: the offer names a device that does not exist.
+    await expect(
+      localApi(inventory, "/api/control/handoff", {
+        operationId: made.operationId,
+        to: "Windows",
+      }),
+    ).rejects.toMatchObject({
+      code: 2,
+      message: expect.stringContaining("No paired device named Windows"),
+    });
+    await expect(
+      localApi(inventory, "/api/control/handoff", {
+        operationId: made.operationId,
+      }),
+    ).rejects.toMatchObject({
+      code: 2,
+      message: expect.stringContaining("Name the device to hand off to"),
+    });
+  });
+});
+
+describe("--no-control-sync", () => {
+  test("serve starts without control sync: the panel says so and nothing runs on a timer", async () => {
+    const { inventory } = await workspace();
+    const s = await serve({
+      inventoryPath: inventory,
+      configPath: `${inventory}.ssh_config`,
+      port: 0,
+      peerPort: 0,
+      discover: false,
+      controlSync: false,
+      controlRunner: async () => ({
+        exitCode: 0,
+        stdout: "demo\n",
+        stderr: "",
+      }),
+    });
+    stops.push(() => s.stop());
+    const view = await localApi<{ running: boolean; disabledBy?: string }>(
+      inventory,
+      "/api/control/sync",
+    );
+    expect(view).toMatchObject({
+      running: false,
+      disabledBy: "--no-control-sync",
+    });
+    await expect(s.syncNow()).rejects.toMatchObject({ code: 5 });
+    const saved = await cli(inventory, ["sync"]);
+    expect(saved.human).toContain("disabled by --no-control-sync");
   });
 });
 
