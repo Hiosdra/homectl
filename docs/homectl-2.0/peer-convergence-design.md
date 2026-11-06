@@ -96,3 +96,25 @@ Recommendation: A. It matches "public metadata only" and keeps token material on
 3. Owner choice: planning device by default, or the device where the target host is enrolled? They differ when a host is shared.
 4. Should a continuous sync mode be a prerequisite, or is the manual Sync flow acceptable for approvals?
 5. Is the 2-peer stall (owner offline) acceptable operationally, or do you want a designated standby owner with explicit promotion?
+
+## 7. Decisions (homelab ADR-0002) and implementation status
+
+The owner decided the open questions in section 6. Recorded in homelab ADR-0002:
+
+1. Per-device Ed25519 signing identity. Private key stored locally, never synced or logged; public key exchanged inside the authenticated pairing messages, with a fingerprint for out-of-band verification.
+2. Option A: client registrations stay device-local. Only public metadata and revocation tombstones replicate.
+3. Owner is the planning device. Only the owner enforces single use and executes. Ownership moves only by an explicit signed handoff.
+4. Continuous sync is a prerequisite for cross-peer approvals.
+5. An offline owner's operations wait, or an operator takes them over explicitly (signed, audited handoff). No automatic standby.
+
+Implementation status on `feat/issue-5-control-plane`:
+
+- Stage (a), done: device keys (`src/control/device-key.ts`), public key carried in pairing identities and stored on paired peers, fingerprint helper. Tests: `tests/control-device.test.ts`.
+- Stage (b), done: signed record envelope and state-aware rules (`src/control/replicate.ts`): lattice pending < approved < executing < terminal per owner epoch; owner-only state writes; snapshots below the established epoch are stale; handoffs signed by the taking device; conflicting handoffs at one epoch are kept as conflicts with no owner; decisions signed by the approver's device and applied at most once; monotone client revocation. Tests: `tests/control-replicate.test.ts`.
+- Stage (c), not started: continuous sync loop, engine integration (adopting an operation on takeover, routing approvals from non-owner devices, an execute-time owner guard), per-origin log checkpoints for rewritten or truncated replicas, and two- and three-peer convergence tests.
+- Stages (d) and (e), not started: CLI (`control handoff`, sync status), panel surfacing, quickstart.
+
+Known gaps to close in stage (c):
+
+- Takeover needs the destination device to rebuild the operation from the replicated plan. That requires the same host to be enrolled there, and a fresh approval record on the new owner. Without that, the operation cannot run anywhere and must stay visibly stuck.
+- Race: an old owner that comes back and executes before it has received the takeover can run the operation twice. A safe rule needs the owner to confirm it is current before executing. Until that is designed, this stays a documented risk.
