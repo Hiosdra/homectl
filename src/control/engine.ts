@@ -643,8 +643,12 @@ export class ControlPlane {
     return this.journal.verify();
   }
 
-  // Handoff and resolution events from the replicator (identifiers and fixed reasons only).
-  async recordHandoff(event: AuditEvent): Promise<void> {
+  // Replicated-control events from the replicator (identifiers and fixed reasons only).
+  async auditEntries() {
+    return this.journal.read();
+  }
+
+  async recordReplicated(event: AuditEvent): Promise<void> {
     await this.audit(event);
   }
 

@@ -19,7 +19,7 @@ import {
 import type { DeviceKey } from "./device-key";
 import type { ControlPlane } from "./engine";
 import { LEASE_MS, leaseCheck, takeoverWindow } from "./lease";
-import { redactArgv } from "./redact";
+import { containsSecretMaterial, redactArgv } from "./redact";
 import {
   type AcceptBody,
   applyAccept,
@@ -31,6 +31,7 @@ import {
   applyOp,
   applyResolve,
   applyResolveAccept,
+  applySuspension,
   type Body,
   type CancelBody,
   type ClientBody,
@@ -40,9 +41,11 @@ import {
   emptyReplica,
   establishedEpoch,
   type HandoffBody,
+  OFFER_TTL_MS,
   type OfferBody,
   type OpBody,
   type Outcome,
+  offerExpired,
   openConflictFor,
   openOfferFor,
   ownerAt,
@@ -50,6 +53,7 @@ import {
   type Replica,
   type ResolveAcceptBody,
   type ResolveBody,
+  type SuspensionBody,
   sealRecord,
 } from "./replicate";
 import type { ClientIdentity, OperationView, TakeoverNote } from "./types";
@@ -116,6 +120,7 @@ export interface ReplicaOverlay {
       | "approvedBy"
       | "offerTo"
       | "offerFrom"
+      | "offerExpires"
     >
   >;
   remote: OperationView[];
@@ -140,8 +145,9 @@ function deviceName(data: ReplicaFile, id: string): string {
   return data.peers[id]?.name ?? id;
 }
 
-// Fail closed: the owner must be established, must be this device, and must
-// hold a fresh lease with every paired peer.
+// Fail closed: the owner must be established, must be this device, must not
+// have offered the operation away (until the offer expires), and must hold a
+// fresh lease with every paired peer that counts toward this device's lease.
 export function fenceOf(
   data: ReplicaFile,
   selfId: string,
@@ -160,10 +166,10 @@ export function fenceOf(
     if (owner !== selfId)
       return `Operation now belongs to ${deviceName(data, owner)}; it will not run here`;
     const offer = openOfferFor(replica, operationId);
-    if (offer?.fromOwner === selfId)
+    if (offer?.fromOwner === selfId && !offerExpired(offer, now))
       return `Handoff offered to ${deviceName(data, offer.toOwner)}; this device will not run it unless the offer is cancelled`;
   }
-  const peers = leasePeers(data);
+  const peers = leasePeers(data, selfId);
   if (peers.length > 0) {
     const lease = leaseCheck(peers, data.syncedAt, now, LEASE_MS);
     if (!lease.ok)
@@ -177,13 +183,37 @@ export function fenceOf(
 export const LEGACY_REASON =
   "Re-pair this device to enable control sync; it has no signing key";
 
-// Peers that take part in the lease: paired with a signing key. A legacy peer
-// cannot sign or verify records, so it is excluded from the lease instead of
-// blocking every execution forever; it never counts as synced.
-export function leasePeers(data: ReplicaFile): string[] {
+// The active suspension of `target` by `by`, if any.
+export function suspensionOf(
+  data: ReplicaFile,
+  by: string,
+  target: string,
+): SuspensionBody | undefined {
+  const record = data.replica.suspensions[`${by}|${target}`];
+  return record?.active ? record : undefined;
+}
+
+// Peers that take part in this device's lease: paired with a signing key and
+// not suspended from this device's lease. A legacy peer cannot sign or verify
+// records, so it is excluded instead of blocking every execution forever. A
+// suspended peer was taken out on purpose (see suspendPeer).
+export function leasePeers(data: ReplicaFile, selfId: string): string[] {
   return Object.keys(data.peers).filter(
-    (id) => data.peers[id]?.signingKey !== undefined,
+    (id) =>
+      data.peers[id]?.signingKey !== undefined &&
+      suspensionOf(data, selfId, id) === undefined,
   );
+}
+
+// Reasons are short, printable and never carry secret material.
+function cleanReason(text: string | undefined): string {
+  const value = (text ?? "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .trim()
+    .slice(0, 80);
+  if (containsSecretMaterial(value))
+    throw new HomectlError(2, "Reason must not contain secret material");
+  return value || "no reason given";
 }
 
 // Whether `owner` can be taken over right now, and when the window opens.
@@ -218,22 +248,50 @@ export async function takeoverStatusOf(
 
 // Pure summary of the replica for status views (serve and read-only CLI).
 export function summarize(data: ReplicaFile, now: number) {
+  const selfId = data.self?.id ?? "";
   const peers = Object.keys(data.peers);
-  const lease = leaseCheck(leasePeers(data), data.syncedAt, now, LEASE_MS);
+  const lease = leaseCheck(
+    leasePeers(data, selfId),
+    data.syncedAt,
+    now,
+    LEASE_MS,
+  );
   const replica = data.replica;
   return {
     peers: peers.map((id) => {
       const legacy = data.peers[id]?.signingKey === undefined;
+      const suspension = suspensionOf(data, selfId, id);
       return {
         id,
         name: data.peers[id]?.name ?? id,
         // A legacy peer has no control sync, so it has no control "last sync".
         lastSync: legacy ? undefined : data.syncedAt[id],
         lastContact: data.seenAt[id],
-        leaseOk: legacy ? false : lease.ok || !lease.waitingFor.includes(id),
+        leaseOk:
+          legacy || suspension !== undefined
+            ? false
+            : lease.ok || !lease.waitingFor.includes(id),
         ...(legacy ? { excluded: true, refused: LEGACY_REASON } : {}),
+        ...(suspension
+          ? {
+              suspended: {
+                by: deviceName(data, suspension.by),
+                at: suspension.at,
+                reason: suspension.reason,
+              },
+            }
+          : {}),
       };
     }),
+    // Every active suspension, as seen by this device (display only).
+    suspensions: Object.values(replica.suspensions)
+      .filter((record) => record.active)
+      .map((record) => ({
+        by: deviceName(data, record.by),
+        target: deviceName(data, record.target),
+        at: record.at,
+        reason: record.reason,
+      })),
     blocked: { ...data.blocked },
     // Only conflicts that still leave an operation without an owner.
     conflicts: replica.conflicts
@@ -319,6 +377,10 @@ export async function overlayOf(
       note.offerTo = deviceName(data, offer.toOwner);
     if (offer?.toOwner === selfId)
       note.offerFrom = deviceName(data, offer.fromOwner);
+    if (offer)
+      note.offerExpires = new Date(
+        Date.parse(offer.at) + OFFER_TTL_MS,
+      ).toISOString();
     overlay.notes[opId] = note;
     if (!localIds.has(opId) && owner !== selfId) {
       overlay.remote.push({
@@ -594,6 +656,12 @@ export class ControlReplicator {
           envelope as Envelope<ResolveBody>,
           devices,
         );
+      case "suspension":
+        return applySuspension(
+          replica,
+          envelope as Envelope<SuspensionBody>,
+          devices,
+        );
       case "resolve-accept":
         return applyResolveAccept(
           replica,
@@ -684,6 +752,8 @@ export class ControlReplicator {
     this.applyAll(collected);
     this.data.seenAt[fromPeer] = this.clock();
     if (pull.blocked.length === 0) this.data.syncedAt[fromPeer] = this.clock();
+    if (pull.blocked.length === 0 && this.isSuspendedBySelf(fromPeer))
+      await this.setSuspension(fromPeer, false, "synced", "peer.resumed");
     await this.processInbox();
     await this.save();
     return pull;
@@ -826,6 +896,11 @@ export class ControlReplicator {
     const owner = ownerAt(replica, operationId, epoch);
     if (owner === this.self.id)
       throw new HomectlError(2, "This device already owns the operation");
+    if (owner !== undefined && suspensionOf(this.data, owner, this.self.id))
+      throw new HomectlError(
+        3,
+        `${this.nameOf(owner)} has suspended this device; resume it before taking over`,
+      );
     const status = await takeoverStatusOf(
       this.data,
       base,
@@ -857,6 +932,62 @@ export class ControlReplicator {
   }
 
   // Read-only views for CLI and panel.
+  // Whether this device has suspended `target` from its own lease.
+  isSuspendedBySelf(target: string): boolean {
+    return suspensionOf(this.data, this.self.id, target) !== undefined;
+  }
+
+  // Takes a paired device out of this device's lease. Operations here may run
+  // without that device confirming the latest state, so this is an operator
+  // decision, signed and replicated so other devices can see it.
+  async suspendPeer(
+    nameOrId: string,
+    reason?: string,
+  ): Promise<{ target: string }> {
+    const target = this.deviceId(nameOrId, this.peerIds());
+    if (this.isSuspendedBySelf(target))
+      throw new HomectlError(2, `${this.nameOf(target)} is already suspended`);
+    await this.setSuspension(
+      target,
+      true,
+      cleanReason(reason),
+      "peer.suspended",
+    );
+    return { target };
+  }
+
+  // Puts a suspended device back into the lease. Also happens automatically
+  // on the next successful control sync with that device.
+  async resumePeer(nameOrId: string): Promise<{ target: string }> {
+    const target = this.deviceId(nameOrId, this.peerIds());
+    if (!this.isSuspendedBySelf(target))
+      throw new HomectlError(2, `${this.nameOf(target)} is not suspended`);
+    await this.setSuspension(target, false, "manual resume", "peer.resumed");
+    return { target };
+  }
+
+  private async setSuspension(
+    target: string,
+    active: boolean,
+    reason: string,
+    event: "peer.suspended" | "peer.resumed",
+  ): Promise<void> {
+    const body: SuspensionBody = {
+      kind: "suspension",
+      by: this.self.id,
+      target,
+      active,
+      reason,
+      at: new Date(this.clock()).toISOString(),
+    };
+    this.emit(sealRecord(this.self, body));
+    await this.plane.recordReplicated({
+      event,
+      reason: `device ${target}: ${reason}`,
+    });
+    await this.save();
+  }
+
   // The device that owns an operation at its established epoch.
   ownerOf(operationId: string): string | undefined {
     const replica = this.data.replica;
@@ -905,12 +1036,24 @@ export class ControlReplicator {
       throw new HomectlError(2, "Unknown operation");
     if (this.ownerOf(operationId) !== this.self.id)
       throw new HomectlError(3, "Only the current owner can offer a handoff");
-    if (openOfferFor(replica, operationId))
+    const existing = openOfferFor(replica, operationId);
+    if (
+      existing &&
+      existing.fromOwner === this.self.id &&
+      offerExpired(existing, this.clock())
+    )
+      await this.cancelOffer(operationId, "expired");
+    else if (existing)
       throw new HomectlError(
         3,
         "A handoff is already offered for this operation; cancel it first",
       );
     const to = this.deviceId(toDevice, this.peerIds());
+    if (suspensionOf(this.data, this.self.id, to))
+      throw new HomectlError(
+        3,
+        `${this.nameOf(to)} is suspended from this device's lease; resume it before a handoff`,
+      );
     const refusal = this.refusalFor(to);
     if (refusal)
       throw new HomectlError(
@@ -928,7 +1071,7 @@ export class ControlReplicator {
     };
     this.emit(sealRecord(this.self, body));
     await this.save();
-    await this.plane.recordHandoff({
+    await this.plane.recordReplicated({
       event: "handoff.offered",
       operationId,
       host: this.data.replica.ops[operationId]?.host,
@@ -938,7 +1081,10 @@ export class ControlReplicator {
   }
 
   // The owner withdraws an offer nobody has accepted.
-  async cancelOffer(operationId: string): Promise<void> {
+  async cancelOffer(
+    operationId: string,
+    reason: "withdrawn" | "expired" = "withdrawn",
+  ): Promise<void> {
     const offer = this.openOfferBy(operationId);
     if (!offer)
       throw new HomectlError(
@@ -946,6 +1092,7 @@ export class ControlReplicator {
         "No open handoff offer from this device for that operation",
       );
     const body: CancelBody = {
+      reason,
       kind: "cancel",
       offerId: offer.offerId,
       opId: operationId,
@@ -954,11 +1101,12 @@ export class ControlReplicator {
     };
     this.emit(sealRecord(this.self, body));
     await this.save();
-    await this.plane.recordHandoff({
+    await this.plane.recordReplicated({
       event: "handoff.cancelled",
       operationId,
       host: this.data.replica.ops[operationId]?.host,
-      reason: "offer withdrawn by owner",
+      reason:
+        reason === "expired" ? "offer expired" : "offer withdrawn by owner",
     });
   }
 
@@ -969,6 +1117,16 @@ export class ControlReplicator {
     const offer = this.openOfferTo(operationId);
     if (!offer)
       throw new HomectlError(2, "No handoff offer waits for this device");
+    if (offerExpired(offer, this.clock()))
+      throw new HomectlError(
+        3,
+        "The handoff offer expired; ask the owner to offer again",
+      );
+    if (suspensionOf(this.data, offer.fromOwner, this.self.id))
+      throw new HomectlError(
+        3,
+        `${this.nameOf(offer.fromOwner)} has suspended this device; resume it before accepting a handoff`,
+      );
     if (offer.epoch !== establishedEpoch(replica, operationId) + 1)
       throw new HomectlError(
         3,
@@ -993,7 +1151,7 @@ export class ControlReplicator {
     };
     this.emit(sealRecord(this.self, body));
     await this.save();
-    await this.plane.recordHandoff({
+    await this.plane.recordReplicated({
       event: "handoff.accepted",
       operationId,
       host: base.host,
@@ -1044,7 +1202,7 @@ export class ControlReplicator {
     };
     this.emit(sealRecord(this.self, body));
     await this.save();
-    await this.plane.recordHandoff({
+    await this.plane.recordReplicated({
       event: "handoff.resolution-proposed",
       operationId,
       host: this.data.replica.ops[operationId]?.host,
@@ -1087,7 +1245,7 @@ export class ControlReplicator {
     };
     this.emit(sealRecord(this.self, body));
     await this.save();
-    await this.plane.recordHandoff({
+    await this.plane.recordReplicated({
       event: "handoff.resolution-accepted",
       operationId,
       host: base.host,

@@ -106,6 +106,27 @@ export interface CancelBody {
   opId: string;
   fromOwner: string; // signs the cancel
   at: string;
+  reason?: "withdrawn" | "expired";
+}
+
+// Handoff offers expire this long after they are made (signed timestamps, so
+// every device agrees without comparing clocks).
+export const OFFER_TTL_MS = 15 * 60_000;
+
+export function offerExpired(offer: OfferBody, now: number): boolean {
+  return now > Date.parse(offer.at) + OFFER_TTL_MS;
+}
+
+// Suspension from the lease (ADR-0002 follow-up). Signed by the device that
+// suspends `target`. Only the suspending device excludes `target` from its own
+// lease; other devices see the record and show it.
+export interface SuspensionBody {
+  kind: "suspension";
+  by: string; // signer: the suspending device
+  target: string;
+  active: boolean; // false is a resume
+  reason: string; // short, no secret material
+  at: string;
 }
 
 export interface AcceptBody {
@@ -140,6 +161,7 @@ export interface ResolveAcceptBody {
 }
 
 export type Body =
+  | SuspensionBody
   | OpBody
   | HandoffBody
   | ClientBody
@@ -164,6 +186,8 @@ export interface Replica {
   offerStatus: Record<string, "open" | "accepted" | "cancelled">;
   resolutions: Record<string, ResolveBody>;
   resolutionStatus: Record<string, "pending" | "accepted">;
+  // Latest suspension per "<by>|<target>".
+  suspensions: Record<string, SuspensionBody>;
 }
 
 export function emptyReplica(): Replica {
@@ -179,6 +203,7 @@ export function emptyReplica(): Replica {
     offerStatus: {},
     resolutions: {},
     resolutionStatus: {},
+    suspensions: {},
   };
 }
 
@@ -314,6 +339,26 @@ function recordHandoff(replica: Replica, body: HandoffBody): Outcome {
   return "applied";
 }
 
+export function applySuspension(
+  replica: Replica,
+  envelope: Envelope<SuspensionBody>,
+  devices: Record<string, string>,
+): Outcome {
+  const body = openRecord(envelope, devices);
+  if (!body || body.kind !== "suspension") return "rejected";
+  // A device speaks only for itself: the signer must be the suspending device.
+  if (envelope.signer !== body.by || body.target === body.by) return "rejected";
+  if (typeof body.reason !== "string" || body.reason.length > 80)
+    return "rejected";
+  const key = `${body.by}|${body.target}`;
+  const current = replica.suspensions[key];
+  if (current && Date.parse(body.at) < Date.parse(current.at)) return "stale";
+  if (current?.active === body.active && current.at === body.at)
+    return "duplicate";
+  replica.suspensions[key] = body;
+  return "applied";
+}
+
 // The open offer for an operation, if any. At most one is open at a time.
 export function openOfferFor(
   replica: Replica,
@@ -395,6 +440,9 @@ export function applyAccept(
   const status = replica.offerStatus[body.offerId];
   // A stale accept after a cancel is rejected: the owner cancelled first.
   if (status === "cancelled") return "rejected";
+  // An accept signed after the offer expired is rejected on every device.
+  if (Date.parse(body.at) > Date.parse(offer.at) + OFFER_TTL_MS)
+    return "rejected";
   if (status === "accepted") return "duplicate";
   if (establishedEpoch(replica, body.opId) !== offer.epoch - 1) return "stale";
   replica.offerStatus[body.offerId] = "accepted";

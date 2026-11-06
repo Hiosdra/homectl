@@ -180,6 +180,7 @@ export interface OperationView {
   approvedBy?: string; // "<client> (via <device>)" when the owner recorded an approval
   offerTo?: string; // this device offered the operation to the named device
   offerFrom?: string; // the named owner offered the operation to this device
+  offerExpires?: string; // ISO-8601 UTC: when the open offer expires
 }
 
 // Earliest takeover of an operation held by an unreachable owner (fencing rule).
@@ -223,7 +224,9 @@ export type AuditEventName =
   | "handoff.cancelled"
   | "handoff.accepted"
   | "handoff.resolution-proposed"
-  | "handoff.resolution-accepted";
+  | "handoff.resolution-accepted"
+  | "peer.suspended"
+  | "peer.resumed";
 
 // Audit payloads carry identifiers, fixed reason codes and redacted argv only.
 export interface AuditEvent {

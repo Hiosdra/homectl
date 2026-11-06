@@ -599,7 +599,9 @@
             "handoff.cancelled",
             "handoff.accepted",
             "handoff.resolution-proposed",
-            "handoff.resolution-accepted"
+            "handoff.resolution-accepted",
+            "peer.suspended",
+            "peer.resumed"
           ]
         },
         "client": {
