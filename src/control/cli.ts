@@ -37,6 +37,7 @@ import {
   replicatedApproverAuthority,
   summarize,
 } from "./replicator";
+import { type McpControl, ServedControl } from "./served";
 import { OPERATION_STATES, type OperationState, SCOPES } from "./types";
 
 export interface ControlCliInput {
@@ -165,6 +166,17 @@ async function executeHere(
 
 // Starts the loopback MCP endpoint until interrupted. `onReady` prints the
 // startup line (JSON or text) once the port is bound.
+// The control plane serve-mcp uses. A running serve is the single writer: its
+// local routes run every call. Without one, this process opens the plane.
+export async function mcpControl(
+  input: ControlCliInput,
+): Promise<{ control: McpControl; served: boolean }> {
+  const live = await liveRequest<unknown>(input, "/api/state");
+  if (live !== undefined)
+    return { control: new ServedControl(input.inventoryPath), served: true };
+  return { control: await openPlane(input), served: false };
+}
+
 export async function serveMcp(
   input: ControlCliInput,
   onReady: (value: unknown, human: string) => void,
@@ -174,7 +186,7 @@ export async function serveMcp(
       2,
       "serve-mcp binds only to loopback (127.0.0.1); use a reverse proxy or tunnel for remote clients.",
     );
-  const plane = await openPlane(input);
+  const { control: plane } = await mcpControl(input);
   const port =
     input.values.port === undefined
       ? DEFAULT_MCP_PORT

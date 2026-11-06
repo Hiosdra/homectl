@@ -4,9 +4,9 @@
 
 import { HomectlError } from "../types";
 import { hasScope } from "./clients";
-import type { ControlPlane } from "./engine";
 import { summarizeTool } from "./present";
 import { controlPlaneSchema } from "./schema";
+import type { McpControl } from "./served";
 import type { ClientIdentity, OperationKind, Scope } from "./types";
 import { SCOPES } from "./types";
 
@@ -15,7 +15,7 @@ import { SCOPES } from "./types";
 // authorization server.
 export const PROTECTED_RESOURCE_PATH = "/.well-known/oauth-protected-resource";
 
-async function protectedResourceMetadata(control: ControlPlane, port: number) {
+async function protectedResourceMetadata(control: McpControl, port: number) {
   const oidc = await control.oidcView();
   return {
     resource: `http://127.0.0.1:${port}/mcp`,
@@ -182,7 +182,7 @@ function toolDescriptor(tool: ToolDefinition) {
 }
 
 async function callTool(
-  control: ControlPlane,
+  control: McpControl,
   client: ClientIdentity,
   tool: ToolDefinition,
   args: JsonRecord,
@@ -221,7 +221,7 @@ async function callTool(
 // JSON-RPC dispatch for one authenticated client. Returns undefined for
 // notifications, which get 202 with no body.
 async function dispatch(
-  control: ControlPlane,
+  control: McpControl,
   client: ClientIdentity,
   message: unknown,
 ): Promise<unknown> {
@@ -280,7 +280,7 @@ export interface McpServer {
 // address. Host and Origin must name loopback; every request needs a bearer
 // token that the control plane authenticates.
 export function startMcpServer(options: {
-  control: ControlPlane;
+  control: McpControl;
   port?: number;
 }): McpServer {
   const port = options.port ?? DEFAULT_MCP_PORT;

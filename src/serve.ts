@@ -450,6 +450,36 @@ export async function serve(options: ServeOptions) {
               );
             if (url.pathname === "/api/control/revoke")
               return response(await control.revokeClient(String(v.id)));
+            // serve-mcp forwards its MCP calls here (src/control/served.ts). This
+            // plane is the only writer; bearer tokens are checked against its registry.
+            if (url.pathname === "/api/control/mcp/authenticate")
+              return response(
+                (await control.authenticate(
+                  typeof v.token === "string" ? v.token : undefined,
+                )) ?? null,
+              );
+            if (url.pathname === "/api/control/mcp/request") {
+              const client = await control.authenticate(
+                typeof v.token === "string" ? v.token : undefined,
+              );
+              if (!client) throw new HomectlError(3, "Unauthorized");
+              if (
+                !v.request ||
+                typeof v.request !== "object" ||
+                Array.isArray(v.request)
+              )
+                throw new HomectlError(2, "Request object required");
+              return response(
+                await control.request(
+                  { kind: "client", client },
+                  v.request as Parameters<ControlPlane["request"]>[1],
+                ),
+              );
+            }
+            if (url.pathname === "/api/control/mcp/auth-rejection") {
+              await control.recordAuthRejection();
+              return response({ recorded: true });
+            }
             if (url.pathname === "/api/control/audit/verify")
               return response(await control.verifyAudit());
             // Never hold the local mutation queue while waiting for another peer:
