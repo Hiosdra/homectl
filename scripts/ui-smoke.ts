@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium, expect } from "@playwright/test";
+import type { ClientBody, OpBody } from "../src/control/replicate";
 import { saveInventory } from "../src/inventory";
 import { serve } from "../src/serve";
 import { keyReference } from "../src/session/keys";
@@ -233,8 +234,78 @@ try {
   await page.getByLabel("Device name").fill("Linux · demo");
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.getByRole("status")).toContainText("Changes saved");
+  // Replicated state (synthetic). Operations owned by the paired device are
+  // written into the in-memory replica in the shape a signed sync produces; the
+  // signed path itself is covered by tests/control-e2e.test.ts.
+  const rep = running.replicator;
+  if (!rep) throw new Error("Control replicator is not running");
+  await rep.addPeer(peerId, "Windows · demo");
+  // Any exchange sets the last contact; an empty pull is enough for the fixture.
+  await rep.receive({ origins: {} }, peerId);
+  const now = new Date().toISOString();
+  const remoteOp = (opId: string, state: string, approver?: string) =>
+    ({
+      kind: "op",
+      opId,
+      owner: peerId,
+      planner: peerId,
+      epoch: 1,
+      seq: 1,
+      state,
+      host: "voron-printer",
+      argv: ["systemctl", "restart", "nginx"],
+      impact: "Restart the web service on the printer",
+      classification: "mutation",
+      needsApproval: true,
+      fingerprint: "7c1e0d2a9b44f1c8",
+      issuer: "codex-pc",
+      updatedAt: now,
+      ...(approver ? { approver } : {}),
+    }) as OpBody;
+  const approvedRemote = "aaaaaaaa-0000-4000-8000-00000000a001";
+  const pendingRemote = "bbbbbbbb-0000-4000-8000-00000000b001";
+  rep.replica.clients["hermes-admin"] = {
+    kind: "client",
+    clientId: "hermes-admin",
+    device: peerId,
+    name: "Hermes Admin",
+    scopes: ["status:read", "inspect:read", "plan:create", "approve:decide"],
+    hosts: ["agent-host", "voron-printer"],
+    createdAt: now,
+    revoked: false,
+  } as ClientBody;
+  rep.replica.ops[approvedRemote] = remoteOp(
+    approvedRemote,
+    "approved",
+    "hermes-admin",
+  );
+  rep.replica.ops[pendingRemote] = remoteOp(pendingRemote, "pending");
+  // This device forwards an approval; it shows as awaiting confirmation.
+  await rep.decide(hermes, pendingRemote, "7c1e0d2a9b44f1c8", "approve");
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page.getByRole("link", { name: /^Sync/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Control sync", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("No control conflicts.")).toBeVisible();
+  await page.screenshot({
+    path: join(out, "control-sync.png"),
+    fullPage: true,
+  });
+  await page.getByRole("link", { name: "Devices", exact: true }).click();
+  await expect(
+    page.getByText("Re-pair this device to enable control sync").first(),
+  ).toBeVisible();
+  await page.screenshot({ path: join(out, "devices.png"), fullPage: true });
   // Approvals: the queue, an inspection run from the panel, and the client list.
   await page.getByRole("link", { name: /^Approvals/ }).click();
+  await expect(page.getByText("Runs on Windows · demo").first()).toBeVisible();
+  await expect(page.getByText(/Takeover possible after/).first()).toBeVisible();
+  await expect(
+    page
+      .locator("tr", { hasText: "Runs on Windows · demo" })
+      .getByRole("button", { name: "Execute", exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Approvals", exact: true }),
   ).toBeVisible();
@@ -243,6 +314,10 @@ try {
   await page.getByRole("button", { name: /^Needs approval/ }).click();
   await expect(
     page.getByText("Waiting for approval by another client"),
+  ).toBeVisible();
+  // The forwarded approval shows as awaiting confirmation until the owner reflects it.
+  await expect(
+    page.getByText("forwarded, awaiting confirmation").first(),
   ).toBeVisible();
   await page.screenshot({
     path: join(out, "approvals-needs.png"),
@@ -324,6 +399,19 @@ try {
     path: join(out, "approvals-mobile.png"),
     fullPage: true,
   });
+  await page.getByRole("link", { name: /^Sync/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Control sync", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: join(out, "sync-mobile.png"),
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
