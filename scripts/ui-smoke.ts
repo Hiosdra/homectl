@@ -374,6 +374,20 @@ try {
   await expect(
     page.getByRole("button", { name: "Resolve…" }).first(),
   ).toBeVisible();
+  // The Mac device is offline in this fixture: suspend it from the lease, as the
+  // operator would from the panel, then check the row.
+  await page
+    .locator("tr", { hasText: "Mac · demo" })
+    .getByRole("button", { name: "Suspend from lease", exact: true })
+    .click();
+  await expect(page.locator("#confirm-dialog")).toBeVisible();
+  await page.locator("#confirm-dialog button[value=confirm]").click();
+  await expect(
+    page.getByText("suspended by Linux · demo", { exact: false }).first(),
+  ).toBeVisible();
+  await expect(page.locator("#control-live")).toContainText(
+    "Mac · demo is suspended from this device's lease.",
+  );
   await page.screenshot({
     path: join(out, "control-sync.png"),
     fullPage: true,
@@ -473,6 +487,7 @@ try {
   await expect(page.locator("#control-live")).toContainText(
     "Offered agent-host to Windows · demo",
   );
+  await expect(page.getByText(/offer expires in/).first()).toBeVisible();
   await page.screenshot({
     path: join(out, "handoff-offered.png"),
     fullPage: true,
