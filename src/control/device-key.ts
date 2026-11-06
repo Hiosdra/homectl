@@ -53,7 +53,7 @@ export function validateSigningKey(publicKey: string): void {
 export async function loadOrCreateDeviceKey(
   stateDirectory: string,
 ): Promise<DeviceKey> {
-  await privateDirectory(stateDirectory);
+  // The directory is secured when the key is created; loads do not repeat the ACL work.
   const path = deviceKeyPath(stateDirectory);
   let text: string | undefined;
   try {
@@ -63,6 +63,7 @@ export async function loadOrCreateDeviceKey(
       throw new HomectlError(5, "Device key cannot be read");
   }
   if (text === undefined) {
+    await privateDirectory(stateDirectory);
     const pair = generateKeyPairSync("ed25519");
     const record = {
       version: 1,
