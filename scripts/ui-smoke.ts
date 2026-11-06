@@ -312,7 +312,7 @@ try {
   const conflicted = "cccccccc-0000-4000-8000-00000000c001";
   const hermesClient = {
     kind: "client",
-    clientId: "hermes-admin",
+    clientId: "hermes-windows",
     device: windows.id,
     name: "Hermes Admin",
     scopes: ["status:read", "inspect:read", "plan:create", "approve:decide"],
@@ -327,7 +327,7 @@ try {
   );
   if (clientOutcome !== "applied")
     throw new Error(`Fixture client rejected: ${clientOutcome}`);
-  publish(windows, remoteOp(approvedRemote, "approved", "hermes-admin"));
+  publish(windows, remoteOp(approvedRemote, "approved", "hermes-windows"));
   publish(windows, remoteOp(pendingRemote, "pending"));
   publish(windows, remoteOp(conflicted, "pending"));
   // Two handoffs at epoch 2 from the same owner, to this device and to the Mac:
@@ -520,7 +520,28 @@ try {
   await expect(page.locator("#control-live")).toContainText(
     "finished: succeeded",
   );
+  // OIDC: configure the issuer (no network access until a sign-in) and map a
+  // client to a synthetic subject. The panel shows the issuer host only.
+  await control.configureOidc({
+    issuer: "https://idp.example.test",
+    audience: "homectl-mcp",
+  });
+  await control.createClient({
+    id: "oidc-codex",
+    name: "OIDC Codex",
+    scopes: ["status:read", "inspect:read"],
+    hosts: ["agent-host"],
+    oidc: { claim: "sub", value: "synthetic-subject-01" },
+  });
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await page.getByRole("tab", { name: "Clients", exact: true }).click();
+  await expect(page.getByText("OIDC · idp.example.test")).toBeVisible();
+  await expect(page.getByText("synthetic-subject-01")).toHaveCount(0);
+  await page.screenshot({
+    path: join(out, "clients-oidc.png"),
+    fullPage: true,
+  });
+
   await expect(page.getByText("Codex PC", { exact: true })).toBeVisible();
   await expect(page.getByText("homectl control client add")).toBeVisible();
   await page.getByRole("tab", { name: "Operations", exact: true }).click();
