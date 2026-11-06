@@ -208,8 +208,12 @@ export function leasePeers(data: ReplicaFile, selfId: string): string[] {
 
 // Reasons are short, printable and never carry secret material.
 function cleanReason(text: string | undefined): string {
-  const value = (text ?? "")
-    .replace(/[\u0000-\u001f\u007f]/g, " ")
+  const value = Array.from(text ?? "")
+    .map((char) => {
+      const code = char.codePointAt(0) ?? 0;
+      return code < 0x20 || code === 0x7f ? " " : char;
+    })
+    .join("")
     .trim()
     .slice(0, 80);
   if (containsSecretMaterial(value))
