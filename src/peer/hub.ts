@@ -125,6 +125,8 @@ export class Hub {
   pending = new Map<string, Pending>();
   operations = new Map<string, Operation>();
   device?: DeviceKey;
+  // Serves control-plane logs to authenticated peers with a sync grant (ADR-0002 stage c).
+  controlExchange?: (peer: Peer, payload: unknown) => Promise<unknown>;
   private challenges = new Map<
     string,
     {
@@ -709,6 +711,13 @@ export class Hub {
     await this.save();
   }
   async remoteAction(peer: Peer, action: string, payload: unknown) {
+    if (action === "control-exchange") {
+      if (!peer.permissions.sync)
+        throw new HomectlError(3, "This peer has no sync grant");
+      if (!this.controlExchange)
+        throw new HomectlError(5, "Control sync is not running on this device");
+      return this.controlExchange(peer, payload);
+    }
     if (action === "snapshot" || action === "offer") {
       if (!peer.permissions.sync)
         throw new HomectlError(3, "This peer has no sync grant");
