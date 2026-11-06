@@ -7,6 +7,7 @@ import {
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { HomectlError } from "../types";
 import { isoTime } from "./canonical";
+import { identityHash, issuerHost } from "./oidc";
 import type {
   ClientAuthenticator,
   ClientIdentity,
@@ -57,6 +58,16 @@ export function clientView(record: ClientRecord): ClientView {
     hosts: [...record.hosts],
     createdAt: isoTime(record.createdAt),
     revoked: record.revokedAt !== undefined,
+    // The subject itself is never shown: only the issuer host and a hash.
+    ...(record.oidc
+      ? {
+          oidc: {
+            issuerHost: issuerHost(record.oidc.issuer),
+            claim: record.oidc.claim,
+            identityHash: identityHash(record.oidc.value),
+          },
+        }
+      : {}),
   };
 }
 

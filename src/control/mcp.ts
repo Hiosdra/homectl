@@ -8,6 +8,22 @@ import type { ControlPlane } from "./engine";
 import { summarizeTool } from "./present";
 import { controlPlaneSchema } from "./schema";
 import type { ClientIdentity, OperationKind, Scope } from "./types";
+import { SCOPES } from "./types";
+
+// OAuth protected-resource metadata (MCP authorization spec). Public and loopback-only:
+// it names this resource and, when configured, the OIDC issuer. Homectl is not an
+// authorization server.
+export const PROTECTED_RESOURCE_PATH = "/.well-known/oauth-protected-resource";
+
+async function protectedResourceMetadata(control: ControlPlane, port: number) {
+  const oidc = await control.oidcView();
+  return {
+    resource: `http://127.0.0.1:${port}/mcp`,
+    bearer_methods_supported: ["header"],
+    scopes_supported: [...SCOPES],
+    ...(oidc ? { authorization_servers: [oidc.issuer] } : {}),
+  };
+}
 
 export const MCP_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26"] as const;
 export const DEFAULT_MCP_PORT = 7449;
@@ -289,7 +305,7 @@ export function startMcpServer(options: {
     try {
       const actual = server.port;
       const url = new URL(request.url);
-      if (url.pathname !== "/mcp")
+      if (url.pathname !== "/mcp" && url.pathname !== PROTECTED_RESOURCE_PATH)
         return reply(404, rpcError(null, -32601, "Not found"));
       const host = request.headers.get("host");
       if (host !== `127.0.0.1:${actual}` && host !== `localhost:${actual}`)
@@ -301,6 +317,16 @@ export function startMcpServer(options: {
         origin !== `http://localhost:${actual}`
       )
         return reply(403, rpcError(null, -32000, "Unexpected origin"));
+      if (url.pathname === PROTECTED_RESOURCE_PATH) {
+        if (request.method !== "GET")
+          return reply(405, rpcError(null, -32000, "Use GET"), {
+            Allow: "GET",
+          });
+        return reply(
+          200,
+          await protectedResourceMetadata(control, server.port ?? 0),
+        );
+      }
       if (request.method !== "POST")
         return reply(405, rpcError(null, -32000, "Use POST"), {
           Allow: "POST",
@@ -311,7 +337,7 @@ export function startMcpServer(options: {
       if (!client) {
         await control.recordAuthRejection().catch(() => undefined);
         return reply(401, rpcError(null, -32001, "Unauthorized"), {
-          "WWW-Authenticate": 'Bearer realm="homectl"',
+          "WWW-Authenticate": `Bearer realm="homectl", resource_metadata="http://127.0.0.1:${server.port}${PROTECTED_RESOURCE_PATH}"`,
         });
       }
       if (

@@ -148,6 +148,25 @@
         },
         "revoked": {
           "type": "boolean"
+        },
+        "oidc": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["issuerHost", "claim", "identityHash"],
+          "properties": {
+            "issuerHost": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "claim": {
+              "enum": ["sub", "client_id"]
+            },
+            "identityHash": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{12}$"
+            }
+          }
         }
       }
     },
@@ -601,7 +620,9 @@
             "handoff.resolution-proposed",
             "handoff.resolution-accepted",
             "peer.suspended",
-            "peer.resumed"
+            "peer.resumed",
+            "auth.oidc",
+            "oidc.configured"
           ]
         },
         "client": {

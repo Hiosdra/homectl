@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { loadInventory } from "../inventory";
 import { execute as executeCommand } from "../operations";
@@ -22,6 +23,18 @@ import {
   validateClientInput,
 } from "./clients";
 import { AuditJournal } from "./journal";
+import {
+  type Fetcher,
+  identityHash,
+  issuerHost,
+  JwksSource,
+  looksLikeJwt,
+  type OidcConfig,
+  OidcRefusal,
+  printableText,
+  validateOidcConfigInput,
+  verifyOidcToken,
+} from "./oidc";
 import { containsSecretMaterial, redactArgv } from "./redact";
 import type { ReplicaOverlay } from "./replicator";
 import { schemas } from "./schema";
@@ -138,6 +151,8 @@ export interface ControlPlaneOptions {
   // Replicated view: owners, delivery of forwarded approvals, operations held
   // only by other devices (ADR-0002 stage d).
   replicaOverlay?: (localIds: Set<string>) => Promise<ReplicaOverlay>;
+  // Transport for JWKS and discovery. Defaults to fetch; tests may inject one.
+  oidcFetch?: Fetcher;
   // Authority of an approver whose registration lives on another device.
   approverAuthorized?: (approverId: string, host: string) => boolean;
   // Forwards an approval for an operation owned by another device.
@@ -356,6 +371,7 @@ export class ControlPlane {
   readonly store: ControlStore;
   readonly journal: AuditJournal;
   readonly registry: ClientRegistry;
+  private readonly oidcSources = new Map<string, JwksSource>();
   private readonly clock: () => number;
   private readonly runner: Runner;
 
@@ -405,8 +421,199 @@ export class ControlPlane {
   }
 
   // Authentication boundary used by the MCP layer.
+  // Static "hct_" tokens are unchanged. A JWT-shaped token takes the OIDC path
+  // when OIDC is configured; anything else is refused.
   authenticate(credential: string | undefined): Promise<ClientIdentity | null> {
+    if (typeof credential === "string" && credential.startsWith("hct_"))
+      return this.registry.authenticate(credential);
+    if (typeof credential === "string" && looksLikeJwt(credential))
+      return this.authenticateOidc(credential);
     return this.registry.authenticate(credential);
+  }
+
+  // OIDC configuration lives beside the control state. It holds no secrets.
+  private get oidcPath(): string {
+    return join(this.options.stateDirectory, "oidc.json");
+  }
+
+  async loadOidc(): Promise<OidcConfig | undefined> {
+    let text: string;
+    try {
+      text = await readFile(this.oidcPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw new HomectlError(5, "OIDC configuration cannot be read");
+    }
+    try {
+      const parsed = JSON.parse(text) as OidcConfig;
+      if (parsed.version !== 1) throw new Error("version");
+      return validateOidcConfigInput(parsed);
+    } catch {
+      throw new HomectlError(
+        5,
+        "OIDC configuration is corrupt; run homectl control oidc clear and configure it again",
+      );
+    }
+  }
+
+  // Local operator: writes the configuration. No network access happens here;
+  // keys are fetched on the first OIDC authentication.
+  async configureOidc(input: Record<string, unknown>): Promise<{
+    issuerHost: string;
+    audience: string;
+    jwks: "configured" | "discovery";
+  }> {
+    const config = validateOidcConfigInput(input);
+    return this.store.withLock(async () => {
+      const temp = `${this.oidcPath}.${randomUUID()}.tmp`;
+      await writeFile(temp, JSON.stringify(config), {
+        mode: 0o600,
+        flag: "wx",
+      });
+      await rename(temp, this.oidcPath);
+      await this.journal.append({
+        event: "oidc.configured",
+        client: SYSTEM_ACTOR,
+        reason: `issuer=${issuerHost(config.issuer)}`,
+      });
+      return {
+        issuerHost: issuerHost(config.issuer),
+        audience: config.audience,
+        jwks: config.jwksUrl ? "configured" : "discovery",
+      };
+    });
+  }
+
+  async clearOidc(): Promise<void> {
+    await this.store.withLock(async () => {
+      await rm(this.oidcPath, { force: true });
+      await this.journal.append({
+        event: "oidc.configured",
+        client: SYSTEM_ACTOR,
+        reason: "disabled",
+      });
+    });
+  }
+
+  async oidcView(): Promise<
+    | {
+        issuer: string;
+        issuerHost: string;
+        audience: string;
+        jwks: "configured" | "discovery";
+        mappedClients: number;
+      }
+    | undefined
+  > {
+    const config = await this.loadOidc();
+    if (!config) return undefined;
+    const mapped = Object.values(await this.registry.load()).filter(
+      (record) => record.oidc?.issuer === config.issuer,
+    ).length;
+    return {
+      issuer: config.issuer,
+      issuerHost: issuerHost(config.issuer),
+      audience: config.audience,
+      jwks: config.jwksUrl ? "configured" : "discovery",
+      mappedClients: mapped,
+    };
+  }
+
+  // One key cache per issuer and JWKS source, shared by every request.
+  private oidcSource(config: OidcConfig): JwksSource {
+    const key = `${config.issuer}|${config.jwksUrl ?? ""}`;
+    let source = this.oidcSources.get(key);
+    if (!source) {
+      const fetcher: Fetcher =
+        this.options.oidcFetch ?? ((url, init) => fetch(url, init));
+      source = new JwksSource(config.issuer, config.jwksUrl, fetcher, () =>
+        this.clock(),
+      );
+      this.oidcSources.set(key, source);
+    }
+    return source;
+  }
+
+  // Refusals are audited with a fixed reason; nothing from the token is written.
+  private async auditOidcRefusal(error: unknown): Promise<void> {
+    const code = error instanceof OidcRefusal ? error.code : "oidc-format";
+    await this.audit({
+      event: "auth.rejected",
+      client: SYSTEM_ACTOR,
+      reason: `OIDC token refused: ${code}`,
+    }).catch(() => undefined);
+  }
+
+  private async authenticateOidc(
+    token: string,
+  ): Promise<ClientIdentity | null> {
+    const config = await this.loadOidc();
+    if (!config) return null;
+    let verified: Awaited<ReturnType<typeof verifyOidcToken>>;
+    try {
+      verified = await verifyOidcToken(token, {
+        config,
+        source: this.oidcSource(config),
+        nowMs: this.clock(),
+      });
+    } catch (error) {
+      await this.auditOidcRefusal(error);
+      return null;
+    }
+    // The IdP proves identity only: the homectl client record decides access.
+    const clients = await this.registry.load();
+    const matches = Object.values(clients).filter((record) => {
+      if (!record.oidc || record.oidc.issuer !== verified.issuer) return false;
+      const claim =
+        record.oidc.claim === "sub" ? verified.subject : verified.clientId;
+      return claim === record.oidc.value;
+    });
+    const record = matches.length === 1 ? matches[0] : undefined;
+    if (!record) {
+      await this.auditOidcRefusal(new OidcRefusal("oidc-unmapped"));
+      return null;
+    }
+    if (record.revokedAt !== undefined) {
+      await this.auditOidcRefusal(new OidcRefusal("oidc-revoked"));
+      return null;
+    }
+    await this.audit({
+      event: "auth.oidc",
+      client: record.id,
+      reason: `issuer=${issuerHost(config.issuer)}; subject-sha256=${identityHash(verified.subject)}`,
+    });
+    return {
+      id: record.id,
+      name: record.name,
+      scopes: [...record.scopes],
+      hosts: [...record.hosts],
+    };
+  }
+
+  // Validates an OIDC mapping for a new client against the configured issuer.
+  private async oidcMappingFor(
+    raw: unknown,
+  ): Promise<
+    { issuer: string; claim: "sub" | "client_id"; value: string } | undefined
+  > {
+    if (raw === undefined) return undefined;
+    const config = await this.loadOidc();
+    if (!config)
+      throw new HomectlError(
+        2,
+        "Configure OIDC first: homectl control oidc set --issuer URL --audience AUD",
+      );
+    const input = raw as { claim?: unknown; value?: unknown };
+    if (
+      (input.claim !== "sub" && input.claim !== "client_id") ||
+      typeof input.value !== "string" ||
+      !printableText(input.value, 256)
+    )
+      throw new HomectlError(
+        2,
+        "OIDC mapping needs --oidc-subject or --oidc-client-id with a printable value",
+      );
+    return { issuer: config.issuer, claim: input.claim, value: input.value };
   }
 
   async recordAuthRejection(): Promise<void> {
@@ -461,6 +668,7 @@ export class ControlPlane {
     input: Record<string, unknown>,
   ): Promise<{ client: ClientView; token: string }> {
     const parsed = validateClientInput(input);
+    const oidc = await this.oidcMappingFor(input.oidc);
     const inventory = await loadInventory(this.options.inventoryPath);
     const unknown = parsed.hosts.filter(
       (host) => !Object.hasOwn(inventory.machines, host),
@@ -477,11 +685,25 @@ export class ControlPlane {
       const clients = await this.registry.load();
       if (Object.hasOwn(clients, parsed.id))
         throw new HomectlError(2, "Client id already exists");
+      if (
+        oidc &&
+        Object.values(clients).some(
+          (other) =>
+            other.oidc?.issuer === oidc.issuer &&
+            other.oidc.claim === oidc.claim &&
+            other.oidc.value === oidc.value,
+        )
+      )
+        throw new HomectlError(
+          2,
+          "That OIDC identity is already mapped to a client",
+        );
       const token = generateToken();
       const record: ClientRecord = {
         ...parsed,
         tokenHash: tokenDigest(token).toString("hex"),
         createdAt: now,
+        ...(oidc ? { oidc } : {}),
       };
       await this.journal.append({ event: "client.created", client: parsed.id });
       clients[parsed.id] = record;

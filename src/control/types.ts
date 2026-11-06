@@ -206,6 +206,11 @@ export interface ClientView {
   hosts: string[];
   createdAt: string; // ISO-8601 UTC
   revoked: boolean;
+  oidc?: {
+    issuerHost: string;
+    claim: "sub" | "client_id";
+    identityHash: string;
+  };
 }
 
 export type AuditEventName =
@@ -226,6 +231,8 @@ export type AuditEventName =
   | "handoff.resolution-proposed"
   | "handoff.resolution-accepted"
   | "peer.suspended"
+  | "auth.oidc"
+  | "oidc.configured"
   | "peer.resumed";
 
 // Audit payloads carry identifiers, fixed reason codes and redacted argv only.
@@ -257,6 +264,8 @@ export interface ClientRecord extends ClientIdentity {
   tokenHash: string;
   createdAt: number;
   revokedAt?: number;
+  // Optional OIDC route to this client: a verified token whose issuer and claim match.
+  oidc?: { issuer: string; claim: "sub" | "client_id"; value: string };
 }
 
 // Authentication boundary. Slice 1 implements token-based authentication;
