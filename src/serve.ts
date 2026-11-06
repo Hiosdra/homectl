@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { dirname, join, resolve } from "node:path";
+import { fingerprintOf } from "./control/device-key";
 import { ControlPlane, controlStateDirectory } from "./control/engine";
 import { ControlReplicator } from "./control/replicator";
 import { SYNC_INTERVAL_MS, SyncLoop } from "./control/sync-loop";
@@ -62,7 +63,10 @@ function failure(error: unknown) {
 }
 // Control-plane overview for the Approvals view. Read-only, except that the
 // audit verification itself is an in-memory check of the journal.
-async function controlPanel(control: ControlPlane) {
+async function controlPanel(
+  control: ControlPlane,
+  extra: { sync?: unknown; devices?: unknown },
+) {
   const [operations, clients, audit] = await Promise.all([
     control.listOperations({ all: true }),
     control.listClients(),
@@ -71,6 +75,8 @@ async function controlPanel(control: ControlPlane) {
   return {
     operations: operations.slice(0, 200),
     clients,
+    sync: extra.sync,
+    devices: extra.devices,
     audit: {
       ok: audit.ok,
       entries: audit.entries,
@@ -165,6 +171,9 @@ export async function serve(options: ServeOptions) {
       stateDirectory: controlStateDirectory(options.inventoryPath),
       runner: options.controlRunner,
       fence: (id) => replicator?.fence(id),
+      replicaOverlay: (localIds) =>
+        replicator?.overlay(localIds) ??
+        Promise.resolve({ notes: {}, remote: [] }),
       approverAuthorized: (id, host) =>
         replicator?.approverAuthorized(id, host) ?? false,
       remoteDecision: async (client, req) => {
@@ -213,6 +222,7 @@ export async function serve(options: ServeOptions) {
     // Paired peers that grant sync are the only control-sync peers. Forgotten
     // peers are dropped; the replicator never contacts them again.
     const syncPeers = async () => {
+      await rep.refreshSelfName(hub.state.name);
       const wanted = new Set<string>();
       for (const [id, peer] of Object.entries(hub.state.peers)) {
         if (!peer.permissions.sync) continue;
@@ -341,10 +351,24 @@ export async function serve(options: ServeOptions) {
                 address,
               });
             if (req.method === "GET" && url.pathname === "/api/control")
-              return response(await controlPanel(control));
+              return response(
+                await controlPanel(control, {
+                  sync: syncView(),
+                  devices: devicesView(),
+                }),
+              );
+            // Local operator view of sync (the CLI reads this; never peer or MCP).
+            if (req.method === "GET" && url.pathname === "/api/control/sync") {
+              const view = syncView();
+              if (!view)
+                throw new HomectlError(5, "Control sync is not running");
+              return response(view);
+            }
             if (req.method !== "POST")
               return response({ error: "Not found" }, 404);
             const v = await body(req);
+            if (url.pathname === "/api/control/handoff")
+              return response(await handoff(v));
             // Control-plane routes use their own lock and never enter the hub
             // queue: a long SSH run must not block peer requests.
             // The panel is the local operator: it can execute approved work and
@@ -568,6 +592,68 @@ export async function serve(options: ServeOptions) {
     }
   })();
   localPort = localServer.port ?? localPort;
+  // Sync status for the local operator: the replicator's view merged with the
+  // scheduler's per-peer state (failures, next attempt, last error).
+  const syncView = () => {
+    if (!replicator || !syncLoop) return undefined;
+    const live = new Map(syncLoop.statuses().map((s) => [s.id, s]));
+    const status = replicator.status();
+    return {
+      running: true,
+      intervalMs: SYNC_INTERVAL_MS,
+      checkedAt: new Date().toISOString(),
+      peers: status.peers.map((peer) => {
+        const scheduled = live.get(peer.id);
+        return {
+          ...peer,
+          failures: scheduled?.failures ?? 0,
+          nextAttemptAt: scheduled?.nextAttemptAt,
+          lastError: scheduled?.lastError,
+        };
+      }),
+      blocked: status.blocked,
+      conflicts: status.conflicts,
+      names: {
+        [hub.state.id]: hub.state.name,
+        ...Object.fromEntries(
+          Object.entries(hub.state.peers).map(([id, peer]) => [id, peer.name]),
+        ),
+      },
+    };
+  };
+  // Device names and signing fingerprints (fingerprints only, never keys).
+  const devicesView = () => ({
+    self: {
+      id: hub.state.id,
+      name: hub.state.name,
+      fingerprint: hub.device ? fingerprintOf(hub.device.publicKey) : undefined,
+    },
+    peers: Object.entries(hub.state.peers).map(([id, peer]) => ({
+      id,
+      name: peer.name,
+      fingerprint: peer.signingKey ? fingerprintOf(peer.signingKey) : undefined,
+      legacy: peer.signingKey === undefined,
+    })),
+  });
+  // Takeover by this device. A handoff is signed by the device that takes
+  // over, so `to` may only name this device.
+  const handoff = async (v: { operationId?: unknown; to?: unknown }) => {
+    if (!replicator) throw new HomectlError(5, "Control sync is not running");
+    const to = v.to === undefined ? undefined : String(v.to);
+    if (to !== undefined && to !== hub.state.id && to !== hub.state.name)
+      throw new HomectlError(
+        3,
+        `A handoff is signed by the device that takes over; run this command on ${to} instead.`,
+      );
+    const operationId = await control.resolveOperation(String(v.operationId));
+    await replicator.takeover(operationId, "local-operator");
+    return {
+      operationId,
+      taken: true,
+      operation: await control.showOperation(operationId),
+      next: "This device owns the operation now. It needs a fresh approval here before it can run.",
+    };
+  };
   const directory = join(dirname(options.inventoryPath), "serve");
   await privateDirectory(directory);
   const launch = join(directory, "panel.json");
@@ -589,6 +675,8 @@ export async function serve(options: ServeOptions) {
       await hub.lock();
       localServer.stop(true);
       peerServer.stop(true);
+      // The launch token dies with the server; the CLI then reports "not running".
+      await rm(launch, { force: true }).catch(() => undefined);
     },
     localServer,
     peerServer,
