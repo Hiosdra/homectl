@@ -165,8 +165,27 @@ Decisions implemented (`src/control/replicate.ts`, `src/control/replicator.ts`, 
 5. Audit. Offer, cancel, accept and both resolution steps are written to the local journal (`handoff.*` events, identifiers and fixed reasons only). Schema updated.
 6. Admin hardening. `/api/connect` and the session cookie compare in constant time. The POSIX key-mode error no longer prints the key path. `--no-control-sync` switches off the peer receiver, the scheduler and its timer together.
 
+Follow-up round (section 12) changed these:
+
+- Suspension, the operator's answer to an offline signing peer, is described in section 12.
+- Offers expire after 15 minutes, as section 12 describes.
+
 Known residual risks, not closed by this round:
 
 - Cancel versus accept race: an accept signed before the receiver saw the cancel is applied on the receiver and rejected on the owner. The divergence is visible to an operator and needs a fresh approval to run, but it is not automatically reconciled.
-- An offline signing peer blocks execution on its peers after the lease window. This is the fail-closed rule from section 8, and it is likely to be felt in practice. Option for the owner: an explicit "leave the control plane" action, or a shorter, operator-set lease.
+- An offline signing peer blocks execution on its peers after the lease window. This is the fail-closed rule from section 8. The suspend action in section 12 is the operator's answer.
 - Owner-side route for the MCP view: remote operations show device names to MCP clients that hold the host. Names are not secrets, but they are device identifiers.
+
+## 12. Follow-up: suspension from the lease, offer expiry
+
+Decided by the owner for the offline-device case, and implemented:
+
+1. Suspend. `control peer suspend DEVICE [--reason TEXT]` (or "Suspend from lease" in the Sync view, behind a confirm that says operations here may run without the device confirming the latest state). The suspension is a signed `suspension` record, replicated to every device; only the suspending device excludes the peer from its own lease. Other devices show it as "suspended by <device> at <time>". Audited locally as `peer.suspended` with the device id and a short reason.
+2. Resume. Automatic on the next successful control sync with the peer (audited as `peer.resumed`, reason `synced`), so the peer counts toward the lease again. Manual: `control peer resume DEVICE` or "Resume" in the Sync view.
+3. Safety, unchanged rules: a suspended peer cannot run operations the suspending device owns (the fence refuses them as "runs on <owner>"). A handoff to a suspended peer is refused until it resumes, and so is an accept by a device its owner has suspended. When a suspended peer comes back, its own lease still requires a sync before it runs anything.
+4. Offer expiry. An open handoff offer expires 15 minutes after it is made (a constant, `OFFER_TTL_MS`; the settings file has no natural place for it). Expiry uses the signed timestamps, so every device agrees: an accept signed after expiry is rejected everywhere, and the receiver's own check refuses an expired offer. After expiry the owner's fence no longer refuses execution, and the next offer cancels the expired one first. The panel and CLI show "offer expires in N min" and "offer expired".
+5. Conflict rows in the Sync view put the description, the owner select and the Resolve button on one aligned row, wrapping on narrow screens.
+
+Tests: `tests/control-suspend.test.ts` (an offline signing peer blocks execution; after suspend, execution works and is audited; the suspension replicates to a third peer; the peer comes back, syncs, is auto-resumed and counts again; a suspended peer must sync before it runs; a suspended peer cannot run the owner's operation; a handoff to a suspended peer is refused until resumed; double suspend and resume of a non-suspended peer are refused; an expired offer restores the owner's fence; a late accept is rejected).
+
+Residual risk, not closed: suspension is a local operator decision with no consent from the suspended device. Its only protection is the device's own lease when it comes back, plus the audit trail on both sides.
