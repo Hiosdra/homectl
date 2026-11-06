@@ -483,7 +483,7 @@ test("client list is an aligned table with revoked clients last and no bullets",
     f.inventory,
   ]);
   const lines = listed.stdout.trimEnd().split("\n");
-  expect(lines[0]).toMatch(/^ID\s+NAME\s+SCOPES\s+HOSTS\s+CREATED\s+STATUS$/);
+  expect(lines[0]).toMatch(/^ID\s+NAME\s+SCOPES\s+HOSTS\s+OIDC\s+CREATED\s+STATUS$/);
   expect(lines[1]).toContain("hermes-admin");
   expect(lines[2]).toContain("codex-pc");
   expect(lines[2]).toContain("revoked");

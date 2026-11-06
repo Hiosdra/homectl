@@ -12,7 +12,8 @@ import {
   loadOrCreateDeviceKey,
 } from "../src/control/device-key";
 import { ControlPlane } from "../src/control/engine";
-import { LEASE_MS, SKEW_MS } from "../src/control/lease";
+import { LEASE_MS } from "../src/control/lease";
+
 import {
   type AcceptBody,
   applyAccept,
