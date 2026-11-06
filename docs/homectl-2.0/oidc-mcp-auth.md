@@ -62,9 +62,11 @@ Deploying or contacting Authentik or any other IdP; authorization-code flows; dy
 
 - Config file `oidc.json` in the control state directory (no secrets). `control oidc clear` removes it; OIDC tokens are then refused, static tokens are unaffected.
 - Discovery is implemented: without `--jwks-url`, the JWKS URI is read once from the issuer's `.well-known/openid-configuration`.
-- Each OIDC sign-in is audited as `auth.oidc` (client id, issuer host, subject hash). A refusal is `auth.rejected` with the fixed code, for example `OIDC token refused: oidc-audience`.
+- Each token is audited once as `auth.oidc` (client id, issuer host, subject hash), not per request. The in-memory cache is keyed on a hash of `jti` (or of issuer, subject and `iat` when there is no `jti`), is bounded to 1024 tokens, and forgets each token at its `exp`. A refusal is `auth.rejected` with the fixed code, for example `OIDC token refused: oidc-audience`. Identical refusals (same code and issuer, or same client) are written once per minute with a count of the suppressed ones, for example `...; 2 identical suppressed`.
 - A client mapped with `--oidc-subject` or `--oidc-client-id` gets **no static token** unless `--token-file` is also given. Such an OIDC-only client has one route. A client with both is shown as "OIDC + token". The client list and the panel label each client's route: "token", "OIDC only" or "OIDC + token".
 - A mapping is unique per issuer, claim and value. `client list` and the panel show the issuer host and a 12-hex identity hash, never the subject.
 - `client_id` mapping matches the token's `client_id` claim, or `azp` when `client_id` is absent.
 - `/.well-known/oauth-protected-resource` returns the resource, the scope names and, when configured, `authorization_servers`. A 401 carries `WWW-Authenticate: Bearer resource_metadata=...`.
-- Residual: a bearer JWT is replayable until `exp`; IdP-side revocation is not seen before `exp`; there is no `jti` deny-list.
+- Lifetime cap. Tokens may live at most one hour (`exp - iat`). `control oidc set --max-lifetime 15m` lowers the cap (between 1m and 1h); it can never raise it.
+- Residual, accepted: a bearer JWT is replayable until `exp`; IdP-side revocation is not seen before `exp`; there is no `jti` deny-list. The mitigations are the one-hour cap (or the shorter one you set), TLS for any non-loopback exposure, and homectl-side revocation, which takes effect on the next request.
+- Panel: a read-only OIDC card on the Clients tab shows the issuer host, audience, JWKS source, last refresh, key count, last error code, the lifetime cap and the command to change the configuration.

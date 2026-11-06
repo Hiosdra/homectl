@@ -14,10 +14,13 @@ export type OidcAlgorithm = (typeof OIDC_ALGORITHMS)[number];
 export const MAX_TOKEN_BYTES = 8192;
 export const MAX_JWKS_BYTES = 65_536;
 export const CLOCK_SKEW_SECONDS = 60;
+// The default cap on token lifetime (exp - iat). Configurable only downwards.
 export const MAX_LIFETIME_SECONDS = 3600;
+export const MIN_LIFETIME_SECONDS = 60;
 export const JWKS_TTL_MS = 10 * 60_000;
 export const REFRESH_MIN_MS = 30_000;
 export const FETCH_TIMEOUT_MS = 5_000;
+export const AUDIT_WINDOW_MS = 60_000;
 
 // Fixed reason codes. Nothing from the token or the identity provider is echoed.
 export type OidcRefusalCode =
@@ -47,6 +50,7 @@ export interface OidcConfig {
   issuer: string;
   audience: string;
   jwksUrl?: string;
+  maxLifetimeSeconds?: number;
 }
 
 export interface OidcMapping {
@@ -82,10 +86,23 @@ export function printableText(text: string, max: number): boolean {
   return true;
 }
 
+// "15m", "900", "1h" or "30s" as seconds. Only values inside the cap range pass.
+export function parseLifetime(text: string): number {
+  const match = /^(\d+)([smh]?)$/.exec(text.trim());
+  if (!match)
+    throw new HomectlError(2, "Lifetime must look like 15m, 1h, 900 or 30s");
+  const unit: Record<string, number> = { "": 1, s: 1, m: 60, h: 3600 };
+  const value = Number(match[1]) * (unit[match[2] ?? ""] ?? 1);
+  if (value < MIN_LIFETIME_SECONDS || value > MAX_LIFETIME_SECONDS)
+    throw new HomectlError(2, "Lifetime must be between 1m and 1h");
+  return value;
+}
+
 export function validateOidcConfigInput(input: {
   issuer?: unknown;
   audience?: unknown;
   jwksUrl?: unknown;
+  maxLifetimeSeconds?: unknown;
 }): OidcConfig {
   const invalid = (message: string) => new HomectlError(2, message);
   if (typeof input.issuer !== "string" || !isAllowedEndpoint(input.issuer))
@@ -101,12 +118,23 @@ export function validateOidcConfigInput(input: {
     throw invalid(
       "JWKS URL must be an https URL (http is allowed only for loopback)",
     );
+  if (
+    input.maxLifetimeSeconds !== undefined &&
+    (typeof input.maxLifetimeSeconds !== "number" ||
+      !Number.isInteger(input.maxLifetimeSeconds) ||
+      input.maxLifetimeSeconds < MIN_LIFETIME_SECONDS ||
+      input.maxLifetimeSeconds > MAX_LIFETIME_SECONDS)
+  )
+    throw invalid("Lifetime must be between 1m and 1h");
   return {
     version: 1,
     issuer: input.issuer as string,
     audience: input.audience as string,
     ...(input.jwksUrl !== undefined
       ? { jwksUrl: input.jwksUrl as string }
+      : {}),
+    ...(input.maxLifetimeSeconds !== undefined
+      ? { maxLifetimeSeconds: input.maxLifetimeSeconds as number }
       : {}),
   };
 }
@@ -188,6 +216,12 @@ function entryFromJwk(
   }
 }
 
+export interface JwksStatus {
+  refreshedAt?: number; // last successful refresh, epoch ms
+  keyCount: number;
+  lastError?: OidcRefusalCode; // fixed code of the last failed refresh
+}
+
 // Keys for one issuer. Refreshes are time-bounded: the cache lasts JWKS_TTL_MS,
 // an unknown kid refreshes at most once per REFRESH_MIN_MS, and a failed fetch
 // keeps the previous keys (an unknown kid still fails closed).
@@ -196,6 +230,7 @@ export class JwksSource {
   private loadedAt = Number.NEGATIVE_INFINITY;
   private lastRefresh = Number.NEGATIVE_INFINITY;
   private jwksUrl: string | undefined;
+  private lastError: OidcRefusalCode | undefined;
   refreshes = 0;
 
   constructor(
@@ -205,6 +240,14 @@ export class JwksSource {
     private readonly now: () => number,
   ) {
     this.jwksUrl = jwksUrl;
+  }
+
+  status(): JwksStatus {
+    return {
+      ...(Number.isFinite(this.loadedAt) ? { refreshedAt: this.loadedAt } : {}),
+      keyCount: this.keys.size,
+      ...(this.lastError ? { lastError: this.lastError } : {}),
+    };
   }
 
   async keyFor(
@@ -240,8 +283,11 @@ export class JwksSource {
       // Rotation: the new set replaces the old one, so retired keys stop verifying.
       this.keys = next;
       this.loadedAt = this.now();
-    } catch {
+      this.lastError = undefined;
+    } catch (error) {
       // Keep the previous keys; the caller sees only "unknown key".
+      this.lastError =
+        error instanceof OidcRefusal ? error.code : "oidc-discovery";
     }
   }
 
@@ -284,6 +330,9 @@ export interface VerifiedToken {
   issuer: string;
   subject: string;
   clientId?: string;
+  jti?: string;
+  iat?: number;
+  exp: number;
 }
 
 // Verifies signature and claims. Throws OidcRefusal with a fixed code.
@@ -348,14 +397,14 @@ export async function verifyOidcToken(
     )
       throw new OidcRefusal("oidc-not-before");
   }
+  const cap = options.config.maxLifetimeSeconds ?? MAX_LIFETIME_SECONDS;
   if (payload.iat !== undefined) {
     if (
       typeof payload.iat !== "number" ||
       payload.iat > now + CLOCK_SKEW_SECONDS
     )
       throw new OidcRefusal("oidc-not-before");
-    if (payload.exp - payload.iat > MAX_LIFETIME_SECONDS)
-      throw new OidcRefusal("oidc-lifetime");
+    if (payload.exp - payload.iat > cap) throw new OidcRefusal("oidc-lifetime");
   }
   const clientId =
     typeof payload.client_id === "string"
@@ -366,6 +415,65 @@ export async function verifyOidcToken(
   return {
     issuer: payload.iss as string,
     subject: payload.sub,
+    exp: payload.exp,
     ...(clientId !== undefined ? { clientId } : {}),
+    ...(typeof payload.jti === "string" ? { jti: payload.jti } : {}),
+    ...(typeof payload.iat === "number" ? { iat: payload.iat } : {}),
   };
+}
+
+// One audit entry per token. The identity is jti when present, otherwise the
+// issuer, subject and issue time. Only a hash is held in memory.
+export function tokenIdentityKey(token: VerifiedToken): string {
+  const basis =
+    token.jti !== undefined
+      ? `jti|${token.jti}`
+      : `${token.issuer}|${token.subject}|${token.iat ?? ""}`;
+  return createHash("sha256").update(basis).digest("hex");
+}
+
+// Bounded memory of tokens already audited, forgotten at each token's expiry.
+export class TokenAuditCache {
+  private readonly seen = new Map<string, number>();
+
+  constructor(private readonly limit = 1024) {}
+
+  // True the first time a token is seen while it is still valid.
+  first(key: string, expiresAtMs: number, nowMs: number): boolean {
+    for (const [known, expiry] of this.seen)
+      if (expiry <= nowMs) this.seen.delete(known);
+    if (this.seen.has(key)) return false;
+    if (this.seen.size >= this.limit) {
+      const oldest = this.seen.keys().next().value;
+      if (oldest !== undefined) this.seen.delete(oldest);
+    }
+    this.seen.set(key, expiresAtMs);
+    return true;
+  }
+}
+
+// Identical rejections are written once per window, with a count of the ones
+// that were suppressed since the last one written.
+export class RejectionLimiter {
+  private readonly last = new Map<string, { at: number; suppressed: number }>();
+
+  constructor(
+    private readonly windowMs = AUDIT_WINDOW_MS,
+    private readonly limit = 1024,
+  ) {}
+
+  check(key: string, nowMs: number): { emit: boolean; suppressed: number } {
+    const entry = this.last.get(key);
+    if (entry && nowMs - entry.at < this.windowMs) {
+      entry.suppressed += 1;
+      return { emit: false, suppressed: 0 };
+    }
+    if (!entry && this.last.size >= this.limit) {
+      const oldest = this.last.keys().next().value;
+      if (oldest !== undefined) this.last.delete(oldest);
+    }
+    const suppressed = entry?.suppressed ?? 0;
+    this.last.set(key, { at: nowMs, suppressed: 0 });
+    return { emit: true, suppressed };
+  }
 }

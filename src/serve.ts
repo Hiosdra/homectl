@@ -86,6 +86,7 @@ async function controlPanel(
     clients,
     sync: extra.sync,
     devices: extra.devices,
+    oidc: await control.oidcView(),
     audit: {
       ok: audit.ok,
       entries: audit.entries,

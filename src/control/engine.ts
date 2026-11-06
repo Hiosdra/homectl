@@ -28,10 +28,15 @@ import {
   identityHash,
   issuerHost,
   JwksSource,
+  type JwksStatus,
   looksLikeJwt,
+  MAX_LIFETIME_SECONDS,
   type OidcConfig,
   OidcRefusal,
   printableText,
+  RejectionLimiter,
+  TokenAuditCache,
+  tokenIdentityKey,
   validateOidcConfigInput,
   verifyOidcToken,
 } from "./oidc";
@@ -372,6 +377,9 @@ export class ControlPlane {
   readonly journal: AuditJournal;
   readonly registry: ClientRegistry;
   private readonly oidcSources = new Map<string, JwksSource>();
+  // One audit entry per token, and one per window for identical refusals.
+  private readonly oidcAuditSeen = new TokenAuditCache();
+  private readonly rejectionLimiter = new RejectionLimiter();
   private readonly clock: () => number;
   private readonly runner: Runner;
 
@@ -495,12 +503,18 @@ export class ControlPlane {
     });
   }
 
+  // Read-only view for the CLI and the panel: no secrets, no subjects.
   async oidcView(): Promise<
     | {
         issuer: string;
         issuerHost: string;
         audience: string;
         jwks: "configured" | "discovery";
+        jwksHost?: string;
+        maxLifetimeSeconds: number;
+        keyCount: number;
+        refreshedAt?: string;
+        lastError?: string;
         mappedClients: number;
       }
     | undefined
@@ -510,11 +524,21 @@ export class ControlPlane {
     const mapped = Object.values(await this.registry.load()).filter(
       (record) => record.oidc?.issuer === config.issuer,
     ).length;
+    const status: JwksStatus = this.oidcSources
+      .get(`${config.issuer}|${config.jwksUrl ?? ""}`)
+      ?.status() ?? { keyCount: 0 };
     return {
       issuer: config.issuer,
       issuerHost: issuerHost(config.issuer),
       audience: config.audience,
       jwks: config.jwksUrl ? "configured" : "discovery",
+      ...(config.jwksUrl ? { jwksHost: new URL(config.jwksUrl).host } : {}),
+      maxLifetimeSeconds: config.maxLifetimeSeconds ?? MAX_LIFETIME_SECONDS,
+      keyCount: status.keyCount,
+      ...(status.refreshedAt !== undefined
+        ? { refreshedAt: new Date(status.refreshedAt).toISOString() }
+        : {}),
+      ...(status.lastError ? { lastError: status.lastError } : {}),
       mappedClients: mapped,
     };
   }
@@ -534,21 +558,12 @@ export class ControlPlane {
     return source;
   }
 
-  // Refusals are audited with a fixed reason; nothing from the token is written.
-  private async auditOidcRefusal(error: unknown): Promise<void> {
-    const code = error instanceof OidcRefusal ? error.code : "oidc-format";
-    await this.audit({
-      event: "auth.rejected",
-      client: SYSTEM_ACTOR,
-      reason: `OIDC token refused: ${code}`,
-    }).catch(() => undefined);
-  }
-
   private async authenticateOidc(
     token: string,
   ): Promise<ClientIdentity | null> {
     const config = await this.loadOidc();
     if (!config) return null;
+    const host = issuerHost(config.issuer);
     let verified: Awaited<ReturnType<typeof verifyOidcToken>>;
     try {
       verified = await verifyOidcToken(token, {
@@ -557,7 +572,11 @@ export class ControlPlane {
         nowMs: this.clock(),
       });
     } catch (error) {
-      await this.auditOidcRefusal(error);
+      const code = error instanceof OidcRefusal ? error.code : "oidc-format";
+      await this.auditRejection(
+        `OIDC token refused: ${code}`,
+        `oidc|${code}|${host}`,
+      );
       return null;
     }
     // The IdP proves identity only: the homectl client record decides access.
@@ -570,18 +589,33 @@ export class ControlPlane {
     });
     const record = matches.length === 1 ? matches[0] : undefined;
     if (!record) {
-      await this.auditOidcRefusal(new OidcRefusal("oidc-unmapped"));
+      await this.auditRejection(
+        `OIDC token refused: oidc-unmapped`,
+        `oidc|oidc-unmapped|${host}`,
+      );
       return null;
     }
     if (record.revokedAt !== undefined) {
-      await this.auditOidcRefusal(new OidcRefusal("oidc-revoked"));
+      await this.auditRejection(
+        `OIDC token refused: oidc-revoked`,
+        `oidc|oidc-revoked|${record.id}`,
+      );
       return null;
     }
-    await this.audit({
-      event: "auth.oidc",
-      client: record.id,
-      reason: `issuer=${issuerHost(config.issuer)}; subject-sha256=${identityHash(verified.subject)}`,
-    });
+    // One audit entry per token, not per request: the cache forgets it at expiry.
+    if (
+      this.oidcAuditSeen.first(
+        tokenIdentityKey(verified),
+        verified.exp * 1000,
+        this.clock(),
+      )
+    ) {
+      await this.audit({
+        event: "auth.oidc",
+        client: record.id,
+        reason: `issuer=${host}; subject-sha256=${identityHash(verified.subject)}`,
+      });
+    }
     return {
       id: record.id,
       name: record.name,
@@ -617,11 +651,24 @@ export class ControlPlane {
   }
 
   async recordAuthRejection(): Promise<void> {
+    await this.auditRejection(
+      "Missing or invalid client credential",
+      "generic",
+    );
+  }
+
+  // Identical rejections are written once per minute, with how many were suppressed.
+  private async auditRejection(reason: string, key: string): Promise<void> {
+    const decision = this.rejectionLimiter.check(key, this.clock());
+    if (!decision.emit) return;
     await this.audit({
       event: "auth.rejected",
       client: SYSTEM_ACTOR,
-      reason: "Missing or invalid client credential",
-    });
+      reason:
+        decision.suppressed > 0
+          ? `${reason}; ${decision.suppressed} identical suppressed`
+          : reason,
+    }).catch(() => undefined);
   }
 
   // Single entry point for typed requests. Rejections are audited with a fixed

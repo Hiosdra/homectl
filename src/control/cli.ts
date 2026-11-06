@@ -14,6 +14,7 @@ import {
   type ExecuteResult,
 } from "./engine";
 import { DEFAULT_MCP_PORT, startMcpServer } from "./mcp";
+import { parseLifetime } from "./oidc";
 import {
   colorEnabled,
   mcpSnippet,
@@ -57,6 +58,7 @@ export interface ControlCliInput {
     issuer?: string;
     audience?: string;
     "jwks-url"?: string;
+    "max-lifetime"?: string;
     "oidc-subject"?: string;
     "oidc-client-id"?: string;
   };
@@ -463,6 +465,10 @@ export async function controlCommand(
         ...(input.values["jwks-url"] !== undefined
           ? { jwksUrl: input.values["jwks-url"] }
           : {}),
+        // A cap only: it can shorten the one-hour default, never extend it.
+        ...(input.values["max-lifetime"] !== undefined
+          ? { maxLifetimeSeconds: parseLifetime(input.values["max-lifetime"]) }
+          : {}),
       });
       return {
         value: { configured: true, ...view },
@@ -479,13 +485,18 @@ export async function controlCommand(
             issuerHost: view.issuerHost,
             audience: view.audience,
             jwks: view.jwks,
+            ...(view.jwksHost ? { jwksHost: view.jwksHost } : {}),
+            maxLifetimeSeconds: view.maxLifetimeSeconds,
+            keyCount: view.keyCount,
+            ...(view.refreshedAt ? { refreshedAt: view.refreshedAt } : {}),
+            ...(view.lastError ? { lastError: view.lastError } : {}),
             mappedClients: view.mappedClients,
           }
         : { configured: false };
       return {
         value,
         human: view
-          ? `OIDC: issuer ${view.issuerHost}, audience ${view.audience}, JWKS ${view.jwks}, ${view.mappedClients} mapped client(s). Static tokens keep working.`
+          ? `OIDC: issuer ${view.issuerHost}, audience ${view.audience}, JWKS ${view.jwks}${view.jwksHost ? ` (${view.jwksHost})` : ""}, tokens up to ${Math.round(view.maxLifetimeSeconds / 60)} min, ${view.keyCount} key(s)${view.lastError ? `, last error ${view.lastError}` : ""}, ${view.mappedClients} mapped client(s). Static tokens keep working.`
           : "OIDC is not configured. Static client tokens are the only credentials.",
         code: 0,
       };

@@ -169,12 +169,26 @@ type ControlClient = {
   };
   hasToken: boolean;
 };
+// Read-only view of the OIDC configuration (no secrets, no subjects).
+type OidcOverview = {
+  issuer: string;
+  issuerHost: string;
+  audience: string;
+  jwks: "configured" | "discovery";
+  jwksHost?: string;
+  maxLifetimeSeconds: number;
+  keyCount: number;
+  refreshedAt?: string;
+  lastError?: string;
+  mappedClients: number;
+};
 type ControlOverview = {
   operations: ControlOp[];
   clients: ControlClient[];
   audit: ControlAudit;
   sync?: ControlSync;
   devices?: ControlDevices;
+  oidc?: OidcOverview;
 };
 type ControlExecution = {
   operation: ControlOp;
@@ -766,6 +780,21 @@ function handoffPickerCard() {
     return `<section class="panel section"><h2>Hand off ${htmlEscape(op.host)}</h2><p class="muted">No paired device can take a handoff yet. Pair a device again so it has a signing key.</p><div class="form-actions">${button("control-handoff-close", "Close")}</div></section>`;
   return `<section class="panel section"><h2>Hand off ${htmlEscape(op.host)}</h2><p class="muted">The receiving device must accept. Until it does, this device keeps the operation and will not run it. You can cancel the offer before it is accepted.</p><div><label for="handoff-target">Receiving device</label><select id="handoff-target">${devices.map((d) => `<option value="${htmlEscape(d.id)}">${htmlEscape(d.name)}</option>`).join("")}</select></div><div class="form-actions">${button("control-handoff-close", "Close")}${button("control-handoff-go", "Continue…", op.operationId, "primary")}</div></section>`;
 }
+// Read-only OIDC card with the command to change it, ready to copy.
+function oidcCard(oidc: OidcOverview | undefined) {
+  if (!oidc)
+    return `<section class="panel section"><h2>OIDC</h2><p class="muted">Not configured. Static client tokens are the only credentials. Configure it from a private terminal:</p><pre>homectl control oidc set --issuer https://&lt;issuer&gt; --audience &lt;audience&gt;</pre></section>`;
+  const jwks =
+    oidc.jwks === "configured"
+      ? `configured · ${htmlEscape(oidc.jwksHost ?? "")}`
+      : "discovery (from the issuer)";
+  const refreshed = oidc.refreshedAt
+    ? htmlEscape(localStamp(oidc.refreshedAt))
+    : "not yet (no sign-in since start)";
+  const minutes = Math.round(oidc.maxLifetimeSeconds / 60);
+  const command = `homectl control oidc set --issuer ${htmlEscape(oidc.issuer)} --audience ${htmlEscape(oidc.audience)}${oidc.jwks === "configured" ? " --jwks-url &lt;jwks-url&gt;" : ""} --max-lifetime ${minutes}m`;
+  return `<section class="panel section"><h2>OIDC</h2><p class="muted">Read-only. Change it from a private terminal.</p><dl><dt>Issuer host</dt><dd>${htmlEscape(oidc.issuerHost)}</dd><dt>Audience</dt><dd>${htmlEscape(oidc.audience)}</dd><dt>JWKS source</dt><dd>${jwks}</dd><dt>Last JWKS refresh</dt><dd>${refreshed}</dd><dt>Keys</dt><dd>${oidc.keyCount}</dd><dt>Last error</dt><dd>${oidc.lastError ? htmlEscape(oidc.lastError) : "none"}</dd><dt>Max token lifetime</dt><dd>${minutes} min</dd><dt>Mapped clients</dt><dd>${oidc.mappedClients}</dd></dl><p class="inline-note">Change it with:</p><pre>${command}</pre></section>`;
+}
 function approvals() {
   let content = heading(
     "Approvals",
@@ -776,7 +805,7 @@ function approvals() {
   content +=
     controlTab === "queue"
       ? queueSection(control?.operations ?? [])
-      : clientsSection(control?.clients ?? []);
+      : oidcCard(control?.oidc) + clientsSection(control?.clients ?? []);
   content += handoffPickerCard();
   if (controlResult) content += executionResult(controlResult);
   return content;

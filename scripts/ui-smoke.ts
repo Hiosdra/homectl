@@ -537,6 +537,7 @@ try {
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await page.getByRole("tab", { name: "Clients", exact: true }).click();
   await expect(page.getByText("OIDC only · idp.example.test")).toBeVisible();
+  await expect(page.getByText("Read-only. Change it from a private terminal.")).toBeVisible();
   await expect(page.getByText("synthetic-subject-01")).toHaveCount(0);
   await page.screenshot({
     path: join(out, "clients-oidc.png"),
