@@ -69,7 +69,7 @@ export async function loadOrCreateDeviceKey(
     if ((mode & 0o077) !== 0)
       throw new HomectlError(
         5,
-        `Device key ${path} is accessible to other users (mode ${mode.toString(8)}); restrict it to owner-only (chmod 600) before starting homectl`,
+        `Device key file is accessible to other users (mode ${mode.toString(8)}); restrict it to owner-only (chmod 600) before starting homectl`,
       );
   }
   if (text === undefined) {
