@@ -205,6 +205,13 @@ function scopesText(scopes: string[]): string {
   return scopes.join(", ");
 }
 
+// "token", "OIDC only" or "OIDC + token", with the issuer host and identity hash.
+export function authText(c: ClientView): string {
+  if (!c.oidc) return "token";
+  const route = c.hasToken ? "OIDC + token" : "OIDC only";
+  return `${route} · ${c.oidc.issuerHost} (${c.oidc.claim} ${c.oidc.identityHash})`;
+}
+
 export function renderClients(
   clients: ClientView[],
   options: { color: boolean },
@@ -219,7 +226,7 @@ export function renderClients(
     "NAME",
     "SCOPES",
     "HOSTS",
-    "OIDC",
+    "AUTH",
     "CREATED",
     "STATUS",
   ].map((h) => paint(h, "bold", options.color));
@@ -233,9 +240,7 @@ export function renderClients(
       scopesText(c.scopes),
       c.hosts.join(", "),
       // The subject is never printed: the issuer host and a short hash only.
-      c.oidc
-        ? `${c.oidc.issuerHost} (${c.oidc.claim} ${c.oidc.identityHash})`
-        : "—",
+      authText(c),
       localTime(c.createdAt),
       status,
     ];

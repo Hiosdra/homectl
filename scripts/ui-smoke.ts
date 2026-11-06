@@ -532,10 +532,11 @@ try {
     scopes: ["status:read", "inspect:read"],
     hosts: ["agent-host"],
     oidc: { claim: "sub", value: "synthetic-subject-01" },
+    issueToken: false,
   });
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await page.getByRole("tab", { name: "Clients", exact: true }).click();
-  await expect(page.getByText("OIDC · idp.example.test")).toBeVisible();
+  await expect(page.getByText("OIDC only · idp.example.test")).toBeVisible();
   await expect(page.getByText("synthetic-subject-01")).toHaveCount(0);
   await page.screenshot({
     path: join(out, "clients-oidc.png"),

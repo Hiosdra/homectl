@@ -571,12 +571,7 @@ async function addClient(
   if (!id || input.positionals.length !== 3)
     throw new HomectlError(
       2,
-      "Usage: homectl control client add <id> --name NAME --scopes LIST --hosts LIST --token-file PATH",
-    );
-  if (!input.values["token-file"])
-    throw new HomectlError(
-      2,
-      "--token-file is required; the token is written there and never printed",
+      "Usage: homectl control client add <id> --name NAME --scopes LIST --hosts LIST [--token-file PATH] [--oidc-subject SUB | --oidc-client-id CID]",
     );
   const oidcSubject = input.values["oidc-subject"];
   const oidcClientId = input.values["oidc-client-id"];
@@ -591,18 +586,36 @@ async function addClient(
       : oidcClientId !== undefined
         ? { claim: "client_id", value: oidcClientId }
         : undefined;
+  // A mapped client gets a static token only when --token-file asks for one:
+  // without it the client is OIDC only, with a single route.
+  const issueToken =
+    oidc === undefined || input.values["token-file"] !== undefined;
+  if (oidc === undefined && input.values["token-file"] === undefined)
+    throw new HomectlError(
+      2,
+      "--token-file is required; the token is written there and never printed",
+    );
   const request = {
     id,
     name: input.values.name ?? "",
     scopes: listOption(input.values.scopes, "scopes"),
     hosts: listOption(input.values.hosts, "hosts"),
     ...(oidc ? { oidc } : {}),
+    issueToken,
   };
-  const tokenFile = resolve(input.values["token-file"]);
+  const tokenFile = issueToken
+    ? resolve(input.values["token-file"] as string)
+    : undefined;
   if (input.dryRun)
     return {
-      value: { wouldCreate: request, tokenFile, credentialAccess: false },
-      human: `Would create client ${id} with token file ${tokenFile}. No change made.`,
+      value: {
+        wouldCreate: request,
+        ...(tokenFile ? { tokenFile } : {}),
+        credentialAccess: false,
+      },
+      human: tokenFile
+        ? `Would create client ${id} with token file ${tokenFile}. No change made.`
+        : `Would create OIDC-only client ${id}; no token is issued. No change made.`,
       code: 0,
     };
   const unknown = request.scopes.filter(
@@ -613,38 +626,53 @@ async function addClient(
       2,
       `Unknown scope; valid scopes: ${SCOPES.join(", ")}`,
     );
-  // Check the destination first: a refused file must not leave a client behind.
-  if (
-    !(await stat(dirname(tokenFile)).then(
-      (s) => s.isDirectory(),
-      () => false,
-    ))
-  )
-    throw new HomectlError(2, "Token file directory does not exist");
-  if (
-    await stat(tokenFile).then(
-      () => true,
-      () => false,
+  if (tokenFile !== undefined) {
+    // Check the destination first: a refused file must not leave a client behind.
+    if (
+      !(await stat(dirname(tokenFile)).then(
+        (s) => s.isDirectory(),
+        () => false,
+      ))
     )
-  )
-    throw new HomectlError(3, "Token file already exists; choose a new path");
+      throw new HomectlError(2, "Token file directory does not exist");
+    if (
+      await stat(tokenFile).then(
+        () => true,
+        () => false,
+      )
+    )
+      throw new HomectlError(3, "Token file already exists; choose a new path");
+  }
   const plane = await openPlane(input);
   const created = await plane.createClient(request);
-  try {
-    await writeFile(tokenFile, `${created.token}\n`, {
-      mode: 0o600,
-      flag: "wx",
-    });
-    await protect(tokenFile);
-  } catch {
-    await plane.revokeClient(id).catch(() => undefined);
-    throw new HomectlError(
-      3,
-      "Token file could not be created privately (it must not already exist); client was revoked",
-    );
+  if (tokenFile !== undefined) {
+    try {
+      await writeFile(tokenFile, `${created.token}\n`, {
+        mode: 0o600,
+        flag: "wx",
+      });
+      await protect(tokenFile);
+    } catch {
+      await plane.revokeClient(id).catch(() => undefined);
+      throw new HomectlError(
+        3,
+        "Token file could not be created privately (it must not already exist); client was revoked",
+      );
+    }
+  }
+  const color = useColor(input);
+  if (tokenFile === undefined) {
+    return {
+      value: { client: created.client, auth: "oidc-only" },
+      human: [
+        `${paint("Created client", "green", color)} ${created.client.id} (${created.client.name}).`,
+        "OIDC only: no static token was issued. Clients sign in with an OIDC access token whose subject maps to this client.",
+        "To also issue a static token later, recreate the client with --token-file PATH.",
+      ].join("\n"),
+      code: 0,
+    };
   }
   const snippet = mcpSnippet(`homectl-${id}`, "http://127.0.0.1:7449/mcp");
-  const color = useColor(input);
   const style: Style = "bold";
   return {
     value: {

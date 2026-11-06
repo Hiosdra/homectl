@@ -69,7 +69,7 @@ async function fixture(
   const tokens: Record<string, string> = {};
   for (const client of clients) {
     const created = await plane.createClient(client);
-    tokens[client.id] = created.token;
+    tokens[client.id] = created.token as string;
   }
   const server = startMcpServer({ control: plane, port: 0 });
   cleanup.push(() => server.stop());

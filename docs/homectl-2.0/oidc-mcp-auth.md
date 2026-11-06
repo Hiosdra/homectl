@@ -47,7 +47,7 @@ If the endpoint is ever reached through a reverse proxy, the proxy must terminat
 
 - `homectl control oidc set --issuer URL --audience AUD [--jwks-url URL]`: writes the control-state config. No network access at set time.
 - `homectl control oidc show`: issuer host, audience, JWKS source and whether keys are cached. No secrets exist to show.
-- `homectl control client add ID ... --oidc-subject SUB` or `--oidc-client-id CID`: adds the mapping. The client still gets its static token; OIDC is an additional route to the same client.
+- `homectl control client add ID ... --oidc-subject SUB` or `--oidc-client-id CID`: adds the mapping. Without `--token-file` the client is OIDC only (no static token); with it, the client has both routes.
 - `homectl control client list`: an OIDC column with the issuer host. The panel's Clients tab shows an "OIDC" badge with the issuer host.
 
 ## Out of scope
@@ -63,7 +63,7 @@ Deploying or contacting Authentik or any other IdP; authorization-code flows; dy
 - Config file `oidc.json` in the control state directory (no secrets). `control oidc clear` removes it; OIDC tokens are then refused, static tokens are unaffected.
 - Discovery is implemented: without `--jwks-url`, the JWKS URI is read once from the issuer's `.well-known/openid-configuration`.
 - Each OIDC sign-in is audited as `auth.oidc` (client id, issuer host, subject hash). A refusal is `auth.rejected` with the fixed code, for example `OIDC token refused: oidc-audience`.
-- The static client token is still created for an OIDC-mapped client, so one client keeps one route to its scopes, and the mapping is an extra route, not a second identity.
+- A client mapped with `--oidc-subject` or `--oidc-client-id` gets **no static token** unless `--token-file` is also given. Such an OIDC-only client has one route. A client with both is shown as "OIDC + token". The client list and the panel label each client's route: "token", "OIDC only" or "OIDC + token".
 - A mapping is unique per issuer, claim and value. `client list` and the panel show the issuer host and a 12-hex identity hash, never the subject.
 - `client_id` mapping matches the token's `client_id` claim, or `azp` when `client_id` is absent.
 - `/.well-known/oauth-protected-resource` returns the resource, the scope names and, when configured, `authorization_servers`. A 401 carries `WWW-Authenticate: Bearer resource_metadata=...`.

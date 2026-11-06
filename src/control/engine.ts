@@ -666,9 +666,15 @@ export class ControlPlane {
   // write it to a private file and never print it.
   async createClient(
     input: Record<string, unknown>,
-  ): Promise<{ client: ClientView; token: string }> {
+  ): Promise<{ client: ClientView; token?: string }> {
     const parsed = validateClientInput(input);
     const oidc = await this.oidcMappingFor(input.oidc);
+    // A client has a static token, an OIDC mapping, or both. OIDC-only has one route.
+    if (input.issueToken === false && oidc === undefined)
+      throw new HomectlError(
+        2,
+        "A client needs a static token or an OIDC mapping",
+      );
     const inventory = await loadInventory(this.options.inventoryPath);
     const unknown = parsed.hosts.filter(
       (host) => !Object.hasOwn(inventory.machines, host),
@@ -698,17 +704,20 @@ export class ControlPlane {
           2,
           "That OIDC identity is already mapped to a client",
         );
-      const token = generateToken();
+      const token = input.issueToken === false ? undefined : generateToken();
       const record: ClientRecord = {
         ...parsed,
-        tokenHash: tokenDigest(token).toString("hex"),
+        ...(token ? { tokenHash: tokenDigest(token).toString("hex") } : {}),
         createdAt: now,
         ...(oidc ? { oidc } : {}),
       };
       await this.journal.append({ event: "client.created", client: parsed.id });
       clients[parsed.id] = record;
       await this.registry.save(clients);
-      return { client: clientView(record), token };
+      return {
+        client: clientView(record),
+        ...(token ? { token } : {}),
+      };
     });
   }
 

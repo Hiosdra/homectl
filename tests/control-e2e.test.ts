@@ -78,7 +78,7 @@ async function identity(
   });
   const client = await s.control.authenticate(created.token);
   if (!client) throw new Error("token did not authenticate");
-  return { token: created.token, client };
+  return { token: created.token as string, client };
 }
 
 async function mcpCall(

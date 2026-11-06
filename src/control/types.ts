@@ -200,6 +200,7 @@ export interface DeliveryNote {
 }
 
 export interface ClientView {
+  hasToken: boolean;
   id: string;
   name: string;
   scopes: Scope[];
@@ -261,7 +262,7 @@ export interface AuditEntry {
 
 // Stored client registry record. `tokenHash` is the only credential material.
 export interface ClientRecord extends ClientIdentity {
-  tokenHash: string;
+  tokenHash?: string; // absent for OIDC-only clients
   createdAt: number;
   revokedAt?: number;
   // Optional OIDC route to this client: a verified token whose issuer and claim match.

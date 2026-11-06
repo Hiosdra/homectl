@@ -167,6 +167,7 @@ type ControlClient = {
     claim: "sub" | "client_id";
     identityHash: string;
   };
+  hasToken: boolean;
 };
 type ControlOverview = {
   operations: ControlOp[];
@@ -727,7 +728,7 @@ function clientsSection(clients: ControlClient[]) {
   const rows = clients
     .map(
       (c) =>
-        `<tr><td data-label="Client"><strong>${htmlEscape(c.name)}</strong><p><code>${htmlEscape(c.id)}</code></p>${c.oidc ? `<p><span class="badge" title="${htmlEscape(`${c.oidc.claim} hash ${c.oidc.identityHash}`)}">OIDC · ${htmlEscape(c.oidc.issuerHost)}</span></p>` : ""}</td><td data-label="Scopes"><div class="chips">${c.scopes.map((s) => `<span class="chip">${htmlEscape(s)}</span>`).join("")}</div></td><td data-label="Hosts"><div class="chips">${c.hosts.map((h) => `<span class="chip">${htmlEscape(h)}</span>`).join("")}</div></td><td data-label="Created"><time datetime="${htmlEscape(c.createdAt)}" title="${htmlEscape(localStamp(c.createdAt))}">${htmlEscape(localStamp(c.createdAt))}</time></td><td data-label="Status">${c.revoked ? `<span class="badge danger">revoked</span>` : `<span class="badge success">active</span>`}</td><td data-label="Action" class="cell-action">${c.revoked ? "" : button("control-revoke", "Revoke", c.id, "quiet danger")}</td></tr>`,
+        `<tr><td data-label="Client"><strong>${htmlEscape(c.name)}</strong><p><code>${htmlEscape(c.id)}</code></p>${c.oidc ? `<p><span class="badge" title="${htmlEscape(`${c.oidc.claim} hash ${c.oidc.identityHash}`)}">${c.hasToken ? "OIDC + token" : "OIDC only"} · ${htmlEscape(c.oidc.issuerHost)}</span></p>` : ""}</td><td data-label="Scopes"><div class="chips">${c.scopes.map((s) => `<span class="chip">${htmlEscape(s)}</span>`).join("")}</div></td><td data-label="Hosts"><div class="chips">${c.hosts.map((h) => `<span class="chip">${htmlEscape(h)}</span>`).join("")}</div></td><td data-label="Created"><time datetime="${htmlEscape(c.createdAt)}" title="${htmlEscape(localStamp(c.createdAt))}">${htmlEscape(localStamp(c.createdAt))}</time></td><td data-label="Status">${c.revoked ? `<span class="badge danger">revoked</span>` : `<span class="badge success">active</span>`}</td><td data-label="Action" class="cell-action">${c.revoked ? "" : button("control-revoke", "Revoke", c.id, "quiet danger")}</td></tr>`,
     )
     .join("");
   return `${intro}<div class="table-wrap"><table><thead><tr><th>Client</th><th>Scopes</th><th>Hosts</th><th>Created</th><th>Status</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></div>`;

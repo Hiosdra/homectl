@@ -58,6 +58,7 @@ export function clientView(record: ClientRecord): ClientView {
     hosts: [...record.hosts],
     createdAt: isoTime(record.createdAt),
     revoked: record.revokedAt !== undefined,
+    hasToken: record.tokenHash !== undefined,
     // The subject itself is never shown: only the issuer host and a hash.
     ...(record.oidc
       ? {
@@ -169,6 +170,8 @@ export class ClientRegistry implements ClientAuthenticator {
     const clients = await this.load();
     let match: ClientRecord | undefined;
     for (const record of Object.values(clients)) {
+      // OIDC-only clients have no static token to match.
+      if (record.tokenHash === undefined) continue;
       const stored = Buffer.from(record.tokenHash, "hex");
       const equal =
         stored.length === digest.length && timingSafeEqual(stored, digest);

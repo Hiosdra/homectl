@@ -245,4 +245,4 @@ Follow-up additions: `peer.suspended` and `peer.resumed` audit events; `offerExp
 
 ## 14. OIDC for MCP clients (slice 4)
 
-Optional per client. Static `hct_` tokens are unchanged. `control oidc set --issuer URL --audience AUD [--jwks-url URL]`, `control oidc show`, `control oidc clear`; `control client add ... --oidc-subject SUB` or `--oidc-client-id CID`. Audit events `auth.oidc` and `oidc.configured`. Design, verification rules and residual risks: [oidc-mcp-auth.md](oidc-mcp-auth.md).
+Optional per client. Static `hct_` tokens are unchanged. `control oidc set --issuer URL --audience AUD [--jwks-url URL]`, `control oidc show`, `control oidc clear`; `control client add ... --oidc-subject SUB` or `--oidc-client-id CID` (without `--token-file` the client is OIDC only: no static token is issued). Audit events `auth.oidc` and `oidc.configured`. Design, verification rules and residual risks: [oidc-mcp-auth.md](oidc-mcp-auth.md).
