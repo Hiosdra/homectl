@@ -41,6 +41,7 @@ import {
   emptyReplica,
   establishedEpoch,
   type HandoffBody,
+  isAcceptKind,
   OFFER_TTL_MS,
   type OfferBody,
   type OpBody,
@@ -378,9 +379,7 @@ export async function overlayOf(
     if (offer?.toOwner === selfId)
       note.offerFrom = deviceName(data, offer.fromOwner);
     if (offer)
-      note.offerExpires = new Date(
-        Date.parse(offer.at) + OFFER_TTL_MS,
-      ).toISOString();
+      note.offerExpires = new Date(Date.parse(offer.expiresAt)).toISOString();
     overlay.notes[opId] = note;
     if (!localIds.has(opId) && owner !== selfId) {
       overlay.remote.push({
@@ -706,7 +705,12 @@ export class ControlReplicator {
   // is retried until a pass makes no progress, because the origin's checkpoint
   // moves on and would never send it again.
   private applyAll(batch: Envelope<Body>[]): void {
-    let pending = batch;
+    // Accepts go last: the records they depend on (a finished operation's
+    // snapshot, an offer, a resolution) must be in the replica first.
+    let pending = [
+      ...batch.filter((e) => !isAcceptKind(e.body.kind)),
+      ...batch.filter((e) => isAcceptKind(e.body.kind)),
+    ];
     for (let pass = 0; pass < 4 && pending.length > 0; pass++) {
       const retry: Envelope<Body>[] = [];
       for (const envelope of pending)
@@ -722,6 +726,9 @@ export class ControlReplicator {
     response: ReturnType<ControlReplicator["serve"]>,
     fromPeer: string,
   ): Promise<Pull> {
+    // Bring this device's own finished or running operations into the replica
+    // first, so an accept in this pull cannot overtake a local execution.
+    await this.publish();
     const pull: Pull = { applied: 0, blocked: [] };
     const collected: Envelope<Body>[] = [];
     for (const [origin, batch] of Object.entries(response.origins)) {
@@ -889,6 +896,14 @@ export class ControlReplicator {
 
   // Takeover by explicit operator action (ADR-0002 decision 5, fencing rule).
   async takeover(operationId: string, by: string): Promise<void> {
+    if (
+      RANK[this.data.replica.ops[operationId]?.state ?? "pending"] >=
+      RANK.executing
+    )
+      throw new HomectlError(
+        3,
+        "This operation already ran or is running; it cannot be taken over",
+      );
     const replica = this.data.replica;
     const base = replica.ops[operationId];
     if (!base) throw new HomectlError(2, "Unknown operation");
@@ -1060,6 +1075,22 @@ export class ControlReplicator {
         3,
         `${this.nameOf(to)} cannot take a handoff: ${refusal}`,
       );
+    if (RANK[replica.ops[operationId]?.state ?? "pending"] >= RANK.executing)
+      throw new HomectlError(
+        3,
+        "This operation already ran or is running; it cannot be handed off",
+      );
+    // An offer never outlives the plan or the approval it depends on.
+    const view = await this.plane.showOperation(operationId);
+    const now = this.clock();
+    const limits = [now + OFFER_TTL_MS, Date.parse(view.expiresAt)];
+    if (view.approval) limits.push(Date.parse(view.approval.expiresAt));
+    const expiresAt = Math.min(...limits);
+    if (expiresAt <= now)
+      throw new HomectlError(
+        3,
+        "The plan or approval has expired; plan the operation again before handing it off",
+      );
     const body: OfferBody = {
       kind: "offer",
       offerId: randomUUID(),
@@ -1067,7 +1098,8 @@ export class ControlReplicator {
       fromOwner: this.self.id,
       toOwner: to,
       epoch: establishedEpoch(replica, operationId) + 1,
-      at: new Date(this.clock()).toISOString(),
+      at: new Date(now).toISOString(),
+      expiresAt: new Date(expiresAt).toISOString(),
     };
     this.emit(sealRecord(this.self, body));
     await this.save();
@@ -1117,6 +1149,11 @@ export class ControlReplicator {
     const offer = this.openOfferTo(operationId);
     if (!offer)
       throw new HomectlError(2, "No handoff offer waits for this device");
+    if (RANK[replica.ops[operationId]?.state ?? "pending"] >= RANK.executing)
+      throw new HomectlError(
+        3,
+        "This operation already ran or is running; the offer cannot be accepted",
+      );
     if (offerExpired(offer, this.clock()))
       throw new HomectlError(
         3,

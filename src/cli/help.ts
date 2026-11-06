@@ -481,7 +481,7 @@ pages.control = {
         ],
         [
           "handoff ID --to DEVICE",
-          "On the owner: offer the operation to DEVICE. The owner will not run it until DEVICE accepts, the offer is cancelled, or it expires after 15 minutes. Needs a running homectl serve.",
+          "On the owner: offer the operation to DEVICE. The owner will not run it until DEVICE accepts, the offer is cancelled, or it expires after five minutes (or when the plan ends). Needs a running homectl serve.",
         ],
         [
           "handoff ID",

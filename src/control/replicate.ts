@@ -98,6 +98,8 @@ export interface OfferBody {
   toOwner: string; // the device the offer names
   epoch: number; // established epoch + 1 when offered
   at: string;
+  // Signed expiry: min(at + OFFER_TTL_MS, the operation's plan or approval expiry).
+  expiresAt: string;
 }
 
 export interface CancelBody {
@@ -111,10 +113,22 @@ export interface CancelBody {
 
 // Handoff offers expire this long after they are made (signed timestamps, so
 // every device agrees without comparing clocks).
-export const OFFER_TTL_MS = 15 * 60_000;
+export const OFFER_TTL_MS = 5 * 60_000;
 
 export function offerExpired(offer: OfferBody, now: number): boolean {
-  return now > Date.parse(offer.at) + OFFER_TTL_MS;
+  return now > Date.parse(offer.expiresAt);
+}
+
+// Executing or finished: a handoff can no longer start from this state.
+export function runningOrFinished(replica: Replica, opId: string): boolean {
+  const op = replica.ops[opId];
+  return op !== undefined && RANK[op.state] >= RANK.executing;
+}
+
+// Accepts go last within a pull: a finished operation's record must land before
+// an accept that was signed against the same operation.
+export function isAcceptKind(kind: Body["kind"]): boolean {
+  return kind === "accept" || kind === "resolve-accept";
 }
 
 // Suspension from the lease (ADR-0002 follow-up). Signed by the device that
@@ -278,6 +292,12 @@ export function applyOp(
     return "applied";
   }
   if (body.planner !== current.planner) return "rejected";
+  // A finished operation never goes back to an earlier state, whatever the epoch.
+  if (
+    RANK[current.state] >= RANK.succeeded &&
+    RANK[body.state] < RANK.succeeded
+  )
+    return "stale";
   // Anything below the established epoch was superseded by a handoff.
   if (body.epoch < establishedEpoch(replica, body.opId)) return "stale";
   if (body.epoch < current.epoch) return "stale";
@@ -317,6 +337,7 @@ export function applyHandoff(
 // Records an accepted handoff at its epoch. Two different owners at one epoch
 // become a conflict with no owner (fail closed).
 function recordHandoff(replica: Replica, body: HandoffBody): Outcome {
+  if (runningOrFinished(replica, body.opId)) return "rejected";
   const record = replica.handoffs[body.opId] ?? {};
   const existing = record[body.epoch] ?? [];
   if (existing.some((h) => h.toOwner === body.toOwner)) return "duplicate";
@@ -390,6 +411,9 @@ export function applyOffer(
   if (envelope.signer !== body.fromOwner) return "rejected";
   if (body.toOwner === body.fromOwner) return "rejected";
   if (!replica.ops[body.opId]) return "rejected";
+  if (runningOrFinished(replica, body.opId)) return "rejected";
+  const lifetime = Date.parse(body.expiresAt) - Date.parse(body.at);
+  if (!(lifetime > 0) || lifetime > OFFER_TTL_MS) return "rejected";
   if (replica.offers[body.offerId]) return "duplicate";
   const established = establishedEpoch(replica, body.opId);
   if (ownerAt(replica, body.opId, established) !== body.fromOwner)
@@ -441,8 +465,9 @@ export function applyAccept(
   // A stale accept after a cancel is rejected: the owner cancelled first.
   if (status === "cancelled") return "rejected";
   // An accept signed after the offer expired is rejected on every device.
-  if (Date.parse(body.at) > Date.parse(offer.at) + OFFER_TTL_MS)
-    return "rejected";
+  if (Date.parse(body.at) > Date.parse(offer.expiresAt)) return "rejected";
+  // An operation that is running or finished cannot change owner.
+  if (runningOrFinished(replica, body.opId)) return "rejected";
   if (status === "accepted") return "duplicate";
   if (establishedEpoch(replica, body.opId) !== offer.epoch - 1) return "stale";
   replica.offerStatus[body.offerId] = "accepted";

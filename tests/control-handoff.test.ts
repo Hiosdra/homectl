@@ -370,3 +370,98 @@ describe("conflict resolution", () => {
     expect(A.runs.length + B.runs.length + C.runs.length).toBe(0);
   });
 });
+
+describe("offer lifetime and finished operations", () => {
+  test("a plain offer lasts five minutes", async () => {
+    const clock = { now: 31_500_000 };
+    const { A, B, C } = await network(["A", "B", "C"], clock).then((d) => ({
+      A: d.A as Device,
+      B: d.B as Device,
+      C: d.C as Device,
+    }));
+    const operationId = await plan(A, INSPECT);
+    await round([A, B, C]);
+    const offer = await A.rep.offerHandoff(operationId, "B");
+    const stored = A.rep.replica.offers[offer.offerId];
+    expect(stored).toBeDefined();
+    expect(
+      Date.parse(stored?.expiresAt ?? "") - Date.parse(stored?.at ?? ""),
+    ).toBe(5 * 60_000);
+  });
+
+  test("an offer never outlives the plan: expiry is the earlier of five minutes and the plan's expiry", async () => {
+    const clock = { now: 31_600_000 };
+    const { A, B, C } = await network(["A", "B", "C"], clock).then((d) => ({
+      A: d.A as Device,
+      B: d.B as Device,
+      C: d.C as Device,
+    }));
+    const operationId = await plan(A, INSPECT);
+    const planExpiry = Date.parse(
+      (await A.plane.showOperation(operationId)).expiresAt,
+    );
+    await round([A, B, C]);
+    // Twelve minutes in: the plan ends at minute 15, before now + 5 (minute 17).
+    clock.now += 12 * 60_000;
+    await round([A, B, C]);
+    const offer = await A.rep.offerHandoff(operationId, "B");
+    const stored = A.rep.replica.offers[offer.offerId];
+    expect(Date.parse(stored?.expiresAt ?? "")).toBe(planExpiry);
+    expect(Date.parse(stored?.expiresAt ?? "")).toBeLessThan(
+      clock.now + 5 * 60_000,
+    );
+    // Replicated: a device that pulls the offer sees the same clamped expiry.
+    await round([A, B, C]);
+    expect(C.rep.replica.offers[offer.offerId]?.expiresAt).toBe(
+      stored?.expiresAt,
+    );
+  });
+
+  // The window is narrow but real. The owner may run only within the lease
+  // (120 s) of its last sync, so the accept must be signed after A's last sync,
+  // before the offer expires, and A must run after the expiry but still inside
+  // that lease. The test follows exactly that timeline.
+  test("an accept signed before expiry, arriving after the owner executed, is rejected and the finished state never regresses", async () => {
+    const clock = { now: 31_700_000 };
+    const { A, B, C } = await network(["A", "B", "C"], clock).then((d) => ({
+      A: d.A as Device,
+      B: d.B as Device,
+      C: d.C as Device,
+    }));
+    const operationId = await plan(A, INSPECT);
+    await round([A, B, C]);
+    const offer = await A.rep.offerHandoff(operationId, "B");
+
+    // A syncs four minutes in. B accepts just before the offer expires; the
+    // accept is in B's log and has not reached A or C.
+    clock.now += 4 * 60_000;
+    await round([A, B, C]);
+    await round([A, C]);
+    clock.now += 30_000;
+    await B.rep.acceptOffer(operationId);
+    // A runs after the expiry, inside its lease (last sync 90 s ago).
+    clock.now += 90_000;
+    const ran = (await execute(A, operationId)) as {
+      operation: { state: string };
+    };
+    expect(ran.operation.state).toBe("succeeded");
+
+    // C learns the finished state from A's log, before the late accept.
+    await round([A, C]);
+    expect(C.rep.replica.ops[operationId]?.state).toBe("succeeded");
+
+    // The late accept reaches A and C. Both refuse it.
+    await round([A, B, C]);
+    expect(A.rep.ownerOf(operationId)).toBe(A.id);
+    expect(C.rep.ownerOf(operationId)).toBe(A.id);
+    expect(A.rep.replica.handoffs[operationId]?.[2]).toBeUndefined();
+    expect(C.rep.replica.handoffs[operationId]?.[2]).toBeUndefined();
+    expect(A.rep.replica.offerStatus[offer.offerId]).toBe("open");
+    // The finished state never goes back, on the owner or on the third device.
+    expect(A.rep.replica.ops[operationId]?.state).toBe("succeeded");
+    expect(C.rep.replica.ops[operationId]?.state).toBe("succeeded");
+    await round([A, B, C]);
+    expect(C.rep.replica.ops[operationId]?.state).toBe("succeeded");
+    expect(A.rep.replica.ops[operationId]?.state).toBe("succeeded");
+  });
+});
