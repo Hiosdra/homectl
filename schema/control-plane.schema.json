@@ -358,6 +358,40 @@
         },
         "catalogue": {
           "type": "boolean"
+        },
+        "catalogueInput": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "action"],
+          "properties": {
+            "kind": { "enum": ["qemu", "lxc"] },
+            "action": {
+              "enum": [
+                "list",
+                "status",
+                "config",
+                "start",
+                "stop",
+                "reboot",
+                "shutdown",
+                "clone",
+                "create",
+                "destroy"
+              ]
+            },
+            "vmid": { "type": "integer" },
+            "template": { "type": ["integer", "string"] },
+            "name": { "type": "string" },
+            "storage": { "type": "string" },
+            "memory_mb": { "type": "integer" },
+            "cores": { "type": "integer" },
+            "disk_gb": { "type": "integer" },
+            "bridge": { "type": "string" },
+            "address": { "type": "string" },
+            "cidr": { "type": "integer" },
+            "gateway": { "type": "string" },
+            "timeout_s": { "type": "integer" }
+          }
         }
       }
     },

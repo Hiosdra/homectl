@@ -55,6 +55,7 @@ import {
   type ApprovalView,
   type AuditEvent,
   type AuditEventName,
+  type CatalogueInput,
   type Classification,
   type ClientIdentity,
   type ClientRecord,
@@ -380,6 +381,35 @@ function executorAlive(op: OperationRecord): boolean {
   if (op.executorInstance === PROCESS_INSTANCE) return true;
   if (op.executorPid === process.pid) return false;
   return processAlive(op.executorPid);
+}
+
+// Rebuilds a catalogue argv from the typed input against the inventory facts in
+// force now. undefined when the current facts refuse it (provider removed, VMID
+// outside the range, a protected VMID, a storage or template no longer allowed).
+function catalogueArgvNow(
+  inventory: Inventory,
+  host: string,
+  machine: Machine,
+  input: CatalogueInput | undefined,
+): { argv: string[]; label: string } | undefined {
+  if (!input) return undefined;
+  const provider = Object.values(inventory.providers ?? {}).find(
+    (candidate) => candidate.host === host,
+  );
+  if (!provider) return undefined;
+  try {
+    const built = buildProxmoxPlan(
+      input as ProxmoxInput,
+      providerFacts(provider),
+    );
+    return {
+      argv:
+        machine.user === "root" ? built.argv : ["sudo", "-n", ...built.argv],
+      label: built.label,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function processAlive(pid: number): boolean {
@@ -1083,6 +1113,7 @@ export class ControlPlane {
       built.label,
       undefined,
       true,
+      input as CatalogueInput,
     );
   }
 
@@ -1094,6 +1125,7 @@ export class ControlPlane {
     impact: string,
     idempotencyKey?: string,
     catalogue = false,
+    catalogueInput?: CatalogueInput,
   ) {
     if (containsSecretMaterial(`${argv.join("\n")}\n${impact}`))
       throw new HomectlError(
@@ -1105,6 +1137,8 @@ export class ControlPlane {
       const machine = machineOf(inventory, host);
       if (!machine) throw new HomectlError(2, "Unknown host");
       const plan = buildPlan(host, machine, argv, impact, catalogue);
+      if (catalogueInput !== undefined)
+        plan.catalogueInput = structuredClone(catalogueInput);
       const planFingerprint = fingerprint(plan);
       const key =
         idempotencyKey === undefined
@@ -1200,13 +1234,29 @@ export class ControlPlane {
     if (!machine) return "host-missing";
     let fresh: ExecPlan;
     try {
+      // A catalogue plan is judged by the facts in force now, not the stored argv.
+      let argv = op.plan.argv;
+      let impact = op.plan.impact;
+      if (op.plan.catalogue === true) {
+        const now = catalogueArgvNow(
+          await loadInventory(this.options.inventoryPath),
+          op.plan.host,
+          machine,
+          op.plan.catalogueInput,
+        );
+        if (!now) return "policy-refused";
+        argv = now.argv;
+        impact = now.label;
+      }
       fresh = buildPlan(
         op.plan.host,
         machine,
-        op.plan.argv,
-        op.plan.impact,
+        argv,
+        impact,
         op.plan.catalogue === true,
       );
+      if (op.plan.catalogueInput !== undefined)
+        fresh.catalogueInput = op.plan.catalogueInput;
     } catch {
       return "policy-refused";
     }

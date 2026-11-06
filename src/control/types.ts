@@ -115,6 +115,25 @@ export type OperationRequest =
 
 // Immutable plan snapshot. Hashed with canonical JSON to produce the
 // operation fingerprint. `execApproval` is the existing policy digest.
+// The typed Proxmox catalogue input a plan was built from. Stored on the plan so
+// execution and takeover can rebuild the argv from the facts in force then.
+export interface CatalogueInput {
+  kind: "qemu" | "lxc";
+  action: string;
+  vmid?: number;
+  template?: number | string;
+  name?: string;
+  storage?: string;
+  memory_mb?: number;
+  cores?: number;
+  disk_gb?: number;
+  bridge?: string;
+  address?: string;
+  cidr?: number;
+  gateway?: string;
+  timeout_s?: number;
+}
+
 export interface ExecPlan {
   apiVersion: typeof CONTROL_API_VERSION;
   kind: "exec";
@@ -127,6 +146,7 @@ export interface ExecPlan {
   execApproval: string;
   // Built from the Proxmox guest catalogue: only then are qm/pct argv accepted.
   catalogue?: boolean;
+  catalogueInput?: CatalogueInput;
 }
 
 export interface ApprovalRecord {
