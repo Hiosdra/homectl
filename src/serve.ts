@@ -442,9 +442,12 @@ export async function serve(options: ServeOptions) {
                   { kind: "local-operator" },
                   {
                     op: "execute",
-                    operationId: await control.resolveOperation(
-                      String(v.operationId),
-                    ),
+                    // A full id goes straight to the engine, so an unknown id keeps
+                    // its plain "Unknown operation" refusal. Prefixes are resolved here.
+                    operationId:
+                      String(v.operationId).length === 36
+                        ? String(v.operationId).toLowerCase()
+                        : await control.resolveOperation(String(v.operationId)),
                   },
                 ),
               );
