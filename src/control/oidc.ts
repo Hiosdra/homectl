@@ -231,6 +231,8 @@ export class JwksSource {
   private lastRefresh = Number.NEGATIVE_INFINITY;
   private jwksUrl: string | undefined;
   private lastError: OidcRefusalCode | undefined;
+  // The refresh in progress, shared by concurrent lookups.
+  private pending: Promise<void> | undefined;
   refreshes = 0;
 
   constructor(
@@ -254,22 +256,32 @@ export class JwksSource {
     kid: string,
     alg: OidcAlgorithm,
   ): Promise<KeyObject | undefined> {
+    // A refresh already in progress: wait for it, then read the cache.
+    if (this.pending) await this.pending;
     const now = this.now();
     if (
       now - this.loadedAt > JWKS_TTL_MS &&
       now - this.lastRefresh >= REFRESH_MIN_MS
     )
-      await this.refresh();
+      await this.refreshShared();
     let entry = this.keys.get(kid);
-    if (!entry && now - this.lastRefresh >= REFRESH_MIN_MS) {
-      await this.refresh();
+    // Throttled between completed attempts only, never while one is running.
+    if (!entry && this.now() - this.lastRefresh >= REFRESH_MIN_MS) {
+      await this.refreshShared();
       entry = this.keys.get(kid);
     }
     return entry && usable(entry, alg) ? entry.key : undefined;
   }
 
+  private refreshShared(): Promise<void> {
+    if (!this.pending)
+      this.pending = this.refresh().finally(() => {
+        this.pending = undefined;
+      });
+    return this.pending;
+  }
+
   private async refresh(): Promise<void> {
-    this.lastRefresh = this.now();
     this.refreshes += 1;
     try {
       if (!this.jwksUrl) this.jwksUrl = await this.discover();
@@ -288,6 +300,9 @@ export class JwksSource {
       // Keep the previous keys; the caller sees only "unknown key".
       this.lastError =
         error instanceof OidcRefusal ? error.code : "oidc-discovery";
+    } finally {
+      // Throttling counts from the end of an attempt, not its start.
+      this.lastRefresh = this.now();
     }
   }
 
