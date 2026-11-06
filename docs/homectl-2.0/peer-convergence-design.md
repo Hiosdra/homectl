@@ -118,3 +118,19 @@ Known gaps to close in stage (c):
 
 - Takeover needs the destination device to rebuild the operation from the replicated plan. That requires the same host to be enrolled there, and a fresh approval record on the new owner. Without that, the operation cannot run anywhere and must stay visibly stuck.
 - Race: an old owner that comes back and executes before it has received the takeover can run the operation twice. A safe rule needs the owner to confirm it is current before executing. Until that is designed, this stays a documented risk.
+
+## 8. Fencing rule: lease and takeover (refines ADR-0002 decision 5)
+
+Decision 5 allowed an operator to take over an offline owner. It left one race open: an old owner that returns and executes before it has learned about the takeover could run the same operation twice. The owner resolved this on the stage (c) run, and the rule below is implemented in `src/control/lease.ts`, `src/control/replicator.ts` (`fence`, `takeover`) and the engine's execute path.
+
+1. Lease. The owner may execute only while it holds a fresh lease: a successful sync round with every paired peer within T (default 120 s). With no paired peers there is no other owner, so no lease applies. An expired lease refuses execution with "Owner lease expired; waiting for sync with <peers>" (exit 3).
+2. Takeover window. A takeover is allowed only when the owner has been unreachable for at least T plus a skew margin (default 60 s). Without any recorded contact, takeover is refused. The CLI and panel show when takeover becomes possible.
+3. Fence before spawn. The fence (lease, current owner and established epoch) is evaluated inside the state lock, before the operation is committed to `executing`. A returning former owner therefore cannot run an operation: its lease is stale until it syncs, and after sync it sees the new epoch and loses ownership.
+4. Takeover rebuild. The new owner must have the target host in its own inventory, or the takeover is refused with a clear message. Its plan is rebuilt from its own inventory. The operation returns to needs-approval on the new owner, because the old approval is bound to the old epoch's fingerprint. This is visible in the operation's state and must be shown in the CLI and panel.
+5. Conflicting takeovers. Two different takeovers at the same epoch leave the operation with no owner. Neither device can execute until an operator resolves the conflict (stage d).
+
+Tests (`tests/control-convergence.test.ts`): old owner offline, takeover refused inside the window, takeover accepted after it, the returning owner refused both by lease and by ownership, the new owner's operation back in needs-approval, a host missing on the new owner refusing the takeover, and two takeovers at one epoch leaving both devices unable to run.
+
+Status of stage (c) at this point:
+- Done and tested: lease and takeover window, per-origin checkpoints (truncation and rewriting), the replicator (publish, relay, verified pull, decisions routed to the owner, revocation propagation, takeover with adoption, fence), and the continuous sync scheduler with backoff, last-sync status and refusal of legacy peers.
+- Not yet wired: the hub's `control-exchange` action on the authenticated peer channel, the timer that starts the scheduler inside `serve`, MCP approvals arriving on a non-owner device (the replicator's `decide` exists, but the MCP path does not call it yet), and an end-to-end test over the real peer channel. These belong to the next run; they are the last part of stage (c) and precede stages (d) and (e).
