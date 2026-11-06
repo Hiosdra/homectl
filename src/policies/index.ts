@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
+import { catalogueClass, isGuestArgv } from "../proxmox/catalogue";
 import { type ExecutionPlan, HomectlError, type Machine } from "../types";
 
 const destructive = new Set([
@@ -223,6 +224,7 @@ export function planExecution(
   machine: Machine,
   argv: string[],
   impact?: string,
+  options: { catalogue?: boolean } = {},
 ): ExecutionPlan {
   if (!argv.length || argv.some((v) => v.includes("\x00")))
     throw new HomectlError(
@@ -231,7 +233,19 @@ export function planExecution(
     );
   const { sudo, args } = innerCommand(argv);
   const name = basename(args[0] ?? "");
-  const classification = classify(argv);
+  let classification: ExecutionPlan["classification"];
+  if (options.catalogue) {
+    const shaped = catalogueClass(args);
+    if (!shaped) throw new HomectlError(3, "Not a Proxmox catalogue argv");
+    classification = shaped;
+  } else {
+    if (isGuestArgv(args))
+      throw new HomectlError(
+        3,
+        "Proxmox guest commands are planned with homectl_proxmox_plan; free-form qm and pct argv is refused",
+      );
+    classification = classify(argv);
+  }
   if (machine.access === "observe" && (sudo || classification !== "inspect"))
     throw new HomectlError(
       3,

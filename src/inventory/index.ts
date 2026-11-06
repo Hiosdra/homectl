@@ -87,6 +87,31 @@ export function parseInventory(text: string): Inventory {
         2,
         "Proxmox provider must reference an existing SSH host with full access and a managed key",
       );
+    // Facts for the guest catalogue: a sane VMID range, and allowlists that are unique.
+    const range = p.vmid_range;
+    if (
+      range &&
+      (range[0] > range[1] || range[0] < 100 || range[1] > 999999999)
+    )
+      throw new HomectlError(
+        2,
+        "Proxmox vmid_range must be an ascending pair between 100 and 999999999",
+      );
+    if (
+      p.protected_vmids &&
+      (new Set(p.protected_vmids).size !== p.protected_vmids.length ||
+        p.protected_vmids.some(
+          (vmid) => !Number.isInteger(vmid) || vmid < 100 || vmid > 999999999,
+        ))
+    )
+      throw new HomectlError(
+        2,
+        "Proxmox protected_vmids must be unique integers between 100 and 999999999",
+      );
+    if (p.storages && new Set(p.storages).size !== p.storages.length)
+      throw new HomectlError(2, "Proxmox storages must be unique");
+    if (p.templates && new Set(p.templates).size !== p.templates.length)
+      throw new HomectlError(2, "Proxmox templates must be unique");
   }
   return inventory;
 }
