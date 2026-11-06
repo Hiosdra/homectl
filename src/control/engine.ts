@@ -306,6 +306,9 @@ function operationView(op: OperationRecord, now: number): OperationView {
     fingerprint: op.fingerprint,
     argv: redactArgv(op.plan.argv),
     impact: op.plan.impact,
+    ...(op.plan.catalogueInput
+      ? { catalogueInput: op.plan.catalogueInput }
+      : {}),
     issuer: op.issuer,
     createdAt: isoTime(op.createdAt),
     expiresAt: isoTime(op.expiresAt),
@@ -410,6 +413,38 @@ function catalogueArgvNow(
   } catch {
     return undefined;
   }
+}
+
+// Takeover of a catalogue operation: the receiving device rebuilds the plan from
+// its own facts. Refused when they do not allow it, or when they describe the guest
+// differently from the planning device (the fingerprint then differs).
+function catalogueAdoptionPlan(
+  input: { host: string; catalogueInput: CatalogueInput; fingerprint?: string },
+  inventory: Inventory,
+  machine: Machine,
+): ExecPlan {
+  const now = catalogueArgvNow(
+    inventory,
+    input.host,
+    machine,
+    input.catalogueInput,
+  );
+  if (!now)
+    throw new HomectlError(
+      3,
+      `This device's inventory does not allow this Proxmox operation for ${input.host}; takeover refused. Plan the operation again on a device whose inventory allows it.`,
+    );
+  const plan = buildPlan(input.host, machine, now.argv, now.label, true);
+  plan.catalogueInput = structuredClone(input.catalogueInput);
+  if (
+    input.fingerprint !== undefined &&
+    fingerprint(plan) !== input.fingerprint
+  )
+    throw new HomectlError(
+      3,
+      `This device describes the guest for ${input.host} differently from the planning device (machine or Proxmox provider settings); takeover refused. Plan the operation again.`,
+    );
+  return plan;
 }
 
 function processAlive(pid: number): boolean {
@@ -925,6 +960,8 @@ export class ControlPlane {
     argv: string[];
     impact: string;
     issuer: string;
+    catalogueInput?: CatalogueInput;
+    fingerprint?: string;
   }): Promise<OperationView> {
     return this.store.withLock(async () => {
       const now = this.clock();
@@ -938,7 +975,18 @@ export class ControlPlane {
           3,
           `Host ${input.host} is not in this device's inventory; takeover refused`,
         );
-      const plan = buildPlan(input.host, machine, input.argv, input.impact);
+      const plan =
+        input.catalogueInput === undefined
+          ? buildPlan(input.host, machine, input.argv, input.impact)
+          : catalogueAdoptionPlan(
+              {
+                host: input.host,
+                catalogueInput: input.catalogueInput,
+                fingerprint: input.fingerprint,
+              },
+              inventory,
+              machine,
+            );
       const record: OperationRecord = {
         apiVersion: CONTROL_API_VERSION,
         id: input.operationId,

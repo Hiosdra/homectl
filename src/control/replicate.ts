@@ -15,7 +15,7 @@
 // - Client records are signed by the client's device. Revocation is monotone.
 import { canonicalJson } from "./canonical";
 import { type DeviceKey, signBytes, verifyBytes } from "./device-key";
-import type { OperationState } from "./types";
+import type { CatalogueInput, OperationState } from "./types";
 
 export const RANK: Record<OperationState, number> = {
   pending: 1,
@@ -49,6 +49,8 @@ export interface OpBody {
   fingerprint: string;
   issuer: string;
   approver?: string;
+  // Typed Proxmox catalogue input; the receiving device rebuilds the plan from it.
+  catalogueInput?: CatalogueInput;
   updatedAt: string;
   exitCode?: number;
   reason?: string;

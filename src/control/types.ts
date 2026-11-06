@@ -208,6 +208,8 @@ export interface ApprovalView {
 // included.
 export interface OperationView {
   operationId: string;
+  // Typed Proxmox catalogue input, so a device taking the operation over can rebuild it.
+  catalogueInput?: CatalogueInput;
   state: OperationState;
   host: string;
   classification: Classification;

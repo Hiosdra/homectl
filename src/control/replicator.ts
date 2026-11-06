@@ -185,6 +185,20 @@ async function readPersisted(path: string): Promise<Persisted | undefined> {
   );
 }
 
+// What a device needs to take an operation over: the signed plan facts, including
+// the typed catalogue input and the fingerprint the planner computed.
+function adoptionInput(operationId: string, base: OpBody) {
+  return {
+    operationId,
+    host: base.host,
+    argv: base.argv,
+    impact: base.impact,
+    issuer: base.issuer,
+    catalogueInput: base.catalogueInput,
+    fingerprint: base.fingerprint,
+  };
+}
+
 function deviceName(data: ReplicaFile, id: string): string {
   if (id === data.self?.id) return data.self.name;
   return data.peers[id]?.name ?? id;
@@ -621,6 +635,7 @@ export class ControlReplicator {
         fingerprint: op.fingerprint,
         issuer: op.issuer,
         ...(op.approval ? { approver: op.approval.approver } : {}),
+        ...(op.catalogueInput ? { catalogueInput: op.catalogueInput } : {}),
         updatedAt: op.updatedAt,
         ...(op.exitCode !== undefined ? { exitCode: op.exitCode } : {}),
         ...(op.reason !== undefined ? { reason: op.reason } : {}),
@@ -964,13 +979,7 @@ export class ControlReplicator {
     if (!status.possible)
       throw new HomectlError(3, status.reason ?? "Takeover is not possible");
     if (owner === undefined) throw new HomectlError(3, CONFLICT_REASON);
-    await this.plane.adoptOperation({
-      operationId,
-      host: base.host,
-      argv: base.argv,
-      impact: base.impact,
-      issuer: base.issuer,
-    });
+    await this.plane.adoptOperation(adoptionInput(operationId, base));
     const body: HandoffBody = {
       kind: "handoff",
       opId: operationId,
@@ -1239,13 +1248,7 @@ export class ControlReplicator {
     base: OpBody,
   ): Promise<void> {
     if (await this.plane.holdsOperation(operationId)) return;
-    await this.plane.adoptOperation({
-      operationId,
-      host: base.host,
-      argv: base.argv,
-      impact: base.impact,
-      issuer: base.issuer,
-    });
+    await this.plane.adoptOperation(adoptionInput(operationId, base));
   }
 
   // Proposes a winner for an ownership conflict. Any device involved in the
