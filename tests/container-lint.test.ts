@@ -155,6 +155,73 @@ describe("example compose file", () => {
   });
 });
 
+describe("prebuilt Compose Project example", () => {
+  async function project() {
+    return parse(
+      await read("examples", "container", "compose.project.yaml"),
+    ) as Compose & { name: string; secrets: Record<string, unknown> };
+  }
+
+  test("is a named project using the prebuilt local image", async () => {
+    const compose = await project();
+    const service = compose.services.homectl ?? {};
+    expect(compose.name).toBe("homectl-pr6");
+    expect(service.image).toBe(`\${HOMECTL_IMAGE:-homectl-peer:pr6}`);
+    expect(service.build).toBeUndefined();
+    expect(service.container_name).toBe("homectl");
+  });
+
+  test("retains container restrictions and the existing data volume", async () => {
+    const compose = await project();
+    const service = compose.services.homectl ?? {};
+    expect(service.user).toBe("10001:10001");
+    expect(service.privileged).toBe(false);
+    expect(service.read_only).toBe(true);
+    expect(service.cap_drop).toEqual(["ALL"]);
+    expect(service.security_opt).toContain("no-new-privileges:true");
+    expect(service.volumes).toEqual(["/volume2/appdata/homectl:/data"]);
+    expect(service.tmpfs).toEqual(["/tmp:size=64m,mode=1777"]);
+  });
+
+  test("publishes the peer on an explicit LAN IP and panel on a configurable bind", async () => {
+    const compose = await project();
+    const ports = (compose.services.homectl?.ports ?? []) as string[];
+    expect(ports).toEqual([
+      `\${HOMECTL_LAN_IP:?set the NAS LAN IP}:7448:7448`,
+      `\${HOMECTL_PANEL_BIND:?set loopback or LAN IP and panel host port}:7447`,
+    ]);
+  });
+
+  test("mounts the panel token as a Compose secret and uses the exact origin", async () => {
+    const compose = await project();
+    const service = compose.services.homectl ?? {};
+    const command = service.command as string[];
+    expect(service.secrets).toEqual(["panel_token"]);
+    expect(command).toContain("--panel-interface");
+    expect(command).toContain("172.28.0.10");
+    expect(command).toContain("--panel-origin");
+    expect(command).toContain(
+      `\${HOMECTL_PANEL_ORIGIN:?set the exact browser origin}`,
+    );
+    expect(command).toContain("--panel-token-file");
+    expect(command).toContain("/run/secrets/panel_token");
+    expect(compose.secrets.panel_token).toEqual({
+      file: `\${HOMECTL_PANEL_TOKEN_FILE:?set the path to a protected token file}`,
+    });
+    expect(JSON.stringify(compose)).not.toMatch(/PASSWORD=|TOKEN=[A-Za-z0-9]/i);
+  });
+
+  test("reuses the existing named external network and is managed by Compose", async () => {
+    const compose = await project();
+    expect(compose.networks?.lan).toEqual({
+      external: true,
+      name: `\${HOMECTL_NETWORK_NAME:-homectl-pr6-lan}`,
+    });
+    expect(compose.services.homectl?.healthcheck).toBeDefined();
+    expect(compose.services.homectl?.restart).toBe("unless-stopped");
+  });
+});
+
 describe(".dockerignore", () => {
   test("excludes git metadata, node_modules, databases, keys and local state", async () => {
     const lines = (await read(".dockerignore"))

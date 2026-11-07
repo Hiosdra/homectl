@@ -1,7 +1,8 @@
 // Disposable synthetic workspace. Never reads the owner's homectl database.
 
+import { randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium, expect } from "@playwright/test";
 import { loadOrCreateDeviceKey } from "../src/control/device-key";
@@ -19,6 +20,25 @@ import { keyReference } from "../src/session/keys";
 
 const root = await mkdtemp(join(tmpdir(), "hcui-"));
 const inventory = join(root, "inventory.yaml");
+const panelInterface = Object.values(networkInterfaces())
+  .flat()
+  .find(
+    (address) =>
+      address?.family === "IPv4" &&
+      !address.internal &&
+      !address.address.startsWith("127.") &&
+      !address.address.startsWith("169.254."),
+  )?.address;
+if (!panelInterface)
+  throw new Error("UI smoke needs one non-loopback IPv4 interface");
+const portProbe = Bun.serve({
+  hostname: "127.0.0.1",
+  port: 0,
+  fetch: () => new Response(),
+});
+const panelPort = portProbe.port;
+portProbe.stop(true);
+const panelOrigin = `http://${panelInterface}:${panelPort}`;
 await saveInventory(inventory, {
   version: 1,
   session: { ttl: "24h", database: join(root, "homelab.kdbx") },
@@ -60,9 +80,14 @@ await saveInventory(inventory, {
 const running = await serve({
   inventoryPath: inventory,
   configPath: `${inventory}.ssh_config`,
-  port: 0,
+  port: panelPort,
   peerPort: 0,
   discover: false,
+  panel: {
+    interface: panelInterface,
+    origin: panelOrigin,
+    accessToken: randomBytes(32).toString("base64url"),
+  },
   // Synthetic output for control-plane runs: never the real host's name or account.
   controlRunner: async () => ({
     exitCode: 0,
@@ -151,7 +176,7 @@ try {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   const launch = JSON.parse(await readFile(running.launch, "utf8"));
-  await page.goto(`${running.url}/#token=${encodeURIComponent(launch.token)}`);
+  await page.goto(`${panelOrigin}/#token=${encodeURIComponent(launch.token)}`);
   await expect(
     page.getByRole("heading", { name: "Machines", exact: true }),
   ).toBeVisible();

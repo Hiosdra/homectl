@@ -2,6 +2,8 @@
 // peer (docs/homectl-2.0/container-peer.md). Startup recovery runs first; the
 // first SIGTERM or SIGINT then starts one graceful stop, and a second signal is
 // ignored so the stop can finish within Docker's grace period.
+import { readFile, stat } from "node:fs/promises";
+import { HomectlError } from "../types";
 import { VERSION } from "./health";
 import { recoverStartup } from "./recovery";
 
@@ -11,13 +13,53 @@ export type ContainerServeOptions = {
   interface: string;
   port: number;
   peerPort: number;
+  panelInterface?: string;
+  panelOrigin?: string;
+  panelTokenFile?: string;
 };
+
+async function readPanelToken(path: string): Promise<string> {
+  try {
+    const info = await stat(path);
+    const token = (await readFile(path, "utf8")).trim();
+    if (
+      !info.isFile() ||
+      (process.platform !== "win32" && (info.mode & 0o022) !== 0) ||
+      Buffer.byteLength(token, "utf8") < 32 ||
+      Buffer.byteLength(token, "utf8") > 4096
+    )
+      throw new Error("invalid token file");
+    return token;
+  } catch {
+    throw new HomectlError(
+      2,
+      "Remote panel token file is unavailable or insecure; details suppressed",
+    );
+  }
+}
 
 // Resolves once the workspace is serving. The listeners keep the process alive
 // until a signal stops it; the stop path exits with status 0.
 export async function serveContainer(
   options: ContainerServeOptions,
 ): Promise<number> {
+  const panelArguments = [
+    options.panelInterface,
+    options.panelOrigin,
+    options.panelTokenFile,
+  ];
+  const hasPanelOptions = panelArguments.some((value) => value !== undefined);
+  if (
+    hasPanelOptions &&
+    panelArguments.some((value) => value === undefined || value === "")
+  )
+    throw new HomectlError(
+      2,
+      "Remote panel needs an explicit interface, origin and token file",
+    );
+  const panelToken = options.panelTokenFile
+    ? await readPanelToken(options.panelTokenFile)
+    : undefined;
   let stopNow: (() => void) | undefined;
   let stopRequested = false;
   const onSignal = () => {
@@ -44,6 +86,13 @@ export async function serveContainer(
     interface: options.interface,
     port: options.port,
     peerPort: options.peerPort,
+    panel: panelToken
+      ? {
+          interface: options.panelInterface as string,
+          origin: options.panelOrigin as string,
+          accessToken: panelToken,
+        }
+      : undefined,
     // Multicast discovery does not cross the container bridge; pair manually.
     discover: false,
     controlSync: true,

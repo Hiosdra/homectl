@@ -341,6 +341,18 @@ pages.serve = {
           "Container mode for the containerized peer: needs an explicit --interface, runs startup recovery, serves /healthz, stops cleanly on SIGTERM, and turns discovery off. See docs/homectl-2.0/container-peer.md.",
         ],
         [
+          "--panel-interface IP",
+          "Optional container-only remote panel listener on one explicit container IP; requires origin and token file.",
+        ],
+        [
+          "--panel-origin ORIGIN",
+          "Exact browser origin allowed for the remote panel, including scheme and port.",
+        ],
+        [
+          "--panel-token-file PATH",
+          "Read the remote panel access code from a protected file or Compose secret; never logged.",
+        ],
+        [
           "--no-discovery",
           "Disable multicast discovery only; use manual IP pairing. Control sync with already-paired devices keeps running.",
         ],

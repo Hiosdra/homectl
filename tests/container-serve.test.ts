@@ -3,7 +3,7 @@ import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 setDefaultTimeout(90_000);
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import pkg from "../package.json";
 import { LAUNCH_FILE, RUN_FILE } from "../src/container/recovery";
@@ -12,6 +12,15 @@ import { serve } from "../src/serve";
 
 const REPO = resolve(import.meta.dir, "..");
 const MAIN = join(REPO, "src", "cli", "main.ts");
+const panelInterface = Object.values(networkInterfaces())
+  .flat()
+  .find(
+    (address) =>
+      address?.family === "IPv4" &&
+      !address.internal &&
+      !address.address.startsWith("127.") &&
+      !address.address.startsWith("169.254."),
+  )?.address;
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -118,6 +127,121 @@ describe("health route (in process)", () => {
   });
 });
 
+describe("authenticated remote panel proxy", () => {
+  async function openPanel(origin: string) {
+    const v = await volume();
+    const token = "panel-access-code-".padEnd(48, "x");
+    const running = await serve({
+      inventoryPath: v.inventory,
+      configPath: v.configPath,
+      interface: "127.0.0.1",
+      port: 0,
+      peerPort: 0,
+      discover: false,
+      container: { recovered: false },
+      panel: {
+        interface: panelInterface as string,
+        origin,
+        accessToken: token,
+      },
+    });
+    cleanup.push(() => running.stop());
+    const panelServer = running.remotePanelServer;
+    if (!panelServer) throw new Error("remote panel did not start");
+    return {
+      base: `http://${panelInterface}:${panelServer.port}`,
+      host: new URL(origin).host,
+      origin,
+      token,
+    };
+  }
+
+  test.skipIf(!panelInterface)(
+    "serves the panel and authenticates only the configured host and origin",
+    async () => {
+      const panel = await openPanel("http://panel.example.test:17447");
+      const page = await fetch(panel.base, {
+        headers: { Host: panel.host },
+      });
+      expect(page.status).toBe(200);
+      expect(await page.text()).toContain("Workspace access code");
+
+      const wrongHost = await fetch(panel.base, {
+        headers: { Host: "attacker.example.test" },
+      });
+      expect(wrongHost.status).toBe(403);
+
+      const wrongOrigin = await fetch(`${panel.base}/api/connect`, {
+        method: "POST",
+        headers: {
+          Host: panel.host,
+          Origin: "http://attacker.example.test",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token: panel.token }),
+      });
+      expect(wrongOrigin.status).toBe(403);
+
+      const connected = await fetch(`${panel.base}/api/connect`, {
+        method: "POST",
+        headers: {
+          Host: panel.host,
+          Origin: panel.origin,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token: panel.token }),
+      });
+      expect(connected.status).toBe(200);
+      const cookie = connected.headers.get("set-cookie") ?? "";
+      expect(cookie).toContain("HttpOnly");
+      expect(cookie).toContain("SameSite=Strict");
+      expect(cookie).not.toContain("Secure");
+
+      const state = await fetch(`${panel.base}/api/state`, {
+        headers: { Host: panel.host, Cookie: cookie.split(";")[0] ?? "" },
+      });
+      expect(state.status).toBe(200);
+    },
+  );
+
+  test.skipIf(!panelInterface)(
+    "marks the remote session cookie Secure for an HTTPS reverse proxy",
+    async () => {
+      const panel = await openPanel("https://panel.example.test");
+      const connected = await fetch(`${panel.base}/api/connect`, {
+        method: "POST",
+        headers: {
+          Host: panel.host,
+          Origin: panel.origin,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token: panel.token }),
+      });
+      expect(connected.status).toBe(200);
+      expect(connected.headers.get("set-cookie")).toMatch(/; Secure$/);
+    },
+  );
+
+  test("refuses loopback aliases for the remote panel listener", async () => {
+    const v = await volume();
+    await expect(
+      serve({
+        inventoryPath: v.inventory,
+        configPath: v.configPath,
+        interface: "127.0.0.1",
+        port: 0,
+        peerPort: 0,
+        discover: false,
+        panel: {
+          interface: "127.0.0.2",
+          origin: "http://panel.example.test",
+          accessToken: "panel-access-code-".padEnd(48, "x"),
+        },
+      }),
+    ).rejects.toMatchObject({ code: 2 });
+  });
+});
+
 // Child processes: the real CLI entry point, with synthetic paths and ports.
 function spawnServe(args: string[]) {
   return Bun.spawn([process.execPath, MAIN, "serve", "--container", ...args], {
@@ -141,6 +265,51 @@ describe("container serve (child process)", () => {
     const v = await volume();
     const child = spawnServe(["--inventory", v.inventory]);
     expect(await child.exited).toBe(2);
+  });
+
+  test("remote panel options are all required and container-only", async () => {
+    const v = await volume();
+    const incomplete = spawnServe([
+      "--inventory",
+      v.inventory,
+      "--interface",
+      "127.0.0.1",
+      "--panel-interface",
+      "127.0.0.2",
+    ]);
+    expect(await incomplete.exited).toBe(2);
+    const incompleteStderr = await new Response(incomplete.stderr).text();
+    expect(incompleteStderr).toContain(
+      "Remote panel needs --panel-interface, --panel-origin and --panel-token-file",
+    );
+
+    const notContainer = Bun.spawn(
+      [
+        process.execPath,
+        MAIN,
+        "serve",
+        "--inventory",
+        v.inventory,
+        "--interface",
+        "127.0.0.1",
+        "--panel-interface",
+        "127.0.0.2",
+        "--panel-origin",
+        "http://panel.example.test",
+        "--panel-token-file",
+        "unused-token-file",
+      ],
+      {
+        cwd: REPO,
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(await notContainer.exited).toBe(2);
+    const notContainerStderr = await new Response(notContainer.stderr).text();
+    expect(notContainerStderr).toContain(
+      "Remote panel options apply only to serve --container",
+    );
   });
 
   test("a truncated audit journal refuses the start before any listener opens (exit 5)", async () => {

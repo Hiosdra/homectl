@@ -17,6 +17,41 @@ test("human doctor shows actionable failures", () => {
   expect(output).toContain("OK  bun");
   expect(output).not.toContain('"checks"');
 });
+test("session status formats epoch timestamps for people", () => {
+  const startedAt = 1794036470166;
+  const expiresAt = 1794122870166;
+  const formatDate = (timestamp: number) =>
+    new Intl.DateTimeFormat(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(new Date(timestamp));
+  const output = formatHuman(
+    { unlocked: true, startedAt, expiresAt, ttl: "24h" },
+    "session",
+    "status",
+  );
+  expect(output).toContain(`Started At: ${formatDate(startedAt)}`);
+  expect(output).toContain(`Expires: ${formatDate(expiresAt)}`);
+  expect(output).not.toContain(String(startedAt));
+  expect(output).not.toContain(String(expiresAt));
+});
+test("session unlock formats epoch timestamps for people", () => {
+  const startedAt = 1794036470166;
+  const expiresAt = 1794122870166;
+  const output = formatHuman(
+    { unlocked: true, startedAt, expiresAt, syncUnlocked: true },
+    "session",
+    "unlock",
+  );
+  expect(output).toContain("Started At:");
+  expect(output).toContain("Expires At:");
+  expect(output).not.toContain(String(startedAt));
+  expect(output).not.toContain(String(expiresAt));
+});
 test("execution prints command output rather than escaping it", () => {
   expect(
     formatHuman(

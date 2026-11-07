@@ -48,6 +48,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         "no-discovery": { type: "boolean" },
         "no-control-sync": { type: "boolean" },
         container: { type: "boolean" },
+        "panel-interface": { type: "string" },
+        "panel-origin": { type: "string" },
+        "panel-token-file": { type: "string" },
         owner: { type: "string" },
         cancel: { type: "boolean" },
         reason: { type: "string" },
@@ -121,6 +124,23 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       throw new HomectlError(2, "--host applies only to serve-mcp");
     if (v.container && command !== "serve")
       throw new HomectlError(2, "--container applies only to serve");
+    const remotePanelArgs = [
+      v["panel-interface"],
+      v["panel-origin"],
+      v["panel-token-file"],
+    ];
+    if (remotePanelArgs.some((value) => value !== undefined)) {
+      if (command !== "serve" || !v.container)
+        throw new HomectlError(
+          2,
+          "Remote panel options apply only to serve --container",
+        );
+      if (remotePanelArgs.some((value) => value === undefined || value === ""))
+        throw new HomectlError(
+          2,
+          "Remote panel needs --panel-interface, --panel-origin and --panel-token-file",
+        );
+    }
     const p = paths();
     const inventoryPath = v.inventory ? resolve(v.inventory) : p.inventory;
     const configPath = v.inventory ? `${inventoryPath}.ssh_config` : p.ssh;
@@ -417,6 +437,13 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           wouldServe: true,
           inventory: inventoryPath,
           panel: "127.0.0.1",
+          remotePanel: v["panel-interface"]
+            ? {
+                interface: v["panel-interface"],
+                origin: v["panel-origin"],
+                tokenFile: v["panel-token-file"],
+              }
+            : undefined,
           interface: v.interface ?? "127.0.0.1",
           credentialAccess: false,
         });
@@ -434,6 +461,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           interface: v.interface,
           port: port(v.port, 7447),
           peerPort: port(v["peer-port"], 7448),
+          panelInterface: v["panel-interface"],
+          panelOrigin: v["panel-origin"],
+          panelTokenFile: v["panel-token-file"],
         });
       }
       let existing: { peerAddress?: string } | undefined;

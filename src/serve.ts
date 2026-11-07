@@ -42,6 +42,9 @@ export type ServeOptions = {
   // Container mode (docs/homectl-2.0/container-peer.md). "recovered" means the
   // startup checks repaired or flagged something, so health reports degraded.
   container?: { recovered: boolean };
+  // An optional, authenticated reverse-proxy listener for the existing panel.
+  // The ordinary panel stays on loopback for local CLI and health access.
+  panel?: { interface: string; origin: string; accessToken: string };
 };
 const security = {
   "Cache-Control": "no-store",
@@ -70,6 +73,12 @@ function sameSecret(given: unknown, expected: string): boolean {
 }
 function response(value: unknown, status = 200) {
   return Response.json(value, { status, headers: security });
+}
+function isLoopbackInterface(address: string): boolean {
+  if (isIP(address) === 4) return address.startsWith("127.");
+  if (isIP(address) !== 6) return false;
+  const normalized = new URL(`http://[${address}]/`).hostname.toLowerCase();
+  return normalized === "[::1]" || normalized.startsWith("[::ffff:");
 }
 function failure(error: unknown) {
   const e =
@@ -136,8 +145,39 @@ export async function serve(options: ServeOptions) {
   peerAddress(
     `http://${interfaceIP.includes(":") ? `[${interfaceIP}]` : interfaceIP}:7448`,
   );
+  const externalPanel = options.panel;
+  let externalPanelOrigin: URL | undefined;
+  if (externalPanel) {
+    if (
+      !isIP(externalPanel.interface) ||
+      externalPanel.interface === "0.0.0.0" ||
+      externalPanel.interface === "::" ||
+      isLoopbackInterface(externalPanel.interface) ||
+      Buffer.byteLength(externalPanel.accessToken, "utf8") < 32
+    )
+      throw new HomectlError(
+        2,
+        "Remote panel needs a non-loopback interface and a long access code",
+      );
+    try {
+      externalPanelOrigin = new URL(externalPanel.origin);
+    } catch {
+      throw new HomectlError(2, "Invalid remote panel origin");
+    }
+    if (
+      !["http:", "https:"].includes(externalPanelOrigin.protocol) ||
+      externalPanelOrigin.origin !== externalPanel.origin ||
+      externalPanelOrigin.username ||
+      externalPanelOrigin.password
+    )
+      throw new HomectlError(
+        2,
+        "Remote panel origin must be one exact HTTP(S) origin",
+      );
+  }
   const peerPort = options.peerPort ?? 7448;
-  const token = randomBytes(32).toString("base64url");
+  const token =
+    externalPanel?.accessToken ?? randomBytes(32).toString("base64url");
   const cookie = randomBytes(32).toString("base64url");
   let hub: Hub;
   let control: ControlPlane;
@@ -696,6 +736,81 @@ export async function serve(options: ServeOptions) {
     }
   })();
   localPort = localServer.port ?? localPort;
+  let remotePanelServer: ReturnType<typeof Bun.serve> | undefined;
+  if (externalPanel && externalPanelOrigin) {
+    try {
+      remotePanelServer = Bun.serve({
+        hostname: externalPanel.interface,
+        port: localPort,
+        maxRequestBodySize: 24 * 1024 * 1024,
+        idleTimeout: 120,
+        async fetch(req) {
+          try {
+            const url = new URL(req.url);
+            if (req.headers.get("Host") !== externalPanelOrigin.host)
+              throw new HomectlError(3, "Unexpected remote panel host");
+            if (!["GET", "POST"].includes(req.method))
+              return response({ error: "Not found" }, 404);
+            const origin = req.headers.get("Origin");
+            if (origin && origin !== externalPanelOrigin.origin)
+              throw new HomectlError(3, "Cross-origin operation refused");
+            if (req.method === "POST" && origin !== externalPanelOrigin.origin)
+              throw new HomectlError(3, "Cross-origin operation refused");
+
+            const headers = new Headers();
+            for (const [name, value] of req.headers) {
+              if (
+                ![
+                  "connection",
+                  "content-length",
+                  "host",
+                  "origin",
+                  "transfer-encoding",
+                ].includes(name.toLowerCase())
+              )
+                headers.append(name, value);
+            }
+            if (origin) headers.set("Origin", `http://127.0.0.1:${localPort}`);
+            const upstream = await fetch(
+              `http://127.0.0.1:${localPort}${url.pathname}${url.search}`,
+              {
+                method: req.method,
+                headers,
+                ...(req.method === "POST"
+                  ? { body: await req.arrayBuffer() }
+                  : {}),
+                redirect: "manual",
+              },
+            );
+            const responseHeaders = new Headers(upstream.headers);
+            if (externalPanelOrigin.protocol === "https:") {
+              const setCookie = responseHeaders.get("Set-Cookie");
+              if (setCookie && !/;\s*secure(?:;|$)/i.test(setCookie))
+                responseHeaders.set("Set-Cookie", `${setCookie}; Secure`);
+            }
+            return new Response(upstream.body, {
+              status: upstream.status,
+              statusText: upstream.statusText,
+              headers: responseHeaders,
+            });
+          } catch (error) {
+            return failure(error);
+          }
+        },
+      });
+    } catch {
+      if (controlTimer) clearInterval(controlTimer);
+      discovered?.close();
+      if (inFlight) await settle(inFlight, SHUTDOWN_WAIT_MS);
+      await hub.lock().catch(() => undefined);
+      localServer.stop(true);
+      peerServer.stop(true);
+      throw new HomectlError(
+        5,
+        `Cannot start remote panel on ${externalPanel.interface}:${localPort}; check that the address exists and port is free.`,
+      );
+    }
+  }
   // Sync status for the local operator: the replicator's view merged with the
   // scheduler's per-peer state (failures, next attempt, last error).
   const isSelf = (nameOrId: string) =>
@@ -921,6 +1036,7 @@ export async function serve(options: ServeOptions) {
       // Stop sync: let an in-flight round finish, up to a bound.
       if (inFlight) await settle(inFlight, SHUTDOWN_WAIT_MS);
       await hub.lock();
+      remotePanelServer?.stop(true);
       localServer.stop(true);
       peerServer.stop(true);
       // The launch token dies with the server; the CLI then reports "not running".
@@ -934,6 +1050,7 @@ export async function serve(options: ServeOptions) {
     },
     localServer,
     peerServer,
+    remotePanelServer,
     replicator,
     // Runs one control-sync round now (tests and diagnostics).
     syncNow: async () => {

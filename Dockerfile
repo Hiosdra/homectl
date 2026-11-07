@@ -34,8 +34,9 @@ RUN groupadd --system --gid 10001 homectl \
 
 USER 10001:10001
 
-# Peer protocol only. The local panel (7447) is never published.
-EXPOSE 7448
+# Peer protocol and optional authenticated reverse-proxy panel. Compose decides
+# which host addresses (if any) publish these ports.
+EXPOSE 7447 7448
 
 # Local, unauthenticated, status-only health route; exits 0 only when "ok".
 HEALTHCHECK --interval=60s --timeout=5s --start-period=30s --retries=3 \
