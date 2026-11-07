@@ -4,7 +4,8 @@ import {
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
 import { isoTime } from "./canonical";
 import { identityHash, issuerHost } from "./oidc";
@@ -156,7 +157,7 @@ export class ClientRegistry implements ClientAuthenticator {
       mode: 0o600,
       flag: "wx",
     });
-    await rename(temp, this.path);
+    await atomicReplace(temp, this.path);
   }
 
   // Compares the digest against every non-revoked client without returning

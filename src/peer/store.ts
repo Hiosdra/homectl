@@ -1,8 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
-import { privateDirectory, protect } from "../platform";
+import { atomicReplace, privateDirectory, protect } from "../platform";
 import { hash } from "./sync";
 export type Permissions = {
   sync: boolean;
@@ -62,7 +62,7 @@ export async function saveState(path: string, state: PeerState) {
   };
   await writeFile(tmp, JSON.stringify(disk), { mode: 0o600, flag: "wx" });
   await protect(tmp);
-  await rename(tmp, path);
+  await atomicReplace(tmp, path);
 }
 export async function loadState(path: string): Promise<PeerState> {
   try {

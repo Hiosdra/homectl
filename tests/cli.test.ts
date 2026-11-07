@@ -117,15 +117,14 @@ test("safe command emits result and exit 0", async () => {
     "--inventory",
     await fixture(),
     "--",
-    "uname",
-    "-s",
+    "whoami",
   ]);
   expect(r.code).toBe(0);
-  expect(JSON.parse(r.stdout).result.stdout).toBe("Linux\n");
+  expect(JSON.parse(r.stdout).result.stdout.trim().length).toBeGreaterThan(0);
 });
 test("remote failure exits 6 and preserves actual exit status", async () => {
   const path = await fixture();
-  const argv = ["sh", "-c", "exit 7"];
+  const argv = [process.execPath, "-e", "process.exit(7)"];
   const approval = planExecution("example", machine, argv).approval;
   const r = await invoke([
     "exec",

@@ -6,8 +6,9 @@
 // verified per origin against stored checkpoints before anything is applied.
 // The fence decides whether this device may run an operation right now.
 import { randomUUID } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
 import { canonicalJson, sha256 } from "./canonical";
 import {
@@ -523,7 +524,7 @@ export class ControlReplicator {
       mode: 0o600,
       flag: "wx",
     });
-    await rename(temp, this.path);
+    await atomicReplace(temp, this.path);
   }
 
   get stateDir(): string {

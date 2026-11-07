@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, readFile, rename, writeFile } from "node:fs/promises";
+import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
 import { canonicalJson, sha256 } from "./canonical";
 import { containsSecretMaterial } from "./redact";
@@ -115,7 +116,7 @@ export class AuditJournal {
   private async writeAnchor(anchor: AuditAnchor): Promise<void> {
     const temp = `${this.anchorPath}.${randomUUID()}.tmp`;
     await writeFile(temp, JSON.stringify(anchor), { mode: 0o600, flag: "wx" });
-    await rename(temp, this.anchorPath);
+    await atomicReplace(temp, this.anchorPath);
   }
 
   // Chain check plus anchor check.

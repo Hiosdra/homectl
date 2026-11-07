@@ -3,12 +3,12 @@
 // closed); nothing is repaired automatically. Messages never carry entry
 // contents or secret material.
 import { randomUUID } from "node:crypto";
-import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { controlStateDirectory } from "../control/engine";
 import { AuditJournal } from "../control/journal";
-import { privateDirectory } from "../platform";
+import { atomicReplace, privateDirectory } from "../platform";
 import { HomectlError } from "../types";
 
 export const RUN_FILE = "run.json";
@@ -219,7 +219,7 @@ async function writeRunRecord(
     mode: 0o600,
     flag: "wx",
   });
-  await rename(temp, path);
+  await atomicReplace(temp, path);
 }
 
 // Written when the listeners come up, then every HEARTBEAT_MS by serve. The

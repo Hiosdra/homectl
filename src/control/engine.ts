@@ -1,8 +1,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { loadInventory } from "../inventory";
 import { execute as executeCommand, writeSSHConfig } from "../operations";
+import { atomicReplace } from "../platform";
 import { innerCommand, planExecution } from "../policies";
 import { run } from "../process";
 import {
@@ -572,7 +573,7 @@ export class ControlPlane {
         mode: 0o600,
         flag: "wx",
       });
-      await rename(temp, this.oidcPath);
+      await atomicReplace(temp, this.oidcPath);
       await this.journal.append({
         event: "oidc.configured",
         client: SYSTEM_ACTOR,

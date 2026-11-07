@@ -1,9 +1,9 @@
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import Ajv from "ajv";
 import { parse, stringify } from "yaml";
 import schema from "../../schema/inventory.schema.json";
-import { privateDirectory, protect } from "../platform";
+import { atomicReplace, privateDirectory, protect } from "../platform";
 import { ttlSeconds } from "../session/config";
 import { HomectlError, type Inventory, type Machine } from "../types";
 
@@ -130,7 +130,7 @@ export async function saveInventory(path: string, inventory: Inventory) {
   const temp = `${path}.${crypto.randomUUID()}.tmp`;
   await writeFile(temp, text, { mode: 0o600, flag: "wx" });
   await protect(temp);
-  await rename(temp, path);
+  await atomicReplace(temp, path);
 }
 export function resolveHost(inventory: Inventory, name: string): Machine {
   const m = inventory.machines[name];

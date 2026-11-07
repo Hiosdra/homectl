@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { privateDirectory } from "../platform";
+import { atomicReplace, privateDirectory } from "../platform";
 import { HomectlError } from "../types";
 import type { OperationRecord } from "./types";
 
@@ -110,6 +110,6 @@ export class ControlStore {
   async saveState(state: ControlState): Promise<void> {
     const temp = `${this.statePath}.${randomUUID()}.tmp`;
     await writeFile(temp, JSON.stringify(state), { mode: 0o600, flag: "wx" });
-    await rename(temp, this.statePath);
+    await atomicReplace(temp, this.statePath);
   }
 }
