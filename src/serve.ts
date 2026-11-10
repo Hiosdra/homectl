@@ -13,6 +13,7 @@ import { fingerprintOf } from "./control/device-key";
 import { ControlPlane, controlStateDirectory } from "./control/engine";
 import { ControlReplicator } from "./control/replicator";
 import { SYNC_INTERVAL_MS, SyncLoop } from "./control/sync-loop";
+import { bundled } from "./internal";
 import { loadInventory, parseInventory, saveInventory } from "./inventory";
 import { execute, writeSSHConfig } from "./operations";
 import { discovery } from "./peer/discovery";
@@ -24,6 +25,7 @@ import { sessionConfig, ttlSeconds } from "./session";
 import { createKey, keyReference } from "./session/keys";
 import { doctor } from "./setup";
 import { HomectlError, type Machine, type Runner } from "./types";
+import { embeddedPanel } from "./web/embedded";
 export type ServeOptions = {
   inventoryPath: string;
   configPath: string;
@@ -135,6 +137,36 @@ async function settle(work: Promise<unknown>, ms: number): Promise<void> {
   clearTimeout(timer);
 }
 
+// The panel assets. A compiled release carries them (src/web/embedded.ts, written
+// by `bun run build:panel`). A source checkout builds the panel from web/ at run time.
+async function panelAssets(): Promise<{
+  html: string;
+  css: string;
+  script: string;
+}> {
+  if (bundled) {
+    if (embeddedPanel === undefined)
+      throw new HomectlError(
+        5,
+        "This build has no embedded web panel. Run bun run build:panel before bun build --compile.",
+      );
+    return embeddedPanel;
+  }
+  const js = await Bun.build({
+    entrypoints: [resolve(import.meta.dir, "web/app.ts")],
+    target: "browser",
+    minify: true,
+  });
+  if (!js.success) throw new HomectlError(5, "Frontend build failed");
+  const script = await js.outputs[0]?.text();
+  if (script === undefined) throw new HomectlError(5, "Frontend build failed");
+  return {
+    html: await readFile(resolve(import.meta.dir, "web/index.html"), "utf8"),
+    css: await readFile(resolve(import.meta.dir, "web/style.css"), "utf8"),
+    script,
+  };
+}
+
 export async function serve(options: ServeOptions) {
   const interfaceIP = options.interface ?? "127.0.0.1";
   if (!isIP(interfaceIP) || interfaceIP === "0.0.0.0" || interfaceIP === "::")
@@ -196,18 +228,7 @@ export async function serve(options: ServeOptions) {
     options.container?.recovered === true ||
     options.controlSync === false;
   let localPort = options.port ?? 7447;
-  const js = await Bun.build({
-    entrypoints: [resolve(import.meta.dir, "web/app.ts")],
-    target: "browser",
-    minify: true,
-  });
-  if (!js.success) throw new HomectlError(5, "Frontend build failed");
-  const script = await js.outputs[0]?.text();
-  const html = await readFile(
-    resolve(import.meta.dir, "web/index.html"),
-    "utf8",
-  );
-  const css = await readFile(resolve(import.meta.dir, "web/style.css"), "utf8");
+  const { html, css, script } = await panelAssets();
   const peerServer = (() => {
     try {
       return Bun.serve({
