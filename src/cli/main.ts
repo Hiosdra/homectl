@@ -7,7 +7,7 @@ import { credentialSpec } from "../credentials";
 
 import { enroll, installSudo } from "../enroll";
 import { loadInventory, resolveHost, saveInventory } from "../inventory";
-import { execute, workerPath, writeSSHConfig } from "../operations";
+import { execute, workerArgv, writeSSHConfig } from "../operations";
 import { windows } from "../platform";
 import { checkApproval, planExecution } from "../policies";
 import { run } from "../process";
@@ -72,6 +72,20 @@ async function panelInterface(inventoryPath: string, requested?: string) {
 }
 
 export async function main(raw = process.argv.slice(2)): Promise<number> {
+  // Internal roles that homectl starts for itself (src/internal.ts). Nothing else
+  // is parsed. The module runs on import; the daemon keeps the process alive.
+  if (raw[0] === "__internal") {
+    // The worker reports its own status in process.exitCode, so keep it.
+    if (raw[1] === "worker") {
+      await import("../credentials/worker");
+      return Number(process.exitCode ?? 0);
+    }
+    if (raw[1] === "session-daemon") {
+      await import("../session/daemon");
+      return 0;
+    }
+    return 2;
+  }
   const split = raw.indexOf("--");
   const cliArgs = split < 0 ? raw : raw.slice(0, split);
   const commandArgs = split < 0 ? [] : raw.slice(split + 1);
@@ -863,7 +877,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           credentialSpec(
             plan.machine.auth,
             transportSpec(plan.machine, ["uname", "-s"], configPath),
-            workerPath,
+            workerArgv,
           ),
         );
         if (r.exitCode === 0) {
@@ -885,7 +899,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
             ["cloud-init", "status", "--wait"],
             configPath,
           ),
-          workerPath,
+          workerArgv,
         ),
       );
       if (cloud.exitCode !== 0)
@@ -914,7 +928,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
                 [...privilege, "apt-get", "update"],
                 configPath,
               ),
-              workerPath,
+              workerArgv,
             ),
           ),
         );
@@ -928,7 +942,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
                   [...privilege, "apt-get", "install", "-y", "nodejs", "npm"],
                   configPath,
                 ),
-                workerPath,
+                workerArgv,
               ),
             ),
           );
@@ -937,7 +951,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
             credentialSpec(
               plan.machine.auth,
               transportSpec(plan.machine, recipe, configPath),
-              workerPath,
+              workerArgv,
             ),
           ),
         );
@@ -952,7 +966,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
                   : ["bun", "--version"],
                 configPath,
               ),
-              workerPath,
+              workerArgv,
             ),
           ),
         );

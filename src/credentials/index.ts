@@ -2,13 +2,13 @@ import { type Auth, HomectlError, type ProcessSpec } from "../types";
 export function credentialSpec(
   auth: Auth | undefined,
   spec: ProcessSpec,
-  workerPath: string,
+  workerArgv: string[],
 ): ProcessSpec {
   if (!auth) return spec;
   if (auth.type !== "keepassxc" || !auth.socket)
     throw new HomectlError(2, "SSH requires a managed KeePassXC key reference");
   return {
-    argv: [process.execPath, workerPath],
+    argv: [...workerArgv],
     stdin: JSON.stringify({
       ...spec,
       managedInventory: auth.inventory,

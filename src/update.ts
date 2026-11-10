@@ -1,9 +1,16 @@
 import { join } from "node:path";
+import { bundled } from "./internal";
 import { run } from "./process";
 import { repoRoot } from "./setup";
 import { HomectlError, type Runner } from "./types";
 
 export async function update(dryRun = false, runner: Runner = run) {
+  // A release executable is replaced by installing a new release, not by git pull.
+  if (bundled)
+    throw new HomectlError(
+      2,
+      "This is a compiled release. Update it by installing the newer release (package manager or release archive).",
+    );
   const actions = [
     "Check the current branch and its upstream",
     "Fast-forward the current branch from its configured upstream",

@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import { createPrivateKey } from "node:crypto";
 import { lstat, unlink } from "node:fs/promises";
 import { createConnection } from "node:net";
-import { resolve } from "node:path";
 import { cleanEnv } from "../credentials";
+import { internalCommand } from "../internal";
 import { available, executable, privateDirectory, windows } from "../platform";
 import { HomectlError, type Inventory } from "../types";
 import { addKey } from "./agent";
@@ -127,16 +127,13 @@ export async function startSession(
     }
   }
   if (windows) {
-    const daemon = spawn(
-      process.execPath,
-      [resolve(import.meta.dir, "daemon.ts")],
-      {
-        detached: true,
-        windowsHide: true,
-        env: cleanEnv(),
-        stdio: ["pipe", "ignore", "ignore"],
-      },
-    );
+    const [daemonCommand, ...daemonArgs] = internalCommand("session-daemon");
+    const daemon = spawn(daemonCommand ?? process.execPath, daemonArgs, {
+      detached: true,
+      windowsHide: true,
+      env: cleanEnv(),
+      stdio: ["pipe", "ignore", "ignore"],
+    });
     let failed = false;
     daemon.on("error", () => {
       failed = true;
@@ -163,15 +160,12 @@ export async function startSession(
   // Detach the daemon into its own session. It must not share the process group
   // of the unlocking command: when that terminal closes, the kernel hangs up the
   // whole group, which would also end the daemon and its ssh-agent child.
-  const daemon = spawn(
-    process.execPath,
-    [resolve(import.meta.dir, "daemon.ts")],
-    {
-      detached: true,
-      env: cleanEnv(),
-      stdio: ["pipe", "pipe", "ignore"],
-    },
-  );
+  const [daemonCommand, ...daemonArgs] = internalCommand("session-daemon");
+  const daemon = spawn(daemonCommand ?? process.execPath, daemonArgs, {
+    detached: true,
+    env: cleanEnv(),
+    stdio: ["pipe", "pipe", "ignore"],
+  });
   daemon.stdin?.on("error", () => {});
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
