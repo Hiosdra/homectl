@@ -608,7 +608,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       if (positionals.length > 1 || commandArgs.length)
         throw new HomectlError(
           2,
-          "Usage: homectl serve-mcp [--port 7449] [--inventory PATH]",
+          "Usage: homectl serve-mcp [--host 127.0.0.1] [--port 7449] [--inventory PATH]",
         );
       if (dryRun) {
         emit({

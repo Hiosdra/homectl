@@ -418,7 +418,7 @@ test("client add rejects host names that are not in the inventory", async () => 
   await expect(stat(tokenFile)).rejects.toBeDefined();
 });
 
-test("serve-mcp refuses non-loopback binding with a plain explanation", async () => {
+test("serve-mcp refuses a wildcard bind with a plain explanation", async () => {
   const f = await fixture();
   const r = await invoke([
     "serve-mcp",
@@ -430,7 +430,7 @@ test("serve-mcp refuses non-loopback binding with a plain explanation", async ()
     f.inventory,
   ]);
   expect(r.code).toBe(2);
-  expect(r.stderr).toContain("binds only to loopback (127.0.0.1)");
+  expect(r.stderr).toContain("needs one explicit IPv4 address");
   expect(r.stderr).not.toContain("details suppressed");
   const misplaced = await invoke([
     "hosts",

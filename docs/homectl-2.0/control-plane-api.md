@@ -140,11 +140,12 @@ Error messages are fixed strings in the engine. Exception text from lower layers
 
 ## 9. MCP surface (Streamable HTTP, JSON-RPC 2.0)
 
-- Endpoint: `POST http://127.0.0.1:<port>/mcp`. Default port 7449 (`homectl serve-mcp --port`). Bound to `127.0.0.1` only; other addresses are refused in code.
+- Endpoint: `POST http://127.0.0.1:<port>/mcp`. Default port 7449 (`homectl serve-mcp --port`). Bound to `127.0.0.1` by default. `serve-mcp --host <IPv4>` may bind one explicit unicast address, for example the NAS LAN address; wildcard, multicast and broadcast addresses are refused.
 - Protocol versions accepted in `initialize`: `2025-06-18`, `2025-03-26`. The server answers with the requested version if supported, otherwise `2025-06-18`.
 - Methods: `initialize`, `ping`, `tools/list`, `tools/call`. Notifications receive `202`. Batches are refused. `GET` returns `405`.
 - Every request needs `Authorization: Bearer <token>`. Missing or invalid tokens return `401` with `WWW-Authenticate: Bearer`. Revoked clients are refused.
-- `Host` must be `127.0.0.1:<port>` or `localhost:<port>`; an `Origin` header, if present, must match. Otherwise `403`.
+- `Host` must be `127.0.0.1:<port>`, `localhost:<port>`, or the explicit bind address `<bind>:<port>`; an `Origin` header, if present, must name one of the same hosts over `http`. Otherwise `403`.
+- Plain HTTP. On a LAN bind, the bearer token is readable by anyone who can capture that traffic. Use HTTPS through a reverse proxy before any wider exposure.
 - Stateless: no `Mcp-Session-Id`. Request body limit 256 KiB; larger bodies receive `413` before parsing (tested).
 - `tools/call` results carry a one-sentence summary in `content[0].text` (with the full operation id and fingerprint, so an approver agent can act on it) and the typed result in `structuredContent`. Timestamps in `structuredContent` are ISO-8601 UTC strings. Errors keep their fixed message and code.
 - `tools/list` shows only tools whose scope the client holds. `tools/call` enforces scope again in the engine.
@@ -179,7 +180,7 @@ homectl control audit verify
 - `ops` lists open operations by default (pending, approved, executing); `--all` includes history and `--state` filters by state. `show` and `execute` accept a unique id prefix of at least 8 characters.
 - `execute` refreshes the managed SSH config first (as `exec` does), then runs the existing `src/operations.ts` `execute()` path, so the existing tier and classification checks still apply. The human summary shows the outcome, the command, and stdout/stderr blocks (or `(no output)`). Output is printed to the operator and is not stored.
 - Human output uses local time (`2026-11-05 21:55:40`) and relative times. Colors are used only on an interactive terminal and are disabled by `NO_COLOR`. `--json` output keeps the same structure and uses ISO-8601 timestamps.
-- `serve-mcp` binds only to `127.0.0.1`. `--host` with any other value is refused with an explanation (use a reverse proxy or tunnel for remote clients). A busy port reports `Port N is already in use`.
+- `serve-mcp` binds to `127.0.0.1` unless `--host` names one explicit IPv4 address (for example the NAS LAN address). Wildcard, multicast and broadcast addresses are refused with an explanation. The start message prints the bind address and a plain-HTTP warning for any non-loopback bind. For access beyond the LAN, use a reverse proxy with HTTPS or a tunnel. A busy port reports `Port N is already in use`.
 - `--name`, `--scopes`, `--hosts`, `--token-file`, `--state` and `--all` apply only to `control`; `--host` applies only to `serve-mcp`. Other commands refuse them with exit 2.
 
 ## 12. Five-minute quickstart

@@ -434,17 +434,18 @@ pages.peer = {
   sections: [globalOptions],
 };
 pages["serve-mcp"] = {
-  usage: "homectl serve-mcp [--port 7449] [--inventory PATH]",
+  usage:
+    "homectl serve-mcp [--host 127.0.0.1] [--port 7449] [--inventory PATH]",
   intro:
-    "Starts the MCP endpoint on 127.0.0.1 only. Each client authenticates with its own token and receives only its granted scopes and hosts. Clients can inspect, plan and approve. They cannot execute, open shells or read secrets; the local operator runs approved operations with homectl control execute.",
+    "Starts the MCP endpoint on 127.0.0.1 by default. Each client authenticates with its own token and receives only its granted scopes and hosts. Clients can inspect, plan and approve. They cannot execute, open shells or read secrets; the local operator runs approved operations with homectl control execute.",
   sections: [
     {
       title: "Options",
       rows: [
-        ["--port PORT", "Loopback port (default 7449)."],
+        ["--port PORT", "Port (default 7449)."],
         [
-          "--host 127.0.0.1",
-          "Loopback only. Other addresses are refused; use a reverse proxy or tunnel for remote clients.",
+          "--host IPV4",
+          "Bind one explicit IPv4 address, for example the NAS LAN address. Wildcard, multicast and broadcast are refused. Plain HTTP: the bearer token is not encrypted on a LAN.",
         ],
         ...globalOptions.rows,
       ],
