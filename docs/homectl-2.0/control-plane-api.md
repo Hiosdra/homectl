@@ -251,3 +251,17 @@ Optional per client. Static `hct_` tokens are unchanged. `control oidc set --iss
 ## 15. Proxmox guest actions (slice 5)
 
 `op: "proxmox-plan"` (MCP tool `homectl_proxmox_plan`, scope `plan:create`) takes typed fields: `host`, `kind` (`qemu` or `lxc`), `action` (list, status, config, start, stop, reboot, shutdown, clone, create, destroy), and the optional `vmid`, `template`, `name`, `storage`, `memory_mb`, `cores`, `disk_gb`, `bridge`, `address`, `cidr`, `gateway`, `timeout_s`. There is no argv and no node field. The node, VMID range, storages and templates come from the inventory provider for the host. The result is an ordinary plan. A change (start, stop, reboot, shutdown, clone, create, destroy) is refused unless the provider sets `vmid_range`. Destroy needs `name` and refuses any VMID in the provider's `protected_vmids`. The generic `plan` op refuses `qm` and `pct` argv. Design and capability review: [proxmox-adapters.md](proxmox-adapters.md).
+
+## 13. Owner recovery key
+
+Purpose: restore a lost device with its own identity, from encrypted control state, without relying on any other device still being alive.
+
+- `homectl control recovery key --out PATH` writes a random 256-bit key, owner-only, and prints only a key id. The key must not live inside the control state directory. Keep it outside every device, for example on a USB stick in a safe, or in a separate KDBX entry.
+- `homectl control recovery export --key PATH --out PATH` writes an AES-256-GCM bundle. It holds `device-key.json`, `replica.json`, `state.json`, `audit.jsonl` and `audit.anchor` (those that exist). The header is authenticated as AAD and carries only the key id.
+- `homectl control recovery restore --key PATH --bundle PATH` restores onto an empty control state directory. It refuses an existing device, a wrong key, a changed bundle, and any file name outside the list above. It writes through temp files and removes them again on failure.
+
+Limits:
+
+- A bundle plus its key is the device's identity. Anyone holding both can act as this device, so treat the key as a secret.
+- Recovery restores control state only. Credentials stay in the KDBX vault, which needs its own backup.
+- Export and restore are local operator commands. They do not go through MCP.
