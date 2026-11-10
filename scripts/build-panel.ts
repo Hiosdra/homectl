@@ -8,7 +8,7 @@ import { renderEmbeddedModule } from "../src/web/embed";
 
 const web = resolve(import.meta.dir, "../src/web");
 const built = await Bun.build({
-  entrypoints: [resolve(web, "app.ts")],
+  entrypoints: [resolve(web, "app.tsx")],
   target: "browser",
   minify: true,
 });

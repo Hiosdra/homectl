@@ -165,15 +165,17 @@ describe("authenticated remote panel proxy", () => {
       });
       expect(page.status).toBe(200);
       const html = await page.text();
-      expect(html).toContain("Workspace access code");
-      expect(html).toContain("HOMECTL_PANEL_TOKEN_FILE");
-      expect(html).toContain('id="workspace-origin"');
+      // The React panel mounts into #root; its text ships in app.js.
+      expect(html).toContain('id="root"');
 
       const app = await fetch(`${panel.base}/app.js`, {
         headers: { Host: panel.host },
       });
       expect(app.status).toBe(200);
       const appScript = await app.text();
+      expect(appScript).toContain("Workspace access code");
+      expect(appScript).toContain("HOMECTL_PANEL_TOKEN_FILE");
+      expect(appScript).toContain("workspace-origin");
       expect(appScript).toContain("Join a pairing session");
       expect(appScript).toContain("not a container-only IP");
       expect(appScript).toContain("UDP 5353");
