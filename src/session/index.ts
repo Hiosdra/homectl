@@ -160,33 +160,44 @@ export async function startSession(
     daemon.kill();
     throw new HomectlError(5, "Detached Windows SSH session could not start");
   }
-  const daemon = Bun.spawn(
-    [process.execPath, resolve(import.meta.dir, "daemon.ts")],
+  // Detach the daemon into its own session. It must not share the process group
+  // of the unlocking command: when that terminal closes, the kernel hangs up the
+  // whole group, which would also end the daemon and its ssh-agent child.
+  const daemon = spawn(
+    process.execPath,
+    [resolve(import.meta.dir, "daemon.ts")],
     {
+      detached: true,
       env: cleanEnv(),
-      stdin: new Blob([
+      stdio: ["pipe", "pipe", "ignore"],
+    },
+  );
+  daemon.stdin?.on("error", () => {});
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const line = await new Promise<string>((resolveLine, reject) => {
+      timer = setTimeout(() => reject(new Error("timeout")), 5000);
+      let text = "";
+      daemon.on("error", reject);
+      daemon.on("exit", () => reject(new Error("exited")));
+      daemon.stdout?.on("data", (chunk: Buffer) => {
+        text += chunk.toString();
+        if (text.includes("\n")) resolveLine(text.split("\n")[0] ?? "");
+      });
+      daemon.stdin?.end(
         JSON.stringify({
           ...p,
           ttl: ttlSeconds(sessionConfig(inv, inventoryPath).ttl),
         }),
-      ]),
-      stdout: "pipe",
-      stderr: "ignore",
-    },
-  );
-  const reader = daemon.stdout.getReader();
-  const timer = setTimeout(() => daemon.kill(), 5000);
-  try {
-    const { value } = await reader.read();
-    if (!value) throw new Error();
-    return JSON.parse(new TextDecoder().decode(value));
+      );
+    });
+    return JSON.parse(line);
   } catch {
     daemon.kill();
     throw new HomectlError(5, "Dedicated SSH agent could not start");
   } finally {
     clearTimeout(timer);
-    await reader.cancel();
-    reader.releaseLock();
+    daemon.stdout?.destroy();
     daemon.unref();
   }
 }
