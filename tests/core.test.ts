@@ -436,12 +436,17 @@ describe("transports and credentials", () => {
     const spec = credentialSpec(
       ssh.auth,
       transportSpec(ssh, ["uptime"], "/cfg"),
-      "/worker",
+      ["/usr/bin/bun", "/app/cli/main.ts", "__internal", "worker"],
     );
     expect(JSON.parse(spec.stdin ?? "{}").env).toEqual({
       SSH_AUTH_SOCK: ssh.auth?.socket,
     });
-    expect(spec.argv).toEqual([process.execPath, "/worker"]);
+    expect(spec.argv).toEqual([
+      "/usr/bin/bun",
+      "/app/cli/main.ts",
+      "__internal",
+      "worker",
+    ]);
   });
 
   test("sanitized environment drops credential-bearing variables", () =>

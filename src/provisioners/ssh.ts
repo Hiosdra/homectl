@@ -1,6 +1,6 @@
 import { credentialSpec } from "../credentials";
 import { provisioningFailureMessage } from "../diagnostics";
-import { workerPath } from "../operations";
+import { workerArgv } from "../operations";
 import { run } from "../process";
 import { transportSpec } from "../transports";
 import {
@@ -76,7 +76,7 @@ export function proxmoxSSH(
           ],
           configPath,
         ),
-        workerPath,
+        workerArgv,
       ),
     );
     if (result.exitCode)
