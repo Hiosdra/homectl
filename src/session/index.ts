@@ -376,11 +376,117 @@ export async function unlockSession(
         key.fill(0);
       }
     }
+    // Proxmox API tokens live in the session agent, like the SSH keys.
+    for (const [name, provider] of Object.entries(inv.providers ?? {})) {
+      if (provider.api === undefined) continue;
+      const header = await readApiTokenHeader(
+        config.database,
+        password,
+        provider.api.token_entry,
+      );
+      await putSessionSecret(inventoryPath, apiTokenSecretName(name), header);
+    }
   } catch (e) {
     await lockSession(inventoryPath);
     throw e;
   }
   return { ...state, keysLoaded: hosts.length };
+}
+
+// Proxmox API token: the KDBX entry's UserName is the token id (user@realm!tokenid)
+// and its Password is the secret. The result is the Authorization header value.
+export function apiTokenSecretName(provider: string): string {
+  return `pve-api-${provider}`;
+}
+
+export async function readApiTokenHeader(
+  database: string,
+  password: string,
+  entry: string,
+): Promise<string> {
+  const tokenId = (
+    await databaseCommand(database, password, [
+      "show",
+      "--attributes",
+      "UserName",
+      entry,
+    ])
+  )
+    .toString()
+    .trim();
+  const secret = (
+    await databaseCommand(database, password, [
+      "show",
+      "--show-protected",
+      "--attributes",
+      "Password",
+      entry,
+    ])
+  )
+    .toString()
+    .trim();
+  if (
+    !/^[^\s=!]+@[^\s=!]+![^\s=!]+$/.test(tokenId) ||
+    secret.length === 0 ||
+    /\s/.test(secret)
+  )
+    throw new HomectlError(
+      5,
+      "Proxmox API token entry must hold user@realm!tokenid as UserName and a single-line secret as Password",
+    );
+  return `PVEAPIToken=${tokenId}=${secret}`;
+}
+
+// One request to the running session agent. A failed or unreadable reply is an
+// error object, so callers decide what it means.
+function sessionRequest(
+  inventoryPath: string,
+  line: string,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    const client = createConnection(sessionPaths(inventoryPath).control);
+    let data = "";
+    client.setTimeout(2000, () => client.destroy());
+    client.on("connect", () => client.write(`${line}\n`));
+    client.on("data", (chunk) => {
+      data += chunk.toString();
+      if (data.length > 16384) client.destroy();
+    });
+    client.on("error", () => resolve({ error: "unreachable" }));
+    client.on("close", () => {
+      try {
+        resolve(JSON.parse(data));
+      } catch {
+        resolve({ error: "unreadable" });
+      }
+    });
+  });
+}
+
+// Stores a secret in the unlocked session. Refused while locked.
+export async function putSessionSecret(
+  inventoryPath: string,
+  name: string,
+  value: string,
+): Promise<void> {
+  const reply = await sessionRequest(
+    inventoryPath,
+    `put ${name} ${Buffer.from(value, "utf8").toString("base64")}`,
+  );
+  if (reply.ok !== true)
+    throw new HomectlError(
+      5,
+      "Session is not unlocked; the Proxmox API token was not stored",
+    );
+}
+
+// Returns a secret from the unlocked session, or undefined when locked or absent.
+export async function getSessionSecret(
+  inventoryPath: string,
+  name: string,
+): Promise<string | undefined> {
+  const reply = await sessionRequest(inventoryPath, `get ${name}`);
+  return typeof reply.value === "string" ? reply.value : undefined;
 }
 
 export async function readStoredKey(

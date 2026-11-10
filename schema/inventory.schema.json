@@ -74,6 +74,27 @@
               "type": "string",
               "pattern": "^[A-Za-z0-9._+-]{1,128}\\.tar\\.(gz|xz|zst)$"
             }
+          },
+          "api": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["url", "ca_file", "token_entry"],
+            "properties": {
+              "url": {
+                "type": "string",
+                "pattern": "^https://[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$"
+              },
+              "ca_file": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "pattern": "^(/|[A-Za-z]:[\\\\/])"
+              },
+              "token_entry": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}$"
+              }
+            }
           }
         }
       }

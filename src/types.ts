@@ -29,6 +29,10 @@ export interface ProviderConfig {
   protected_vmids?: number[];
   storages?: string[];
   templates?: string[];
+  // Optional Proxmox API transport. The token (KDBX entry: UserName is the token
+  // id, Password is the secret) is loaded into the session agent at unlock and
+  // lives only there, until the session expires or is locked.
+  api?: { url: string; ca_file: string; token_entry: string };
 }
 export interface Inventory {
   version: 1;
