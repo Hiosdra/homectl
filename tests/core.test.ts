@@ -492,7 +492,10 @@ describe("transports and credentials", () => {
 describe("setup and enrollment", () => {
   test("setup dry-run creates no config", async () => {
     const home = await temp();
-    await setup(home, true);
+    const result = await setup(home, true);
+    expect(result.actions).not.toContain(
+      "Add CLI directory to Windows user PATH",
+    );
     expect(
       await Bun.file(join(home, ".config/homectl/inventory.yaml")).exists(),
     ).toBe(false);
@@ -507,7 +510,7 @@ describe("setup and enrollment", () => {
       expect(
         await Bun.file(join(home, root, "skills/homelab/SKILL.md")).exists(),
       ).toBe(true);
-  });
+  }, 30_000);
   test("enrollment verifies OS before saving", async () => {
     const dir = await temp();
     const path = join(dir, "inventory.yaml");

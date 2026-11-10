@@ -43,6 +43,7 @@ export async function interactivePair(
   inventoryPath: string,
   configPath: string,
   interfaceIP?: string,
+  joinAddress?: string,
 ) {
   if (!process.stdin.isTTY || !process.stdout.isTTY)
     throw new HomectlError(
@@ -131,68 +132,80 @@ export async function interactivePair(
       });
       current = await state();
     }
-    if (!current.discovery.localId || current.discovery.error)
-      throw new HomectlError(
-        5,
-        "LAN discovery is unavailable. Restart serve with --interface <LAN-IP> and discovery enabled, or use pair open/join with a manual address",
-      );
     if (current.pair)
       throw new HomectlError(
         3,
         "A pairing is already open; finish it or run homectl pair cancel first",
       );
-    const invitation = await localApi<State>(
-      inventoryPath,
-      "/api/pair/open",
-      {},
-    );
-    opened = true;
-    console.log(
-      "Pairing mode enabled for five minutes. Run homectl pair on the other device.\nSearching the LAN… Discovery is untrusted until code and phrase verification.",
-    );
-    console.log(`This device's one-time code (private): ${invitation.pair?.code}
-If the other device asks for a code, enter this one there. Never share it in chat.`);
     let selected: Discovered | undefined;
-    let warned = false;
-    while (!selected) {
-      current = await state();
-      if (current.pair?.sas) break; // Another device already joined this invitation.
-      if (current.discovery.error)
-        throw new HomectlError(5, current.discovery.error);
-      if (!warned && Date.now() > deadline - 285_000) {
-        warned = true;
-        console.log(
-          "No devices found yet. Check that both computers share this LAN and allow Bun through the private-network firewall (UDP 5353 and TCP 7448). Multicast may be blocked by Wi-Fi isolation or VLANs.",
+    if (joinAddress) {
+      console.log(
+        `Connecting to ${joinAddress}. Enter the one-time code shown by that device in the private prompt. If Windows asks, allow homectl on private networks.`,
+      );
+      const code = await readPassword("One-time pairing code: ");
+      await localApi(inventoryPath, "/api/pair/join", {
+        address: joinAddress,
+        code,
+      });
+      opened = true;
+    } else {
+      if (!current.discovery.localId || current.discovery.error)
+        throw new HomectlError(
+          5,
+          "LAN discovery is unavailable. Use homectl pair join --address http://<device-LAN-IP>:7448 to connect directly; this starts the local pairing endpoint automatically.",
         );
+      const invitation = await localApi<State>(
+        inventoryPath,
+        "/api/pair/open",
+        {},
+      );
+      opened = true;
+      console.log(
+        "Pairing mode enabled for five minutes. Run homectl pair on the other device.\nSearching the LAN… Discovery is untrusted until code and phrase verification.",
+      );
+      console.log(`This device's one-time code (private): ${invitation.pair?.code}
+If the other device asks for a code, enter this one there. Never share it in chat.`);
+      let warned = false;
+      while (!selected) {
+        current = await state();
+        if (current.pair?.sas) break; // Another device already joined this invitation.
+        if (current.discovery.error)
+          throw new HomectlError(5, current.discovery.error);
+        if (!warned && Date.now() > deadline - 285_000) {
+          warned = true;
+          console.log(
+            "No devices found yet. Check that both computers share this LAN and allow Bun through the private-network firewall (UDP 5353 and TCP 7448). Multicast may be blocked by Wi-Fi isolation or VLANs.",
+          );
+        }
+        const devices = current.discovery.devices;
+        if (devices.length === 1) selected = devices[0];
+        else if (devices.length > 1) {
+          console.log("Choose the device to pair:");
+          devices.forEach((device, i) => {
+            console.log(`${i + 1}. ${device.address}`);
+          });
+          selected = devices[await choose("Device number: ", devices.length)];
+          if (!selected) throw new HomectlError(2, "Invalid device selection");
+        }
+        if (!selected) await pause();
       }
-      const devices = current.discovery.devices;
-      if (devices.length === 1) selected = devices[0];
-      else if (devices.length > 1) {
-        console.log("Choose the device to pair:");
-        devices.forEach((device, i) => {
-          console.log(`${i + 1}. ${device.address}`);
-        });
-        selected = devices[await choose("Device number: ", devices.length)];
-        if (!selected) throw new HomectlError(2, "Invalid device selection");
-      }
-      if (!selected) await pause();
-    }
-    if (selected && !current.pair?.sas) {
-      console.log(`Found device at ${selected.address}`);
-      if (
-        pairingRole(current.discovery.localId ?? "", selected.id) === "join"
-      ) {
-        const code = await readPassword(
-          "Enter the one-time code displayed on the other device: ",
-        );
-        await localApi(inventoryPath, "/api/pair/join", {
-          address: selected.address,
-          code,
-        });
-      } else {
-        console.log(
-          "Enter this device’s code on the other device. Waiting for verification…",
-        );
+      if (selected && !current.pair?.sas) {
+        console.log(`Found device at ${selected.address}`);
+        if (
+          pairingRole(current.discovery.localId ?? "", selected.id) === "join"
+        ) {
+          const code = await readPassword(
+            "Enter the one-time code displayed on the other device: ",
+          );
+          await localApi(inventoryPath, "/api/pair/join", {
+            address: selected.address,
+            code,
+          });
+        } else {
+          console.log(
+            "Enter this device’s code on the other device. Waiting for verification…",
+          );
+        }
       }
     }
     while (true) {
@@ -231,11 +244,11 @@ If the other device asks for a code, enter this one there. Never share it in cha
       await pause();
     }
     console.log(
-      `Paired with ${remote.name}. Sync permission granted; no credentials transferred.\nUse homectl serve and the panel to review synchronization.`,
+      `Paired with ${remote.name}. Sync permission granted; no credentials transferred.`,
     );
     if (running) {
       console.log(
-        `Temporary workspace remains running at ${running.url}. Open homectl panel in another terminal to sync. Press Ctrl+C to stop.`,
+        "This temporary workspace stays available for sync while this terminal is open. Open the panel with homectl panel; press Ctrl+C here when finished.",
       );
       while (!abort.signal.aborted) await Bun.sleep(250);
     }

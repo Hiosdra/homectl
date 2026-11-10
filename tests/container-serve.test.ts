@@ -164,7 +164,26 @@ describe("authenticated remote panel proxy", () => {
         headers: { Host: panel.host },
       });
       expect(page.status).toBe(200);
-      expect(await page.text()).toContain("Workspace access code");
+      const html = await page.text();
+      expect(html).toContain("Workspace access code");
+      expect(html).toContain("HOMECTL_PANEL_TOKEN_FILE");
+      expect(html).toContain('id="workspace-origin"');
+
+      const app = await fetch(`${panel.base}/app.js`, {
+        headers: { Host: panel.host },
+      });
+      expect(app.status).toBe(200);
+      const appScript = await app.text();
+      expect(appScript).toContain("Join a pairing session");
+      expect(appScript).toContain("not a container-only IP");
+      expect(appScript).toContain("UDP 5353");
+      expect(appScript).toContain("TCP 7448");
+      expect(appScript).toContain("Custom duration…");
+      expect(appScript).toContain("Until this computer restarts");
+      expect(appScript).toContain("Approved admin commands");
+      expect(appScript).toContain("Choose how to get started");
+      expect(appScript).toContain("Vault unlocked");
+      expect(appScript).toContain("SSH access is managed separately");
 
       const wrongHost = await fetch(panel.base, {
         headers: { Host: "attacker.example.test" },
@@ -248,6 +267,7 @@ function spawnServe(args: string[]) {
     cwd: REPO,
     stdout: "pipe",
     stderr: "pipe",
+    windowsHide: true,
   });
 }
 
@@ -303,6 +323,7 @@ describe("container serve (child process)", () => {
         cwd: REPO,
         stdout: "pipe",
         stderr: "pipe",
+        windowsHide: true,
       },
     );
     expect(await notContainer.exited).toBe(2);

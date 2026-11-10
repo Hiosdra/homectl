@@ -82,6 +82,7 @@ try {
       stdin: "ignore",
       stdout: "pipe",
       stderr: "ignore",
+      windowsHide: true,
     },
   );
   const [code, diagnostic] = await Promise.all([

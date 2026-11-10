@@ -210,6 +210,7 @@ export async function privateCommand(
               ]),
         stdout: "pipe",
         stderr: "ignore",
+        windowsHide: true,
       });
     } catch {
       throw new HomectlError(

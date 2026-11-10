@@ -20,6 +20,7 @@ export async function privileged(argv: string[], interactive: boolean) {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
+    windowsHide: true,
   });
   if (await child.exited)
     throw new HomectlError(
@@ -43,7 +44,13 @@ export async function windowsAdministrator(
       "-EncodedCommand",
       Buffer.from(outer, "utf16le").toString("base64"),
     ],
-    { env: cleanEnv(), stdin: "ignore", stdout: "ignore", stderr: "ignore" },
+    {
+      env: cleanEnv(),
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+      windowsHide: true,
+    },
   );
   if (await child.exited)
     throw new HomectlError(

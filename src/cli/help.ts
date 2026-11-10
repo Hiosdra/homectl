@@ -381,9 +381,9 @@ pages.service = {
   ],
 };
 pages.panel = {
-  usage: "homectl panel [--inventory PATH]",
+  usage: "homectl panel [--interface LAN-IP] [--inventory PATH]",
   intro:
-    "Run yourself in a private terminal. Opens the local panel using its private launch token; never run through an agent.",
+    "Run yourself in a private terminal. Opens the panel and starts a temporary workspace if needed; keep this terminal open until you finish. The private launch token is never emitted as JSON.",
   sections: [globalOptions],
 };
 pages.peers = {
@@ -393,9 +393,9 @@ pages.peers = {
   sections: [globalOptions],
 };
 pages.pair = {
-  usage: "homectl pair [open|join|confirm|status|poll|cancel]",
+  usage: "homectl pair [--address http://DEVICE-LAN-IP:7448]",
   intro:
-    "Run homectl pair on BOTH devices for automatic LAN discovery and guided pairing. Starts a temporary workspace when needed; select an interface if multiple private LANs exist. Enter the displayed code on the other device and visually compare the phrase and confirm with y on both. Codes and phrases are private, never argv. Explicit subcommands remain available.",
+    "Use homectl pair on both devices for guided LAN discovery. If discovery is blocked (for example by Docker, Wi-Fi isolation or VLANs), open pairing in one device's UI and run homectl pair --address http://<device-LAN-IP>:7448 on the other. It starts the local pairing endpoint, asks for the code privately and guides phrase verification; no separate serve command is needed. If Windows asks, allow homectl on private networks. Keep the terminal open until pairing and sync are finished. Codes and phrases are private, never argv. Advanced subcommands remain available.",
   sections: [
     {
       title: "Pairing",
@@ -497,7 +497,7 @@ pages.control = {
         ],
         [
           "handoff ID --to DEVICE",
-          "On the owner: offer the operation to DEVICE. The owner will not run it until DEVICE accepts, the offer is cancelled, or it expires after five minutes (or when the plan ends). Needs a running homectl serve.",
+          "On the owner: offer the operation to DEVICE. The owner will not run it until DEVICE accepts, the offer is cancelled, or it expires after five minutes (or when the plan ends). Needs an open workspace; run homectl panel to start one.",
         ],
         [
           "handoff ID",
@@ -509,7 +509,7 @@ pages.control = {
         ],
         [
           "peer suspend DEVICE [--reason TEXT]  |  peer resume DEVICE",
-          "Take a paired device out of this device's lease, so operations here do not wait for it, or put it back. Operations here may run without that device confirming the latest state: use it only when the device is offline or will stay offline. Signed, replicated and audited. Needs a running homectl serve.",
+          "Take a paired device out of this device's lease, so operations here do not wait for it, or put it back. Operations here may run without that device confirming the latest state: use it only when the device is offline or will stay offline. Signed, replicated and audited. Needs an open workspace; run homectl panel to start one.",
         ],
         [
           "resolve ID --owner DEVICE",

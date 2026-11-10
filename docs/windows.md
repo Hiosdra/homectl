@@ -29,10 +29,10 @@ Initialize or import credentials locally, then start the workspace:
 
 ```powershell
 homectl.cmd session init
-homectl.cmd serve --interface 192.168.1.20
-# Separate private terminal:
 homectl.cmd panel
 ```
+
+`panel` starts a temporary workspace automatically and uses the LAN address selected during setup. Keep that terminal open while the panel is in use. To keep it running in the background, install the service below instead.
 
 To reuse the existing Linux access, pair devices and sync from the workspace as described in [peer workspace](peer-workspace.md). You do not need to alter the servers when copying the same SSH keys. Both vaults must be unlocked locally for credential transfer; the destination vault has its own password.
 

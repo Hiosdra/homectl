@@ -413,7 +413,7 @@ export async function serve(options: ServeOptions) {
                 throw new HomectlError(3, "Open the local panel directly");
               const v = await body(req);
               if (!sameSecret(v.token, token))
-                throw new HomectlError(3, "Invalid local panel access code");
+                throw new HomectlError(3, "Invalid workspace access code");
               const r = response({ connected: true });
               r.headers.set(
                 "Set-Cookie",
@@ -529,6 +529,8 @@ export async function serve(options: ServeOptions) {
             // simultaneous bidirectional sync must not deadlock both queues.
             if (url.pathname === "/api/sync/start")
               return response(await hub.beginSync(String(v.id)));
+            if (url.pathname === "/api/sync/readiness")
+              return response(await hub.syncReadiness(String(v.id)));
             if (url.pathname === "/api/sync/apply")
               return response(
                 await hub.syncCommit(
@@ -544,7 +546,7 @@ export async function serve(options: ServeOptions) {
                   v.payload,
                 ),
               );
-            return hub.serial(async () => {
+            return await hub.serial(async () => {
               switch (url.pathname) {
                 case "/api/pair/open":
                   return response(await hub.openPair());
@@ -592,7 +594,13 @@ export async function serve(options: ServeOptions) {
                   const p = hub.pending.get(String(v.id));
                   if (!p) throw new HomectlError(2, "Unknown preview");
                   hub.pending.delete(p.id);
-                  return response(await hub.preview(p.peerId, p.records));
+                  return response(
+                    await hub.preview(
+                      p.peerId,
+                      p.records,
+                      p.remoteVaultUnlocked,
+                    ),
+                  );
                 }
                 case "/api/sync/apply":
                   return response(
@@ -660,13 +668,24 @@ export async function serve(options: ServeOptions) {
                   return response({ saved: true });
                 }
                 case "/api/machine/delete": {
+                  if (
+                    typeof v.name !== "string" ||
+                    !/^[a-z][a-z0-9-]{0,62}$/.test(v.name)
+                  )
+                    throw new HomectlError(2, "Select a machine to remove");
                   const inv = await loadInventory(options.inventoryPath);
-                  if (inv.machines[String(v.name)]?.transport === "local")
+                  const machine = inv.machines[v.name];
+                  if (!machine)
+                    throw new HomectlError(
+                      2,
+                      "Machine no longer exists; refresh the list",
+                    );
+                  if (machine.transport === "local")
                     throw new HomectlError(
                       3,
                       "Local host cannot be removed here",
                     );
-                  delete inv.machines[String(v.name)];
+                  delete inv.machines[v.name];
                   parseInventory(JSON.stringify(inv));
                   await saveInventory(options.inventoryPath, inv);
                   await writeSSHConfig(options.configPath, inv.machines);

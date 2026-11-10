@@ -266,7 +266,7 @@ describe("control CLI with and without a running serve", () => {
       }),
     ).rejects.toMatchObject({
       code: 5,
-      message: "Start homectl serve first",
+      message: "Open homectl panel first",
     });
   });
 
@@ -406,7 +406,7 @@ describe("control peer suspend and resume from the CLI", () => {
     const { inventory } = await workspace();
     await expect(
       cli(inventory, ["peer", "suspend", "Windows"], { reason: "offline" }),
-    ).rejects.toMatchObject({ code: 5, message: "Start homectl serve first" });
+    ).rejects.toMatchObject({ code: 5, message: "Open homectl panel first" });
     await expect(cli(inventory, ["peer", "suspend"])).rejects.toBeInstanceOf(
       HomectlError,
     );

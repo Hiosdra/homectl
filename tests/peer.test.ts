@@ -229,6 +229,121 @@ test("credentials remain KDBX-encrypted at rest and sync reconstructs platform-l
     second.s.hub.vault.snapshot()["homectl-nas"]?.attachments.id_ed25519,
   ).toBe(credential.attachments.id_ed25519);
 }, 30_000);
+test("sync distinguishes a locked remote vault, a missing credential, and a legacy peer", async () => {
+  const source = await fixture("Source"),
+    target = await fixture("Target");
+  const pass = "synthetic-sync-password";
+  await target.s.hub.vault.unlock(pass, true);
+  await saveInventory(source.path, {
+    version: 1,
+    session: { ttl: "24h", database: source.s.hub.vault.path },
+    machines: {
+      nas: {
+        description: "NAS",
+        transport: "ssh",
+        address: "192.0.2.10",
+        user: "operator",
+        ssh_alias: "nas",
+        access: "observe",
+        auth: keyReference("nas", source.path),
+      },
+    },
+  });
+  await source.s.hub.openPair();
+  await target.s.hub.join(source.s.address, source.s.hub.pair?.code ?? "");
+  await source.s.hub.confirm(defaults());
+  await target.s.hub.confirm(defaults());
+  await target.s.hub.pollPair();
+  const sourceId = source.s.hub.state.id;
+  expect(await target.s.hub.syncReadiness(sourceId)).toEqual({
+    vaultUnlocked: false,
+  });
+  const { localApi } = await import("../src/peer/local-api");
+  expect(
+    await localApi<{ vaultUnlocked: boolean }>(
+      target.path,
+      "/api/sync/readiness",
+      { id: sourceId },
+    ),
+  ).toEqual({ vaultUnlocked: false });
+  const locked = await target.s.hub.beginSync(sourceId);
+  expect(target.s.hub.pending.get(locked.id)?.remoteVaultUnlocked).toBe(false);
+  expect(locked.blocker).toEqual({ type: "remote_vault_locked" });
+  await expect(target.s.hub.commit(locked.id, {})).rejects.toThrow(
+    "other device's vault was locked",
+  );
+  const request = target.s.hub.peerRequest.bind(target.s.hub);
+  target.s.hub.peerRequest = async () => source.s.hub.snapshot();
+  const legacy = await target.s.hub.beginSync(sourceId);
+  target.s.hub.peerRequest = request;
+  await expect(target.s.hub.commit(legacy.id, {})).rejects.toThrow(
+    "does not report its vault state",
+  );
+  await source.s.hub.vault.unlock(pass, true);
+  expect(await target.s.hub.syncReadiness(sourceId)).toEqual({
+    vaultUnlocked: true,
+  });
+  expect(
+    await localApi<{ vaultUnlocked: boolean }>(
+      target.path,
+      "/api/sync/readiness",
+      { id: sourceId },
+    ),
+  ).toEqual({ vaultUnlocked: true });
+  const missing = await target.s.hub.beginSync(sourceId);
+  expect(target.s.hub.pending.get(missing.id)?.remoteVaultUnlocked).toBe(true);
+  await expect(target.s.hub.commit(missing.id, {})).rejects.toThrow(
+    "credential for nas is missing",
+  );
+  const pairedSource = target.s.hub.state.peers[sourceId];
+  if (!pairedSource) throw new Error("Missing paired source");
+  await expect(
+    target.s.hub.remoteAction(
+      {
+        ...pairedSource,
+        permissions: { ...pairedSource.permissions, sync: false },
+      },
+      "sync-readiness",
+      {},
+    ),
+  ).rejects.toThrow("no sync grant");
+  const offeredRecords = await source.s.hub.snapshot();
+  const offer = (await target.s.hub.remoteAction(pairedSource, "offer", {
+    version: 2,
+    vaultUnlocked: true,
+    records: offeredRecords,
+  })) as { id: string };
+  expect(target.s.hub.pending.get(offer.id)?.remoteVaultUnlocked).toBe(true);
+  const legacyOffer = (await target.s.hub.remoteAction(pairedSource, "offer", {
+    records: offeredRecords,
+  })) as { id: string };
+  expect(
+    target.s.hub.pending.get(legacyOffer.id)?.remoteVaultUnlocked,
+  ).toBeUndefined();
+  await expect(
+    target.s.hub.remoteAction(pairedSource, "offer", {
+      version: 2,
+      vaultUnlocked: "yes",
+      records: offeredRecords,
+    }),
+  ).rejects.toThrow("Invalid sync offer metadata");
+  const key = generateKeyPairSync("ed25519")
+    .privateKey.export({ format: "pem", type: "pkcs8" })
+    .toString();
+  await source.s.hub.vault.apply({
+    "homectl-nas": {
+      title: "homectl-nas",
+      fields: { Title: "homectl-nas" },
+      attachments: { id_ed25519: Buffer.from(key).toString("base64") },
+    },
+  });
+  const ready = await target.s.hub.beginSync(sourceId);
+  expect((await target.s.hub.commit(ready.id, {})).applied).toBe(true);
+  expect(target.s.hub.vault.snapshot()["homectl-nas"]).toBeDefined();
+  source.s.hub.vault.lock();
+  const locallyAvailable = await target.s.hub.beginSync(sourceId);
+  expect(locallyAvailable.blocker).toBeUndefined();
+}, 60_000);
 test("external KDBX changes stop save and stale sync previews stop apply", async () => {
   const { s, path } = await fixture("Linux");
   await s.hub.vault.unlock("synthetic", true);
@@ -260,7 +375,7 @@ test("external KDBX changes stop save and stale sync previews stop apply", async
     },
   });
   await expect(s.hub.commit(p.id, {})).rejects.toThrow();
-});
+}, 30_000);
 test("service manifests quote paths, preserve systemd specifiers and never embed account passwords", () => {
   const unit = systemdUnit("/tmp/user%/inventory.yaml", "192.168.1.4");
   expect(unit).toContain("user%%");
@@ -358,7 +473,7 @@ test("remote mutations wait for local approval and are cancelled by revoked gran
   expect(
     await Bun.file(join(dirnameFor(path), "must-not-exist")).exists(),
   ).toBe(false);
-});
+}, 30_000);
 function dirnameFor(path: string) {
   return path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")));
 }
