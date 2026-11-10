@@ -28,6 +28,7 @@ import {
   tokenDigest,
   validateClientInput,
 } from "./clients";
+import { loadOrCreateDeviceKey, signBytes, verifyBytes } from "./device-key";
 import { AuditJournal } from "./journal";
 import {
   type Fetcher,
@@ -309,6 +310,9 @@ function operationView(op: OperationRecord, now: number): OperationView {
     impact: op.plan.impact,
     ...(op.plan.catalogueInput
       ? { catalogueInput: op.plan.catalogueInput }
+      : {}),
+    ...(op.planSignature !== undefined
+      ? { planSignature: op.planSignature }
       : {}),
     issuer: op.issuer,
     createdAt: isoTime(op.createdAt),
@@ -996,6 +1000,9 @@ export class ControlPlane {
     issuer: string;
     catalogueInput?: CatalogueInput;
     fingerprint?: string;
+    planSignature?: string;
+    planSignerKey?: string;
+    planSignatureSource?: "replica";
   }): Promise<OperationView> {
     return this.store.withLock(async () => {
       const now = this.clock();
@@ -1032,6 +1039,13 @@ export class ControlPlane {
         expiresAt: now + PLAN_TTL_MS,
         updatedAt: now,
         spawnAttempted: false,
+        ...(input.planSignature !== undefined
+          ? {
+              planSignature: input.planSignature,
+              planSignerKey: input.planSignerKey,
+              planSignatureSource: input.planSignatureSource,
+            }
+          : {}),
       };
       await this.journal.append({
         event: "operation.planned",
@@ -1250,6 +1264,8 @@ export class ControlPlane {
       if (open >= MAX_OPEN_OPERATIONS)
         throw new HomectlError(3, "Too many open operations");
       const id = randomUUID();
+      // The planning device signs the fingerprint; execution checks this later.
+      const signer = await loadOrCreateDeviceKey(this.options.stateDirectory);
       const record: OperationRecord = {
         apiVersion: CONTROL_API_VERSION,
         id,
@@ -1261,6 +1277,9 @@ export class ControlPlane {
         expiresAt: now + PLAN_TTL_MS,
         updatedAt: now,
         spawnAttempted: false,
+        planSignature: signBytes(signer.privateKey, planFingerprint),
+        planSignerKey: signer.publicKey,
+        planSignatureSource: "local",
         ...(idempotencyKey !== undefined
           ? { idempotencyKey: idempotencyKey }
           : {}),
@@ -1536,6 +1555,21 @@ export class ControlPlane {
   // state is set to `executing` before any process can start. The runner runs
   // outside the lock, so a crash mid-run leaves `executing`, which recovers as
   // `unknown` and is never retried.
+  // A record executes only with a signature over its fingerprint that verifies.
+  // "local" plans must carry this device's own key. "replica" plans were checked
+  // by the replicator against the planner's registered key when adopted.
+  private async planSignatureHolds(op: OperationRecord): Promise<boolean> {
+    if (op.planSignature === undefined || op.planSignerKey === undefined)
+      return false;
+    if (op.planSignatureSource === "local") {
+      const own = await loadOrCreateDeviceKey(this.options.stateDirectory);
+      if (op.planSignerKey !== own.publicKey) return false;
+    } else if (op.planSignatureSource !== "replica") {
+      return false;
+    }
+    return verifyBytes(op.planSignerKey, op.fingerprint, op.planSignature);
+  }
+
   private async execute(operationId: string): Promise<ExecuteResult> {
     const prepared = await this.mutate(async (state, now) => {
       const op = Object.hasOwn(state.operations, operationId)
@@ -1588,6 +1622,16 @@ export class ControlPlane {
         throw new HomectlError(
           3,
           "Stored plan failed integrity check; operation closed",
+        );
+      }
+      // Fail closed: a plan without a valid planner signature never runs.
+      if (!(await this.planSignatureHolds(op))) {
+        await this.close(state, op, "failed", "integrity-mismatch", now, [
+          failedEvent(op, "integrity-mismatch"),
+        ]);
+        throw new HomectlError(
+          3,
+          "Plan has no valid device signature; operation closed. Create a fresh plan.",
         );
       }
       if (

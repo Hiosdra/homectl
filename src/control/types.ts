@@ -191,6 +191,15 @@ export interface OperationRecord {
   exitCode?: number;
   // Fixed reason codes from the engine; never free text from clients.
   reason?: string;
+  // Ed25519 signature over the plan fingerprint by the device that planned the
+  // operation (base64). Execution refuses a record without a valid one.
+  planSignature?: string;
+  // Base64 SPKI DER of the planning device's public key.
+  planSignerKey?: string;
+  // "local": planned on this device, key must be this device's key.
+  // "replica": adopted from a replicated record whose planner key the
+  // replicator checked against the device registry.
+  planSignatureSource?: "local" | "replica";
 }
 
 export interface ApprovalView {
@@ -210,6 +219,8 @@ export interface OperationView {
   operationId: string;
   // Typed Proxmox catalogue input, so a device taking the operation over can rebuild it.
   catalogueInput?: CatalogueInput;
+  // The planner's signature over the fingerprint (public; carried into replicas).
+  planSignature?: string;
   state: OperationState;
   host: string;
   classification: Classification;

@@ -555,6 +555,20 @@
         },
         "finishedAt": {
           "$ref": "#/definitions/epochMs"
+        },
+        "planSignature": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "planSignerKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "planSignatureSource": {
+          "type": "string",
+          "enum": ["local", "replica"]
         }
       }
     },
@@ -595,6 +609,11 @@
         },
         "fingerprint": {
           "$ref": "#/definitions/fingerprint"
+        },
+        "planSignature": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
         },
         "argv": {
           "$ref": "#/definitions/argv"
