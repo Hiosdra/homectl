@@ -1,9 +1,9 @@
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import Ajv from "ajv";
 import { parse, stringify } from "yaml";
 import schema from "../../schema/inventory.schema.json";
-import { privateDirectory, protect } from "../platform";
+import { atomicReplace, privateDirectory, protect } from "../platform";
 import { ttlSeconds } from "../session/config";
 import { HomectlError, type Inventory, type Machine } from "../types";
 
@@ -87,6 +87,31 @@ export function parseInventory(text: string): Inventory {
         2,
         "Proxmox provider must reference an existing SSH host with full access and a managed key",
       );
+    // Facts for the guest catalogue: a sane VMID range, and allowlists that are unique.
+    const range = p.vmid_range;
+    if (
+      range &&
+      (range[0] > range[1] || range[0] < 100 || range[1] > 999999999)
+    )
+      throw new HomectlError(
+        2,
+        "Proxmox vmid_range must be an ascending pair between 100 and 999999999",
+      );
+    if (
+      p.protected_vmids &&
+      (new Set(p.protected_vmids).size !== p.protected_vmids.length ||
+        p.protected_vmids.some(
+          (vmid) => !Number.isInteger(vmid) || vmid < 100 || vmid > 999999999,
+        ))
+    )
+      throw new HomectlError(
+        2,
+        "Proxmox protected_vmids must be unique integers between 100 and 999999999",
+      );
+    if (p.storages && new Set(p.storages).size !== p.storages.length)
+      throw new HomectlError(2, "Proxmox storages must be unique");
+    if (p.templates && new Set(p.templates).size !== p.templates.length)
+      throw new HomectlError(2, "Proxmox templates must be unique");
   }
   return inventory;
 }
@@ -105,7 +130,7 @@ export async function saveInventory(path: string, inventory: Inventory) {
   const temp = `${path}.${crypto.randomUUID()}.tmp`;
   await writeFile(temp, text, { mode: 0o600, flag: "wx" });
   await protect(temp);
-  await rename(temp, path);
+  await atomicReplace(temp, path);
 }
 export function resolveHost(inventory: Inventory, name: string): Machine {
   const m = inventory.machines[name];

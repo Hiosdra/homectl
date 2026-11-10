@@ -1,12 +1,19 @@
 import { randomInt, randomUUID } from "node:crypto";
 import * as client from "secure-remote-password/client";
 import * as server from "secure-remote-password/server";
+import { isSigningKey } from "../control/device-key";
 import { HomectlError } from "../types";
 import { derive, type Envelope, open, seal, verification } from "./crypto";
 import { defaults, type Peer, type PeerState, type Permissions } from "./store";
 
 const username = "homectl-pair-v1";
-export type Identity = { id: string; name: string; platform: string };
+export type Identity = {
+  id: string;
+  name: string;
+  platform: string;
+  // Base64 SPKI of the device signing key (ADR-0002); optional for older peers.
+  signingKey?: string;
+};
 export type Pair = {
   id: string;
   expiresAt: number;
@@ -34,7 +41,8 @@ export function validateIdentity(value: Identity) {
     typeof value.name !== "string" ||
     value.name.length > 100 ||
     !value.name.trim() ||
-    !["linux", "win32", "darwin"].includes(value.platform)
+    !["linux", "win32", "darwin"].includes(value.platform) ||
+    (value.signingKey !== undefined && !isSigningKey(value.signingKey))
   )
     throw new HomectlError(2, "Invalid peer identity");
   return value;

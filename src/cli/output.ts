@@ -14,6 +14,20 @@ const scalar = (value: unknown) =>
         ? "Yes"
         : "No"
       : String(value);
+function formatDateTime(value: unknown): string {
+  const timestamp = Number(value);
+  const date = new Date(timestamp);
+  if (!Number.isFinite(timestamp) || Number.isNaN(date.getTime()))
+    return scalar(value);
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(date);
+}
 function tree(value: unknown, depth = 0): string {
   const indent = "  ".repeat(depth);
   if (Array.isArray(value))
@@ -143,16 +157,33 @@ export function formatHuman(
     return sections.filter(Boolean).join("\n\n");
   }
   if (command === "session" && action === "status") {
-    const { unlocked, expiresAt, ...rest } = value;
+    const { unlocked, startedAt, expiresAt, ...rest } = value;
     return [
       `Session: ${unlocked ? "unlocked" : "locked"}`,
+      startedAt !== undefined ? `Started At: ${formatDateTime(startedAt)}` : "",
       expiresAt !== undefined
-        ? `Expires: ${expiresAt === null ? "until reboot or explicit lock" : new Date(Number(expiresAt)).toISOString()}`
+        ? `Expires: ${expiresAt === null ? "until reboot or explicit lock" : formatDateTime(expiresAt)}`
         : "",
       tree(rest),
     ]
       .filter(Boolean)
       .join("\n");
+  }
+  if (command === "session") {
+    return tree(
+      Object.fromEntries(
+        Object.entries(value).map(([key, item]) => [
+          key,
+          key === "startedAt"
+            ? formatDateTime(item)
+            : key === "expiresAt"
+              ? item === null
+                ? "until reboot or explicit lock"
+                : formatDateTime(item)
+              : item,
+        ]),
+      ),
+    );
   }
   if ((command === "exec" || command === "peer") && record(value.result)) {
     const { stdout, stderr, exitCode, ...rest } = value.result;

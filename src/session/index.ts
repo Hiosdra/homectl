@@ -50,6 +50,28 @@ async function control(
   });
 }
 
+function windowsPipeOccupied(path: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const socket = createConnection(path);
+    const finish = (occupied: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(occupied);
+    };
+    const timer = setTimeout(() => finish(true), 1000);
+    socket.once("connect", () => finish(true));
+    socket.once("error", (error) => {
+      const code = (error as NodeJS.ErrnoException).code;
+      finish(
+        code !== "ENOENT" && code !== "ECONNREFUSED" && code !== "ENOTFOUND",
+      );
+    });
+  });
+}
+
 export async function lockSession(inventoryPath: string) {
   const p = sessionPaths(inventoryPath);
   // Clear even an orphaned agent; never touch the user's personal agent.
@@ -81,6 +103,15 @@ export async function startSession(
     throw new HomectlError(5, "Install OpenSSH on the agent host");
   const p = sessionPaths(inventoryPath);
   await privateDirectory(p.directory);
+  if (
+    windows &&
+    ((await windowsPipeOccupied(p.socket)) ||
+      (await windowsPipeOccupied(p.control)))
+  )
+    throw new HomectlError(
+      3,
+      "Session named pipe conflicts with an existing listener",
+    );
   await lockSession(inventoryPath);
   for (const path of windows ? [] : [p.socket, p.control]) {
     try {
@@ -179,6 +210,7 @@ export async function privateCommand(
               ]),
         stdout: "pipe",
         stderr: "ignore",
+        windowsHide: true,
       });
     } catch {
       throw new HomectlError(

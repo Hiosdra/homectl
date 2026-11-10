@@ -85,6 +85,19 @@ const pages: Record<string, Page> = {
           ["provision --file PATH", "Create and enroll a Proxmox VM over SSH."],
         ],
       },
+      {
+        title: "Control plane",
+        rows: [
+          [
+            "serve-mcp",
+            "Run the loopback MCP endpoint for scoped, token-authenticated clients.",
+          ],
+          [
+            "control <action>",
+            "Manage clients, execute approved operations and verify the audit journal.",
+          ],
+        ],
+      },
       globalOptions,
       {
         title: "Examples",
@@ -324,8 +337,28 @@ pages.serve = {
         ["--port PORT", "Local panel port, default 7447."],
         ["--peer-port PORT", "Peer protocol port, default 7448."],
         [
+          "--container",
+          "Container mode for the containerized peer: needs an explicit --interface, runs startup recovery, serves /healthz, stops cleanly on SIGTERM, and turns discovery off. See docs/homectl-2.0/container-peer.md.",
+        ],
+        [
+          "--panel-interface IP",
+          "Optional container-only remote panel listener on one explicit container IP; requires origin and token file.",
+        ],
+        [
+          "--panel-origin ORIGIN",
+          "Exact browser origin allowed for the remote panel, including scheme and port.",
+        ],
+        [
+          "--panel-token-file PATH",
+          "Read the remote panel access code from a protected file or Compose secret; never logged.",
+        ],
+        [
           "--no-discovery",
-          "Disable multicast discovery; use manual IP pairing.",
+          "Disable multicast discovery only; use manual IP pairing. Control sync with already-paired devices keeps running.",
+        ],
+        [
+          "--no-control-sync",
+          "Turn control sync off on this device. Peers get no sync from it, and operations here with signing peers wait for a sync.",
         ],
       ],
     },
@@ -348,9 +381,9 @@ pages.service = {
   ],
 };
 pages.panel = {
-  usage: "homectl panel [--inventory PATH]",
+  usage: "homectl panel [--interface LAN-IP] [--inventory PATH]",
   intro:
-    "Run yourself in a private terminal. Opens the local panel using its private launch token; never run through an agent.",
+    "Run yourself in a private terminal. Opens the panel and starts a temporary workspace if needed; keep this terminal open until you finish. The private launch token is never emitted as JSON.",
   sections: [globalOptions],
 };
 pages.peers = {
@@ -360,9 +393,9 @@ pages.peers = {
   sections: [globalOptions],
 };
 pages.pair = {
-  usage: "homectl pair [open|join|confirm|status|poll|cancel]",
+  usage: "homectl pair [--address http://DEVICE-LAN-IP:7448]",
   intro:
-    "Run homectl pair on BOTH devices for automatic LAN discovery and guided pairing. Starts a temporary workspace when needed; select an interface if multiple private LANs exist. Enter the displayed code on the other device and visually compare the phrase and confirm with y on both. Codes and phrases are private, never argv. Explicit subcommands remain available.",
+    "Use homectl pair on both devices for guided LAN discovery. If discovery is blocked (for example by Docker, Wi-Fi isolation or VLANs), open pairing in one device's UI and run homectl pair --address http://<device-LAN-IP>:7448 on the other. It starts the local pairing endpoint, asks for the code privately and guides phrase verification; no separate serve command is needed. If Windows asks, allow homectl on private networks. Keep the terminal open until pairing and sync are finished. Codes and phrases are private, never argv. Advanced subcommands remain available.",
   sections: [
     {
       title: "Pairing",
@@ -399,6 +432,128 @@ pages.peer = {
   intro:
     "Uses the peer's grants and host policy. Mutations wait for local approval on the execution peer.",
   sections: [globalOptions],
+};
+pages["serve-mcp"] = {
+  usage: "homectl serve-mcp [--port 7449] [--inventory PATH]",
+  intro:
+    "Starts the MCP endpoint on 127.0.0.1 only. Each client authenticates with its own token and receives only its granted scopes and hosts. Clients can inspect, plan and approve. They cannot execute, open shells or read secrets; the local operator runs approved operations with homectl control execute.",
+  sections: [
+    {
+      title: "Options",
+      rows: [
+        ["--port PORT", "Loopback port (default 7449)."],
+        [
+          "--host 127.0.0.1",
+          "Loopback only. Other addresses are refused; use a reverse proxy or tunnel for remote clients.",
+        ],
+        ...globalOptions.rows,
+      ],
+    },
+  ],
+};
+pages.control = {
+  usage:
+    "homectl control <client|ops|show|execute|handoff|sync|audit> [options]",
+  intro:
+    "Local operator actions for the control plane. Run them in your private terminal; they are not available through MCP.",
+  sections: [
+    {
+      title: "Clients",
+      rows: [
+        [
+          "client add ID --name NAME --scopes LIST --hosts LIST --token-file PATH",
+          "Create a client. The token is written to a new owner-only file and is never printed.",
+        ],
+        ["client list", "List clients without token material."],
+        [
+          "client revoke ID",
+          "Revoke a client; its token stops working at once.",
+        ],
+        [
+          "--scopes LIST",
+          "Comma-separated: status:read, inspect:read, plan:create, approve:decide.",
+        ],
+        ["--hosts LIST", "Comma-separated inventory host names to grant."],
+        [
+          "--token-file PATH",
+          "New file that receives the token. Must not exist.",
+        ],
+      ],
+    },
+    {
+      title: "Operations",
+      rows: [
+        [
+          "ops [--state LIST] [--all]",
+          "List open operations (pending, approved, executing). --all includes history.",
+        ],
+        [
+          "show ID",
+          "Show one operation in full. ID can be a unique prefix of at least 8 characters.",
+        ],
+        [
+          "execute ID",
+          "Run an approved operation, or an inspection plan, through the existing exec policy. Single use; failed and unknown operations are not retried.",
+        ],
+        [
+          "handoff ID --to DEVICE",
+          "On the owner: offer the operation to DEVICE. The owner will not run it until DEVICE accepts, the offer is cancelled, or it expires after five minutes (or when the plan ends). Needs an open workspace; run homectl panel to start one.",
+        ],
+        [
+          "handoff ID",
+          "On the named receiver: accept the pending offer. Without a pending offer, takes over an unreachable owner (the takeover window must be open). The operation needs a fresh approval on this device.",
+        ],
+        [
+          "handoff ID --cancel",
+          "On the owner: withdraw an offer that nobody has accepted.",
+        ],
+        [
+          "peer suspend DEVICE [--reason TEXT]  |  peer resume DEVICE",
+          "Take a paired device out of this device's lease, so operations here do not wait for it, or put it back. Operations here may run without that device confirming the latest state: use it only when the device is offline or will stay offline. Signed, replicated and audited. Needs an open workspace; run homectl panel to start one.",
+        ],
+        [
+          "resolve ID --owner DEVICE",
+          "Conflicting takeovers: propose DEVICE as the owner. It applies only once DEVICE runs the same command on its own device. A device that proposes itself agrees at once.",
+        ],
+        [
+          "sync",
+          "Per-device control sync: last sync, lease, backoff, refusals and conflicts. Without a running serve it shows the last saved state and says that backoff is unknown.",
+        ],
+        ["audit verify", "Check the audit journal hash chain and its anchor."],
+        [
+          "--state LIST",
+          "Comma-separated: pending, approved, executing, succeeded, failed, unknown.",
+        ],
+      ],
+    },
+    {
+      title: "Quickstart",
+      rows: [
+        [
+          "1. Add clients",
+          "client add codex-pc --name ... --scopes ... --hosts ... --token-file PATH (one per agent)",
+        ],
+        [
+          "2. Start the endpoint",
+          "serve-mcp, then keep it running in a private terminal",
+        ],
+        [
+          "3. Configure the agent",
+          "URL http://127.0.0.1:7449/mcp and header Authorization: Bearer <token file contents>",
+        ],
+        [
+          "4. Plan and approve",
+          "The agent calls homectl_plan. Inspection needs no approval; changes need approval by another client.",
+        ],
+        [
+          "5. Execute",
+          "control execute <id>, or Execute in the panel's Approvals view",
+        ],
+        ["6. Verify", "control audit verify, or the Audit card in the panel"],
+      ],
+    },
+    globalOptions,
+  ],
 };
 pages.ssh = {
   ...(pages.exec as Page),

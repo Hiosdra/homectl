@@ -74,6 +74,9 @@ async function link(source: string, target: string) {
 }
 export async function setup(home = homedir(), dryRun = false) {
   const p = paths(home);
+  // Setup tests and explicit alternate-home runs must never change the real
+  // Windows account's PATH.
+  const updateWindowsPath = windows && resolve(home) === resolve(homedir());
   const initial: Inventory = {
     version: 1,
     session: sessionConfig({ version: 1, machines: {} }, p.inventory),
@@ -97,7 +100,7 @@ export async function setup(home = homedir(), dryRun = false) {
     `Generate SSH config: ${p.ssh}`,
     `Add Include to ${join(home, ".ssh", "config")}`,
     `Link CLI in ${p.bin}`,
-    ...(windows ? ["Add CLI directory to Windows user PATH"] : []),
+    ...(updateWindowsPath ? ["Add CLI directory to Windows user PATH"] : []),
     `Link 3 skills in ~/.agents/skills and ~/.claude/skills`,
   ];
   if (dryRun) return { actions };
@@ -139,7 +142,7 @@ export async function setup(home = homedir(), dryRun = false) {
       );
     await writeFile(cli, script, { mode: 0o755 });
   }
-  if (windows) {
+  if (updateWindowsPath) {
     const script = `$ErrorActionPreference='Stop'
 $bin=$env:HOMECTL_BIN_PATH
 $old=[Environment]::GetEnvironmentVariable('Path','User')
@@ -159,6 +162,7 @@ if(-not $found){[Environment]::SetEnvironmentVariable('Path',($bin+';'+$old),'Us
         stdin: "ignore",
         stdout: "ignore",
         stderr: "ignore",
+        windowsHide: true,
       },
     );
     if (await child.exited)

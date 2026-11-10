@@ -1,7 +1,26 @@
-import { chmod, lstat, mkdir } from "node:fs/promises";
+import { chmod, lstat, mkdir, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { HomectlError } from "./types";
 export const windows = process.platform === "win32";
+
+export async function atomicReplace(source: string, destination: string) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rename(source, destination);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const retryable =
+        windows && ["EPERM", "EACCES", "EBUSY"].includes(code ?? "");
+      if (!retryable || attempt >= 10) {
+        await unlink(source).catch(() => undefined);
+        throw error;
+      }
+      await Bun.sleep(Math.min(25 * (attempt + 1), 200));
+    }
+  }
+}
+
 export function executable(name: string): string {
   if (!windows) return name;
   if (["ssh", "ssh-add", "ssh-keygen"].includes(name))
@@ -63,6 +82,7 @@ try {
       stdin: "ignore",
       stdout: "pipe",
       stderr: "ignore",
+      windowsHide: true,
     },
   );
   const [code, diagnostic] = await Promise.all([

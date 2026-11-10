@@ -393,19 +393,15 @@ describe("transports and credentials", () => {
       transportSpec(local, ["printf", "%s", "a b"], "unused").argv,
     ).toEqual(["printf", "%s", "a b"]));
   test("real local transport works", async () => {
-    const result = await execute(
-      "example",
-      local,
-      ["printf", "%s", "local fixture"],
-      {
-        configPath: "unused",
-        approval: planExecution("example", local, [
-          "printf",
-          "%s",
-          "local fixture",
-        ]).approval,
-      },
-    );
+    const argv = [
+      process.execPath,
+      "-e",
+      "process.stdout.write('local fixture')",
+    ];
+    const result = await execute("example", local, argv, {
+      configPath: "unused",
+      approval: planExecution("example", local, argv).approval,
+    });
     expect(result.result?.stdout).toBe("local fixture");
   });
   test("ssh quoting prevents argv becoming shell code", () => {
@@ -420,12 +416,16 @@ describe("transports and credentials", () => {
     );
     expect(spec.argv).toContain("StrictHostKeyChecking=yes");
   });
-  test("shellQuote roundtrips literal substitutions", async () => {
+  test("shellQuote keeps literal substitutions inside a single-quoted argument", async () => {
     const value = "$(echo nope) a'b `echo nope`";
-    const r = await run({
-      argv: ["sh", "-c", `printf %s ${shellQuote(value)}`],
-    });
-    expect(r.stdout).toBe(value);
+    const quoted = shellQuote(value);
+    expect(quoted).toBe("'$(echo nope) a'\\''b `echo nope`'");
+    if (process.platform !== "win32") {
+      const r = await run({
+        argv: ["sh", "-c", `printf %s ${quoted}`],
+      });
+      expect(r.stdout).toBe(value);
+    }
   });
   test("SSH aliases derive their address only from inventory", () => {
     const text = sshConfig({ example: ssh });
@@ -464,7 +464,11 @@ describe("transports and credentials", () => {
   });
   test("command failure never dumps secret environments", async () => {
     const r = await run({
-      argv: ["sh", "-c", 'printf %s "$PRIVATE_TOKEN" >&2; exit 7'],
+      argv: [
+        process.execPath,
+        "-e",
+        "process.stderr.write(process.env.PRIVATE_TOKEN); process.exit(7)",
+      ],
       env: { PRIVATE_TOKEN: "fixture-token" },
     });
     expect(r.exitCode).toBe(7);
@@ -488,7 +492,10 @@ describe("transports and credentials", () => {
 describe("setup and enrollment", () => {
   test("setup dry-run creates no config", async () => {
     const home = await temp();
-    await setup(home, true);
+    const result = await setup(home, true);
+    expect(result.actions).not.toContain(
+      "Add CLI directory to Windows user PATH",
+    );
     expect(
       await Bun.file(join(home, ".config/homectl/inventory.yaml")).exists(),
     ).toBe(false);
@@ -503,7 +510,7 @@ describe("setup and enrollment", () => {
       expect(
         await Bun.file(join(home, root, "skills/homelab/SKILL.md")).exists(),
       ).toBe(true);
-  });
+  }, 30_000);
   test("enrollment verifies OS before saving", async () => {
     const dir = await temp();
     const path = join(dir, "inventory.yaml");

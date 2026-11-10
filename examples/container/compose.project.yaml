@@ -1,0 +1,67 @@
+# Compose Project for a prebuilt container image. In UGOS, import this file as
+# a Project instead of starting the container from the Containers page.
+#
+# Required variables belong in the project's .env file. Keep the panel token
+# in a separate file mounted as a Compose secret; do not put it in this YAML.
+name: homectl-pr6
+
+services:
+  homectl:
+    image: ${HOMECTL_IMAGE:-homectl-peer:pr6}
+    container_name: homectl
+    init: true
+    user: "10001:10001"
+    privileged: false
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    volumes:
+      - /volume2/appdata/homectl:/data
+    secrets:
+      - panel_token
+    networks:
+      lan:
+        ipv4_address: 172.28.0.10
+    ports:
+      - "${HOMECTL_LAN_IP:?set the NAS LAN IP}:7448:7448"
+      # Bind to 127.0.0.1 for the Ugreen HTTPS reverse proxy. Set this to the
+      # NAS LAN IP only when deliberately serving the panel over plain HTTP.
+      - "${HOMECTL_PANEL_BIND:?set loopback or LAN IP and panel host port}:7447"
+    command:
+      [
+        "serve",
+        "--container",
+        "--interface",
+        "172.28.0.10",
+        "--no-discovery",
+        "--panel-interface",
+        "172.28.0.10",
+        "--panel-origin",
+        "${HOMECTL_PANEL_ORIGIN:?set the exact browser origin}",
+        "--panel-token-file",
+        "/run/secrets/panel_token",
+      ]
+    healthcheck:
+      test: ["CMD", "bun", "/app/src/container/health.ts"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+secrets:
+  panel_token:
+    file: ${HOMECTL_PANEL_TOKEN_FILE:?set the path to a protected token file}
+
+networks:
+  lan:
+    external: true
+    name: ${HOMECTL_NETWORK_NAME:-homectl-pr6-lan}

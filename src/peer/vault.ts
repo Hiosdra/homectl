@@ -1,9 +1,9 @@
 import { createPrivateKey, randomUUID } from "node:crypto";
-import { copyFile, readFile, rename, writeFile } from "node:fs/promises";
+import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { argon2d, argon2id } from "hash-wasm";
 import * as kdbx from "kdbxweb";
-import { privateDirectory, protect } from "../platform";
+import { atomicReplace, privateDirectory, protect } from "../platform";
 import { decodeKey, publicBlob } from "../session/agent";
 import { HomectlError } from "../types";
 import { hash } from "./sync";
@@ -184,7 +184,7 @@ export class Vault {
     const tmp = `${this.path}.${randomUUID()}.tmp`;
     await writeFile(tmp, bytes, { mode: 0o600, flag: "wx" });
     await protect(tmp);
-    await rename(tmp, this.path);
+    await atomicReplace(tmp, this.path);
     this.fingerprint = hash(bytes.toString("base64"));
     bytes.fill(0);
   }

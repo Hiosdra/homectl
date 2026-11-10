@@ -63,39 +63,23 @@ bun src/cli/main.ts setup
 
 Setup links `homectl` and the three skills for Codex and Claude Code. Add `~/.local/bin` to `PATH` if needed, and keep the checkout at a stable location. Preview setup with `--dry-run`.
 
-### 2. Prepare your keys privately
-
-Run these yourself in a private terminal:
+### 2. Open the panel
 
 ```sh
-homectl session init
-homectl key create lab-printer
-homectl key inspect lab-printer --json
-```
-
-Initialization creates a dedicated encrypted database; skip it if yours already exists. Choose a strong password and keep an encrypted backup.
-
-### 3. Connect your first host
-
-Verify its SSH fingerprint through a trusted source and install the generated **public key** using your existing access. Copy [host.example.json](examples/host.example.json) outside the repository, then set its address, existing account, access tier and the exact `auth` references returned by `key inspect`.
-
-```sh
-homectl enroll lab-printer --file /path/host.json --dry-run
-homectl enroll lab-printer --file /path/host.json
-homectl doctor lab-printer
-```
-
-Follow the [host setup walkthrough](docs/user-guide.md#add-an-existing-ssh-host) for public-key installation, sudo configuration and NAS specifics. Once enrolled, ask your agent to use homectl for that host.
-
-## Open your local workspace
-
-```sh
-homectl serve --interface YOUR_LAN_IP
-# In a separate private terminal:
 homectl panel
 ```
 
-The English dark workspace manages machines, local access, paired devices and reviewed bidirectional sync. Pair with a one-time code and confirm the same phrase on both devices. Sync credentials into each computer's own encrypted vault, resolve conflicting versions, and grant remote operations separately. Mutations through a peer wait for approval on the execution device.
+The panel starts a temporary workspace when needed and opens it in your browser. Keep the terminal open while you use it; `Ctrl+C` stops that temporary workspace. If a background service is already running, the panel opens it and exits.
+
+### 3. Create a vault and add a machine
+
+In **Access**, create an encrypted vault and choose its password. Then create an SSH key named after the machine you plan to add. Install the **public key** shown by homectl using your existing trusted access, and verify the host fingerprint through a trusted source. In **Machines**, choose **Add machine** and enter its address, existing SSH account, and a short description. Homectl connects the matching key automatically.
+
+Unlock the local vault from **Access** when you want to use SSH or sync credentials. Vaults and SSH sessions stay on their own computer; entering a password unlocks only that device.
+
+For a second computer, open its panel and pair from **Devices** with the one-time code and matching verification phrase. Then review changes from **Sync** before applying them. Remote operations require a separate grant and approval on the computer that runs them.
+
+The panel uses local HTML, CSS and JavaScript; it does not require React or a cloud account. For scripted setup and advanced host configuration, use the [CLI guide](docs/user-guide.md).
 
 Use `homectl service install --interface YOUR_LAN_IP` for persistent execution, then `homectl service start`. Native Windows requires a WinSW host and a configured user account. See the [workspace and sync guide](docs/peer-workspace.md) and [Windows/WSL setup](docs/windows.md).
 

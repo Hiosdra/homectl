@@ -23,6 +23,12 @@ export interface ProviderConfig {
   type: "proxmox";
   host: string;
   node: string;
+  // Facts the guest catalogue checks against (all optional).
+  vmid_range?: [number, number];
+  // VMIDs that destroy always refuses.
+  protected_vmids?: number[];
+  storages?: string[];
+  templates?: string[];
 }
 export interface Inventory {
   version: 1;
