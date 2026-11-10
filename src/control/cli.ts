@@ -151,7 +151,7 @@ function listOption(value: string | undefined, name: string): string[] {
   return items;
 }
 
-function useColor(input: ControlCliInput): boolean {
+function wantsColor(input: ControlCliInput): boolean {
   return input.color ?? (!input.json && colorEnabled());
 }
 
@@ -206,7 +206,7 @@ export async function serveMcp(
     activeClients: active,
     next: "Give each client its own token file. Press Ctrl+C to stop the endpoint.",
   };
-  const color = useColor(input);
+  const color = wantsColor(input);
   onReady(
     value,
     [
@@ -249,7 +249,7 @@ export async function controlCommand(
   input: ControlCliInput,
 ): Promise<ControlCliResult> {
   const [group, action, argument] = input.positionals;
-  const color = useColor(input);
+  const color = wantsColor(input);
   const now = Date.now();
   if (group === "client") {
     if (action === "add") return addClient(input, argument);
@@ -775,7 +775,7 @@ async function addClient(
       );
     }
   }
-  const color = useColor(input);
+  const color = wantsColor(input);
   if (tokenFile === undefined) {
     return {
       value: { client: created.client, auth: "oidc-only" },

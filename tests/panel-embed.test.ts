@@ -29,7 +29,7 @@ describe("embedded web panel", () => {
 
   test("the panel source builds for the browser", async () => {
     const built = await Bun.build({
-      entrypoints: [resolve(import.meta.dir, "../src/web/app.ts")],
+      entrypoints: [resolve(import.meta.dir, "../src/web/app.tsx")],
       target: "browser",
       minify: true,
     });
