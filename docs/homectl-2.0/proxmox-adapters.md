@@ -66,7 +66,8 @@ Tier mapping: inspect and mutation both need `sudo -n` on a `full` host in this 
 
 - No real Proxmox node was contacted. The recorded outputs are synthetic.
 - The existing QEMU cloud-init provisioner is unchanged.
-- No pvesh API-token variant, no VM console or snapshot actions, no LXC templates download.
+- No VM console or snapshot actions, no LXC templates download.
+- The API-token transport (section 14) is implemented and tested with a fake HTTP layer. It has **not** been run against a real node.
 
 ## Implementation
 
@@ -78,3 +79,29 @@ Tier mapping: inspect and mutation both need `sudo -n` on a `full` host in this 
 - Labels: the friendly label is the operation's impact text, which the Approvals row already shows above the exact argv, so the panel is unchanged.
 - Found while testing: the re-check at execution rebuilt the plan without the catalogue flag and would have refused every catalogue operation as stale. It now rebuilds with the flag.
 - LXC create and LXC lifecycle are new in this slice and are unverified on a node. The existing QEMU cloud-init provisioner is unchanged.
+
+## 14. API-token transport (option B)
+
+Opt-in per provider. Without an `api` block the SSH path runs as before.
+
+```yaml
+providers:
+  pve-test:
+    type: proxmox
+    host: pve-host          # SSH host, still required for inventory checks
+    node: pve-test
+    api:
+      url: https://pve.example:8006     # https origin only; no path
+      ca_file: /home/operator/.config/homectl/pve-root-ca.pem   # absolute path
+      token_entry: homectl-pve-token    # KDBX entry
+```
+
+- The KDBX entry holds the token. UserName is `user@realm!tokenid`, and Password is the secret.
+- `session unlock` loads the token into the session agent, in memory only. Lock or expiry clears it. The agent refuses names outside a fixed pattern.
+- A plan that needs the token and finds the session locked is refused. The operation stays approved, and no request is sent.
+- Each catalogue action becomes one REST call. The call is derived from the approved argv, so the approver and the executed call match. Reads: `GET` on `status/current`, `config` or the guest list. Power actions: `POST .../status/{start,stop,reboot,shutdown}`. Clone: `POST /nodes/{node}/qemu/{template}/clone`. LXC create: `POST /nodes/{node}/lxc`. Destroy: `DELETE .../{vmid}?purge=1`.
+- Mutations return a task id. The task is polled until it stops. Exit OK means success. An error exit, or a task still running after the budget (5 minutes), is recorded as failed or unknown. Nothing is retried.
+- TLS is verified against `ca_file` only. There is no insecure mode. Redirects are refused. The token is never printed or stored in the operation record.
+- Least privilege for the API token: create it on the node with a custom role that holds only the privileges in section 1. That step is still a live action, and it is not done yet.
+
+Not verified: the endpoint shapes and the role privileges against a real Proxmox node. Those are the first checks to run once the owner approves a disposable VMID range.
