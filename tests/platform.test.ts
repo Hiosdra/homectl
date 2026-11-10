@@ -1,12 +1,17 @@
 import { expect, test } from "bun:test";
 import { generateKeyPairSync, verify } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseInventory } from "../src/inventory";
 import { collectHostKeys, validateHostKeys } from "../src/peer/hostkeys";
-import { privateDirectory, protect, windows } from "../src/platform";
+import {
+  atomicReplace,
+  privateDirectory,
+  protect,
+  windows,
+} from "../src/platform";
 import {
   addKey,
   createDedicatedAgent,
@@ -35,6 +40,21 @@ async function agentRequest(path: string, request: Buffer): Promise<Buffer> {
     });
   });
 }
+
+test("atomic replacement commits staged bytes over an existing file", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "homectl-atomic-replace-"));
+  const destination = join(dir, "state.json");
+  const staged = join(dir, "state.json.tmp");
+  try {
+    await writeFile(destination, '{"version":1}');
+    await writeFile(staged, '{"version":2}');
+    await atomicReplace(staged, destination);
+    expect(await readFile(destination, "utf8")).toBe('{"version":2}');
+    expect(await Bun.file(staged).exists()).toBe(false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 test("dedicated agent interoperates with SSH Ed25519 signing without disk keys", async () => {
   const dir = await mkdtemp(join(tmpdir(), "hca-"));
   const paths = sessionPaths(join(dir, "inventory.yaml"));

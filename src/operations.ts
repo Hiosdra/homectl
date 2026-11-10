@@ -17,9 +17,12 @@ export async function execute(
     approval?: string;
     impact?: string;
     runner?: Runner;
+    catalogue?: boolean;
   },
 ) {
-  const plan = planExecution(host, machine, argv, options.impact);
+  const plan = planExecution(host, machine, argv, options.impact, {
+    catalogue: options.catalogue === true,
+  });
   if (options.dryRun) return { plan };
   checkApproval(plan, options.approval);
   if (

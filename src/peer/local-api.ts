@@ -12,7 +12,10 @@ export async function localApi<T = unknown>(
       await readFile(join(dirname(inventory), "serve", "panel.json"), "utf8"),
     );
   } catch {
-    throw new HomectlError(5, "Start homectl serve or its service first");
+    throw new HomectlError(
+      5,
+      "No homectl workspace is open. Run homectl panel in a private terminal; it starts one if needed.",
+    );
   }
   const url = new URL(info.url);
   if (

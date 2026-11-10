@@ -1,0 +1,335 @@
+// homectl control-plane API v1 (slice 1). Mirrors schema/control-plane.schema.json.
+// Keep the two in sync; tests/control-schema.test.ts checks the enumerations.
+import type { Machine } from "../types";
+
+export const CONTROL_API_VERSION = "homectl.control/v1" as const;
+
+export const SCOPES = [
+  "status:read",
+  "inspect:read",
+  "plan:create",
+  "approve:decide",
+] as const;
+export type Scope = (typeof SCOPES)[number];
+
+export const OPERATION_KINDS = [
+  "inspect",
+  "plan",
+  "validate",
+  "approve",
+  "execute",
+  "verify",
+  "status",
+  "proxmox-plan",
+] as const;
+export type OperationKind = (typeof OPERATION_KINDS)[number];
+
+export type ProxmoxActionName =
+  | "list"
+  | "status"
+  | "config"
+  | "start"
+  | "stop"
+  | "reboot"
+  | "shutdown"
+  | "clone"
+  | "create"
+  | "destroy";
+
+export const OPERATION_STATES = [
+  "pending",
+  "approved",
+  "executing",
+  "succeeded",
+  "failed",
+  "unknown",
+] as const;
+export type OperationState = (typeof OPERATION_STATES)[number];
+
+export const TERMINAL_STATES: readonly OperationState[] = [
+  "succeeded",
+  "failed",
+  "unknown",
+];
+
+export const CLASSIFICATIONS = [
+  "inspect",
+  "mutation",
+  "destructive",
+  "opaque",
+] as const;
+export type Classification = (typeof CLASSIFICATIONS)[number];
+
+// Identity of an authenticated client. Never contains token material.
+export interface ClientIdentity {
+  id: string;
+  name: string;
+  scopes: Scope[];
+  hosts: string[];
+}
+
+// Who is calling. Clients come only from token authentication; the local
+// operator is the private CLI on the homectl host.
+export type Actor =
+  | { kind: "client"; client: ClientIdentity }
+  | { kind: "local-operator" };
+
+// Typed operation request. Validated against the schema before dispatch.
+export type OperationRequest =
+  | { op: "inspect"; host?: string }
+  | { op: "status"; operationId?: string }
+  | {
+      op: "plan";
+      host: string;
+      argv: string[];
+      impact?: string;
+      idempotencyKey?: string;
+    }
+  | {
+      op: "proxmox-plan";
+      host: string;
+      kind: "qemu" | "lxc";
+      action: ProxmoxActionName;
+      vmid?: number;
+      template?: number | string;
+      name?: string;
+      storage?: string;
+      memory_mb?: number;
+      cores?: number;
+      disk_gb?: number;
+      bridge?: string;
+      address?: string;
+      cidr?: number;
+      gateway?: string;
+      timeout_s?: number;
+    }
+  | { op: "validate"; operationId: string; fingerprint: string }
+  | {
+      op: "approve";
+      operationId: string;
+      fingerprint: string;
+      decision: "approve" | "reject";
+    }
+  | { op: "execute"; operationId: string }
+  | { op: "verify"; operationId: string };
+
+// Immutable plan snapshot. Hashed with canonical JSON to produce the
+// operation fingerprint. `execApproval` is the existing policy digest.
+// The typed Proxmox catalogue input a plan was built from. Stored on the plan so
+// execution and takeover can rebuild the argv from the facts in force then.
+export interface CatalogueInput {
+  kind: "qemu" | "lxc";
+  action: string;
+  vmid?: number;
+  template?: number | string;
+  name?: string;
+  storage?: string;
+  memory_mb?: number;
+  cores?: number;
+  disk_gb?: number;
+  bridge?: string;
+  address?: string;
+  cidr?: number;
+  gateway?: string;
+  timeout_s?: number;
+}
+
+export interface ExecPlan {
+  apiVersion: typeof CONTROL_API_VERSION;
+  kind: "exec";
+  host: string;
+  machine: Machine;
+  argv: string[];
+  impact: string;
+  classification: Classification;
+  needsApproval: boolean;
+  execApproval: string;
+  // Built from the Proxmox guest catalogue: only then are qm/pct argv accepted.
+  catalogue?: boolean;
+  catalogueInput?: CatalogueInput;
+}
+
+export interface ApprovalRecord {
+  apiVersion: typeof CONTROL_API_VERSION;
+  id: string;
+  operationId: string;
+  fingerprint: string;
+  issuer: string;
+  approver: string;
+  issuedAt: number;
+  expiresAt: number;
+  // Single-use replay token. Stored only; never returned to clients.
+  nonce: string;
+  state: "active" | "consumed";
+  consumedAt?: number;
+}
+
+export interface OperationRecord {
+  apiVersion: typeof CONTROL_API_VERSION;
+  id: string;
+  state: OperationState;
+  plan: ExecPlan;
+  fingerprint: string;
+  issuer: string;
+  idempotencyKey?: string;
+  createdAt: number;
+  expiresAt: number;
+  updatedAt: number;
+  approval?: ApprovalRecord;
+  // True once the runner may have started a process. Set before spawn is
+  // attempted, so `unknown` is the conservative outcome when unsure.
+  spawnAttempted: boolean;
+  // Process that holds the execution lease while `executing`. Startup recovery
+  // skips operations whose executor is still alive.
+  executorPid?: number;
+  // Identifies the process incarnation that set executorPid. A pid alone is
+  // reusable (every container's main process is pid 1).
+  executorInstance?: string;
+  // Epoch ms: set when the operator starts the run, and when it is recorded finished.
+  startedAt?: number;
+  finishedAt?: number;
+  exitCode?: number;
+  // Fixed reason codes from the engine; never free text from clients.
+  reason?: string;
+}
+
+export interface ApprovalView {
+  id: string;
+  operationId: string;
+  fingerprint: string;
+  issuer: string;
+  approver: string;
+  issuedAt: string; // ISO-8601 UTC
+  expiresAt: string;
+  state: "active" | "consumed";
+}
+
+// What clients see. Argv is redacted; machine addresses and key paths are not
+// included.
+export interface OperationView {
+  operationId: string;
+  // Typed Proxmox catalogue input, so a device taking the operation over can rebuild it.
+  catalogueInput?: CatalogueInput;
+  state: OperationState;
+  host: string;
+  classification: Classification;
+  needsApproval: boolean;
+  fingerprint: string;
+  argv: string[];
+  impact: string;
+  issuer: string;
+  createdAt: string; // ISO-8601 UTC
+  expiresAt: string;
+  updatedAt: string;
+  expired: boolean;
+  approval?: ApprovalView;
+  spawnAttempted: boolean;
+  startedAt?: string; // ISO-8601 UTC
+  finishedAt?: string; // ISO-8601 UTC
+  exitCode?: number;
+  reason?: string;
+  // Replicated view (ADR-0002): who owns the operation and what this device can do.
+  remote?: boolean; // true when the operation is held by another device only
+  ownerName?: string;
+  runsOn?: string; // set when another device owns the operation
+  conflict?: boolean; // ownership is unresolved; nobody may run it
+  takeover?: TakeoverNote;
+  delivery?: DeliveryNote; // this device's approval forwarded to the owner
+  approvedBy?: string; // "<client> (via <device>)" when the owner recorded an approval
+  offerTo?: string; // this device offered the operation to the named device
+  offerFrom?: string; // the named owner offered the operation to this device
+  offerExpires?: string; // ISO-8601 UTC: when the open offer expires
+}
+
+// Earliest takeover of an operation held by an unreachable owner (fencing rule).
+export interface TakeoverNote {
+  possible: boolean;
+  reason?: string;
+  at?: string; // ISO-8601 UTC: earliest time the takeover window opens
+}
+
+// An approval forwarded from this device to the owner. It is confirmed only
+// when the owner's replicated state reflects it.
+export interface DeliveryNote {
+  decision: "approve" | "reject";
+  status: "awaiting-confirmation" | "approved" | "rejected";
+  ownerName: string;
+  since: string; // ISO-8601 UTC when the decision was forwarded
+}
+
+export interface ClientView {
+  hasToken: boolean;
+  id: string;
+  name: string;
+  scopes: Scope[];
+  hosts: string[];
+  createdAt: string; // ISO-8601 UTC
+  revoked: boolean;
+  oidc?: {
+    issuerHost: string;
+    claim: "sub" | "client_id";
+    identityHash: string;
+  };
+}
+
+export type AuditEventName =
+  | "auth.rejected"
+  | "request.accepted"
+  | "request.rejected"
+  | "client.created"
+  | "client.revoked"
+  | "operation.planned"
+  | "operation.decided"
+  | "operation.executing"
+  | "operation.succeeded"
+  | "operation.failed"
+  | "operation.unknown"
+  | "handoff.offered"
+  | "handoff.cancelled"
+  | "handoff.accepted"
+  | "handoff.resolution-proposed"
+  | "handoff.resolution-accepted"
+  | "peer.suspended"
+  | "auth.oidc"
+  | "oidc.configured"
+  | "peer.resumed";
+
+// Audit payloads carry identifiers, fixed reason codes and redacted argv only.
+export interface AuditEvent {
+  event: AuditEventName;
+  client?: string;
+  op?: OperationKind;
+  operationId?: string;
+  host?: string;
+  argv?: string[];
+  fingerprint?: string;
+  classification?: Classification;
+  decision?: "approve" | "reject";
+  reason?: string;
+  exitCode?: number;
+}
+
+export interface AuditEntry {
+  v: 1;
+  seq: number;
+  at: string;
+  prev: string;
+  hash: string;
+  event: AuditEvent;
+}
+
+// Stored client registry record. `tokenHash` is the only credential material.
+export interface ClientRecord extends ClientIdentity {
+  tokenHash?: string; // absent for OIDC-only clients
+  createdAt: number;
+  revokedAt?: number;
+  // Optional OIDC route to this client: a verified token whose issuer and claim match.
+  oidc?: { issuer: string; claim: "sub" | "client_id"; value: string };
+}
+
+// Authentication boundary. Slice 1 implements token-based authentication;
+// an OIDC implementation can satisfy this interface later without changing
+// the engine or MCP layer.
+export interface ClientAuthenticator {
+  authenticate(credential: string | undefined): Promise<ClientIdentity | null>;
+}

@@ -15,6 +15,7 @@ public-keys/
 .worktrees/
 .fixtures/
 peers.json
+control-plane/
 known_hosts
 *.before-sync-*
 .impeccable/config.local.json

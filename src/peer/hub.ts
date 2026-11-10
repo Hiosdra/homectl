@@ -9,6 +9,8 @@ import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { type DeviceKey, loadOrCreateDeviceKey } from "../control/device-key";
+import { controlStateDirectory } from "../control/engine";
 import { loadInventory, parseInventory, saveInventory } from "../inventory";
 import { execute, writeSSHConfig } from "../operations";
 import { privateDirectory, protect } from "../platform";
@@ -114,6 +116,7 @@ type Pending = {
   base: string;
   records: Record<string, Version>;
   local: Record<string, Version>;
+  remoteVaultUnlocked?: boolean;
   expiresAt: number;
 };
 export class Hub {
@@ -122,6 +125,9 @@ export class Hub {
   pair?: Pair;
   pending = new Map<string, Pending>();
   operations = new Map<string, Operation>();
+  device?: DeviceKey;
+  // Serves control-plane logs to authenticated peers with a sync grant (ADR-0002 stage c).
+  controlExchange?: (peer: Peer, payload: unknown) => Promise<unknown>;
   private challenges = new Map<
     string,
     {
@@ -142,6 +148,9 @@ export class Hub {
     this.state = await loadState(peerPath(this.inventoryPath));
     const inv = await loadInventory(this.inventoryPath);
     this.vault = new Vault(sessionConfig(inv, this.inventoryPath).database);
+    this.device = await loadOrCreateDeviceKey(
+      controlStateDirectory(this.inventoryPath),
+    );
     return this;
   }
   serial<T>(fn: () => Promise<T>): Promise<T> {
@@ -153,7 +162,7 @@ export class Hub {
     await saveState(peerPath(this.inventoryPath), this.state);
   }
   localIdentity() {
-    return identity(this.state);
+    return { ...identity(this.state), signingKey: this.device?.publicKey };
   }
   async status() {
     if (this.pair && this.pair.expiresAt <= Date.now()) {
@@ -166,6 +175,7 @@ export class Hub {
       device: this.localIdentity(),
       session: await sessionStatus(this.inventoryPath),
       vaultUnlocked: this.vault.unlocked,
+      vaultExists: await Bun.file(this.vault.path).exists(),
       operations: [...this.operations.values()]
         .filter((o) => o.state === "pending" && o.expiresAt > Date.now())
         .map(({ approval, result, ...o }) => ({
@@ -511,18 +521,58 @@ export class Hub {
       ),
     );
   }
-  async preview(peerId: string, incoming: unknown) {
+  async preview(
+    peerId: string,
+    incoming: unknown,
+    remoteVaultUnlocked?: boolean,
+  ) {
     const records = validateRecords(incoming);
     if (
       Object.keys(records).some((k) => k.startsWith("credential:")) &&
       !this.vault.unlocked
     )
       throw new HomectlError(
-        5,
+        4,
         "Unlock the local vault before accepting credential changes",
       );
     const local = structuredClone(await this.snapshot(false));
     const result = merge(local, records, this.state.id);
+    let remoteVaultNeeded = false;
+    if (
+      remoteVaultUnlocked === false &&
+      this.vault.unlocked &&
+      result.conflicts.length === 0
+    ) {
+      for (const [recordId, version] of Object.entries(result.records)) {
+        if (
+          !recordId.startsWith("machine:") ||
+          !version.value ||
+          typeof version.value !== "object"
+        )
+          continue;
+        const machine = version.value as {
+          name?: unknown;
+          auth?: { entry?: unknown };
+        };
+        if (
+          typeof machine.name !== "string" ||
+          !/^[a-z][a-z0-9-]{0,62}$/.test(machine.name) ||
+          typeof machine.auth?.entry !== "string"
+        )
+          continue;
+        const credential =
+          result.records[`credential:${machine.auth.entry}`]?.value;
+        if (
+          !credential &&
+          !(await Bun.file(
+            keyReference(machine.name, this.inventoryPath).public_key,
+          ).exists())
+        ) {
+          remoteVaultNeeded = true;
+          break;
+        }
+      }
+    }
     const id = randomUUID();
     if (this.pending.size >= 16)
       throw new HomectlError(
@@ -535,12 +585,16 @@ export class Hub {
       base: hash(local),
       records: structuredClone(records),
       local,
+      remoteVaultUnlocked,
       expiresAt: Date.now() + 300_000,
     });
     return {
       id,
       localName: this.state.name,
       remoteName: this.state.peers[peerId]?.name,
+      ...(remoteVaultNeeded
+        ? { blocker: { type: "remote_vault_locked" as const } }
+        : {}),
       changes: Object.keys(records).filter(
         (k) => hash(local[k] ?? null) !== hash(records[k]),
       ),
@@ -559,8 +613,37 @@ export class Hub {
     };
   }
   async beginSync(peerId: string) {
-    const remote = await this.peerRequest(peerId, "snapshot", {});
+    const remote = await this.peerRequest(peerId, "snapshot", { version: 2 });
+    const envelope =
+      remote && typeof remote === "object" && !Array.isArray(remote)
+        ? (remote as Record<string, unknown>)
+        : {};
+    if ("version" in envelope) {
+      if (envelope.version !== 2 || typeof envelope.vaultUnlocked !== "boolean")
+        throw new HomectlError(2, "Invalid sync snapshot metadata");
+      return this.serial(() =>
+        this.preview(
+          peerId,
+          envelope.records,
+          envelope.vaultUnlocked as boolean,
+        ),
+      );
+    }
+    // Version 1 peers return records directly and do not expose vault state.
     return this.serial(() => this.preview(peerId, remote));
+  }
+  async syncReadiness(peerId: string) {
+    const value = await this.peerRequest(peerId, "sync-readiness", {});
+    if (
+      !value ||
+      typeof value !== "object" ||
+      Array.isArray(value) ||
+      typeof (value as { vaultUnlocked?: unknown }).vaultUnlocked !== "boolean"
+    )
+      throw new HomectlError(2, "Invalid peer sync readiness");
+    return {
+      vaultUnlocked: (value as { vaultUnlocked: boolean }).vaultUnlocked,
+    };
   }
   async commit(id: string, choices: Record<string, Choice>) {
     const p = this.pending.get(id);
@@ -575,7 +658,7 @@ export class Hub {
     const result = merge(local, p.records, this.state.id, choices);
     if (result.conflicts.length)
       throw new HomectlError(4, "Resolve every conflict before applying");
-    await this.applyRecords(result.records);
+    await this.applyRecords(result.records, p.remoteVaultUnlocked);
     this.pending.delete(id);
     return { applied: true, copies: result.copies };
   }
@@ -586,12 +669,20 @@ export class Hub {
     const result = await this.serial(() => this.commit(id, choices));
     // The remote peer also gets a local review; accepting a pair does not let
     // another machine silently overwrite this one's inventory or credentials.
+    const snapshot = await this.serial(async () => ({
+      records: await this.snapshot(),
+      vaultUnlocked: this.vault.unlocked,
+    }));
     const remote = await this.peerRequest(peerId, "offer", {
-      records: await this.serial(() => this.snapshot()),
+      ...snapshot,
+      version: 2,
     });
     return { ...result, remoteReview: remote };
   }
-  async applyRecords(records: Record<string, Version>) {
+  async applyRecords(
+    records: Record<string, Version>,
+    remoteVaultUnlocked?: boolean,
+  ) {
     const inv = await loadInventory(this.inventoryPath);
     const credentials: Record<string, Credential> = {};
     const names = new Set<string>();
@@ -658,11 +749,27 @@ export class Hub {
     for (const m of Object.values(machines))
       if (m.auth) {
         const c = credentials[m.auth.entry];
-        if (!c && !(await Bun.file(m.auth.public_key).exists()))
+        if (!c && !(await Bun.file(m.auth.public_key).exists())) {
+          if (!this.vault.unlocked)
+            throw new HomectlError(
+              4,
+              "Unlock the local vault before accepting credential changes",
+            );
+          if (remoteVaultUnlocked === false)
+            throw new HomectlError(
+              4,
+              "The other device's vault was locked when the devices were compared. Unlock it there and compare again.",
+            );
+          if (remoteVaultUnlocked === undefined)
+            throw new HomectlError(
+              5,
+              "The other device does not report its vault state. Update homectl on that device and compare again.",
+            );
           throw new HomectlError(
             5,
-            "Credential or public key missing; unlock both vaults before syncing this host",
+            `The credential for ${m.ssh_alias ?? "this machine"} is missing. Add the machine's credential to a vault and compare again.`,
           );
+        }
         if (c) credentialPublicKey(c);
       }
     const trusted = Object.fromEntries(
@@ -703,11 +810,41 @@ export class Hub {
     await this.save();
   }
   async remoteAction(peer: Peer, action: string, payload: unknown) {
+    if (action === "control-exchange") {
+      if (!peer.permissions.sync)
+        throw new HomectlError(3, "This peer has no sync grant");
+      if (!this.controlExchange)
+        throw new HomectlError(5, "Control sync is not running on this device");
+      return this.controlExchange(peer, payload);
+    }
+    if (action === "sync-readiness") {
+      if (!peer.permissions.sync)
+        throw new HomectlError(3, "This peer has no sync grant");
+      return { vaultUnlocked: this.vault.unlocked };
+    }
     if (action === "snapshot" || action === "offer") {
       if (!peer.permissions.sync)
         throw new HomectlError(3, "This peer has no sync grant");
-      if (action === "snapshot") return this.snapshot();
-      return this.preview(peer.id, (payload as { records: unknown }).records);
+      const input =
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>)
+          : {};
+      if (action === "snapshot") {
+        const records = await this.snapshot();
+        return input.version === 2
+          ? { version: 2, vaultUnlocked: this.vault.unlocked, records }
+          : records;
+      }
+      if (
+        input.version !== undefined &&
+        (input.version !== 2 || typeof input.vaultUnlocked !== "boolean")
+      )
+        throw new HomectlError(2, "Invalid sync offer metadata");
+      return this.preview(
+        peer.id,
+        input.records,
+        input.version === 2 ? (input.vaultUnlocked as boolean) : undefined,
+      );
     }
     if (action === "status") {
       if (!peer.permissions.diagnostics)
