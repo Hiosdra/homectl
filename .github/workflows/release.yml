@@ -1,0 +1,74 @@
+name: Release
+
+# Builds the release executables (see scripts/build-release.ts). A version tag (v*)
+# also publishes a GitHub release with the archives and SHA256SUMS. A manual run
+# builds and checks everything without publishing.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - run: sudo apt-get update && sudo apt-get install -y zip
+
+      - run: bun install --frozen-lockfile
+
+      - name: The tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="$(bun -e 'console.log(require("./package.json").version)')"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${version}"
+            exit 1
+          fi
+
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun test
+
+      - run: bun scripts/build-release.ts
+
+      - name: Smoke-test the linux-x64 executable
+        run: |
+          mkdir -p smoke
+          tar -xzf dist/homectl-*-linux-x64.tar.gz -C smoke
+          folder="$(ls -d smoke/homectl-*-linux-x64)"
+          "${folder}/homectl" help
+          status=0
+          "${folder}/homectl" __internal bogus || status=$?
+          test "$status" -eq 2
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: dist/*
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: dist
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "homectl ${GITHUB_REF_NAME}" --generate-notes
