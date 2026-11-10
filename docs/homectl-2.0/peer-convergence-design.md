@@ -196,3 +196,10 @@ Residual risk, not closed: suspension is a local operator decision with no conse
 - A finished or running operation cannot change owner. Offers, accepts, takeovers and resolutions are refused for it, and no snapshot may move a finished operation back to an earlier state, whatever its epoch.
 - Accept race. An accept signed before expiry, arriving after the owner executed, is rejected on the owner and on any third device that has the finished state (`tests/control-handoff.test.ts`). The window is narrow: the owner may run only within its 120 s lease, so the accept has to be signed after the owner's last sync and the owner has to run after the expiry, inside that lease.
 - Residual, unchanged: the accepting device itself. If it accepted before it saw the owner's finished state, it still shows itself as owner until the operator reconciles. Closing that needs the owner's acknowledgement, a separate design.
+
+## Plan signatures (added with the signed-plan change)
+
+- The device that plans an operation signs the plan fingerprint with its Ed25519 device key. The signature and the signer's public key are stored on the operation record (`planSignature`, `planSignerKey`, `planSignatureSource`).
+- Execution fails closed. A record runs only when its signature verifies over the fingerprint. For a `local` record, the signer key must be this device's own key. A `replica` record is adopted only when the replicator checks the signature against the planner's key in the device registry.
+- Wire format: the operation body carries an optional `planSignature`. Peers built before this change never send it and ignore it. A receiver with no valid signature adopts the plan unsigned, and it cannot execute the plan. Takeover of a plan from an older peer therefore needs a new plan. This is deliberate.
+- Limit: a process running as the same user can read the device key and sign anything. The signature protects against changes made to state without the key, for example a copied or edited state file.

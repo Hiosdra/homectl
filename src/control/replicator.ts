@@ -17,7 +17,7 @@ import {
   checkContinuity,
   type LogEntry,
 } from "./checkpoint";
-import type { DeviceKey } from "./device-key";
+import { type DeviceKey, verifyBytes } from "./device-key";
 import type { ControlPlane } from "./engine";
 import { LEASE_MS, leaseCheck, takeoverWindow } from "./lease";
 import { containsSecretMaterial, redactArgv } from "./redact";
@@ -637,6 +637,9 @@ export class ControlReplicator {
         issuer: op.issuer,
         ...(op.approval ? { approver: op.approval.approver } : {}),
         ...(op.catalogueInput ? { catalogueInput: op.catalogueInput } : {}),
+        ...(op.planSignature !== undefined
+          ? { planSignature: op.planSignature }
+          : {}),
         updatedAt: op.updatedAt,
         ...(op.exitCode !== undefined ? { exitCode: op.exitCode } : {}),
         ...(op.reason !== undefined ? { reason: op.reason } : {}),
@@ -1253,7 +1256,31 @@ export class ControlReplicator {
       await this.plane.resetForOwnership(operationId);
       return;
     }
-    await this.plane.adoptOperation(adoptionInput(operationId, base));
+    await this.plane.adoptOperation({
+      ...adoptionInput(operationId, base),
+      ...this.replicaPlanSignature(base),
+    });
+  }
+
+  // The planner's signature is kept only when the planner's registered key
+  // verifies it. Otherwise the plan is adopted unsigned, and execution refuses it.
+  private replicaPlanSignature(base: OpBody): {
+    planSignature?: string;
+    planSignerKey?: string;
+    planSignatureSource?: "replica";
+  } {
+    if (base.planSignature === undefined) return {};
+    const key = this.devices()[base.planner];
+    if (
+      key === undefined ||
+      !verifyBytes(key, base.fingerprint, base.planSignature)
+    )
+      return {};
+    return {
+      planSignature: base.planSignature,
+      planSignerKey: key,
+      planSignatureSource: "replica",
+    };
   }
 
   // Proposes a winner for an ownership conflict. Any device involved in the
