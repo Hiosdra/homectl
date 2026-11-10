@@ -11,12 +11,12 @@ bun build --compile src/cli/main.ts --outfile homectl
 git checkout -- src/web/embedded.ts                   # restore the placeholder before committing
 ```
 
-- `build:panel` bundles `src/web/app.ts` for the browser and embeds it with `index.html` and `style.css`.
+- `build:panel` bundles `src/web/app.tsx` for the browser and embeds it with `index.html` and `style.css`.
 - A compiled executable refuses `homectl update` (install a newer release instead).
 - The panel refuses to start in a compiled build without the embedded assets, and says why.
 
 ## Checks
 
 - `./homectl help` and `./homectl __internal session-daemon` (reads a JSON config on stdin) run from the executable.
-- `homectl serve` in the executable serves `/`, `/app.js` and `/style.css` from the embedded assets. Checked on Linux with Bun 1.4.4: html 3,750 bytes, script 58,563 bytes, css 15,836 bytes.
+- `homectl serve` in the executable serves `/`, `/app.js` and `/style.css` from the embedded assets. Checked on Linux with Bun 1.4.4: html 347 bytes (a root element), script 281,512 bytes (React included).
 - Not yet done: the same checks on Windows and macOS, and the arm64 targets.

@@ -153,7 +153,7 @@ async function panelAssets(): Promise<{
     return embeddedPanel;
   }
   const js = await Bun.build({
-    entrypoints: [resolve(import.meta.dir, "web/app.ts")],
+    entrypoints: [resolve(import.meta.dir, "web/app.tsx")],
     target: "browser",
     minify: true,
   });
