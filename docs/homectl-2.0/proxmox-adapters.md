@@ -46,13 +46,15 @@ The minimum privilege for each action on a stock Proxmox node, as understood fro
 
 | Action | Minimum on the node (as used here) | Least-privilege variant (not implemented) |
 |---|---|---|
-| list, status, config (qm, pct) | read of `/etc/pve`; root in practice (`sudo -n`) | `pvesh get /nodes/NODE/qemu` (or `/lxc`) with a PVEAuditor role on `/vms` |
-| start, stop, reboot, shutdown | root (`sudo -n`), or a PVEVMAdmin-style role | `pvesh create .../status/START|STOP|...` with PVEVMAdmin on `/vms/VMID` |
-| clone | root (`sudo -n`) | PVEVMAdmin on `/vms`, plus `Datastore.AllocateSpace` on STORAGE and `VM.Clone` on the template |
-| LXC create | root (`sudo -n`) | PVEVMAdmin on `/vms`, plus `Datastore.AllocateSpace` on STORAGE; unprivileged is enforced by the argv |
-| destroy | root (`sudo -n`) | PVEVMAdmin with `VM.Allocate`; purge is an explicit argv flag |
+| list, status, config (qm, pct) | read of `/etc/pve`; root in practice (`sudo -n`) | a custom role with `VM.Audit` and `Sys.Audit`. The built-in PVEAuditor role is a candidate, but its exact privileges were not checked. |
+| start, stop, reboot, shutdown | root (`sudo -n`) | a custom role with `VM.PowerMgmt` and `VM.Audit` on `/vms/VMID`. The built-in PVEVMUser role also covers power, but adds console and CD-ROM rights, so it is broader than needed. PVEVMAdmin is broader still. |
+| clone | root (`sudo -n`) | `VM.Clone` on the template, `VM.Allocate` on the target, `Datastore.AllocateSpace` on STORAGE |
+| LXC create | root (`sudo -n`) | `VM.Allocate` and `Datastore.AllocateSpace` on STORAGE, plus `SDN.Use` for the bridge. Whether a non-root API user can create LXC with only these is **unverified**. Unprivileged is enforced by the argv. |
+| destroy | root (`sudo -n`) | `VM.Allocate` on `/vms/VMID`. Whether disk removal also needs datastore rights is **unverified**. Purge is an explicit argv flag. |
 
-Tier mapping: inspect and mutation both need `sudo -n` on a `full` host in this model, so an `observe` or `user` host cannot use Proxmox actions at all. This is the honest cost of using `qm`/`pct`. The least-privilege variant (a pvesh API token with a role, stored through the credential path) is the next step and is out of scope here, because it needs a token-storage decision.
+Privilege names are from the Proxmox VE administration guide, access-control section (checked 2026-11-10). The built-in role contents are from the same guide and were not checked on a node.
+
+Tier mapping: inspect and mutation both need `sudo -n` on a `full` host in this model, so an `observe` or `user` host cannot use Proxmox actions at all. This is the honest cost of using `qm`/`pct`. The least-privilege variant (a pvesh API token with a role, stored through the credential path) is the next step. It needs a decision on where the token is stored and how it is used, and it is out of scope for this slice.
 
 ## Tests plan
 
