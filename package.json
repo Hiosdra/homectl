@@ -11,6 +11,7 @@
   },
   "scripts": {
     "test": "bun test",
+    "build:panel": "bun scripts/build-panel.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src tests scripts schema package.json tsconfig.json biome.json",
     "format": "biome check --write src tests scripts schema package.json tsconfig.json biome.json",
