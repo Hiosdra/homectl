@@ -30,6 +30,11 @@ import {
   shortId,
 } from "./present";
 import {
+  createRecoveryKey,
+  exportRecoveryBundle,
+  restoreRecoveryBundle,
+} from "./recovery";
+import {
   deviceNames,
   fenceOf,
   loadReplicaFile,
@@ -65,6 +70,9 @@ export interface ControlCliInput {
     "max-lifetime"?: string;
     "oidc-subject"?: string;
     "oidc-client-id"?: string;
+    out?: string;
+    key?: string;
+    bundle?: string;
   };
   dryRun: boolean;
   json: boolean;
@@ -555,6 +563,60 @@ export async function controlCommand(
     throw new HomectlError(
       2,
       "Use control oidc set --issuer URL --audience AUD [--jwks-url URL], control oidc show or control oidc clear",
+    );
+  }
+  if (group === "recovery") {
+    const stateDirectory = controlStateDirectory(input.inventoryPath);
+    if (action === "key" && input.positionals.length === 2) {
+      if (!input.values.out)
+        throw new HomectlError(
+          2,
+          "Usage: homectl control recovery key --out PATH",
+        );
+      const made = await createRecoveryKey(stateDirectory, input.values.out);
+      return {
+        value: made,
+        human: `Recovery key written to ${made.path} (key id ${made.keyId}). Keep it outside every device. The key itself is not printed.`,
+        code: 0,
+      };
+    }
+    if (action === "export" && input.positionals.length === 2) {
+      if (!input.values.key || !input.values.out)
+        throw new HomectlError(
+          2,
+          "Usage: homectl control recovery export --key PATH --out PATH",
+        );
+      const bundle = await exportRecoveryBundle({
+        stateDirectory,
+        keyPath: input.values.key,
+        outPath: input.values.out,
+      });
+      return {
+        value: bundle,
+        human: `Recovery bundle written to ${bundle.path} (key id ${bundle.keyId}). It holds: ${bundle.files.join(", ")}.`,
+        code: 0,
+      };
+    }
+    if (action === "restore" && input.positionals.length === 2) {
+      if (!input.values.key || !input.values.bundle)
+        throw new HomectlError(
+          2,
+          "Usage: homectl control recovery restore --key PATH --bundle PATH",
+        );
+      const restored = await restoreRecoveryBundle({
+        stateDirectory,
+        keyPath: input.values.key,
+        bundlePath: input.values.bundle,
+      });
+      return {
+        value: restored,
+        human: `Restored ${restored.restored.length} control file(s) with key id ${restored.keyId}. Start serve again; this device keeps its previous identity.`,
+        code: 0,
+      };
+    }
+    throw new HomectlError(
+      2,
+      "Usage: homectl control recovery key --out PATH | export --key PATH --out PATH | restore --key PATH --bundle PATH",
     );
   }
   if (group === "audit" && action === "verify") {
