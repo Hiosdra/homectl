@@ -182,21 +182,19 @@ export async function serveMcp(
   input: ControlCliInput,
   onReady: (value: unknown, human: string) => void,
 ): Promise<void> {
-  if (input.values.host !== undefined && input.values.host !== "127.0.0.1")
-    throw new HomectlError(
-      2,
-      "serve-mcp binds only to loopback (127.0.0.1); use a reverse proxy or tunnel for remote clients.",
-    );
+  const bind = input.values.host ?? "127.0.0.1";
   const { control: plane } = await mcpControl(input);
   const port =
     input.values.port === undefined
       ? DEFAULT_MCP_PORT
       : Number(input.values.port);
-  const running = startMcpServer({ control: plane, port });
+  const running = startMcpServer({ control: plane, port, bind });
   const active = (await plane.listClients()).filter((c) => !c.revoked).length;
+  const lan = bind !== "127.0.0.1";
   const value = {
     mcp: running.url,
-    bind: "127.0.0.1",
+    bind,
+    transport: "http",
     activeClients: active,
     next: "Give each client its own token file. Press Ctrl+C to stop the endpoint.",
   };
@@ -205,7 +203,10 @@ export async function serveMcp(
     value,
     [
       `${paint("MCP endpoint ready", "green", color)} at ${running.url}`,
-      `Bound to 127.0.0.1 only. Active clients: ${active}.`,
+      lan
+        ? `Bound to ${bind} (LAN). Plain HTTP: bearer tokens are not encrypted on the network. Keep this to the trusted LAN, or put HTTPS in front before wider use.`
+        : `Bound to ${bind} only.`,
+      `Active clients: ${active}.`,
       "Give each client its own token file. Press Ctrl+C to stop.",
     ].join("\n"),
   );

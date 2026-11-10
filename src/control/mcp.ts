@@ -2,6 +2,7 @@
 // control-plane engine. Implemented directly: four tools, three methods plus
 // ping and notifications, and no SDK dependency.
 
+import { isIPv4 } from "node:net";
 import { HomectlError } from "../types";
 import { hasScope } from "./clients";
 import { summarizeTool } from "./present";
@@ -15,10 +16,10 @@ import { SCOPES } from "./types";
 // authorization server.
 export const PROTECTED_RESOURCE_PATH = "/.well-known/oauth-protected-resource";
 
-async function protectedResourceMetadata(control: McpControl, port: number) {
+async function protectedResourceMetadata(control: McpControl, base: string) {
   const oidc = await control.oidcView();
   return {
-    resource: `http://127.0.0.1:${port}/mcp`,
+    resource: `${base}/mcp`,
     bearer_methods_supported: ["header"],
     scopes_supported: [...SCOPES],
     ...(oidc ? { authorization_servers: [oidc.issuer] } : {}),
@@ -276,21 +277,36 @@ export interface McpServer {
   stop(): void;
 }
 
-// Starts the endpoint on 127.0.0.1 only. There is no option for another
-// address. Host and Origin must name loopback; every request needs a bearer
-// token that the control plane authenticates.
+// Binds to 127.0.0.1 by default. An explicit unicast IPv4 address (for example
+// the NAS LAN address) may be given; wildcard, multicast and broadcast addresses
+// are refused. Host and Origin must name loopback or that one address, and every
+// request needs a bearer token that the control plane authenticates. Plain HTTP:
+// on a LAN the bearer token is visible to anyone who can capture that traffic.
+export function explicitBindAddress(address: string): boolean {
+  if (!isIPv4(address) || address === "0.0.0.0") return false;
+  if (address === "255.255.255.255") return false;
+  return Number(address.split(".")[0]) < 224;
+}
+
 export function startMcpServer(options: {
   control: McpControl;
   port?: number;
+  bind?: string;
 }): McpServer {
   const port = options.port ?? DEFAULT_MCP_PORT;
   if (!Number.isInteger(port) || port < 0 || port > 65535)
     throw new HomectlError(2, "Port must be 0 through 65535");
+  const bind = options.bind ?? "127.0.0.1";
+  if (!explicitBindAddress(bind))
+    throw new HomectlError(
+      2,
+      "serve-mcp needs one explicit IPv4 address, for example the NAS LAN address; wildcard, multicast and broadcast addresses are refused.",
+    );
   const control = options.control;
   let server: ReturnType<typeof Bun.serve>;
   try {
     server = Bun.serve({
-      hostname: "127.0.0.1",
+      hostname: bind,
       port,
       maxRequestBodySize: MAX_BODY_BYTES,
       idleTimeout: 30,
@@ -307,9 +323,10 @@ export function startMcpServer(options: {
       );
     throw new HomectlError(
       5,
-      `Cannot start the MCP endpoint on 127.0.0.1:${port}; choose another port`,
+      `Cannot start the MCP endpoint on ${bind}:${port}; choose another port`,
     );
   }
+  const base = () => `http://${bind}:${server.port}`;
 
   const handle = async (request: Request): Promise<Response> => {
     try {
@@ -317,14 +334,20 @@ export function startMcpServer(options: {
       const url = new URL(request.url);
       if (url.pathname !== "/mcp" && url.pathname !== PROTECTED_RESOURCE_PATH)
         return reply(404, rpcError(null, -32601, "Not found"));
+      const allowedHosts = new Set([
+        `127.0.0.1:${actual}`,
+        `localhost:${actual}`,
+        `${bind}:${actual}`,
+      ]);
       const host = request.headers.get("host");
-      if (host !== `127.0.0.1:${actual}` && host !== `localhost:${actual}`)
+      if (host === null || !allowedHosts.has(host))
         return reply(403, rpcError(null, -32000, "Unexpected host"));
       const origin = request.headers.get("origin");
       if (
         origin !== null &&
-        origin !== `http://127.0.0.1:${actual}` &&
-        origin !== `http://localhost:${actual}`
+        !["127.0.0.1", "localhost", bind].some(
+          (name) => origin === `http://${name}:${actual}`,
+        )
       )
         return reply(403, rpcError(null, -32000, "Unexpected origin"));
       if (url.pathname === PROTECTED_RESOURCE_PATH) {
@@ -332,10 +355,7 @@ export function startMcpServer(options: {
           return reply(405, rpcError(null, -32000, "Use GET"), {
             Allow: "GET",
           });
-        return reply(
-          200,
-          await protectedResourceMetadata(control, server.port ?? 0),
-        );
+        return reply(200, await protectedResourceMetadata(control, base()));
       }
       if (request.method !== "POST")
         return reply(405, rpcError(null, -32000, "Use POST"), {
@@ -347,7 +367,7 @@ export function startMcpServer(options: {
       if (!client) {
         await control.recordAuthRejection().catch(() => undefined);
         return reply(401, rpcError(null, -32001, "Unauthorized"), {
-          "WWW-Authenticate": `Bearer realm="homectl", resource_metadata="http://127.0.0.1:${server.port}${PROTECTED_RESOURCE_PATH}"`,
+          "WWW-Authenticate": `Bearer realm="homectl", resource_metadata="${base()}${PROTECTED_RESOURCE_PATH}"`,
         });
       }
       if (
@@ -382,7 +402,7 @@ export function startMcpServer(options: {
   };
 
   return {
-    url: `http://127.0.0.1:${server.port}/mcp`,
+    url: `${base()}/mcp`,
     port: server.port ?? port,
     stop: () => {
       server.stop(true);
