@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -832,6 +833,57 @@ describe("execution (local operator only)", () => {
     state.operations[plan.operationId].plan.argv = ["uname", "-a"];
     await writeFile(path, JSON.stringify(state));
     await expectCode(run(h, plan.operationId), 3, "integrity check");
+    expect(h.calls).toHaveLength(0);
+  });
+
+  // Plan signatures: the planning device signs the fingerprint; execution fails
+  // closed unless that signature verifies against this device's own key.
+  async function editRecord(
+    h: Harness,
+    operationId: string,
+    edit: (record: Record<string, unknown>) => void,
+  ) {
+    const path = join(h.dir, "control-plane", "state.json");
+    const state = JSON.parse(await readFile(path, "utf8"));
+    edit(state.operations[operationId]);
+    await writeFile(path, JSON.stringify(state));
+  }
+
+  test("a plan record without a device signature never runs", async () => {
+    const h = await harness();
+    const { plan } = await approved(h);
+    await editRecord(h, plan.operationId, (record) => {
+      delete record.planSignature;
+    });
+    await expectCode(run(h, plan.operationId), 3, "no valid device signature");
+    expect(h.calls).toHaveLength(0);
+  });
+
+  test("a signature that does not verify against the fingerprint never runs", async () => {
+    const h = await harness();
+    const { plan } = await approved(h);
+    await editRecord(h, plan.operationId, (record) => {
+      record.planSignature = Buffer.alloc(64, 7).toString("base64");
+    });
+    await expectCode(run(h, plan.operationId), 3, "no valid device signature");
+    expect(h.calls).toHaveLength(0);
+  });
+
+  test("a local plan signed with another key, even a valid one, never runs", async () => {
+    const h = await harness();
+    const { plan } = await approved(h);
+    const stranger = generateKeyPairSync("ed25519");
+    await editRecord(h, plan.operationId, (record) => {
+      record.planSignerKey = stranger.publicKey
+        .export({ type: "spki", format: "der" })
+        .toString("base64");
+      record.planSignature = sign(
+        null,
+        Buffer.from(String(record.fingerprint)),
+        stranger.privateKey,
+      ).toString("base64");
+    });
+    await expectCode(run(h, plan.operationId), 3, "no valid device signature");
     expect(h.calls).toHaveLength(0);
   });
 

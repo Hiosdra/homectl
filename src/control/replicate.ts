@@ -51,6 +51,10 @@ export interface OpBody {
   approver?: string;
   // Typed Proxmox catalogue input; the receiving device rebuilds the plan from it.
   catalogueInput?: CatalogueInput;
+  // Planner's Ed25519 signature over `fingerprint` (base64). Added in the
+  // plan-signing change. Absent means unsigned: older peers never send it and
+  // ignore it, and receivers refuse to execute an unsigned plan.
+  planSignature?: string;
   updatedAt: string;
   exitCode?: number;
   reason?: string;
