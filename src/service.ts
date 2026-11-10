@@ -1,6 +1,7 @@
 import { copyFile, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { selfCommand } from "./internal";
 import { privateDirectory, protect, windows } from "./platform";
 import { run } from "./process";
 import { HomectlError } from "./types";
@@ -14,7 +15,15 @@ export type ServiceOptions = {
 export function systemdUnit(inventory: string, interfaceIP: string) {
   const quote = (v: string) =>
     `"${v.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%")}"`;
-  return `[Unit]\nDescription=homectl peer workspace\nAfter=network-online.target\n\n[Service]\nType=simple\nExecStart=${quote(process.execPath)} ${quote(resolve(import.meta.dir, "cli/main.ts"))} serve --inventory ${quote(inventory)} --interface ${quote(interfaceIP)}\nRestart=on-failure\nRestartSec=5\nUMask=0077\nNoNewPrivileges=yes\n\n[Install]\nWantedBy=default.target\n`;
+  const exec = [
+    ...selfCommand().map(quote),
+    "serve",
+    "--inventory",
+    quote(inventory),
+    "--interface",
+    quote(interfaceIP),
+  ].join(" ");
+  return `[Unit]\nDescription=homectl peer workspace\nAfter=network-online.target\n\n[Service]\nType=simple\nExecStart=${exec}\nRestart=on-failure\nRestartSec=5\nUMask=0077\nNoNewPrivileges=yes\n\n[Install]\nWantedBy=default.target\n`;
 }
 function xml(v: string) {
   return v
@@ -25,8 +34,9 @@ function xml(v: string) {
     .replaceAll("'", "&apos;");
 }
 export function windowsServiceConfig(inventory: string, interfaceIP: string) {
+  const [executable = process.execPath, ...entry] = selfCommand();
   const args = [
-    resolve(import.meta.dir, "cli/main.ts"),
+    ...entry,
     "serve",
     "--inventory",
     inventory,
@@ -35,7 +45,7 @@ export function windowsServiceConfig(inventory: string, interfaceIP: string) {
   ]
     .map((v) => `"${v.replaceAll('"', '\\"')}"`)
     .join(" ");
-  return `<service>\n<id>homectl</id><name>homectl peer workspace</name><description>Local homectl panel and peer sync</description>\n<executable>${xml(process.execPath)}</executable><arguments>${xml(args)}</arguments>\n<startmode>Manual</startmode><log mode="roll"/><onfailure action="restart" delay="5 sec"/>\n</service>\n`;
+  return `<service>\n<id>homectl</id><name>homectl peer workspace</name><description>Local homectl panel and peer sync</description>\n<executable>${xml(executable)}</executable><arguments>${xml(args)}</arguments>\n<startmode>Manual</startmode><log mode="roll"/><onfailure action="restart" delay="5 sec"/>\n</service>\n`;
 }
 export async function service(action: string, options: ServiceOptions) {
   const home = options.home ?? homedir();

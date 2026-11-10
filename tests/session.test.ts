@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { credentialSpec } from "../src/credentials";
 import { loadInventory, saveInventory } from "../src/inventory";
-import { workerPath } from "../src/operations";
+import { workerArgv } from "../src/operations";
 import { executable } from "../src/platform";
 import { run } from "../src/process";
 import {
@@ -358,7 +358,7 @@ test("managed worker rejects a locked session before launching SSH", async () =>
     credentialSpec(
       auth,
       { argv: [executable("ssh"), "192.0.2.1"], timeoutMs: 1000 },
-      workerPath,
+      workerArgv,
     ),
   );
   expect(result.exitCode).toBe(5);

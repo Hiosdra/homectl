@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { credentialSpec } from "./credentials";
 import { probeFailureMessage, unameValue } from "./diagnostics";
 import { loadInventory, parseInventory, saveInventory } from "./inventory";
-import { workerPath, writeSSHConfig } from "./operations";
+import { workerArgv, writeSSHConfig } from "./operations";
 import { sudoers } from "./policies";
 import { run } from "./process";
 import { transportSpec } from "./transports";
@@ -36,7 +36,7 @@ export async function installSudo(
         ...transportSpec(m, ["sudo", "-n", "sh", "-c", script], configPath),
         stdin: content,
       },
-      workerPath,
+      workerArgv,
     ),
   );
   if (result.exitCode !== 0)
@@ -81,7 +81,7 @@ export async function enroll(
     credentialSpec(
       m.auth,
       transportSpec(m, ["uname", "-s"], configPath),
-      workerPath,
+      workerArgv,
     ),
   );
   if (probe.exitCode !== 0)

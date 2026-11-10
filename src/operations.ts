@@ -1,12 +1,13 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { credentialSpec } from "./credentials";
 import { probeFailureMessage } from "./diagnostics";
+import { internalCommand } from "./internal";
 import { checkApproval, planExecution } from "./policies";
 import { run } from "./process";
 import { sshConfig, transportSpec } from "./transports";
 import { HomectlError, type Machine, type Runner } from "./types";
-export const workerPath = resolve(import.meta.dir, "credentials/worker.ts");
+export const workerArgv = internalCommand("worker");
 export async function execute(
   host: string,
   machine: Machine,
@@ -37,7 +38,7 @@ export async function execute(
   const spec = credentialSpec(
     machine.auth,
     transportSpec(machine, argv, options.configPath),
-    workerPath,
+    workerArgv,
   );
   const result = await (options.runner ?? run)(spec);
   if (

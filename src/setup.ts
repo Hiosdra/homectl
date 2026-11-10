@@ -10,6 +10,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { probeFailureMessage } from "./diagnostics";
+import { bundled, selfCommand } from "./internal";
 import { saveInventory } from "./inventory";
 import { writeSSHConfig } from "./operations";
 import {
@@ -110,25 +111,35 @@ export async function setup(home = homedir(), dryRun = false) {
     p.inventory,
   );
   await writeSSHConfig(p.ssh, inventory.machines);
-  for (const platform of [".agents", ".claude"]) {
-    const dest = join(home, platform, "skills");
-    await mkdir(dest, { recursive: true, mode: 0o700 });
-    for (const skill of ["homelab", "homelab-setup", "homelab-enroll"])
-      await link(join(repoRoot, "skills", skill), join(dest, skill));
-  }
+  // Skills are documents in the checkout. A compiled executable has none to link.
+  if (!bundled)
+    for (const platform of [".agents", ".claude"]) {
+      const dest = join(home, platform, "skills");
+      await mkdir(dest, { recursive: true, mode: 0o700 });
+      for (const skill of ["homelab", "homelab-setup", "homelab-enroll"])
+        await link(join(repoRoot, "skills", skill), join(dest, skill));
+    }
   await mkdir(p.bin, { recursive: true, mode: 0o700 });
-  const entry = join(repoRoot, "src", "cli", "main.ts");
+  // A compiled executable is its own entry point; a checkout runs the script.
+  const launch = selfCommand();
+
   const quote = (v: string) => `'${v.replaceAll("'", "'\\''")}'`;
+  const winQuote = (list: string[]) => list.map((v) => `"${v}"`).join(" ");
+  const psQuote = (list: string[]) =>
+    list.map((v) => `'${v.replaceAll("'", "''")}'`).join(" ");
   const launchers: Record<string, string> = windows
     ? {
-        "homectl.cmd": `@echo off\r\n"${process.execPath}" "${entry}" %*\r\n`,
-        "homectl.ps1": `& '${process.execPath.replaceAll("'", "''")}' '${entry.replaceAll("'", "''")}' @args\nexit $LASTEXITCODE\n`,
-        homectl: `#!/bin/sh\nexec "$(cygpath -u ${quote(process.execPath)})" ${quote(entry.replaceAll("\\", "/"))} "$@"\n`,
+        "homectl.cmd": `@echo off\r\n${winQuote(launch)} %*\r\n`,
+        "homectl.ps1": `& ${psQuote(launch)} @args\nexit $LASTEXITCODE\n`,
+        homectl: `#!/bin/sh\nexec "$(cygpath -u ${quote(launch[0] ?? "")})" ${launch
+          .slice(1)
+          .map((v) => quote(v.replaceAll("\\", "/")))
+          .join(" ")} "$@"\n`,
       }
     : {
-        homectl: `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(entry)} "$@"\n`,
+        homectl: `#!/bin/sh\nexec ${launch.map(quote).join(" ")} "$@"\n`,
       };
-  if (windows && /[%!\r\n]/.test(process.execPath + entry))
+  if (windows && /[%!\r\n]/.test(launch.join(" ")))
     throw new HomectlError(
       2,
       "Windows launcher paths cannot contain percent, exclamation or newlines",
@@ -244,14 +255,14 @@ export async function doctor(
     if (!m) throw new HomectlError(2, "Unknown host");
     const { credentialSpec } = await import("./credentials");
     const { transportSpec } = await import("./transports");
-    const { workerPath } = await import("./operations");
+    const { workerArgv } = await import("./operations");
     let result: ProcessResult;
     try {
       result = await runner(
         credentialSpec(
           m.auth,
           transportSpec(m, ["uname", "-s"], configPath),
-          workerPath,
+          workerArgv,
         ),
       );
     } catch {
@@ -277,7 +288,7 @@ export async function doctor(
     if (result.exitCode === 0 && m.access === "full" && m.user !== "root") {
       const args = ["sudo", "-n", "true"]; // Never execute an allowlisted mutation as a diagnostic.
       const r = await runner(
-        credentialSpec(m.auth, transportSpec(m, args, configPath), workerPath),
+        credentialSpec(m.auth, transportSpec(m, args, configPath), workerArgv),
       );
       checks.push({
         name: `${host}:sudo-n`,

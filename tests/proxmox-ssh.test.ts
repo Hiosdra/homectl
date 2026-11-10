@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { workerPath } from "../src/operations";
+import { workerArgv } from "../src/operations";
 import { planProvision, proxmox } from "../src/provisioners";
 import { proxmoxSSH } from "../src/provisioners/ssh";
 import { shellQuote } from "../src/transports";
@@ -72,7 +72,7 @@ test("GET reaches pvesh through the managed SSH worker with strict host checking
   expect(await f.api.request("GET", "/nodes/pve/qemu")).toEqual([
     { vmid: 210 },
   ]);
-  expect(f.outer[0]?.argv).toEqual([process.execPath, workerPath]);
+  expect(f.outer[0]?.argv).toEqual(workerArgv);
   const ssh = f.calls[0];
   expect(ssh?.env?.SSH_AUTH_SOCK).toBe(host.auth?.socket);
   expect(ssh?.argv).toContain("StrictHostKeyChecking=yes");
