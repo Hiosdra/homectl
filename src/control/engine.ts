@@ -7,10 +7,18 @@ import { atomicReplace } from "../platform";
 import { innerCommand, planExecution } from "../policies";
 import { run } from "../process";
 import {
+  type ApiRequest,
+  type ApiRunOptions,
+  type ApiTarget,
+  apiRequestFor,
+  runProxmoxApi,
+} from "../proxmox/api";
+import {
   buildProxmoxPlan,
   type ProxmoxInput,
   providerFacts,
 } from "../proxmox/catalogue";
+import { apiTokenSecretName, getSessionSecret } from "../session";
 import {
   HomectlError,
   type Inventory,
@@ -164,6 +172,11 @@ export interface ControlPlaneOptions {
   // Replicated view: owners, delivery of forwarded approvals, operations held
   // only by other devices (ADR-0002 stage d).
   replicaOverlay?: (localIds: Set<string>) => Promise<ReplicaOverlay>;
+  // Proxmox API transport. The token source defaults to the session agent. Tests
+  // inject a fetcher and a token source, so no network and no daemon are needed.
+  proxmoxApi?: ApiRunOptions & {
+    tokenSource?: (name: string) => Promise<string | undefined>;
+  };
   // Transport for JWKS and discovery. Defaults to fetch; tests may inject one.
   oidcFetch?: Fetcher;
   // Authority of an approver whose registration lives on another device.
@@ -1570,6 +1583,43 @@ export class ControlPlane {
     return verifyBytes(op.planSignerKey, op.fingerprint, op.planSignature);
   }
 
+  // The Proxmox API transport for a catalogue plan, when its provider has an api
+  // block. The request is derived from the same typed input the approver saw.
+  private async proxmoxApiFor(
+    op: OperationRecord,
+  ): Promise<
+    { request: ApiRequest; target: ApiTarget; node: string } | undefined
+  > {
+    const inventory = await loadInventory(this.options.inventoryPath);
+    const found = Object.entries(inventory.providers ?? {}).find(
+      ([, provider]) => provider.host === op.plan.host,
+    );
+    if (found === undefined || found[1].api === undefined) return undefined;
+    const [name, provider] = found;
+    const api = provider.api;
+    if (api === undefined || op.plan.catalogueInput === undefined)
+      return undefined;
+    const request = apiRequestFor(
+      op.plan.catalogueInput as ProxmoxInput,
+      providerFacts(provider),
+    );
+    const authorization = await (
+      this.options.proxmoxApi?.tokenSource ??
+      ((secret: string) => getSessionSecret(this.options.inventoryPath, secret))
+    )(apiTokenSecretName(name));
+    if (authorization === undefined)
+      throw new HomectlError(
+        5,
+        "Unlock the session first: the Proxmox API token is not loaded. The operation stays approved.",
+      );
+    const caPem = await readFile(api.ca_file, "utf8");
+    return {
+      request,
+      node: provider.node,
+      target: { baseUrl: api.url, caPem, authorization },
+    };
+  }
+
   private async execute(operationId: string): Promise<ExecuteResult> {
     const prepared = await this.mutate(async (state, now) => {
       const op = Object.hasOwn(state.operations, operationId)
@@ -1662,6 +1712,10 @@ export class ControlPlane {
         this.options.configPath,
         (await loadInventory(this.options.inventoryPath)).machines,
       );
+      // Proxmox API transport: the token and the request are checked before the
+      // approval is consumed. A missing token leaves the operation approved.
+      const api =
+        op.plan.catalogue === true ? await this.proxmoxApiFor(op) : undefined;
       // Consume the nonce and mark `executing` durably before any spawn.
       if (approval !== undefined) {
         approval.state = "consumed";
@@ -1711,6 +1765,7 @@ export class ControlPlane {
         approval: op.plan.execApproval,
         machine: structuredClone(op.plan.machine),
         catalogue: op.plan.catalogue === true,
+        ...(api !== undefined ? { api } : {}),
       };
     });
 
@@ -1726,19 +1781,33 @@ export class ControlPlane {
     };
     let output: ExecuteResult["output"];
     try {
-      const executed = await executeCommand(
-        prepared.host,
-        prepared.machine,
-        prepared.argv,
-        {
-          configPath: this.options.configPath,
-          approval: prepared.approval,
-          impact: prepared.impact,
-          runner,
-          catalogue: prepared.catalogue === true,
-        },
-      );
-      const result = executed.result;
+      let result:
+        | { exitCode: number; stdout: string; stderr: string }
+        | undefined;
+      if (prepared.api !== undefined) {
+        // From here the request may reach the host, so an error is `unknown`, never a retry.
+        spawned = true;
+        result = await runProxmoxApi(
+          prepared.api.target,
+          prepared.api.node,
+          prepared.api.request,
+          this.options.proxmoxApi ?? {},
+        );
+      } else {
+        const executed = await executeCommand(
+          prepared.host,
+          prepared.machine,
+          prepared.argv,
+          {
+            configPath: this.options.configPath,
+            approval: prepared.approval,
+            impact: prepared.impact,
+            runner,
+            catalogue: prepared.catalogue === true,
+          },
+        );
+        result = executed.result;
+      }
       if (!result || !Number.isInteger(result.exitCode)) {
         outcome = { state: "unknown", reason: "spawn-outcome-unknown" };
       } else if (result.exitCode === 0) {

@@ -29,26 +29,52 @@ const agent = windows
     });
 let stopping = false;
 let expiry: ReturnType<typeof setTimeout> | undefined;
+// Named secrets (the Proxmox API token header). Held in memory only, and cleared
+// when the session locks, expires or stops. Never written to disk.
+const secrets = new Map<string, string>();
+const SECRET_NAME = /^[a-z][a-z0-9-]{0,62}$/;
+const SECRET_LINE_MAX = 8192;
 const server = createServer((connection) => {
   connection.setTimeout(2000, () => connection.destroy());
   let input = "";
   connection.on("data", (data) => {
     input += data.toString();
-    if (input.length > 64) return connection.destroy();
+    const putting = input.startsWith("put ");
+    if (input.length > (putting ? SECRET_LINE_MAX : 64))
+      return connection.destroy();
     if (!input.includes("\n")) return;
-    if (input.trim() === "status") {
+    const line = input.trim();
+    if (line === "status") {
       connection.end(
         `${JSON.stringify({ unlocked: !stopping, startedAt, expiresAt })}\n`,
       );
-    } else if (input.trim() === "lock") {
+    } else if (line === "lock") {
       connection.end('{"unlocked":false}\n');
       void stop();
+    } else if (putting) {
+      // put <name> <base64 value>
+      const [, name, encoded] = line.split(" ");
+      if (stopping) return connection.end('{"error":"locked"}\n');
+      if (!name || !SECRET_NAME.test(name) || !encoded)
+        return connection.destroy();
+      secrets.set(name, Buffer.from(encoded, "base64").toString("utf8"));
+      connection.end('{"ok":true}\n');
+    } else if (line.startsWith("get ")) {
+      const name = line.slice(4);
+      if (stopping) return connection.end('{"error":"locked"}\n');
+      const value = SECRET_NAME.test(name) ? secrets.get(name) : undefined;
+      connection.end(
+        value === undefined
+          ? '{"error":"absent"}\n'
+          : `${JSON.stringify({ value })}\n`,
+      );
     } else connection.destroy();
   });
 });
 async function stop() {
   if (stopping) return;
   stopping = true;
+  secrets.clear();
   clearTimeout(expiry);
   server.close();
   native?.close();
