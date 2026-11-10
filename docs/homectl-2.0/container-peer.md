@@ -167,3 +167,12 @@ Placeholders in this runbook: `192.0.2.20` is the NAS LAN address, `172.28.0.10`
 - On Ugreen, the first `homectl-peer:pr6` image build and entry-point check succeeded. The container started as UID 10001 with a read-only root filesystem, reported `healthy`, and accepted TCP on the NAS LAN peer port.
 - The panel changes and Compose Project import need a new image and restart before their live behavior can be confirmed.
 - Container `session unlock` and whether a session agent survives the exit of `docker exec` remain unverified.
+
+## Image distribution (GHCR)
+
+- The workflow `.github/workflows/container.yml` builds the image on pull requests (no push) and publishes it on version tags `v*` to `ghcr.io/hiosdra/homectl`.
+- Tags per release: `<version>`, `<major>.<minor>`, `latest` and `sha-<commit>`. The image is `linux/amd64` only for now.
+- The Bun base is pinned by digest in the workflow (`BUN_IMAGE`). Change it only in a reviewed pull request, and check the new digest against a registry you trust.
+- Pushes use the workflow's `GITHUB_TOKEN` with `packages: write`. A personal token with only `read:packages` cannot push.
+- A new GHCR package is private by default. Either make it public, or give the NAS a read-only pull credential before `docker compose pull`.
+- Not yet verified: a pulled image run on the NAS, and the arm64 build (needs QEMU in CI).
