@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { ControlPlane } from "../src/control/engine";
 import { type McpServer, startMcpServer, TOOLS } from "../src/control/mcp";
@@ -557,6 +557,53 @@ describe("server lifecycle", () => {
       HomectlError,
     );
     expect(() => startMcpServer({ control, port: -1 })).toThrow(HomectlError);
+  });
+});
+
+describe("explicit LAN bind", () => {
+  function lanAddress(): string | undefined {
+    for (const list of Object.values(networkInterfaces()))
+      for (const entry of list ?? [])
+        if (entry.family === "IPv4" && !entry.internal) return entry.address;
+    return undefined;
+  }
+
+  test("wildcard, multicast, broadcast and non-IPv4 addresses are refused before binding", async () => {
+    const f = await fixture();
+    for (const bind of ["0.0.0.0", "224.0.0.1", "255.255.255.255", "::", "lan"])
+      expect(() => startMcpServer({ control: f.plane, port: 0, bind })).toThrow(
+        HomectlError,
+      );
+  });
+
+  test("an explicit LAN address serves /mcp, names itself in metadata, and still needs a bearer token", async () => {
+    const address = lanAddress();
+    if (address === undefined) return; // no non-loopback interface on this host
+    const f = await fixture();
+    const lan = startMcpServer({ control: f.plane, port: 0, bind: address });
+    try {
+      expect(lan.url).toBe(`http://${address}:${lan.port}/mcp`);
+      const metadata = await fetch(
+        `http://${address}:${lan.port}/.well-known/oauth-protected-resource`,
+      );
+      expect(((await metadata.json()) as { resource: string }).resource).toBe(
+        `http://${address}:${lan.port}/mcp`,
+      );
+      const anonymous = await fetch(lan.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      });
+      expect(anonymous.status).toBe(401);
+      const rebind = await fetch(lan.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Host: "rebind.example" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      });
+      expect(rebind.status).toBe(403);
+    } finally {
+      lan.stop();
+    }
   });
 });
 
