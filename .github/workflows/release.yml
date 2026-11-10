@@ -22,7 +22,8 @@ jobs:
         with:
           bun-version: 1.4.4
 
-      - run: sudo apt-get update && sudo apt-get install -y zip
+      # The same test tools as ci.yml: the session tests need keepassxc-cli and ssh-agent.
+      - run: sudo apt-get update && sudo apt-get install -y zip openssh-client keepassxc
 
       - run: bun install --frozen-lockfile
 
