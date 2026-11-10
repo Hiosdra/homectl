@@ -46,6 +46,7 @@ async function invoke(args: string[]) {
     env: cleanEnv(),
     stdout: "pipe",
     stderr: "pipe",
+    windowsHide: true,
   });
   return {
     stdout: await new Response(child.stdout).text(),
@@ -346,7 +347,7 @@ test("serve-mcp answers an authenticated initialize over loopback and stops on s
       f.inventory,
       "--json",
     ],
-    { env: cleanEnv(), stdout: "pipe", stderr: "pipe" },
+    { env: cleanEnv(), stdout: "pipe", stderr: "pipe", windowsHide: true },
   );
   const reader = child.stdout.getReader();
   const decoder = new TextDecoder();

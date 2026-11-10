@@ -1,9 +1,9 @@
 // Disposable synthetic workspace. Never reads the owner's homectl database.
 
 import { randomBytes } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { networkInterfaces, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 import { loadOrCreateDeviceKey } from "../src/control/device-key";
 import {
@@ -14,7 +14,7 @@ import {
   type OpBody,
   sealRecord,
 } from "../src/control/replicate";
-import { saveInventory } from "../src/inventory";
+import { loadInventory, saveInventory } from "../src/inventory";
 import { serve } from "../src/serve";
 import { keyReference } from "../src/session/keys";
 
@@ -75,13 +75,26 @@ await saveInventory(inventory, {
       ssh_alias: "proxmox-lab",
       auth: keyReference("proxmox-lab", inventory),
     },
+    "discard-me": {
+      description: "Disposable fixture",
+      transport: "ssh",
+      address: "192.0.2.40",
+      user: "operator",
+      access: "observe",
+      ssh_alias: "discard-me",
+      auth: keyReference("discard-me", inventory),
+    },
   },
 });
+const disposablePublicKey = keyReference("discard-me", inventory).public_key;
+await mkdir(join(root, "public-keys"), { recursive: true });
+await writeFile(disposablePublicKey, "synthetic-key-to-retain");
 const running = await serve({
   inventoryPath: inventory,
   configPath: `${inventory}.ssh_config`,
   port: panelPort,
   peerPort: 0,
+  interface: panelInterface,
   discover: false,
   panel: {
     interface: panelInterface,
@@ -181,12 +194,50 @@ try {
     page.getByRole("heading", { name: "Machines", exact: true }),
   ).toBeVisible();
   expect(page.url()).not.toContain("token");
-  const out = resolve(import.meta.dir, "../.impeccable/review");
+  const out = join(root, "review");
   await (await import("node:fs/promises")).mkdir(out, { recursive: true });
   await page.screenshot({ path: join(out, "desktop.png"), fullPage: true });
   await page.getByRole("searchbox").fill("voron");
   await expect(page.locator("tr[data-search]:visible")).toHaveCount(1);
   await page.getByRole("searchbox").fill("");
+  await page
+    .getByRole("row")
+    .filter({ hasText: "discard-me" })
+    .getByRole("button", { name: "Edit" })
+    .click();
+  await page.getByRole("button", { name: "Remove machine" }).click();
+  await expect(page.locator("#confirm-dialog")).toContainText(
+    "vault credential",
+  );
+  await page.locator("#confirm-dialog button[value=cancel]").click();
+  expect((await loadInventory(inventory)).machines["discard-me"]).toBeDefined();
+  await page.getByRole("button", { name: "Remove machine" }).click();
+  await page.locator("#confirm-dialog button[value=confirm]").click();
+  await expect(page.locator("#notice")).toContainText(
+    "Machine discard-me removed",
+  );
+  await expect(
+    page.getByRole("row").filter({ hasText: "discard-me" }),
+  ).toHaveCount(0);
+  const afterRemoval = await loadInventory(inventory);
+  expect(afterRemoval.machines["discard-me"]).toBeUndefined();
+  expect(afterRemoval.machines["storage-nas"]).toBeDefined();
+  expect(await readFile(disposablePublicKey, "utf8")).toBe(
+    "synthetic-key-to-retain",
+  );
+  const localRemovalStatus = await page.evaluate(async () => {
+    const result = await fetch("/api/machine/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "agent-host" }),
+    });
+    return result.status;
+  });
+  expect(localRemovalStatus).toBe(403);
+  expect((await loadInventory(inventory)).machines["agent-host"]).toBeDefined();
+  expect(await readFile(`${inventory}.ssh_config`, "utf8")).not.toContain(
+    "Host discard-me",
+  );
   await page.getByRole("button", { name: "Add machine" }).click();
   await expect(
     page.getByRole("heading", { name: "Add SSH host" }),
@@ -196,15 +247,17 @@ try {
     .getByRole("button", { name: "Command", exact: true })
     .first()
     .click();
+  await expect(page.getByLabel("Program")).toHaveValue("uname");
+  await expect(page.getByLabel("Arguments (one per line)")).toHaveValue("-s");
   await page
-    .getByRole("button", { name: "Review and execute", exact: true })
+    .getByRole("button", { name: "Review command", exact: true })
     .click();
   await expect(page.locator("#confirm-dialog")).toBeVisible();
   await expect(
     page.locator("#confirm-dialog button[value=confirm]"),
   ).toBeEnabled();
   await page.locator("#confirm-dialog button[value=cancel]").click();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByRole("link", { name: "Devices", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Devices", exact: true }),
@@ -215,13 +268,78 @@ try {
     page.getByRole("heading", { name: "Pairing window open" }),
   ).toBeVisible();
   expect(running.hub.pair?.code).toMatch(/^\d{4}-\d{4}$/);
-  await page.getByRole("button", { name: "Close pairing" }).click();
+  await expect(page.getByText(/^homectl pair --address /)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Copy command" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Copy one-time code" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Cancel pairing" }).click();
   expect(running.hub.pair).toBeUndefined();
+  // Model a new device with no SSH keys yet. Once the vault is created, the
+  // synthetic SSH hosts are restored for the remaining machine/control flows.
+  await saveInventory(inventory, {
+    version: 1,
+    session: { ttl: "24h", database: join(root, "homelab.kdbx") },
+    machines: {
+      "agent-host": {
+        description: "Local device · demonstration data",
+        transport: "local",
+        access: "user",
+      },
+    },
+  });
   await page.getByRole("link", { name: "Access", exact: true }).click();
-  await expect(page.getByLabel("Local KeePassXC password")).toHaveAttribute(
-    "type",
-    "password",
-  );
+  const smokePassword = "local UI smoke password";
+  await page.getByLabel("Choose a vault password").fill(smokePassword);
+  await page.getByLabel("Confirm vault password").fill(smokePassword);
+  await page.getByRole("button", { name: "Create and unlock vault" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Vault unlocked" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Vault created and unlocked on this device."),
+  ).toBeVisible();
+  await saveInventory(inventory, {
+    version: 1,
+    session: { ttl: "24h", database: join(root, "homelab.kdbx") },
+    machines: {
+      "agent-host": {
+        description: "Local device · demonstration data",
+        transport: "local",
+        access: "user",
+      },
+      "storage-nas": {
+        description: "Files and backups · demo",
+        transport: "ssh",
+        address: "192.0.2.10",
+        user: "operator",
+        access: "observe",
+        ssh_alias: "storage-nas",
+        auth: keyReference("storage-nas", inventory),
+      },
+      "voron-printer": {
+        description: "Klipper and Moonraker · demo",
+        transport: "ssh",
+        address: "192.0.2.20",
+        user: "printer",
+        access: "user",
+        ssh_alias: "voron-printer",
+        auth: keyReference("voron-printer", inventory),
+      },
+      "proxmox-lab": {
+        description: "Virtualization · demo",
+        transport: "ssh",
+        address: "192.0.2.30",
+        user: "root",
+        access: "full",
+        ssh_alias: "proxmox-lab",
+        auth: keyReference("proxmox-lab", inventory),
+      },
+    },
+  });
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await page.screenshot({ path: join(out, "access.png"), fullPage: true });
   const peerId = "11111111-1111-4111-8111-111111111111";
   running.hub.state.peers[peerId] = {
@@ -251,6 +369,10 @@ try {
   await expect(
     page.getByRole("radio", { name: "Use from Linux · demo" }),
   ).toBeVisible();
+  await expect(page.locator(".conflict .sync-change").first()).toContainText(
+    "Machine: storage-nas",
+  );
+  await expect(page.locator(".conflict pre")).toHaveCount(0);
   await page.getByRole("radio", { name: "Use from Linux · demo" }).check();
   await expect(
     page.getByRole("heading", { name: "Selected version" }),
@@ -258,6 +380,104 @@ try {
   await page.getByRole("button", { name: "Compare again" }).click();
   await expect(page.locator(".conflict .split")).toBeVisible();
   await page.screenshot({ path: join(out, "conflicts.png"), fullPage: true });
+  await page.getByText("Changes to review", { exact: true }).click();
+  await expect(page.locator(".sync-change").first()).toBeVisible();
+  await expect(page.locator(".sync-change-list pre")).toHaveCount(0);
+  let compareCount = 0;
+  let remoteBlocksPreview = false;
+  await page.route("**/api/sync/start", (route) => {
+    compareCount++;
+    return route.fulfill({
+      status: 200,
+      json: {
+        ...proposed,
+        id: `preview-${compareCount}`,
+        ...(remoteBlocksPreview
+          ? { blocker: { type: "remote_vault_locked" } }
+          : {}),
+      },
+    });
+  });
+  await page.route("**/api/sync/apply", (route) =>
+    route.fulfill({
+      status: 409,
+      json: {
+        error: "Unlock the local vault before accepting credential changes",
+      },
+    }),
+  );
+  await page.locator("#sync-form button.primary").click();
+  await page.locator("#confirm-dialog button[value=confirm]").click();
+  await expect(page.locator("#sync-unlock-dialog")).toBeVisible();
+  await page.route("**/api/vault/unlock", (route) =>
+    route.fulfill({ status: 200, json: { unlocked: true } }),
+  );
+  await page.getByLabel("Vault password", { exact: true }).fill(smokePassword);
+  await page.locator("#sync-unlock-form button[type=submit]").click();
+  await expect(page.locator("#notice")).toContainText(
+    "Vault unlocked. Review the updated changes",
+  );
+  expect(compareCount).toBe(1);
+  await page.unroute("**/api/sync/apply");
+  await page.unroute("**/api/vault/unlock");
+  let remoteUnlocked = false;
+  let readinessChecks = 0;
+  let applyAttempts = 0;
+  await page.route("**/api/sync/readiness", (route) => {
+    readinessChecks++;
+    return route.fulfill({
+      status: 200,
+      json: { vaultUnlocked: remoteUnlocked },
+    });
+  });
+  await page.route("**/api/sync/apply", (route) => {
+    applyAttempts++;
+    return route.fulfill({
+      status: 503,
+      json: {
+        error:
+          "The other device's vault was locked when the devices were compared. Unlock it there and compare again.",
+      },
+    });
+  });
+  await page.getByRole("radio", { name: "Use from Linux · demo" }).check();
+  await page.locator("#sync-form button.primary").click();
+  await page.locator("#confirm-dialog button[value=confirm]").click();
+  await expect(page.locator("#sync-wait-title")).toContainText("Legacy · demo");
+  await expect(page.locator("#sync-wait-status")).toContainText(
+    "updates automatically",
+  );
+  await expect(
+    page.getByRole("button", { name: "Copy command" }),
+  ).toBeVisible();
+  await expect(page.locator("#sync-form button.primary")).toBeDisabled();
+  await expect.poll(() => readinessChecks).toBeGreaterThan(0);
+  remoteUnlocked = true;
+  await expect(page.locator("#notice")).toContainText(
+    "other vault is unlocked",
+    { timeout: 10_000 },
+  );
+  expect(compareCount).toBe(2);
+  expect(applyAttempts).toBe(1);
+  await expect(
+    page.getByRole("radio", { name: "Use from Linux · demo" }),
+  ).not.toBeChecked();
+  remoteUnlocked = false;
+  remoteBlocksPreview = true;
+  await page.getByRole("button", { name: "Compare devices again" }).click();
+  await expect(page.locator("#sync-wait-title")).toBeVisible();
+  await expect(page.locator("#sync-form button.primary")).toBeDisabled();
+  expect(applyAttempts).toBe(1);
+  remoteBlocksPreview = false;
+  remoteUnlocked = true;
+  await expect(page.locator("#notice")).toContainText(
+    "other vault is unlocked",
+    { timeout: 12_000 },
+  );
+  expect(applyAttempts).toBe(1);
+  await page.unroute("**/api/sync/readiness");
+  await page.unroute("**/api/sync/apply");
+  await page.unroute("**/api/sync/start");
   await page
     .locator("#sync-form")
     .getByRole("button", { name: "Cancel", exact: true })
@@ -265,6 +485,9 @@ try {
   expect(running.hub.pending.has(proposed.id)).toBe(false);
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page.getByLabel("Device name").fill("Linux · demo");
+  await page.getByLabel("Session lifetime").selectOption("custom");
+  await expect(page.getByLabel("Duration")).toBeVisible();
+  await page.getByLabel("Duration").fill("2d");
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.getByRole("status")).toContainText("Changes saved");
   // Replicated state (synthetic), written through the real signing path. Each

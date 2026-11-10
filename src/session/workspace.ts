@@ -10,7 +10,8 @@ type WorkspaceState = {
 function localServiceUnavailable(error: unknown): boolean {
   if (
     error instanceof HomectlError &&
-    error.message === "Start homectl serve or its service first"
+    (error.message === "Start homectl serve or its service first" ||
+      error.message.startsWith("No homectl workspace is open."))
   )
     return true;
   const cause = error as { code?: string; cause?: { code?: string } };
@@ -67,6 +68,6 @@ export async function sessionWorkspace(
   return {
     ...(await sshUnlock(inventory, path, passwordPrompt)),
     syncUnlocked: false,
-    note: "SSH unlocked. Start homectl serve and run session unlock again to unlock synchronization. No database password is retained by the SSH session.",
+    note: "SSH unlocked. Open homectl panel to unlock the sync vault there; the vault password is not kept in the SSH session.",
   };
 }

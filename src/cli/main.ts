@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import { credentialSpec } from "../credentials";
 
@@ -15,7 +16,6 @@ import { proxmoxSSH } from "../provisioners/ssh";
 import {
   lockSession,
   privateCommand,
-  readPassword,
   sessionConfig,
   sessionStatus,
   ttlSeconds,
@@ -31,6 +31,46 @@ import { renderHelp } from "./help";
 import { formatError, formatHuman } from "./output";
 import { confirm } from "./prompts";
 export const help = renderHelp();
+
+async function panelInterface(inventoryPath: string, requested?: string) {
+  if (requested) return requested;
+  const { lanAddresses } = await import("../peer/interactive");
+  const addresses = lanAddresses();
+  try {
+    const saved = JSON.parse(
+      await readFile(
+        join(dirname(inventoryPath), "setup-preferences.json"),
+        "utf8",
+      ),
+    );
+    if (addresses.includes(saved.interface)) return saved.interface as string;
+  } catch {
+    /* No valid saved LAN preference. */
+  }
+  if (addresses.length === 1) return addresses[0] ?? "127.0.0.1";
+  if (!addresses.length) return "127.0.0.1";
+  console.log("Choose where other devices can reach this workspace:");
+  addresses.forEach((address, index) => {
+    console.log(`${index + 1}. ${address}`);
+  });
+  console.log(`${addresses.length + 1}. This computer only`);
+  const input = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    while (true) {
+      const value = (await input.question("Choose an option: ")).trim();
+      const number = Number(value);
+      if (/^\d+$/.test(value) && number >= 1 && number <= addresses.length + 1)
+        return addresses[number - 1] ?? "127.0.0.1";
+      console.log(`Enter a number from 1 to ${addresses.length + 1}.`);
+    }
+  } finally {
+    input.close();
+  }
+}
+
 export async function main(raw = process.argv.slice(2)): Promise<number> {
   const split = raw.indexOf("--");
   const cliArgs = split < 0 ? raw : raw.slice(0, split);
@@ -218,6 +258,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           inventoryPath,
           configPath,
           v.interface,
+          v.address,
         );
         return 0;
       }
@@ -231,6 +272,25 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           2,
           "Use pair open, join, confirm, status, poll or cancel",
         );
+      if (command === "pair" && host === "join") {
+        if (!v.address)
+          throw new HomectlError(
+            2,
+            "Use homectl pair join --address http://<device-LAN-IP>:7448",
+          );
+        if (json)
+          throw new HomectlError(
+            2,
+            "Guided pairing is interactive; omit --json so the one-time code stays private",
+          );
+        await (await import("../peer/interactive")).interactivePair(
+          inventoryPath,
+          configPath,
+          v.interface,
+          v.address,
+        );
+        return 0;
+      }
       const { localApi } = await import("../peer/local-api");
       if (command === "peers") {
         const state = await localApi<{ peers: unknown }>(
@@ -254,21 +314,6 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
             inventoryPath,
             "/api/pair/open",
             {},
-          );
-          emit(result.pair);
-          return 0;
-        }
-        if (host === "join") {
-          if (!v.address)
-            throw new HomectlError(
-              2,
-              "Use pair join --address with the other device's LAN IP",
-            );
-          const code = await readPassword("One-time pairing code: ");
-          const result = await localApi<{ pair: unknown }>(
-            inventoryPath,
-            "/api/pair/join",
-            { address: v.address, code },
           );
           emit(result.pair);
           return 0;
@@ -393,36 +438,82 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         return 0;
       }
 
-      if (!process.stdin.isTTY)
-        throw new HomectlError(
-          5,
-          "Run homectl panel yourself in a private terminal; the launch address contains a local access token",
-        );
-      const launch = JSON.parse(
-        await readFile(
-          join(
-            (await import("node:path")).dirname(inventoryPath),
-            "serve",
-            "panel.json",
-          ),
-          "utf8",
-        ),
-      ) as { url: string; token: string };
-      const url = `${launch.url}/#token=${encodeURIComponent(launch.token)}`;
-      // Open only on direct private invocation; never return the token in JSON.
       if (v.json)
         throw new HomectlError(
           3,
           "Panel launch tokens cannot be emitted as JSON",
         );
+
+      if (!process.stdin.isTTY)
+        throw new HomectlError(
+          5,
+          "Run homectl panel yourself in a private terminal; the launch address contains a local access token",
+        );
+      let existing: { peerAddress?: string } | undefined;
+      try {
+        existing = await (await import("../peer/local-api")).localApi(
+          inventoryPath,
+          "/api/state",
+        );
+      } catch {
+        /* Start a temporary workspace below. */
+      }
+      let running:
+        | Awaited<ReturnType<typeof import("../serve").serve>>
+        | undefined;
+      if (!existing) {
+        const interfaceIP = await panelInterface(inventoryPath, v.interface);
+        running = await (await import("../serve")).serve({
+          inventoryPath,
+          configPath,
+          interface: interfaceIP,
+          discover: interfaceIP !== "127.0.0.1",
+        });
+        console.log(
+          interfaceIP === "127.0.0.1"
+            ? "Started a temporary workspace on this computer only."
+            : `Started a temporary workspace for your LAN (${interfaceIP}).`,
+        );
+      } else if (
+        v.interface &&
+        existing.peerAddress &&
+        new URL(existing.peerAddress).hostname !== v.interface
+      ) {
+        throw new HomectlError(
+          3,
+          "A workspace is already running on another interface. Stop it in its terminal or service before changing interfaces.",
+        );
+      }
+      const launch = JSON.parse(
+        await readFile(
+          join(dirname(inventoryPath), "serve", "panel.json"),
+          "utf8",
+        ),
+      ) as { url: string; token: string };
+      const url = `${launch.url}/#token=${encodeURIComponent(launch.token)}`;
       console.log("Opening the local homectl panel.");
       const child = Bun.spawn(
         windows
           ? ["rundll32.exe", "url.dll,FileProtocolHandler", url]
           : [process.platform === "darwin" ? "open" : "xdg-open", url],
-        { stdout: "ignore", stderr: "ignore" },
+        { stdout: "ignore", stderr: "ignore", windowsHide: true },
       );
       if (await child.exited) console.log("Open this address privately:", url);
+      if (running) {
+        console.log(
+          "Keep this terminal open while you use the panel. Press Ctrl+C to stop it.",
+        );
+        await new Promise<void>((done) => {
+          const stop = () =>
+            void running?.stop().finally(() => {
+              process.off("SIGINT", stop);
+              process.off("SIGTERM", stop);
+              done();
+            });
+          process.once("SIGINT", stop);
+          process.once("SIGTERM", stop);
+        });
+      }
       return 0;
     }
     if (command === "serve") {

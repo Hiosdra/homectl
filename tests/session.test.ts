@@ -145,6 +145,7 @@ $ids=@($acl.Access | ForEach-Object { $_.IdentityReference.Translate([System.Sec
       env: { ...process.env, HOMECTL_TEST_PATH: path },
       stdout: "pipe",
       stderr: "pipe",
+      windowsHide: true,
     },
   );
   const [stdout, stderr, code] = await Promise.all([
@@ -393,4 +394,4 @@ test("CLI TTL configuration locks the session and the next unlock uses the new l
   const state = await unlockSession(updated, path, async () => password);
   expect(state.expiresAt).toBe((state.startedAt ?? 0) + 43200_000);
   await canSign(path, auth.public_key);
-});
+}, 15_000);

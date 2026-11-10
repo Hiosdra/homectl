@@ -125,9 +125,10 @@ async function liveRequest<T>(
   try {
     return await localApi<T>(input.inventoryPath, path, value);
   } catch (error) {
-    // "Start homectl serve..." (no launch file) or a failed connection: no serve.
+    // "No homectl workspace..." (no launch file) or a failed connection: no serve.
     if (!(error instanceof HomectlError)) return undefined;
-    if (error.message.startsWith("Start homectl serve")) return undefined;
+    if (error.message.startsWith("No homectl workspace is open."))
+      return undefined;
     throw error;
   }
 }
@@ -403,7 +404,7 @@ export async function controlCommand(
       ...(to !== undefined ? { to } : {}),
       ...(cancel ? { cancel: true } : {}),
     });
-    if (!result) throw new HomectlError(5, "Start homectl serve first");
+    if (!result) throw new HomectlError(5, "Open homectl panel first");
     return {
       value: result,
       human: `${shortId(result.operationId)}: ${result.next}`,
@@ -441,7 +442,7 @@ export async function controlCommand(
           : {}),
       },
     );
-    if (!result) throw new HomectlError(5, "Start homectl serve first");
+    if (!result) throw new HomectlError(5, "Open homectl panel first");
     return {
       value: result,
       human: suspend
@@ -475,7 +476,7 @@ export async function controlCommand(
         ? { owner: input.values.owner }
         : {}),
     });
-    if (!result) throw new HomectlError(5, "Start homectl serve first");
+    if (!result) throw new HomectlError(5, "Open homectl panel first");
     return {
       value: result,
       human: `${shortId(result.operationId)}: ${result.next}`,

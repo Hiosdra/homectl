@@ -5,14 +5,16 @@ Run the current checkout with Bun 1.4.2 or newer. The browser UI is English, dar
 ## Start temporarily
 
 ```sh
-homectl serve --interface 192.168.1.10
+homectl panel
 ```
 
-Replace that IP with **this computer's** LAN interface address. The panel binds `127.0.0.1:7447`; the peer protocol binds the selected interface on port 7448. With no `--interface`, both channels are loopback-only. Wildcard binding is refused. `--port`, `--peer-port` and `--no-discovery` are available. Ctrl+C stops this instance and locks its SSH session.
+This opens the panel and starts a temporary workspace when needed. Homectl reuses the LAN address saved by setup, chooses the only available private address, or asks when there are several. With no LAN address it stays on this computer only. The panel itself remains bound to `127.0.0.1:7447`; the peer channel uses the selected interface on port 7448. Keep the terminal open while using the panel. Ctrl+C stops only the temporary workspace started by this command. If a service or workspace is already running, `panel` opens it and exits.
 
-In a separate **private terminal**, run:
+For explicit interface/port control, start the workspace yourself:
 
 ```sh
+homectl serve --interface 192.168.1.10
+# In another private terminal:
 homectl panel
 ```
 
@@ -22,17 +24,15 @@ Starting `serve` does not install a service, open pairing, create a vault, unloc
 
 ## Pair two devices
 
-On **both computers**, run in a private interactive terminal:
+Open the panel on both computers:
 
 ```sh
-homectl pair
+homectl panel
 ```
 
-The command starts a temporary workspace if none is running, chooses the only private LAN IPv4 interface (or asks you to select one), opens a five-minute pairing window and discovers other devices running the same command. With multiple devices, select the endpoint. One device displays a one-time code; enter it on the other. Compare the verification phrase visually and confirm with `y` **on both** devices. Enter or `n` cancels. Discovery never replaces this verification. Only sync is granted initially; no auth is transferred during pairing.
+On one device, choose **Devices → Start pairing**. On the other, enter the host's LAN address ending in `:7448` and the one-time code shown by the first device. If the host uses Docker, use the Docker host's LAN address and its published peer port, not the container IP. Compare the phrase and confirm on both devices. Discovery may fill the address automatically, but direct entry works across Docker, VLAN and Wi-Fi discovery boundaries. Only sync is granted initially; credentials are transferred later through the reviewed sync flow.
 
-A temporary workspace remains running after success so the other device can finish confirming and both can open `homectl panel` from a separate terminal to sync. Ctrl+C closes pairing and stops only the workspace started by this command. Existing serve/service processes stay running. You can choose an interface explicitly with `homectl pair --interface <local-LAN-IP>`. An existing workspace must have LAN discovery enabled on a LAN interface; loopback-only serve cannot advertise to another computer.
-
-For manual fallback, start `serve --interface <local-LAN-IP>` on both devices and use `pair open` on one, `pair join --address http://<other-LAN-IP>:7448` on the other, then `pair confirm` on each. The panel also supports pairing. Diagnostics and per-host operations remain separate local grants under **Permissions**.
+The CLI alternative is `homectl pair` on both devices. It starts a temporary workspace if necessary, discovers peers, and guides code and phrase verification. Keep its terminal open until pairing is complete; press Ctrl+C to stop the temporary workspace.
 
 Discovery uses mDNS/DNS-SD `_homectl._tcp.local`. Advertisement is temporary and contains a random instance identifier, protocol version and pairing capability, never the code, vault contents, host inventory or stable device identity. The selected interface is used. Discovery is unauthenticated: selecting an endpoint does not establish trust. Multicast may be blocked by Wi-Fi isolation, VLAN boundaries or WSL networking; manual IP pairing uses the same authentication.
 
@@ -74,12 +74,12 @@ Removing trust stops future authenticated requests from that peer. It cannot rev
 
 ```sh
 homectl peers --json
-homectl pair open                   # private interactive terminal
-homectl pair join --address http://192.168.1.10:7448
-homectl pair confirm                # compare and type the phrase privately
-homectl pair poll
-homectl pair status
-homectl pair cancel
+homectl pair                         # guided pairing on both devices
+homectl pair join --address http://192.168.1.10:7448  # direct join; no serve prerequisite
+homectl pair confirm                 # advanced: confirm a pending phrase
+homectl pair poll                    # advanced: wait for the other confirmation
+homectl pair status                  # advanced: inspect local pairing state
+homectl pair cancel                  # advanced: cancel a pending invitation
 homectl sync preview PEER_ID --json
 homectl sync apply PREVIEW_ID --file choices.json
 homectl sync cancel PREVIEW_ID

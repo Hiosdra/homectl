@@ -25,6 +25,7 @@ const agent = windows
       stdin: "ignore",
       stdout: "ignore",
       stderr: "ignore",
+      windowsHide: true,
     });
 let stopping = false;
 let expiry: ReturnType<typeof setTimeout> | undefined;

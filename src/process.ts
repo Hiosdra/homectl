@@ -13,6 +13,7 @@ export const run: Runner = async (spec: ProcessSpec) => {
       stdin: spec.stdin === undefined ? "ignore" : new Blob([spec.stdin]),
       stdout: "pipe",
       stderr: "pipe",
+      windowsHide: true,
     });
     const timer = setTimeout(
       () => child.kill("SIGKILL"),

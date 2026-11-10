@@ -25,6 +25,7 @@ type State = {
   device: { id: string; name: string; platform: string };
   session: { unlocked: boolean; expiresAt?: number | null };
   vaultUnlocked: boolean;
+  vaultExists: boolean;
   inventory: {
     machines: Record<string, Machine>;
     session?: { ttl: string; database: string };
@@ -53,6 +54,7 @@ type Preview = {
   id: string;
   localName: string;
   remoteName: string;
+  blocker?: { type: "remote_vault_locked" };
   changes: string[];
   entries?: {
     id: string;
@@ -67,10 +69,15 @@ type Preview = {
 };
 let state: State;
 let preview: Preview | undefined;
+let syncPeerId: string | undefined;
+let syncWaiting: { peerId: string; previewId: string } | undefined;
+let syncPoll = false;
+let syncPollAfter = 0;
 let view = "machines";
 let editing: string | undefined;
 let result: unknown;
 let busy = false;
+let pairingPoll = false;
 let permissionPeer: string | undefined;
 let commandHost: string | undefined;
 let commandPeer = "";
@@ -219,25 +226,200 @@ function button(action: string, label: string, id = "", kind = "secondary") {
 function heading(title: string, description: string, actions = "") {
   return `<div class="page-heading"><div><h1>${title}</h1><p>${description}</p></div><div class="actions">${actions}</div></div>`;
 }
+function displayArgv(argv: string[]) {
+  return argv.map((arg) => JSON.stringify(arg)).join(" ");
+}
+const sessionTtlPresets = [
+  ["1h", "1 hour"],
+  ["12h", "12 hours"],
+  ["24h", "24 hours"],
+  ["7d", "7 days"],
+  ["until-reboot", "Until this computer restarts"],
+] as const;
+function sessionTtlLabel(value: string) {
+  if (value === "until-reboot") return "Until this computer restarts";
+  const match = /^(\d+)(s|m|h|d)$/.exec(value);
+  if (!match) return value;
+  const units: Record<string, [string, string]> = {
+    s: ["second", "seconds"],
+    m: ["minute", "minutes"],
+    h: ["hour", "hours"],
+    d: ["day", "days"],
+  };
+  const unit = units[match[2] ?? ""];
+  return unit
+    ? `${match[1]} ${Number(match[1]) === 1 ? unit[0] : unit[1]}`
+    : value;
+}
+function sessionTtlControl(value: string) {
+  const isPreset = sessionTtlPresets.some(([ttl]) => ttl === value);
+  const selected = isPreset ? value : "custom";
+  return `<div><label for="ttl">Session lifetime</label><select id="ttl" name="ttl">${sessionTtlPresets
+    .map(
+      ([ttl, label]) =>
+        `<option value="${ttl}" ${selected === ttl ? "selected" : ""}>${label}</option>`,
+    )
+    .join(
+      "",
+    )}<option value="custom" ${selected === "custom" ? "selected" : ""}>Custom duration…</option></select><details id="custom-ttl" ${selected === "custom" ? "open" : ""}><summary>Set a custom duration</summary><label for="custom-ttl-value">Duration</label><input id="custom-ttl-value" name="custom-ttl" value="${htmlEscape(isPreset ? "" : value)}" placeholder="For example, 30m or 2d" pattern="[1-9][0-9]{0,6}[smhd]" autocomplete="off"><p class="inline-note">Use seconds, minutes, hours, or days (up to 365 days).</p></details></div>`;
+}
+function accessLabel(value: string) {
+  return (
+    {
+      observe: "Read-only",
+      user: "Standard user",
+      "sudo-approved": "Approved admin commands",
+      full: "Full account access",
+    }[value] ?? value
+  );
+}
+function formatLocalDate(value: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(value);
+}
+function pairingAddress() {
+  try {
+    const peer = new URL(state.address);
+    const panel = new URL(location.origin);
+    if (
+      panel.hostname !== "127.0.0.1" &&
+      panel.hostname !== "localhost" &&
+      panel.hostname !== "[::1]"
+    ) {
+      panel.protocol = "http:";
+      panel.port = peer.port || "7448";
+      panel.pathname = "/";
+      panel.search = "";
+      panel.hash = "";
+      return panel.origin;
+    }
+    return peer.origin;
+  } catch {
+    return state.address;
+  }
+}
 async function api<T = unknown>(path: string, value?: unknown): Promise<T> {
   const r = await fetch(path, {
     method: value === undefined ? "GET" : "POST",
     headers: value === undefined ? {} : { "Content-Type": "application/json" },
     body: value === undefined ? undefined : JSON.stringify(value),
   });
-  const v = await r.json();
-  if (!r.ok) throw new Error(v.error ?? "The operation failed");
+  let v: Record<string, unknown>;
+  try {
+    v = (await r.json()) as Record<string, unknown>;
+  } catch {
+    throw new Error(
+      r.ok
+        ? "The workspace returned an unreadable response. Refresh and try again."
+        : `The workspace could not complete this request (${r.status}). Refresh and try again.`,
+    );
+  }
+  if (!r.ok)
+    throw new Error(
+      typeof v.error === "string" ? v.error : "The operation failed.",
+    );
   return v as T;
 }
 function report(message: string, kind = "error") {
   const target =
     kind === "error" && element("workspace").hidden ? "connection-error" : kind;
   const e = element(target);
-  e.textContent =
-    target === "connection-error"
-      ? `${message} Open homectl panel in a private terminal to get a fresh access link, then retry.`
-      : message;
+  e.textContent = message;
   e.hidden = false;
+}
+async function unlockForSync(): Promise<boolean> {
+  const dialog = element<HTMLDialogElement>("sync-unlock-dialog");
+  const form = element<HTMLFormElement>("sync-unlock-form");
+  const password = element<HTMLInputElement>("sync-unlock-password");
+  const error = element("sync-unlock-error");
+  error.hidden = true;
+  password.value = "";
+  dialog.returnValue = "";
+  dialog.showModal();
+  password.focus();
+  return new Promise((resolve) => {
+    const cancel = element<HTMLButtonElement>("sync-unlock-cancel");
+    const close = () => {
+      password.value = "";
+      form.removeEventListener("submit", submit);
+      cancel.removeEventListener("click", cancelClick);
+      resolve(dialog.returnValue === "unlocked");
+    };
+    const cancelClick = () => dialog.close("cancel");
+    const submit = async (event: Event) => {
+      event.preventDefault();
+      const value = password.value;
+      password.value = "";
+      const submitButton = form.querySelector<HTMLButtonElement>(
+        'button[type="submit"]',
+      );
+      if (submitButton) submitButton.disabled = true;
+      try {
+        await api("/api/vault/unlock", { password: value, create: false });
+        dialog.close("unlocked");
+      } catch (e) {
+        error.textContent =
+          e instanceof Error ? e.message : "Could not unlock the vault.";
+        error.hidden = false;
+        password.focus();
+      } finally {
+        if (submitButton) submitButton.disabled = false;
+      }
+    };
+    form.addEventListener("submit", submit);
+    cancel.addEventListener("click", cancelClick);
+    dialog.addEventListener("close", close, { once: true });
+  });
+}
+async function copyText(value: string) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = value;
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.appendChild(input);
+  input.select();
+  const copied = document.execCommand("copy");
+  input.remove();
+  if (!copied)
+    throw new Error("Copy failed. Select the text and copy it manually.");
+}
+function syncWaitMarkup() {
+  if (!syncWaiting || !preview || syncWaiting.previewId !== preview.id)
+    return "";
+  const name =
+    preview.remoteName ||
+    state.peers.find((p) => p.id === syncWaiting?.peerId)?.name ||
+    "the other device";
+  return `<section class="sync-wait" aria-labelledby="sync-wait-title"><h3 id="sync-wait-title">Unlock the vault on ${htmlEscape(name)}</h3><p>On ${htmlEscape(name)}, open homectl → Access → Unlock vault, or run this command in a private terminal:</p><div class="actions"><code>homectl session unlock</code>${button("sync-copy-unlock", "Copy command")}</div><p id="sync-wait-status" role="status">Waiting for the vault. This comparison updates automatically when it is unlocked.</p></section>`;
+}
+function armSyncWait(next: Preview) {
+  syncWaiting =
+    next.blocker?.type === "remote_vault_locked" && syncPeerId
+      ? { peerId: syncPeerId, previewId: next.id }
+      : undefined;
+  syncPollAfter = 0;
+}
+async function updateSyncPreview(peerId: string) {
+  const old = preview;
+  const next = await api<Preview>("/api/sync/start", { id: peerId });
+  // Navigation or another action can change the selected device while the
+  // network request is in flight. Never replace that newer view.
+  if (syncPeerId !== peerId || view !== "sync") {
+    await api("/api/sync/cancel", { id: next.id }).catch(() => {});
+    return false;
+  }
+  preview = next;
+  armSyncWait(next);
+  if (old && old.id !== next.id)
+    await api("/api/sync/cancel", { id: old.id }).catch(() => {});
+  render();
+  return true;
 }
 async function task(fn: () => Promise<void>) {
   if (busy) return;
@@ -251,6 +433,43 @@ async function task(fn: () => Promise<void>) {
   try {
     await fn();
   } catch (e) {
+    if (
+      e instanceof Error &&
+      e.message === "Unlock the local vault before accepting credential changes"
+    ) {
+      if (await unlockForSync()) {
+        await refresh();
+        if (syncPeerId && view === "sync") {
+          try {
+            if ((await updateSyncPreview(syncPeerId)) && !syncWaiting)
+              report(
+                "Vault unlocked. Review the updated changes before applying them.",
+                "notice",
+              );
+          } catch (error) {
+            report(
+              error instanceof Error
+                ? error.message
+                : "Could not update the comparison. Try again.",
+            );
+          }
+        } else report("Vault unlocked. Choose a device to compare.", "notice");
+      }
+      return;
+    }
+    if (
+      e instanceof Error &&
+      e.message ===
+        "The other device's vault was locked when the devices were compared. Unlock it there and compare again." &&
+      preview &&
+      syncPeerId
+    ) {
+      syncWaiting = { peerId: syncPeerId, previewId: preview.id };
+      syncPollAfter = 0;
+      const slot = document.getElementById("sync-wait-slot");
+      if (slot) slot.innerHTML = syncWaitMarkup();
+      return;
+    }
     report(
       e instanceof Error
         ? e.message
@@ -259,6 +478,58 @@ async function task(fn: () => Promise<void>) {
   } finally {
     busy = false;
     for (const b of disabled) b.disabled = false;
+    const apply = document.querySelector<HTMLButtonElement>(
+      "#sync-form button.primary",
+    );
+    if (apply && syncWaiting?.previewId === preview?.id) apply.disabled = true;
+  }
+}
+async function pollSyncReadiness() {
+  const waiting = syncWaiting;
+  if (
+    !waiting ||
+    syncPoll ||
+    busy ||
+    view !== "sync" ||
+    document.visibilityState !== "visible" ||
+    Date.now() < syncPollAfter
+  )
+    return;
+  syncPoll = true;
+  try {
+    const readiness = await api<{ vaultUnlocked: boolean }>(
+      "/api/sync/readiness",
+      { id: waiting.peerId },
+    );
+    if (
+      syncWaiting !== waiting ||
+      preview?.id !== waiting.previewId ||
+      view !== "sync" ||
+      busy
+    )
+      return;
+    if (!readiness.vaultUnlocked) {
+      syncPollAfter = Date.now() + 5000;
+      return;
+    }
+    await task(async () => {
+      if (syncWaiting !== waiting || preview?.id !== waiting.previewId) return;
+      if ((await updateSyncPreview(waiting.peerId)) && !syncWaiting)
+        report(
+          "The other vault is unlocked. Review the updated changes before applying them.",
+          "notice",
+        );
+    });
+  } catch {
+    if (syncWaiting === waiting && view === "sync") {
+      syncPollAfter = Date.now() + 10_000;
+      const status = document.getElementById("sync-wait-status");
+      if (status)
+        status.textContent =
+          "Can't reach the other device yet. Retrying automatically; you can also compare again.";
+    }
+  } finally {
+    syncPoll = false;
   }
 }
 async function refresh() {
@@ -282,6 +553,44 @@ async function refresh() {
   element("approval-count").textContent = ready ? String(ready) : "";
   render();
 }
+async function pollPairing() {
+  if (
+    busy ||
+    pairingPoll ||
+    view !== "peers" ||
+    !state?.pair ||
+    document.visibilityState !== "visible"
+  )
+    return;
+  pairingPoll = true;
+  try {
+    const current = state.pair;
+    if (current.sas && current.localConfirmed && !current.remoteConfirmed)
+      await api("/api/pair/poll", {});
+    const next = await api<State>("/api/state");
+    const before = JSON.stringify({
+      pair: state.pair,
+      peers: state.peers,
+      discovery: state.discovery,
+    });
+    const after = JSON.stringify({
+      pair: next.pair,
+      peers: next.peers,
+      discovery: next.discovery,
+    });
+    state = {
+      ...state,
+      pair: next.pair,
+      peers: next.peers,
+      discovery: next.discovery,
+    };
+    if (before !== after) render();
+  } catch {
+    // Pairing is time-limited; a later poll or the visible error from a user action is clearer.
+  } finally {
+    pairingPoll = false;
+  }
+}
 function render() {
   document.querySelectorAll<HTMLElement>("[data-view]").forEach((a) => {
     if (a.dataset.view === view) a.setAttribute("aria-current", "page");
@@ -303,6 +612,10 @@ function render() {
               : view === "approvals"
                 ? approvals()
                 : settings();
+  const apply = screen.querySelector<HTMLButtonElement>(
+    "#sync-form button.primary",
+  );
+  if (apply && syncWaiting?.previewId === preview?.id) apply.disabled = true;
   const focus = screen.querySelector<HTMLElement>("h1");
   if (focus) {
     focus.tabIndex = -1;
@@ -326,14 +639,14 @@ function permissionPanel(id: string) {
   )
     .map(
       ([name, m]) =>
-        `<label class="check"><input name="hosts" value="${htmlEscape(name)}" type="checkbox" ${p.permissions.operations.includes(name) ? "checked" : ""}>${htmlEscape(name)} <span class="muted">${htmlEscape(m.access)}</span></label>`,
+        `<label class="check"><input name="hosts" value="${htmlEscape(name)}" type="checkbox" ${p.permissions.operations.includes(name) ? "checked" : ""}>${htmlEscape(name)} <span class="muted">${htmlEscape(accessLabel(m.access))}</span></label>`,
     )
     .join(
       "",
     )}<p class="inline-note">Changes require additional approval here, on the execution device.</p><div class="form-actions">${button("close-task", "Cancel")}<button class="primary">Save permissions</button></div></form></section>`;
 }
 function commandPanel(host: string) {
-  return `${heading(`Command: ${htmlEscape(host)}`, "Review the exact arguments and target before executing.")}<section class="panel"><form id="command-form" class="stack"><div><label for="command-peer">Execution device</label><select id="command-peer" name="peer"><option value="">${htmlEscape(state.device.name)} · local</option>${state.peers.map((p) => `<option value="${p.id}" ${commandPeer === p.id ? "selected" : ""}>${htmlEscape(p.name)} · peer</option>`).join("")}</select></div><div><label for="command-args">Command arguments (JSON array)</label><textarea id="command-args" name="argv" required>["uname", "-s"]</textarea></div><div><label for="command-impact">Purpose and expected impact</label><input id="command-impact" name="impact" placeholder="For example: inspect the OS or restart a specific service"></div><p class="inline-note">The peer must grant access to this host. Changes also need approval in its local workspace.</p><div class="form-actions">${button("close-task", "Close")}<button class="primary">Review and execute</button></div></form></section>${output()}`;
+  return `${heading(`Command: ${htmlEscape(host)}`, "Choose where it runs and review the effect before anything changes.")}<section class="panel"><form id="command-form" class="stack"><div><label for="command-peer">Run on</label><select id="command-peer" name="peer"><option value="">${htmlEscape(state.device.name)} · this computer</option>${state.peers.map((p) => `<option value="${p.id}" ${commandPeer === p.id ? "selected" : ""}>${htmlEscape(p.name)}</option>`).join("")}</select></div><div><label for="command-program">Program</label><input id="command-program" name="program" value="uname" required></div><div><label for="command-arguments">Arguments (one per line)</label><textarea id="command-arguments" name="arguments">-s</textarea><p class="inline-note">Each line is passed as one argument. Homectl does not run a shell.</p></div><div><label for="command-impact">What should this do?</label><input id="command-impact" name="impact" value="Inspect the operating system" required></div><p class="inline-note">The other device must grant access to this host. Changes also need approval there.</p><div class="form-actions">${button("close-task", "Cancel")}<button class="primary">Review command</button></div></form></section>${output()}`;
 }
 function machines() {
   const hosts = Object.entries(state.inventory.machines);
@@ -343,21 +656,33 @@ function machines() {
     button("add", "Add machine", "", "primary"),
   );
   if (state.operations?.length)
-    content += `<section class="panel section"><h2>Operations awaiting your approval</h2>${state.operations.map((o) => `<div class="peer-row"><div><strong>${htmlEscape(o.peerName)} → ${htmlEscape(o.host)}</strong><pre>${htmlEscape(JSON.stringify(o.argv))}</pre><p>${htmlEscape(o.impact ?? "Review the exact target and impact")}</p></div><div class="actions">${button("operation-approve", "Approve", o.id, "primary")}${button("operation-reject", "Reject", o.id)}</div></div>`).join("")}</section>`;
+    content += `<section class="panel section"><h2>Operations awaiting your approval</h2>${state.operations.map((o) => `<div class="peer-row"><div><strong>${htmlEscape(o.peerName)} → ${htmlEscape(o.host)}</strong><pre>${htmlEscape(displayArgv(o.argv))}</pre><p>${htmlEscape(o.impact ?? "Review the exact target and impact")}</p></div><div class="actions">${button("operation-approve", "Approve", o.id, "primary")}${button("operation-reject", "Reject", o.id)}</div></div>`).join("")}</section>`;
   if (editing !== undefined) {
     const m = state.inventory.machines[editing];
     return (
       content +
-      `<section class="panel"><h2>${m ? "Edit machine" : "Add SSH host"}</h2><p class="muted">Prepare a key with <code>homectl key create &lt;name&gt;</code>, install its public key on the host, and verify the host fingerprint.</p><form id="machine-form" class="form-grid"><div><label for="machine-name">Name</label><input id="machine-name" name="name" pattern="[a-z][a-z0-9-]{0,62}" value="${htmlEscape(editing)}" required ${m ? "readonly" : ""}></div><div><label for="machine-address">Address</label><input id="machine-address" name="address" value="${htmlEscape(m?.address)}" required></div><div><label for="machine-user">SSH account</label><input id="machine-user" name="user" value="${htmlEscape(m?.user)}" required></div><div><label for="machine-access">Access</label><select id="machine-access" name="access">${["observe", "user", "sudo-approved", "full"].map((a) => `<option ${m?.access === a ? "selected" : ""}>${a}</option>`).join("")}</select></div><div class="full"><label for="machine-description">Description</label><input id="machine-description" name="description" value="${htmlEscape(m?.description)}" required></div><div class="full"><label for="machine-json">Advanced fields (JSON: auth from key inspect, port, caution, sudo_allow)</label><textarea id="machine-json" name="extra">${htmlEscape(JSON.stringify(m ? Object.fromEntries(Object.entries(m).filter(([k]) => !["address", "user", "description", "access", "transport", "ssh_alias"].includes(k))) : {}, null, 2))}</textarea></div><div class="full form-actions">${button("cancel-edit", "Cancel")}<button class="primary" type="submit">Save machine</button></div></form></section>`
+      `<section class="panel"><h2>${m ? "Edit machine" : "Add SSH host"}</h2><p class="muted">Create a key in Access with the same name as this machine, install its public key on the host, and verify the host fingerprint. homectl links the matching key automatically.</p><form id="machine-form" class="form-grid"><div><label for="machine-name">Name</label><input id="machine-name" name="name" pattern="[a-z][a-z0-9-]{0,62}" value="${htmlEscape(editing)}" required ${m ? "readonly" : ""}></div><div><label for="machine-address">Address</label><input id="machine-address" name="address" value="${htmlEscape(m?.address)}" required></div><div><label for="machine-user">SSH account</label><input id="machine-user" name="user" value="${htmlEscape(m?.user)}" required></div><div><label for="machine-access">Access</label><select id="machine-access" name="access">${[
+        ["observe", "Read-only (observe)"],
+        ["user", "Standard user (user)"],
+        ["sudo-approved", "Approved admin commands (sudo-approved)"],
+        ["full", "Full account (full)"],
+      ]
+        .map(
+          ([value, label]) =>
+            `<option value="${value}" ${m?.access === value ? "selected" : ""}>${label}</option>`,
+        )
+        .join(
+          "",
+        )}</select></div><div class="full"><label for="machine-description">Description</label><input id="machine-description" name="description" value="${htmlEscape(m?.description)}" required></div><details class="full"><summary>Advanced SSH settings</summary><p class="inline-note">Optional JSON fields for a non-default port, cautions, sudo rules, or a custom key reference.</p><label for="machine-json">Additional fields (JSON)</label><textarea id="machine-json" name="extra">${htmlEscape(JSON.stringify(m ? Object.fromEntries(Object.entries(m).filter(([k]) => !["address", "user", "description", "access", "transport", "ssh_alias"].includes(k))) : {}, null, 2))}</textarea></details><div class="full form-actions">${m ? button("machine-delete", "Remove machine", editing, "quiet danger") : ""}${button("cancel-edit", "Cancel")}<button class="primary" type="submit">Save machine</button></div></form></section>`
     );
   }
   content += `<div class="filters"><label class="muted" for="filter">Find a machine</label><input id="filter" type="search" placeholder="Name, address, or description" autocomplete="off"></div>`;
   if (!hosts.length)
     return (
       content +
-      `<div class="empty"><h2>Add your first machine</h2><p>Prepare an SSH key and add a host. If another computer already has your setup, pair the devices and sync their entries.</p>${button("navigate-peers", "Pair a device", "", "primary")}</div>`
+      `<div class="empty"><h2>Choose how to get started</h2><p>Add an SSH machine, or bring in a setup from another computer.</p><div class="actions">${button("add", "Add an SSH machine", "", "primary")}${button("navigate-peers", "Use another computer’s setup")}</div></div>`
     );
-  content += `<div class="table-wrap"><table><thead><tr><th>Machine</th><th>Connection</th><th>Access</th><th><span class="muted">Operations</span></th></tr></thead><tbody>${hosts.map(([name, m]) => `<tr data-search="${htmlEscape([name, m.address, m.description].join(" ").toLowerCase())}"><td class="name-cell"><span class="host-avatar" aria-hidden="true">${htmlEscape(name.slice(0, 2).toUpperCase())}</span><span class="name-content">${htmlEscape(name)}<p>${htmlEscape(m.description)}</p><details class="machine-details"><summary>Details</summary><dl><dt>Transport</dt><dd>${htmlEscape(m.transport)}</dd><dt>SSH account</dt><dd>${htmlEscape(m.user ?? "Local")}</dd><dt>Port</dt><dd>${htmlEscape(m.port ?? 22)}</dd><dt>SSH alias</dt><dd>${htmlEscape(m.ssh_alias ?? "—")}</dd><dt>Cautions</dt><dd>${htmlEscape(Array.isArray(m.caution) ? m.caution.join("; ") : "None recorded")}</dd></dl></details></span></td><td>${m.transport === "local" ? "This device" : `<code>${htmlEscape(m.address)}</code><p>${htmlEscape(m.user)} · SSH</p>`}</td><td><span class="badge">${htmlEscape(m.access)}</span></td><td><div class="actions">${button("doctor", "Check", name)}${button("command", "Command", name)}${m.transport === "ssh" ? button("edit", "Edit", name, "quiet") : ""}</div></td></tr>`).join("")}</tbody></table></div>`;
+  content += `<div class="table-wrap"><table><thead><tr><th>Machine</th><th>Connection</th><th>Access</th><th><span class="muted">Operations</span></th></tr></thead><tbody>${hosts.map(([name, m]) => `<tr data-search="${htmlEscape([name, m.address, m.description].join(" ").toLowerCase())}"><td class="name-cell"><span class="host-avatar" aria-hidden="true">${htmlEscape(name.slice(0, 2).toUpperCase())}</span><span class="name-content">${htmlEscape(name)}<p>${htmlEscape(m.description)}</p><details class="machine-details"><summary>Details</summary><dl><dt>Transport</dt><dd>${m.transport === "local" ? "This device" : "SSH"}</dd><dt>SSH account</dt><dd>${htmlEscape(m.user ?? "Local")}</dd><dt>Port</dt><dd>${htmlEscape(m.port ?? 22)}</dd><dt>SSH alias</dt><dd>${htmlEscape(m.ssh_alias ?? "—")}</dd><dt>Cautions</dt><dd>${htmlEscape(Array.isArray(m.caution) ? m.caution.join("; ") : "None recorded")}</dd></dl></details></span></td><td>${m.transport === "local" ? "This device" : `<code>${htmlEscape(m.address)}</code><p>${htmlEscape(m.user)} · SSH</p>`}</td><td><span class="badge">${htmlEscape(accessLabel(m.access))}</span></td><td><div class="actions">${button("doctor", "Check", name)}${button("command", "Command", name)}${m.transport === "ssh" ? button("edit", "Edit", name, "quiet") : ""}</div></td></tr>`).join("")}</tbody></table></div>`;
   return content + output();
 }
 function peers() {
@@ -365,12 +690,78 @@ function peers() {
   return (
     heading(
       "Devices",
-      "Equal peers. Syncing entries and running operations have separate permissions.",
-      button("pair-open", "Start pairing", "", "primary"),
+      "Connect this computer to another homectl workspace. No separate server command is needed.",
+      p ? "" : button("pair-open", "Start pairing", "", "primary"),
     ) +
-    `${p ? `<section class="panel"><h2>${p.sas ? "Verify this device" : "Pairing window open"}</h2><p class="muted">Expires at ${new Date(p.expiresAt).toLocaleTimeString("en-GB")}.</p>${p.code ? `<p>On the other computer, select this device and enter the code:</p><div class="pair-code">${htmlEscape(p.code)}</div><p class="inline-note">Do not send this code in chat or save it in logs.</p>` : ""}${p.sas ? `<p>Compare this verification phrase on both computers. Device: <strong>${htmlEscape(p.remote?.name)}</strong>.</p><div class="verification">${htmlEscape(p.sas)}</div><p>${p.localConfirmed ? "Local confirmation saved." : "Confirm only if both devices show the same phrase."} ${p.remoteConfirmed ? "The other device has confirmed." : "Waiting for the other device."}</p>${!p.localConfirmed ? button("pair-confirm", "The phrases match", "", "primary") : button("pair-poll", "Check confirmation")}` : ""}<div class="form-actions">${button("pair-cancel", "Close pairing")}</div></section>` : ""}<section class="section split"><div class="panel"><h2>Devices on your LAN</h2>${state.discovery.devices.length ? state.discovery.devices.map((d) => `<div class="peer-row"><div><strong>Device ready to pair</strong><p>${htmlEscape(d.address)}</p></div>${button("discovered", "Select", d.address)}</div>`).join("") : `<p class="muted">No devices with an open pairing window found.</p><p class="inline-note">${htmlEscape(state.discovery.error ?? "Open pairing on the other computer, or enter its IP address.")}</p>`}</div><div class="panel"><h2>Join a pairing session</h2><form id="pair-form" class="stack"><div><label for="peer-address">Other computer’s address</label><input id="peer-address" name="address" placeholder="http://192.168.1.10:7448" required></div><div><label for="pair-code">One-time code</label><input id="pair-code" name="code" inputmode="numeric" placeholder="1234-5678" autocomplete="off" required></div><button class="primary">Connect and compare phrases</button></form></div></section><section class="section"><h2>Paired devices</h2>${control?.devices ? `<p class="inline-note">This device signs control records with <code>${htmlEscape(control.devices.self.fingerprint ?? "no key yet")}</code>.</p>` : ""}${state.peers.length ? `<div class="panel peer-list">${state.peers.map((peer) => `<div class="peer-row"><div><strong>${htmlEscape(peer.name)}</strong> <span class="badge">${htmlEscape(peer.platform)}</span><p>${htmlEscape(peer.address)}</p>${signingNote(peer.id)}<p>${peer.permissions.sync ? "Sync" : "Sync disabled"} · ${peer.permissions.diagnostics ? "Diagnostics" : "Diagnostics disabled"} · operations: ${peer.permissions.operations.length}</p></div><div class="actions">${button("sync-start", "Sync", peer.id)}${button("peer-status", "Status", peer.id)}${button("peer-permissions", "Permissions", peer.id, "quiet")}${button("peer-forget", "Remove trust", peer.id, "quiet danger")}</div></div>`).join("")}</div>` : `<div class="empty"><h2>No paired devices yet</h2><p>Open pairing on one computer and enter its code on the other. Confirm on both devices to establish mutual trust.</p></div>`}</section>` +
+    (p
+      ? `<section class="panel"><h2>${p.sas ? "Verify this device" : "Pairing window open"}</h2><p class="muted">Code expires at ${htmlEscape(formatLocalDate(p.expiresAt))}.</p>${p.code ? `<p>On the other computer, open <strong>Devices → Join a pairing session</strong>. Use this address and one-time code:</p><p class="pair-code">${htmlEscape(pairingAddress())}</p><p class="pair-code">${htmlEscape(p.code)}</p><p>Or run this command on the other computer:</p><pre>${htmlEscape(`homectl pair --address ${pairingAddress()}`)}</pre><div class="actions">${button("pair-copy-command", "Copy command")}${button("pair-copy-code", "Copy one-time code")}</div><p class="inline-note">The command asks for the code privately so it is not saved in terminal history.</p><p class="inline-note">Use the computer's reachable LAN address. If it runs in Docker, use the Docker host address, not a container-only IP. Keep the code on your devices; do not put it in chat or logs.</p><p>When both computers show the same verification phrase, confirm it on each one.</p>` : ""}${p.sas ? `<p>Compare this phrase on both computers. Device: <strong>${htmlEscape(p.remote?.name)}</strong>.</p><div class="verification">${htmlEscape(p.sas)}</div><p>${p.localConfirmed ? "You confirmed this phrase." : "Confirm only if both computers show the same phrase."} ${p.remoteConfirmed ? "The other computer confirmed too." : "Waiting for the other computer to confirm."}</p>${!p.localConfirmed ? button("pair-confirm", "The phrases match", "", "primary") : ""}` : ""}<div class="form-actions">${button("pair-cancel", "Cancel pairing")}</div></section>`
+      : "") +
+    `<section class="section split" ${p ? "hidden" : ""}><div class="panel"><h2>Devices on your LAN</h2>${state.discovery.devices.length ? state.discovery.devices.map((d) => `<div class="peer-row"><div><strong>Ready to pair</strong><p>${htmlEscape(d.address)}</p></div>${button("discovered", "Use this device", d.address)}</div>`).join("") : `<p class="muted">No device found automatically. That’s okay: enter its address and code below.</p><details><summary>Why automatic discovery may not work</summary><p>Docker, Wi-Fi isolation, VLANs, and firewalls can block LAN discovery. Direct connection still works. For troubleshooting, allow UDP 5353 for discovery and TCP 7448 for pairing on the private LAN; no router port forwarding is needed.</p>${state.discovery.error ? `<p class="inline-note">${htmlEscape(state.discovery.error)}</p>` : ""}</details>`}</div><div class="panel"><h2>Join a pairing session</h2><p class="muted">On the other computer, choose Start pairing. Enter its LAN address and one-time code here, then compare the phrase on both devices.</p><form id="pair-form" class="stack"><div><label for="peer-address">Other computer’s address (port 7448)</label><input id="peer-address" name="address" placeholder="http://192.168.1.142:7448" required></div><div><label for="pair-code">One-time code</label><input id="pair-code" name="code" inputmode="numeric" placeholder="1234-5678" autocomplete="off" required></div><button class="primary">Connect</button></form></div></section>` +
+    `<section class="section"><h2>Paired devices</h2>${control?.devices ? `<p class="inline-note">This device signs control records with <code>${htmlEscape(control.devices.self.fingerprint ?? "no key yet")}</code>.</p>` : ""}${state.peers.length ? `<div class="panel peer-list">${state.peers.map((peer) => `<div class="peer-row"><div><strong>${htmlEscape(peer.name)}</strong> <span class="badge">${htmlEscape(peer.platform)}</span><p>${htmlEscape(peer.address)}</p>${signingNote(peer.id)}<p>${peer.permissions.sync ? "Sync enabled" : "Sync disabled"} · ${peer.permissions.diagnostics ? "Diagnostics enabled" : "Diagnostics disabled"} · ${peer.permissions.operations.length} operation grants</p></div><div class="actions">${button("sync-start", "Compare and sync", peer.id)}${button("peer-status", "Status", peer.id)}${button("peer-permissions", "Permissions", peer.id, "quiet")}${button("peer-forget", "Remove trust", peer.id, "quiet danger")}</div></div>`).join("")}</div>` : `<div class="empty"><h2>No paired devices yet</h2><p>Start pairing here and enter the code on the other computer. Check that both show the same phrase before confirming.</p></div>`}</section>` +
     output()
   );
+}
+function syncChangeCards(
+  entries: NonNullable<Preview["entries"]>,
+  versionOnly = false,
+) {
+  return entries
+    .map(({ id, local, remote }) => {
+      const [type, ...parts] = id.split(":");
+      const name = parts.join(":");
+      const label =
+        (
+          {
+            machine: "Machine",
+            credential: "Credential",
+            hostkey: "Trusted host key",
+            provider: "Provider",
+          } as Record<string, string>
+        )[type ?? ""] ?? "Entry";
+      const before = local?.value ?? null;
+      const after = remote.value;
+      const action = versionOnly
+        ? after === null
+          ? "Deleted"
+          : "Current version"
+        : after === null
+          ? "Remove"
+          : before === null
+            ? "Add"
+            : "Update";
+      const fields =
+        type === "machine"
+          ? ["description", "address", "user", "access", "transport"]
+          : type === "provider"
+            ? ["type", "host", "node"]
+            : [];
+      const object = (value: unknown): Record<string, unknown> =>
+        value && typeof value === "object" && !Array.isArray(value)
+          ? (value as Record<string, unknown>)
+          : {};
+      const left = object(before);
+      const right = object(after);
+      const details = fields
+        .filter(
+          (key) => JSON.stringify(left[key]) !== JSON.stringify(right[key]),
+        )
+        .map((key) => {
+          const display = (value: unknown) =>
+            value === undefined || value === null || value === ""
+              ? "—"
+              : String(value);
+          return `<div><dt>${htmlEscape(key)}</dt><dd>${before !== null ? `${htmlEscape(display(left[key]))} → ` : ""}${htmlEscape(display(right[key]))}</dd></div>`;
+        })
+        .join("");
+      const note =
+        type === "credential"
+          ? "Secret contents stay hidden."
+          : type === "hostkey"
+            ? "Review the host fingerprint independently before trusting it."
+            : "";
+      return `<article class="sync-change"><h3>${htmlEscape(label)}: ${htmlEscape(name)}</h3><span class="badge">${action}</span>${details ? `<dl class="sync-change-fields">${details}</dl>` : ""}${note ? `<p class="inline-note">${htmlEscape(note)}</p>` : ""}</article>`;
+    })
+    .join("");
 }
 function sync() {
   let s = heading(
@@ -378,7 +769,7 @@ function sync() {
     "Changes flow both ways. Review the scope and resolve conflicts before applying.",
   );
   if (preview) {
-    s += `<section class="panel"><h2>${htmlEscape(preview.localName)} ↔ ${htmlEscape(preview.remoteName)}</h2><p class="muted">${preview.changes.length} changed entries · ${preview.conflicts.length} conflicts. Secrets stay hidden.</p><form id="sync-form">${preview.conflicts.map((c, i) => `<section class="conflict" data-conflict="${i}"><h3>${htmlEscape(c.id)}</h3><div class="split"><div class="version"><h3>${htmlEscape(preview?.localName)} <span class="badge">Local</span></h3><pre>${htmlEscape(JSON.stringify(c.local.value, null, 2))}</pre></div><div class="version"><h3>${htmlEscape(preview?.remoteName)} <span class="badge">Received</span></h3><pre>${htmlEscape(JSON.stringify(c.remote.value, null, 2))}</pre></div></div><div class="choice">${[["local", `Use from ${preview?.localName}`], ["remote", `Use from ${preview?.remoteName}`], ...(c.id.startsWith("hostkey:") ? [] : [["both", "Keep both as separate entries"]])].map(([value, label]) => `<label><input type="radio" name="choice-${i}" value="${value}" required>${htmlEscape(label)}</label>`).join("")}</div></section>`).join("")}<details><summary>Changes to review</summary><pre>${htmlEscape(JSON.stringify(preview.entries ?? preview.changes, null, 2))}</pre></details><div class="form-actions">${button("sync-cancel", "Cancel")}<button class="primary">Apply selected changes</button></div></form></section>`;
+    s += `<section class="panel"><h2>${htmlEscape(preview.localName)} ↔ ${htmlEscape(preview.remoteName)}</h2><p class="muted">${preview.changes.length} changed entries · ${preview.conflicts.length} conflicts. Secrets stay hidden.</p><div id="sync-wait-slot">${syncWaitMarkup()}</div><form id="sync-form">${preview.conflicts.map((c, i) => `<section class="conflict" data-conflict="${i}"><h3>${htmlEscape(c.id)}</h3><div class="split"><div class="version"><h3>${htmlEscape(preview?.localName)} <span class="badge">Local</span></h3>${syncChangeCards([{ id: c.id, local: null, remote: c.local }], true)}</div><div class="version"><h3>${htmlEscape(preview?.remoteName)} <span class="badge">Received</span></h3>${syncChangeCards([{ id: c.id, local: null, remote: c.remote }], true)}</div></div><div class="choice">${[["local", `Use from ${preview?.localName}`], ["remote", `Use from ${preview?.remoteName}`], ...(c.id.startsWith("hostkey:") ? [] : [["both", "Keep both as separate entries"]])].map(([value, label]) => `<label><input type="radio" name="choice-${i}" value="${value}" required>${htmlEscape(label)}</label>`).join("")}</div></section>`).join("")}<details><summary>Changes to review</summary><div class="sync-change-list">${preview.entries ? syncChangeCards(preview.entries) : preview.changes.map((id) => `<article class="sync-change"><h3>${htmlEscape(id)}</h3></article>`).join("")}</div></details><div class="form-actions">${button("sync-cancel", "Cancel")}${syncPeerId ? button("sync-restart", "Compare devices again") : ""}<button class="primary">Apply selected changes</button></div></form></section>`;
   } else {
     s += state.pending.length
       ? `<section class="panel"><h2>Awaiting your review</h2>${state.pending.map((p) => `<div class="peer-row"><div><strong>${htmlEscape(p.remoteName)}</strong><p>A peer is proposing changes. Open the comparison before applying them.</p></div>${button("sync-preview", "Review", p.id)}</div>`).join("")}</section>`
@@ -395,7 +786,7 @@ function controlSyncSection() {
   if (sync?.disabledBy)
     return `<section class="panel section"><h2>Control sync</h2><p class="muted">Control sync is disabled by ${htmlEscape(sync.disabledBy)} on this device. Operations that have paired peers wait for a sync.</p></section>`;
   if (!sync?.running)
-    return `<section class="panel section"><h2>Control sync</h2><p class="muted">Control sync runs while homectl serve is running on this device.</p></section>`;
+    return `<section class="panel section"><h2>Control sync</h2><p class="muted">Control sync runs while this homectl workspace is open.</p></section>`;
   const now = Date.now();
   const names = sync.names ?? {};
   const rows = sync.peers.length
@@ -414,7 +805,7 @@ function controlSyncSection() {
         `<p class="inline-note">Log from ${htmlEscape(names[origin] ?? origin)} is blocked: ${htmlEscape(reason)}</p>`,
     )
     .join("");
-  return `<section class="panel section"><h2>Control sync</h2><p class="muted">Approvals and executions travel on this sync. It runs every 15 seconds while homectl serve runs.</p>${rows}${conflicts}${blocked}</section>`;
+  return `<section class="panel section"><h2>Control sync</h2><p class="muted">Approvals and executions travel on this sync. It updates every 15 seconds while this workspace is open.</p>${rows}${conflicts}${blocked}</section>`;
 }
 // One paired device. A suspended device is out of this device's lease until it
 // syncs again or is resumed; a legacy device has no control sync at all.
@@ -465,12 +856,16 @@ function conflictRow(
   return `<div class="peer-row conflict-row"><div class="conflict-text"><strong><code>${htmlEscape(c.opId.slice(0, 8))}</code></strong> at epoch ${c.epoch}: ${htmlEscape(c.candidates.map((id) => names[id] ?? id).join(", "))}${proposals}</div><div class="conflict-controls">${accept}<label class="sr-only" for="resolve-${htmlEscape(c.opId)}">Owner for ${htmlEscape(c.opId.slice(0, 8))}</label><select id="resolve-${htmlEscape(c.opId)}" data-conflict-select="${htmlEscape(c.opId)}">${options}</select>${button("control-resolve", "Resolve…", c.opId, "quiet")}</div></div>`;
 }
 function access() {
+  const createVault = !state.vaultExists;
+  const vault = state.vaultUnlocked
+    ? `<div class="empty"><h3>Vault unlocked</h3><p>Credential sync is ready on this device. SSH access is managed separately.</p></div>`
+    : `<p class="muted">${createVault ? "Create an encrypted vault on this device." : "Unlock this device’s encrypted vault to sync credentials."}</p><form id="unlock-form" class="stack"><div><label for="password">${createVault ? "Choose a vault password" : "Vault password"}</label><input id="password" name="password" type="password" autocomplete="${createVault ? "new-password" : "current-password"}" required></div>${createVault ? `<div><label for="password-confirm">Confirm vault password</label><input id="password-confirm" name="password-confirm" type="password" autocomplete="new-password" required></div><input type="hidden" name="create" value="true">` : ""}<button class="primary">${createVault ? "Create and unlock vault" : "Unlock vault"}</button></form><p class="inline-note">The password stays on this device. It is never sent to peers or saved in logs.</p>`;
   return (
     heading(
       "Access",
       "Vaults and sessions are local. Pairing does not unlock the other computer.",
     ) +
-    `<div class="split"><section class="panel"><h2>Encrypted vault</h2><p class="muted">${state.vaultUnlocked ? "The local vault is unlocked for syncing." : "Unlock the vault to sync credential entries."}</p><form id="unlock-form" class="stack"><div><label for="password">Local KeePassXC password</label><input id="password" name="password" type="password" autocomplete="off" required></div><label class="check"><input type="checkbox" name="create">Create a vault if it does not exist</label><button class="primary">Unlock locally</button></form><p class="inline-note">Your password is never sent to peers or saved in logs. Private keys never reach the browser.</p></section><section class="panel"><h2>SSH session</h2><dl><dt>Status</dt><dd>${state.session.unlocked ? "Unlocked" : "Locked"}</dd><dt>Expires</dt><dd>${state.session.unlocked ? (state.session.expiresAt ? new Date(state.session.expiresAt).toLocaleString("en-GB") : "On lock or restart") : "—"}</dd><dt>TTL</dt><dd>${htmlEscape(state.inventory.session?.ttl ?? "24h")}</dd></dl><div class="form-actions">${button("lock", "Lock access")}</div><p class="inline-note">Locking stops new authentication. Established SSH connections may continue.</p><h3 class="section">New key</h3><p class="muted">Run privately <code>homectl key create &lt;name&gt;</code>. View public keys with <code>homectl key inspect &lt;name&gt;</code>.</p></section></div><section class="section panel"><h2>Create an SSH key</h2><p class="muted">The private key is saved in your local encrypted vault. Install only its public key on the host through your existing trusted access.</p><form id="key-form" class="form-grid"><div><label for="key-name">Key and machine name</label><input id="key-name" name="name" pattern="[a-z][a-z0-9-]{0,62}" placeholder="storage-nas" required></div><div><label for="key-password">Local vault password</label><input id="key-password" name="password" type="password" autocomplete="off" required></div><div class="full form-actions"><button class="primary">Create key and show public key</button></div></form><p class="inline-note">Creating a key locks the current session. Unlock again after enrolling the host.</p></section>` +
+    `<div class="split"><section class="panel"><h2>Encrypted vault</h2>${vault}</section><section class="panel"><h2>SSH session</h2><dl><dt>Status</dt><dd>${state.session.unlocked ? "Unlocked" : "Locked"}</dd><dt>Expires</dt><dd>${state.session.unlocked ? (state.session.expiresAt ? formatLocalDate(state.session.expiresAt) : "On lock or restart") : "—"}</dd><dt>Session lifetime</dt><dd>${htmlEscape(sessionTtlLabel(state.inventory.session?.ttl ?? "24h"))}</dd></dl><div class="form-actions">${button("lock", "Lock access", "", "quiet")}</div><p class="inline-note">Locking stops new SSH connections from using these keys. Already-connected sessions may continue.</p></section></div><section class="section panel"><h2>Create an SSH key</h2><p class="muted">Create a key for the machine you plan to add, then install its public key there.</p><form id="key-form" class="form-grid"><div><label for="key-name">Key and machine name</label><input id="key-name" name="name" pattern="[a-z][a-z0-9-]{0,62}" placeholder="storage-nas" required></div><div><label for="key-password">Vault password</label><input id="key-password" name="password" type="password" autocomplete="current-password" required></div><div class="full form-actions"><button class="primary">Create SSH key</button></div></form><p class="inline-note">You’ll get the public key to install on the machine. Creating a key locks SSH access; unlock again afterwards.</p></section>` +
     output()
   );
 }
@@ -480,7 +875,7 @@ function settings() {
       "Settings",
       "This device’s identity, session lifetime, and background execution.",
     ) +
-    `<div class="split"><section class="panel"><h2>This device</h2><form id="settings-form" class="stack"><div><label for="device-label">Device name</label><input id="device-label" name="name" value="${htmlEscape(state.device.name)}" maxlength="100" required></div><div><label for="ttl">Session lifetime</label><input id="ttl" name="ttl" value="${htmlEscape(state.inventory.session?.ttl ?? "24h")}" required><p class="inline-note">For example: 12h, 24h, or until-reboot. Changing this locks the current session.</p></div><button class="primary">Save settings</button></form></section><section class="panel"><h2>Server and service</h2><dl><dt>Peer channel</dt><dd><code>${htmlEscape(state.address)}</code></dd><dt>Panel</dt><dd>Localhost only</dd><dt>Identity</dt><dd><code>${htmlEscape(state.device.id)}</code></dd></dl><h3 class="section">Run in the background</h3><p class="muted">Install from a terminal. The service uses this workspace and starts with locked keys.</p><pre>homectl service install --interface &lt;LAN-IP&gt;\nhomectl service start\nhomectl service status</pre><p class="inline-note">Windows requires WinSW and a configured service account. WSL requires systemd. Details: docs/windows.md.</p></section></div>`
+    `<div class="split"><section class="panel"><h2>This device</h2><form id="settings-form" class="stack"><div><label for="device-label">Device name</label><input id="device-label" name="name" value="${htmlEscape(state.device.name)}" maxlength="100" required></div>${sessionTtlControl(state.inventory.session?.ttl ?? "24h")}<p class="inline-note">Changing the session lifetime locks the current SSH session.</p><button class="primary">Save settings</button></form></section><section class="panel"><h2>Server and service</h2><dl><dt>Other devices connect at</dt><dd><code>${htmlEscape(pairingAddress())}</code></dd><dt>Panel open in this browser</dt><dd><code>${htmlEscape(location.origin)}</code></dd><dt>Identity</dt><dd><code>${htmlEscape(state.device.id)}</code></dd></dl><h3 class="section">Keep homectl running in the background</h3><p class="muted">For a workspace that stays available after closing the panel, install and start the service from a terminal. It starts with SSH access locked.</p><pre>homectl service install --interface &lt;LAN-IP&gt;\nhomectl service start\nhomectl service status</pre><p class="inline-note">On Windows, install the service once from an administrator terminal. WSL requires systemd. See docs/windows.md.</p></section></div>`
   );
 }
 // Approvals: the control plane's queue. Approval always comes from another
@@ -913,6 +1308,25 @@ document.addEventListener("click", (event) => {
         editing = id;
         render();
         return;
+      case "machine-delete": {
+        const machine = state.inventory.machines[id];
+        if (!machine || machine.transport !== "ssh")
+          throw new Error(
+            "This machine cannot be removed here. Refresh the list.",
+          );
+        if (
+          !(await confirm(
+            `Remove ${id}?`,
+            "This removes the machine from this device's inventory and generated SSH configuration. Other devices receive the removal for review during sync. The vault credential, the remote machine, and its installed SSH keys remain.",
+          ))
+        )
+          return;
+        await api("/api/machine/delete", { name: id });
+        editing = undefined;
+        await refresh();
+        report(`Machine ${id} removed from this device.`, "notice");
+        return;
+      }
       case "cancel-edit":
         editing = undefined;
         render();
@@ -978,6 +1392,29 @@ document.addEventListener("click", (event) => {
         await api("/api/pair/open", {});
         await refresh();
         return;
+      case "pair-copy-command":
+        await copyText(`homectl pair --address ${pairingAddress()}`);
+        report(
+          "Command copied. Paste it on the other computer, then enter the one-time code.",
+          "notice",
+        );
+        return;
+      case "pair-copy-code":
+        if (!state.pair?.code)
+          throw new Error("The pairing code has expired. Start pairing again.");
+        await copyText(state.pair.code);
+        report(
+          "One-time code copied. Paste it into the private pairing prompt.",
+          "notice",
+        );
+        return;
+      case "sync-copy-unlock":
+        await copyText("homectl session unlock");
+        report(
+          "Unlock command copied. Run it on the device named above.",
+          "notice",
+        );
+        return;
       case "pair-confirm":
         if (
           await confirm(
@@ -1031,15 +1468,31 @@ document.addEventListener("click", (event) => {
         render();
         return;
       case "sync-start":
-        preview = await api<Preview>("/api/sync/start", { id });
+        syncWaiting = undefined;
+        syncPeerId = id;
         view = "sync";
+        preview = await api<Preview>("/api/sync/start", { id });
+        armSyncWait(preview);
         render();
         return;
       case "sync-preview":
+        syncWaiting = undefined;
+        syncPeerId = state.pending.find((pending) => pending.id === id)?.peerId;
         preview = await api<Preview>("/api/sync/preview", { id });
+        armSyncWait(preview);
         render();
         return;
+      case "sync-restart":
+        if (!syncPeerId)
+          throw new Error("Choose the device again to compare it.");
+        if ((await updateSyncPreview(syncPeerId)) && !syncWaiting)
+          report(
+            "Comparison updated. Review the changes before applying them.",
+            "notice",
+          );
+        return;
       case "sync-cancel":
+        syncWaiting = undefined;
         await api("/api/sync/cancel", { id: preview?.id });
         preview = undefined;
         await refresh();
@@ -1271,6 +1724,13 @@ document.addEventListener("input", (e) => {
   }
 });
 document.addEventListener("change", (e) => {
+  if ((e.target as HTMLElement).id === "ttl") {
+    const select = e.target as HTMLSelectElement;
+    const custom = document.getElementById("custom-ttl") as HTMLDetailsElement;
+    custom.open = select.value === "custom";
+    if (custom.open) document.getElementById("custom-ttl-value")?.focus();
+    return;
+  }
   const radio = e.target as HTMLInputElement;
   if (!radio.name.startsWith("choice-") || !preview) return;
   const index = Number(radio.name.slice(7));
@@ -1285,9 +1745,10 @@ document.addEventListener("change", (e) => {
     retained.className = "retained version";
     section.querySelector(".choice")?.before(retained);
   }
-  const selected =
-    radio.value === "remote" ? conflict.remote.value : conflict.local.value;
-  retained.innerHTML = `<h3>${radio.value === "both" ? "Both versions kept" : "Selected version"}</h3><p class="muted">${radio.value === "both" ? "The received version will be copied to a new entry." : htmlEscape(radio.value === "remote" ? preview.remoteName : preview.localName)}</p><pre>${htmlEscape(JSON.stringify(selected, null, 2))}</pre>${button("compare-conflict", "Compare again", String(index), "quiet")}`;
+  const selected = radio.value === "remote" ? conflict.remote : conflict.local;
+  const versions =
+    radio.value === "both" ? [conflict.local, conflict.remote] : [selected];
+  retained.innerHTML = `<h3>${radio.value === "both" ? "Both versions kept" : "Selected version"}</h3><p class="muted">${radio.value === "both" ? "The received version will be copied to a new entry." : htmlEscape(radio.value === "remote" ? preview.remoteName : preview.localName)}</p>${versions.map((remote) => syncChangeCards([{ id: conflict.id, local: null, remote }], true)).join("")}${button("compare-conflict", "Compare again", String(index), "quiet")}`;
   retained.hidden = false;
   retained.setAttribute("role", "status");
   section.classList.add("resolved");
@@ -1298,6 +1759,7 @@ document.addEventListener("submit", (e) => {
   e.preventDefault();
   const values = new FormData(form);
   void task(async () => {
+    let successMessage = "Changes saved.";
     if (form.id === "permissions-form" && permissionPeer) {
       const id = permissionPeer;
       const permissions = {
@@ -1323,7 +1785,12 @@ document.addEventListener("submit", (e) => {
     if (form.id === "command-form" && commandHost) {
       const host = commandHost;
       const id = String(values.get("peer"));
-      const argv = JSON.parse(String(values.get("argv")));
+      const program = String(values.get("program") ?? "").trim();
+      if (!program) throw new Error("Enter the program to run.");
+      const args = String(values.get("arguments") ?? "")
+        .split(/\r?\n/)
+        .filter((arg) => arg.length > 0);
+      const argv = [program, ...args];
       const impact = String(values.get("impact"));
       const payload = { host, argv, impact, dryRun: true };
       const plan = await api<{
@@ -1337,7 +1804,7 @@ document.addEventListener("submit", (e) => {
       if (
         !(await confirm(
           `Run on ${host}?`,
-          `${JSON.stringify(argv)} · ${plan.plan.classification} · ${impact}`,
+          `${displayArgv(argv)} · ${plan.plan.classification} · ${impact}`,
         ))
       )
         return;
@@ -1364,20 +1831,38 @@ document.addEventListener("submit", (e) => {
       const code = String(values.get("code"));
       element<HTMLInputElement>("pair-code").value = "";
       await api("/api/pair/join", { address: values.get("address"), code });
+      successMessage =
+        "Pairing request sent. Compare the verification phrase on both devices.";
     }
     if (form.id === "unlock-form") {
       const password = String(values.get("password"));
       element<HTMLInputElement>("password").value = "";
+      const create = values.get("create") === "true";
+      if (create) {
+        const confirmation = String(values.get("password-confirm"));
+        element<HTMLInputElement>("password-confirm").value = "";
+        if (password !== confirmation)
+          throw new Error("The passwords do not match. Try again.");
+      }
       await api("/api/vault/unlock", {
         password,
-        create: values.has("create"),
+        create,
       });
+      successMessage = create
+        ? "Vault created and unlocked on this device."
+        : "Vault unlocked. Credential sync is ready on this device.";
     }
-    if (form.id === "settings-form")
+    if (form.id === "settings-form") {
+      const selection = String(values.get("ttl"));
+      const customTtl = String(values.get("custom-ttl") ?? "").trim();
+      const ttl = selection === "custom" ? customTtl : selection;
+      if (selection === "custom" && !/^[1-9][0-9]{0,6}[smhd]$/.test(ttl))
+        throw new Error("Enter a custom duration like 30m or 2d.");
       await api("/api/settings", {
         name: values.get("name"),
-        ttl: values.get("ttl"),
+        ttl,
       });
+    }
     if (form.id === "machine-form") {
       const name = String(values.get("name"));
       const extra = JSON.parse(String(values.get("extra")));
@@ -1410,10 +1895,11 @@ document.addEventListener("submit", (e) => {
       preview = undefined;
     }
     await refresh();
-    report("Changes saved.", "notice");
+    report(successMessage, "notice");
   });
 });
 async function boot() {
+  element("workspace-origin").textContent = location.origin;
   const token = new URLSearchParams(location.hash.slice(1)).get("token");
   if (token) {
     history.replaceState(null, "", location.pathname);
@@ -1441,4 +1927,7 @@ async function boot() {
     : "machines";
   if (state) render();
 }
-void boot();
+void boot().then(() => {
+  window.setInterval(() => void pollPairing(), 2000);
+  window.setInterval(() => void pollSyncReadiness(), 2000);
+});

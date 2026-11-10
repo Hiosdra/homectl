@@ -8,16 +8,16 @@ Replicated mode lets paired devices share one control plane. Each device keeps i
 
 - Each device has homectl installed, its own inventory, and its own control state directory.
 - The devices are paired (`homectl pair` on both, or the panel's pairing window). Pairing exchanges a per-device signing key. A device paired before signing keys existed has no key: pair it again. Until then it is **excluded from the lease** (section 5).
-- Each device runs `homectl serve --interface <LAN-IP>`. Without `--interface` the peer channel listens on loopback only and the other device cannot reach it.
+- Each device needs a running workspace. `homectl panel` starts one automatically and uses the saved LAN interface; keep that terminal open. For a background workspace, install and start the service.
 
 Use placeholders for addresses in your own notes. Never paste tokens, pairing codes or key material into chat or logs.
 
 ## 2. Start the devices
 
-On each device, in a private terminal:
+On each device, open the panel in a private terminal:
 
 ```sh
-homectl serve --interface <LAN-IP>
+homectl panel
 ```
 
 - `--no-discovery` turns off multicast discovery only. Control sync with devices that are already paired keeps running. Use it on networks where multicast is blocked; pair by IP address instead.
@@ -66,7 +66,7 @@ Race to know about: an accept that the receiver signed before it saw the owner's
 
 ## 6. What the CLI does without `serve`
 
-`homectl control ops`, `show` and `sync` read the last saved state and say so. `homectl control sync` prints "serve not running — showing last saved state; backoff unknown". `homectl control handoff`, `resolve` and their `--cancel` form need `serve` and fail with "Start homectl serve first".
+`homectl control ops`, `show` and `sync` read the last saved state and say so. `homectl control sync` prints "serve not running — showing last saved state; backoff unknown". For `handoff`, `resolve` and their `--cancel` form, open the workspace with `homectl panel` first.
 
 `homectl control execute` without `serve` still applies the lease fence against the saved state. If a signing peer has not been synced recently, the command is refused, as it would be inside `serve`.
 
@@ -97,7 +97,7 @@ Race to know about: an accept that the receiver signed before it saw the owner's
 | A device is offline and I can't execute | Its lease with you is still required. | Suspend it from the lease (`control peer suspend <device>`), then execute. It rejoins the lease when it syncs again. |
 | "offer expired" | The offer was not accepted within five minutes, or the plan ended first. | Nothing to do: the owner may run again. Offer again if you still want to hand it off. |
 | "<device> is suspended from this device's lease" (handoff) | The device is suspended here. | Resume it first (`control peer resume <device>`), then offer. |
-| "Start homectl serve first" (handoff, resolve) | Those commands need the running workspace. | Start `serve` on the device you are using. |
+| Workspace not open (handoff, resolve) | Those commands need the running workspace. | Run `homectl panel` on the device you are using. |
 
 ## 9. Security notes
 

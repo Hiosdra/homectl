@@ -16,6 +16,7 @@ test("managed session survives exit of its unlocking CLI process", async () => {
       stdin: "ignore",
       stdout: "ignore",
       stderr: "ignore",
+      windowsHide: true,
     });
     expect(await child.exited).toBe(0);
     await Bun.sleep(500);

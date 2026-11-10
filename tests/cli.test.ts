@@ -24,6 +24,7 @@ async function invoke(args: string[], env = cleanEnv()) {
     env,
     stdout: "pipe",
     stderr: "pipe",
+    windowsHide: true,
   });
   return {
     stdout: await new Response(child.stdout).text(),
@@ -35,6 +36,19 @@ test("help works without inventory or credentials", async () => {
   const r = await invoke(["help"]);
   expect(r.code).toBe(0);
   expect(r.stdout).toContain("homectl");
+});
+test("manual pairing join enters the guided flow without requiring serve", async () => {
+  const r = await invoke([
+    "pair",
+    "join",
+    "--address",
+    "http://192.168.1.142:7448",
+    "--inventory",
+    await fixture(),
+  ]);
+  expect(r.code).toBe(5);
+  expect(r.stderr).toContain("private interactive terminal");
+  expect(r.stderr).not.toContain("Start homectl serve");
 });
 test("missing inventory exits 2", async () => {
   const r = await invoke(["hosts", "--inventory", "/nonexistent-homectl-test"]);

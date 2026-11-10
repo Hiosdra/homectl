@@ -44,7 +44,7 @@ test("Bun install command accepts update argument order", async () => {
     );
     const child = Bun.spawn(
       [process.execPath, "install", "--cwd", dir, "--frozen-lockfile"],
-      { stdout: "pipe", stderr: "pipe" },
+      { stdout: "pipe", stderr: "pipe", windowsHide: true },
     );
     const [code, stdout, stderr] = await Promise.all([
       child.exited,
