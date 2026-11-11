@@ -77,7 +77,7 @@ export function Workspace() {
                 href={`#${id}`}
                 data-view={id}
                 aria-current={current === id ? "page" : undefined}
-                className="flex items-center justify-between rounded-[7px] px-3.5 py-2.5 font-medium text-muted-foreground no-underline hover:bg-popover aria-[current=page]:bg-[#2b2545] aria-[current=page]:text-[#d6ccff] max-[700px]:flex-col max-[700px]:justify-center max-[700px]:gap-0.5 max-[700px]:rounded-lg max-[700px]:px-0.5 max-[700px]:py-1.5 max-[700px]:text-center max-[700px]:text-[11px] max-[700px]:leading-tight"
+                className="flex items-center justify-between rounded-[7px] px-3.5 py-2.5 font-medium text-muted-foreground no-underline hover:bg-popover aria-[current=page]:bg-accent aria-[current=page]:text-foreground max-[700px]:flex-col max-[700px]:justify-center max-[700px]:gap-0.5 max-[700px]:rounded-lg max-[700px]:px-0.5 max-[700px]:py-1.5 max-[700px]:text-center max-[700px]:text-[11px] max-[700px]:leading-tight"
               >
                 <span className="inline-flex items-center gap-2 max-[700px]:flex-col max-[700px]:gap-0.5 [&_svg]:size-4 [&_svg]:fill-none [&_svg]:stroke-current [&_svg]:stroke-[1.8] [&_svg]:[stroke-linecap:round] [&_svg]:[stroke-linejoin:round] max-[700px]:[&_svg]:size-5">
                   <span className="inline-flex" aria-hidden="true">
@@ -129,8 +129,8 @@ export function Workspace() {
               className={cn(
                 "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[13px] whitespace-nowrap no-underline max-[700px]:px-2.5 max-[700px]:py-1 max-[700px]:text-xs",
                 needYou
-                  ? "border-[#7c6f39] bg-[#302b1c] text-warning"
-                  : "border-[#2c6670] bg-[#123a40] text-success",
+                  ? "border-warning/40 bg-warning/10 text-warning"
+                  : "border-success/40 bg-success/10 text-success",
               )}
             >
               <span className="size-[7px] rounded-full bg-current" aria-hidden="true" />

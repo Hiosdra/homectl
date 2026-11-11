@@ -292,7 +292,8 @@ export async function handleAction(action: string | undefined, id: string) {
       render();
       return;
     case "close-operation":
-      ui.selectedOperation = undefined;
+      // An empty selection means the person closed the drawer; the default does not return.
+      ui.selectedOperation = "";
       render();
       return;
     case "control-tab":

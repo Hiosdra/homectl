@@ -123,7 +123,7 @@ export type Tone = "neutral" | "ready" | "success" | "warning" | "danger" | "inf
 
 const TONE: Record<Tone, { variant: "outline" | "default" | "success" | "warning" | "destructive" | "info"; className?: string }> = {
   neutral: { variant: "outline", className: "text-muted-foreground" },
-  ready: { variant: "info", className: "text-[#8ee3f0]" },
+  ready: { variant: "info", className: "text-info" },
   success: { variant: "success" },
   warning: { variant: "warning" },
   danger: { variant: "destructive", className: "text-white" },
@@ -254,7 +254,7 @@ export function EmptyState({
   actions?: ReactNode;
 }) {
   return (
-    <div className="rounded-dialog border border-dashed border-[#3b4c62] px-7 py-14 text-center text-muted-foreground max-[700px]:px-5">
+    <div className="rounded-dialog border border-dashed border-input px-7 py-14 text-center text-muted-foreground max-[700px]:px-5">
       {title ? (
         <h2 className="mb-2.5 text-xl font-semibold tracking-[-0.015em] text-foreground">
           {title}
@@ -308,7 +308,7 @@ export function Pre({ children, className }: { children: ReactNode; className?: 
   return (
     <pre
       className={cn(
-        "max-h-[420px] overflow-auto rounded-[7px] border border-border bg-[#0d1520] p-4 font-mono text-[12px] whitespace-pre-wrap break-words",
+        "max-h-[420px] overflow-auto rounded-[7px] border border-border bg-muted p-4 font-mono text-[12px] whitespace-pre-wrap break-words",
         className,
       )}
     >

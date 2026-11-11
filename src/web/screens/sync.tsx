@@ -197,7 +197,7 @@ function ConflictCard({ p, index, conflict }: { p: Preview; index: number; confl
     <section
       className={cn(
         "grid gap-4 rounded-panel border border-border bg-card p-5 max-[700px]:p-4",
-        choice !== undefined && "border-[#4b3f7a] bg-[#1d1a33]",
+        choice !== undefined && "border-primary bg-accent",
       )}
       data-conflict={index}
     >
@@ -215,7 +215,7 @@ function ConflictCard({ p, index, conflict }: { p: Preview; index: number; confl
           <VersionBox p={p} side="remote" conflict={conflict} title={p.remoteName} tag="Received" />
         </div>
       ) : (
-        <div className="grid gap-2 rounded-lg border border-[#4b3f7a] p-4" role="status">
+        <div className="grid gap-2 rounded-lg border border-border p-4" role="status">
           <h3 className="text-[15px] font-semibold">
             {choice === "both" ? "Both versions kept" : "Selected version"}
           </h3>

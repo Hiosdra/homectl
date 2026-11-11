@@ -1,11 +1,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* coss ui reads the dark variant from the .dark class, which the panel sets on <html>. */
-@custom-variant dark (&:where(.dark, .dark *));
+/* Light and dark follow the system setting, as in the approved design. The dark variant
+   is media-based, so no script or class is needed on <html>. */
+@custom-variant dark (@media (prefers-color-scheme: dark));
 
-/* homectl palette from DESIGN.md, mapped onto the coss semantic tokens. The panel is
-   dark-only, so the same values serve :root and the dark variant. */
+/* homectl palette from the approved mockup, mapped onto the coss semantic tokens. */
 @theme inline {
   --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-heading: var(--font-sans);
@@ -47,34 +47,67 @@
 }
 
 :root {
-  color-scheme: dark;
-  --background: #0d131d; /* ground */
-  --foreground: #e9f0fa; /* ink */
-  --card: #151f2d; /* surface */
-  --card-foreground: #e9f0fa;
-  --popover: #1b2839; /* raised */
-  --popover-foreground: #e9f0fa;
-  --primary: #a99aff; /* accent: actions, focus, selection */
-  --primary-foreground: #181130; /* accent ink */
-  --secondary: #1b2839; /* raised */
-  --secondary-foreground: #e9f0fa;
-  --muted: #121c29; /* table header tone */
-  --muted-foreground: #a7b9cf; /* muted */
-  --accent: #26374b; /* hover tone */
-  --accent-foreground: #e9f0fa;
-  --destructive: #7d2f3d; /* deep rose fill, for destructive actions */
-  --destructive-foreground: #ffa8aa; /* rose text */
-  --success: #87d9ba; /* mint */
-  --success-foreground: #87d9ba;
-  --warning: #efc782; /* amber */
-  --warning-foreground: #efc782;
-  --info: #8fb4ff;
-  --info-foreground: #b9d2ff;
-  --border: #2c3d52; /* rule */
-  --input: #3a4c63; /* field border */
-  --ring: #a99aff;
-  --rail: #101824; /* navigation rail and top bar */
+  color-scheme: light;
+  --background: #fafafa;
+  --foreground: #171717;
+  --card: #ffffff;
+  --card-foreground: #171717;
+  --popover: #ffffff;
+  --popover-foreground: #171717;
+  --primary: #171717;
+  --primary-foreground: #fafafa;
+  --secondary: #f3f3f3;
+  --secondary-foreground: #171717;
+  --muted: #f3f3f3;
+  --muted-foreground: #6b6b6b;
+  --accent: #ececec;
+  --accent-foreground: #171717;
+  --destructive: #b91c1c;
+  --destructive-foreground: #b91c1c;
+  --success: #15803d;
+  --success-foreground: #15803d;
+  --warning: #a16207;
+  --warning-foreground: #a16207;
+  --info: #1d4ed8;
+  --info-foreground: #1d4ed8;
+  --border: #e5e5e5;
+  --input: #d4d4d4;
+  --ring: #171717;
+  --rail: #ffffff;
   --radius: 0.5rem;
+}
+
+/* Dark values of the approved mockup, used when the system is dark. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --background: #0f0f0f;
+    --foreground: #f5f5f5;
+    --card: #171717;
+    --card-foreground: #f5f5f5;
+    --popover: #1f1f1f;
+    --popover-foreground: #f5f5f5;
+    --primary: #f5f5f5;
+    --primary-foreground: #171717;
+    --secondary: #1f1f1f;
+    --secondary-foreground: #f5f5f5;
+    --muted: #1f1f1f;
+    --muted-foreground: #a3a3a3;
+    --accent: #262626;
+    --accent-foreground: #f5f5f5;
+    --destructive: #f87171;
+    --destructive-foreground: #f87171;
+    --success: #4ade80;
+    --success-foreground: #4ade80;
+    --warning: #facc15;
+    --warning-foreground: #facc15;
+    --info: #93c5fd;
+    --info-foreground: #93c5fd;
+    --border: #2a2a2a;
+    --input: #3a3a3a;
+    --ring: #a3a3a3;
+    --rail: #171717;
+  }
 }
 
 @layer base {
@@ -82,7 +115,7 @@
     @apply border-border outline-ring/50;
   }
   html {
-    color-scheme: dark;
+    color-scheme: light dark;
   }
   body {
     @apply bg-background text-foreground antialiased;
@@ -97,7 +130,7 @@
     font-family: var(--font-mono);
   }
   ::selection {
-    background: #655298;
-    color: white;
+    background: var(--accent);
+    color: var(--foreground);
   }
 }

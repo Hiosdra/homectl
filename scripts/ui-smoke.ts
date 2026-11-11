@@ -18,6 +18,7 @@ import { serve } from "../src/serve";
 import { keyReference } from "../src/session/keys";
 import {
   assertOpenInsideCard,
+  captureScreens,
   denyReadyRequest,
   editMachine,
   openRequest,
@@ -202,6 +203,7 @@ try {
   const out = process.env.UI_REVIEW_DIR ?? join(root, "review");
   await (await import("node:fs/promises")).mkdir(out, { recursive: true });
   await page.screenshot({ path: join(out, "desktop.png"), fullPage: true });
+  await captureScreens(page, browser, panelOrigin, out);
   await page.getByRole("link", { name: /^Vault/ }).click();
   await expect(
     page.getByRole("heading", { name: "Machines", exact: true }),

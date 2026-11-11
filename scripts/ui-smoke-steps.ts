@@ -1,5 +1,54 @@
 // Steps of the UI smoke test that are shared by several flows.
-import { expect, type Page } from "@playwright/test";
+import { join } from "node:path";
+import { type Browser, expect, type Page } from "@playwright/test";
+
+// Screens the flow does not reach on its own, captured for comparison with the approved
+// design: Settings, Welcome (same session cookie in a second tab), and the unlock screen
+// from a browser with no session, at desktop and phone width.
+export async function captureScreens(
+  page: Page,
+  browser: Browser,
+  origin: string,
+  out: string,
+) {
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Settings", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: join(out, "settings.png"), fullPage: true });
+  // The panel follows the system theme; the approved mockup is shown dark.
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.screenshot({
+    path: join(out, "settings-dark.png"),
+    fullPage: true,
+  });
+  await page.emulateMedia({ colorScheme: "light" });
+  // The view comes from the hash at load time, so reload to open Welcome.
+  await page.evaluate(() => {
+    location.hash = "welcome";
+  });
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Welcome to homectl", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: join(out, "welcome.png"), fullPage: true });
+  // A new context has no session cookie, so the panel shows the unlock screen.
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 960 },
+  });
+  const locked = await context.newPage();
+  await locked.goto(origin);
+  await expect(
+    locked.getByRole("heading", { name: "Unlock homectl", exact: true }),
+  ).toBeVisible();
+  await locked.screenshot({ path: join(out, "unlock.png"), fullPage: true });
+  await locked.setViewportSize({ width: 390, height: 844 });
+  await locked.screenshot({
+    path: join(out, "unlock-mobile.png"),
+    fullPage: true,
+  });
+  await context.close();
+}
 
 // Every row's Open button must sit inside the table card, with no clipping, at
 // the desktop widths. Clipping or overflow fails the smoke run.

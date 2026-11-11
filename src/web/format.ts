@@ -4,9 +4,9 @@ export function displayArgv(argv: string[]) {
   return argv.map((arg) => JSON.stringify(arg)).join(" ");
 }
 export const sessionTtlPresets = [
-  ["1h", "1 hour"],
-  ["12h", "12 hours"],
-  ["24h", "24 hours"],
+  ["1h", "1 h"],
+  ["8h", "8 h"],
+  ["24h", "24 h"],
   ["7d", "7 days"],
   ["until-reboot", "Until this computer restarts"],
 ] as const;
@@ -14,6 +14,8 @@ export function sessionTtlLabel(value: string) {
   if (value === "until-reboot") return "Until this computer restarts";
   const match = /^(\d+)(s|m|h|d)$/.exec(value);
   if (!match) return value;
+  // Hours are written short, as in the approved design: "24 h".
+  if (match[2] === "h") return `${match[1]} h`;
   const units: Record<string, [string, string]> = {
     s: ["second", "seconds"],
     m: ["minute", "minutes"],

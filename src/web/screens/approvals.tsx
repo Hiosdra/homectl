@@ -50,7 +50,16 @@ export function Approvals() {
     list.sort(
       (a, b) => rankOf(a) - rankOf(b) || Date.parse(b.createdAt) - Date.parse(a.createdAt),
     );
-  const selected = ops.find((op) => op.operationId === ui.selectedOperation);
+  // As in the approved design, the To run tab opens its first request until the person
+  // picks another one or closes the drawer (which stores an empty selection).
+  const chosen = ui.selectedOperation;
+  const selectedId =
+    chosen === undefined
+      ? ui.controlFilter === "ready"
+        ? buckets.ready[0]?.operationId
+        : undefined
+      : chosen || undefined;
+  const selected = ops.find((op) => op.operationId === selectedId);
   const visible = buckets[ui.controlFilter];
   return (
     <>
@@ -58,7 +67,7 @@ export function Approvals() {
         title="Accept requests"
         description="Plans from MCP clients. This panel runs only ready plans. Another client approves them."
       />
-      <div className={cn("grid gap-5", selected && "xl:grid-cols-[minmax(0,1fr)_360px]")}>
+      <div className={cn("grid gap-5", selected && "min-[1360px]:grid-cols-[minmax(0,1fr)_360px]")}>
         <div className="min-w-0">
           <Tabs
             value={ui.controlFilter}
@@ -79,7 +88,7 @@ export function Approvals() {
           {visible.length ? (
             <DataTable head={["State", "Host", "Command", "Requested by", "When", ""]}>
               {visible.map((op) => (
-                <OperationRow key={op.operationId} op={op} />
+                <OperationRow key={op.operationId} op={op} selectedId={selectedId} />
               ))}
             </DataTable>
           ) : (
@@ -94,7 +103,7 @@ export function Approvals() {
   );
 }
 
-function OperationRow({ op }: { op: ControlOp }) {
+function OperationRow({ op, selectedId }: { op: ControlOp; selectedId?: string }) {
   const other = op.runsOn !== undefined;
   const label = displayStateOf(op);
   const open = op.state === "pending" || op.state === "approved";
@@ -109,7 +118,7 @@ function OperationRow({ op }: { op: ControlOp }) {
         ? "awaiting approval"
         : "not needed");
   return (
-    <Row operationId={op.operationId} className={cn(ui.selectedOperation === op.operationId && "bg-[#2b2545]/50")}>
+    <Row operationId={op.operationId} className={cn(selectedId === op.operationId && "bg-accent/50")}>
       <Cell label="State" className="whitespace-nowrap">
         <div className="flex flex-wrap gap-1.5">
           <Tag tone={other ? "info" : (STATE_TONE[label] ?? "neutral")}>{other ? "other device" : label}</Tag>

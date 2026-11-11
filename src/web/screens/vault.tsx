@@ -126,7 +126,7 @@ function RecoveryCard() {
       }
     >
       <Muted>Stored outside your devices. Created and used in the terminal.</Muted>
-      <pre className="mt-3 overflow-auto rounded-[7px] border border-border bg-[#0d1520] p-4 font-mono text-[12px] whitespace-pre-wrap break-words">
+      <pre className="mt-3 overflow-auto rounded-[7px] border border-border bg-muted p-4 font-mono text-[12px] whitespace-pre-wrap break-words">
         homectl control recovery export --key &lt;path&gt; --out &lt;path&gt;
       </pre>
     </Section>

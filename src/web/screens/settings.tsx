@@ -249,7 +249,7 @@ function PanelCard() {
         <dt className="text-muted-foreground">Address</dt>
         <dd className={cn("font-mono text-[12px] break-all")}>{location.origin}</dd>
         <dt className="text-muted-foreground">Theme</dt>
-        <dd>Dark</dd>
+        <dd>System</dd>
         <dt className="text-muted-foreground">Version</dt>
         <dd>{version ?? "—"}</dd>
       </dl>

@@ -83,8 +83,8 @@ function StepCode() {
       <div className="grid gap-3">
         <Muted>Code expires at {formatLocalDate(pair.expiresAt)}.</Muted>
         <p>On the other computer, open Sync → Pair device, and enter this address and code:</p>
-        <p className="font-mono text-[26px] tracking-[0.08em] text-[#dbd2ff] tabular-nums">{pairingAddress()}</p>
-        <p className="font-mono text-[26px] tracking-[0.08em] text-[#dbd2ff] tabular-nums">{pair.code}</p>
+        <p className="font-mono text-[26px] tracking-[0.08em] text-foreground tabular-nums">{pairingAddress()}</p>
+        <p className="font-mono text-[26px] tracking-[0.08em] text-foreground tabular-nums">{pair.code}</p>
         <Pre>{`homectl pair --address ${pairingAddress()}`}</Pre>
         <div className="flex flex-wrap gap-2">
           <Action action="pair-copy-command" label="Copy command" />
@@ -130,7 +130,7 @@ function StepPhrase() {
       <p>
         Compare this phrase on both computers. Device: <strong>{pair.remote?.name}</strong>.
       </p>
-      <div className="rounded-[7px] border border-[#59517a] bg-[#24233d] p-4 font-mono text-xl tracking-[0.04em]">{pair.sas}</div>
+      <div className="rounded-[7px] border border-border bg-muted p-4 font-mono text-xl tracking-[0.04em]">{pair.sas}</div>
       <Muted>Continue only if both computers show the same phrase.</Muted>
       <div>
         <Button type="button" onClick={() => { ui.pairStep = 3; render(); }}>
