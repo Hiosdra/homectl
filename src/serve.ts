@@ -24,6 +24,8 @@ import { privateDirectory, protect } from "./platform";
 import { createKey, keyReference } from "./session/keys";
 import { doctor } from "./setup";
 import { HomectlError, type Machine, type Runner } from "./types";
+import { startAttentionWatch } from "./web/attention";
+import { controlPanel } from "./web/control-view";
 import { embeddedPanel } from "./web/embedded";
 import { security } from "./web/panel-headers";
 import { handleUnlockRoute } from "./web/unlock-gate";
@@ -90,33 +92,6 @@ function failure(error: unknown) {
     { error: e.message, code: e.code },
     e.code === 3 ? 403 : e.code === 4 ? 409 : e.code === 5 ? 503 : 400,
   );
-}
-// Control-plane overview for the Approvals view. Read-only, except that the
-// audit verification itself is an in-memory check of the journal.
-async function controlPanel(
-  control: ControlPlane,
-  extra: { sync?: unknown; devices?: unknown },
-) {
-  const [operations, clients, audit] = await Promise.all([
-    control.listOperations({ all: true }),
-    control.listClients(),
-    control.verifyAudit(),
-  ]);
-  return {
-    operations: operations.slice(0, 200),
-    clients,
-    sync: extra.sync,
-    devices: extra.devices,
-    oidc: await control.oidcView(),
-    audit: {
-      ok: audit.ok,
-      entries: audit.entries,
-      head: audit.head,
-      anchored: audit.anchored,
-      checkedAt: new Date().toISOString(),
-      error: audit.error,
-    },
-  };
 }
 
 // Upper bound for waiting on an in-flight control-sync round during shutdown.
@@ -213,6 +188,7 @@ export async function serve(options: ServeOptions) {
   let replicator: ControlReplicator | undefined;
   let syncLoop: SyncLoop | undefined;
   let controlTimer: ReturnType<typeof setInterval> | undefined;
+  let stopAttention: (() => void) | undefined;
   let refreshPeers: (() => Promise<void>) | undefined;
   // The round in progress, awaited on shutdown. Stopping is one-way.
   let inFlight: Promise<unknown> | undefined;
@@ -368,6 +344,9 @@ export async function serve(options: ServeOptions) {
           });
       }, options.syncIntervalMs ?? SYNC_INTERVAL_MS);
       controlTimer.unref?.();
+      stopAttention = startAttentionWatch(() =>
+        control.listOperations({ all: false }),
+      );
     }
   } catch (error) {
     peerServer.stop(true);
@@ -838,6 +817,7 @@ export async function serve(options: ServeOptions) {
       });
     } catch {
       if (controlTimer) clearInterval(controlTimer);
+      stopAttention?.();
       discovered?.close();
       if (inFlight) await settle(inFlight, SHUTDOWN_WAIT_MS);
       await hub.lock().catch(() => undefined);
@@ -1069,6 +1049,7 @@ export async function serve(options: ServeOptions) {
       stopped = true;
       stopping = true;
       if (controlTimer) clearInterval(controlTimer);
+      stopAttention?.();
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       discovered?.close();
       // Stop sync: let an in-flight round finish, up to a bound.
