@@ -63,6 +63,18 @@ export const ui = {
   controlResult: undefined as ControlExecution | undefined,
   // The request a dashboard Review opened; its row is marked and scrolled to.
   highlightOperation: undefined as string | undefined,
+  // The request open in the side panel of Accept requests.
+  selectedOperation: undefined as string | undefined,
+  // Pairing as a three-step dialog, opened from Sync.
+  pairWizard: false,
+  pairStep: 1 as 1 | 2 | 3,
+  // Changes the last sync applied on their own, shown until dismissed.
+  applied: undefined as { items: string[]; at: number } | undefined,
+  // Result of the last "Check" per machine: reachable or not, with a short note.
+  machineStatus: {} as Record<string, { ok: boolean; text: string }>,
+  // Dialogs opened from Settings and Welcome.
+  clientDialog: false,
+  lengthOpen: false,
   confirmRequest: undefined as ConfirmRequest | undefined,
   unlockRequest: undefined as UnlockRequest | undefined,
 };
@@ -234,6 +246,12 @@ export function armSyncWait(next: Preview) {
   ui.conflictChoice = {};
 }
 
+// The changes that do not conflict: they apply without a choice.
+export function cleanChanges(p: Preview): string[] {
+  const conflicting = new Set(p.conflicts.map((c) => c.id));
+  return p.changes.filter((id) => !conflicting.has(id));
+}
+
 export async function updateSyncPreview(peerId: string) {
   const old = ui.preview;
   const next = await api<Preview>("/api/sync/start", { id: peerId });
@@ -246,10 +264,20 @@ export async function updateSyncPreview(peerId: string) {
   ui.preview = next;
   if (autoApplies(next)) {
     ui.result = await api("/api/sync/apply", { id: next.id, choices: {} });
+    ui.applied = { items: next.changes, at: Date.now() };
     ui.preview = undefined;
     announce(
       `Synced ${next.changes.length} change${next.changes.length === 1 ? "" : "s"}.`,
     );
+  } else if (cleanChanges(next).length > 0 && !next.blocker) {
+    // Clean changes apply on their own; the conflicts stay for a choice.
+    const items = cleanChanges(next);
+    await api("/api/sync/apply", { id: next.id, choices: {}, partial: true });
+    ui.applied = { items, at: Date.now() };
+    const remaining = await api<Preview>("/api/sync/start", { id: peerId });
+    ui.preview = remaining.changes.length ? remaining : undefined;
+    if (ui.preview) armSyncWait(remaining);
+    else await api("/api/sync/cancel", { id: remaining.id }).catch(() => {});
   } else {
     armSyncWait(next);
   }

@@ -10,11 +10,11 @@ import { cn } from "./lib/utils";
 import { Tag } from "./shared";
 import { Approvals } from "./screens/approvals";
 import { CommandPanel, PermissionPanel } from "./screens/grants";
-import { Machines } from "./screens/machines";
 import { Settings } from "./screens/settings";
 import { SyncCompare } from "./screens/sync";
 import { Devices } from "./screens/devices";
 import { Vault } from "./screens/vault";
+import { Welcome } from "./screens/welcome";
 import { api, refresh, task, ui } from "./store";
 
 export const NAV: [string, string][] = [
@@ -37,18 +37,15 @@ export function Screen() {
     case "access":
     case "machines":
       return (
-        <>
-          <Vault />
-          <div className="mt-12">
-            <Machines />
-          </div>
-        </>
+        <Vault />
       );
     case "sync":
     case "peers":
       return ui.preview ? <SyncCompare p={ui.preview} /> : <Devices />;
     case "settings":
       return <Settings />;
+    case "welcome":
+      return <Welcome />;
     default:
       return <Dashboard state={ui.state} control={ui.control} />;
   }

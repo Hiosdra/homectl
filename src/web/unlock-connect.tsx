@@ -1,13 +1,14 @@
-// The panel's first screen when it is not connected. The vault password is sealed in
-// this browser to the server key before it is sent (ADR-0003). The key fingerprint is
-// pinned per host. A changed key blocks the form until the user trusts it on purpose.
+// The panel's first screen when it is not connected, as in the approved design. The vault
+// password is sealed in this browser to the server key before it is sent (ADR-0003). The
+// key fingerprint is pinned per host; a changed key blocks the form until the user trusts
+// it on purpose.
 import { type FormEvent, useEffect, useState } from "react";
-import { fromHex, sealPassword } from "./unlock-seal";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Button } from "./ui/button";
-import { Disclosure } from "./disclosure";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { Tag } from "./shared";
+import { fromHex, sealPassword } from "./unlock-seal";
 
 type KeyInfo = { pub: string; fingerprint: string };
 type Answer<T> = { status: number; body: T & { error?: string } };
@@ -36,12 +37,16 @@ async function call<T>(path: string, init?: RequestInit): Promise<Answer<T>> {
   return { status: response.status, body };
 }
 
+// HTTPS, or this computer: the password needs no sealing in the browser.
+const onThisComputer = () =>
+  location.protocol === "https:" ||
+  ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
+
 export function UnlockConnect({ onDone }: { onDone: () => void }) {
   const [key, setKey] = useState<KeyInfo | undefined>();
   const [pinned, setPinned] = useState<string | null>(null);
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
-  const [showCode, setShowCode] = useState(false);
 
   useEffect(() => {
     setPinned(readPin());
@@ -52,6 +57,7 @@ export function UnlockConnect({ onDone }: { onDone: () => void }) {
   }, []);
 
   const changed = key !== undefined && pinned !== null && pinned !== key.fingerprint;
+  const local = onThisComputer();
 
   async function unlock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -93,30 +99,25 @@ export function UnlockConnect({ onDone }: { onDone: () => void }) {
 
   return (
     <div id="connection" className="grid min-h-dvh place-items-center p-8 max-[700px]:p-4">
-      <div className="grid w-full max-w-[500px] gap-5">
-        <div className="mb-6 flex items-center gap-2.5 text-[22px] font-bold tracking-[-0.025em]">
-          <span className="grid size-[30px] place-items-center rounded-[9px] bg-primary text-[23px] text-primary-foreground">h</span>
+      <div className="grid w-full max-w-[640px] gap-5">
+        <div className="flex items-center gap-2.5 text-[22px] font-bold tracking-[-0.025em]">
+          <span className="grid size-[30px] place-items-center rounded-[9px] bg-primary text-[23px] text-primary-foreground">
+            h
+          </span>
           homectl
         </div>
         <h1 className="text-[38px] leading-[1.15] font-semibold tracking-[-0.025em] max-[700px]:text-[32px]">
           Unlock homectl
         </h1>
         <p className="text-muted-foreground">
-          Open this workspace at <code id="workspace-origin">{location.origin}</code>. Your
-          vault password is the only password for this panel. It is encrypted in this
-          browser before it is sent.
+          Your vault password is the only password you need here. One unlock lasts the session length set in
+          Settings (24 h by default).
         </p>
-        {key ? (
-          <p className="text-muted-foreground">
-            Server key: <code id="server-fingerprint">{key.fingerprint}</code>. Compare it
-            once with the terminal.
-          </p>
-        ) : null}
         {changed ? (
           <Alert id="connection-error" variant="error">
             <AlertDescription>
-              The server key changed since your last visit. Do not enter your password
-              until you have checked the new key in the terminal.{" "}
+              The server key changed since your last visit. Do not enter your password until you have checked the new
+              key in the terminal.{" "}
               <Button type="button" variant="outline" size="sm" onClick={trustChangedKey}>
                 Trust the new key
               </Button>
@@ -128,53 +129,55 @@ export function UnlockConnect({ onDone }: { onDone: () => void }) {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
-        <form id="unlock-form" className="grid gap-3" onSubmit={(event) => void unlock(event)}>
-          <Label htmlFor="password">Vault password</Label>
-          <Input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            disabled={!key || changed || busy}
-          />
-          <div>
-            <Button type="submit" disabled={!key || changed || busy}>
-              {busy ? "Unlocking…" : "Unlock"}
-            </Button>
+        <section
+          className={`grid gap-4 rounded-panel border bg-card p-5 max-[700px]:p-4 ${local ? "border-border" : "border-warning"}`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">
+              {local ? "Served over HTTPS or on this computer" : "Served over plain HTTP on the LAN"}
+            </h2>
+            {local ? null : <Tag tone="success">encrypted in browser</Tag>}
           </div>
-        </form>
-        <Disclosure title={<>Use a workspace access code instead</>} panelClassName="grid gap-3 pt-3">
+          {local ? (
+            <p className="text-muted-foreground">Unlock with your vault password.</p>
+          ) : (
             <p className="text-muted-foreground">
-              Local workspaces started with <code>homectl panel</code> open with their
-              private link. Compose deployments may still use the code from the protected
-              file set as <code>HOMECTL_PANEL_TOKEN_FILE</code>.
+              The password is encrypted in this browser with the server key before it is sent. Server key:{" "}
+              <code id="server-fingerprint">{key?.fingerprint ?? "…"}</code> (compare once with the terminal).
             </p>
-            <form
-              id="connect-form"
-              className="grid gap-3"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const input = event.currentTarget.elements.namedItem("token") as HTMLInputElement;
-                const token = input.value;
-                input.value = "";
-                void call("/api/connect", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ token }),
-                }).then((answer) => {
-                  if (answer.status === 200) onDone();
-                  else setError(answer.body.error ?? "Invalid workspace access code.");
-                });
-              }}
-            >
-              <Label htmlFor="token">Workspace access code</Label>
-              <Input id="token" name="token" type="password" autoComplete="off" required />
-              <div>
-                <Button type="submit" variant="secondary">Open workspace</Button>
-              </div>
-            </form>
-          </Disclosure>
+          )}
+          <form id="unlock-form" className="grid gap-3" onSubmit={(event) => void unlock(event)}>
+            <Label htmlFor="password">Vault password</Label>
+            <Input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              disabled={!key || changed || busy}
+            />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Button
+                type="submit"
+                className="border-success bg-success text-background hover:bg-success/90"
+                disabled={!key || changed || busy}
+              >
+                {busy ? "Unlocking…" : "Unlock"}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {local
+                  ? "Locks again after the idle time set in Settings"
+                  : "Blocks passive sniffing. Not an attacker who can change pages on your LAN."}
+              </span>
+            </div>
+          </form>
+        </section>
+        <section className="rounded-panel border border-border p-5 max-[700px]:p-4">
+          <h2 className="mb-1.5 text-lg font-semibold">After 5 wrong passwords</h2>
+          <p className="text-muted-foreground">
+            Unlock pauses for 60 seconds. The counter resets after a successful unlock.
+          </p>
+        </section>
       </div>
     </div>
   );

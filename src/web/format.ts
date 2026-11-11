@@ -60,10 +60,11 @@ export function rankOf(op: ControlOp) {
   return op.state === "executing" ? 2 : 3;
 }
 export function labelOf(op: ControlOp) {
-  return op.state === "failed" &&
-    (op.reason === "plan-expired" || op.reason === "approval-expired")
-    ? "expired"
-    : op.state;
+  if (op.state !== "failed") return op.state;
+  if (op.reason === "plan-expired" || op.reason === "approval-expired")
+    return "expired";
+  // A request the owner closed from this panel is stored as failed with reason denied.
+  return op.reason === "denied" ? "denied" : op.state;
 }
 // What a person should read at a glance; the stored state is unchanged.
 export function displayStateOf(op: ControlOp) {
@@ -72,7 +73,7 @@ export function displayStateOf(op: ControlOp) {
   if (op.state === "pending")
     return op.needsApproval ? "needs approval" : "ready";
   if (op.state === "approved") return "ready";
-  return op.state;
+  return label;
 }
 
 export function formatMs(ms: number) {

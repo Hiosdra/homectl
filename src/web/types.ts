@@ -179,6 +179,7 @@ export type ControlOverview = {
   operations: ControlOp[];
   clients: ControlClient[];
   audit: ControlAudit;
+  recovery?: { lastExportAt?: string };
   sync?: ControlSync;
   devices?: ControlDevices;
   oidc?: OidcOverview;

@@ -107,15 +107,18 @@ export function handleSubmit(form: HTMLFormElement) {
         : "Vault unlocked. Credential sync is ready on this device.";
     }
     if (form.id === "settings-form") {
-      const selection = String(values.get("ttl"));
-      const customTtl = String(values.get("custom-ttl") ?? "").trim();
-      const ttl = selection === "custom" ? customTtl : selection;
-      if (selection === "custom" && !/^[1-9][0-9]{0,6}[smhd]$/.test(ttl))
-        throw new Error("Enter a custom duration like 30m or 2d.");
+      const session = ui.state.inventory.session;
       await api("/api/settings", {
         name: values.get("name"),
-        ttl,
-        ...(values.has("idle") ? { idle: values.get("idle") } : {}),
+        ttl: session?.ttl ?? "24h",
+        idle: session?.idle ?? "2h",
+      });
+    }
+    if (form.id === "session-form") {
+      await api("/api/settings", {
+        name: ui.state.device.name,
+        ttl: String(values.get("ttl")),
+        idle: String(values.get("idle")),
       });
     }
     if (form.id === "machine-form") {

@@ -14,6 +14,7 @@ import { loadOrCreateDeviceKey } from "../src/control/device-key";
 import {
   createRecoveryKey,
   exportRecoveryBundle,
+  lastRecoveryExport,
   recoveryKeyId,
   restoreRecoveryBundle,
 } from "../src/control/recovery";
@@ -107,6 +108,21 @@ describe("recovery bundle", () => {
       expect(await readFile(join(target, name), "utf8")).toBe(
         await readFile(join(original.state, name), "utf8"),
       );
+  });
+
+  test("records the time of the last export for the Vault card", async () => {
+    const original = await device();
+    const keyPath = join(original.root, "recovery.key");
+    await createRecoveryKey(original.state, keyPath);
+    expect(await lastRecoveryExport(original.state)).toBeUndefined();
+    const at = new Date("2026-11-11T09:00:00.000Z");
+    await exportRecoveryBundle({
+      stateDirectory: original.state,
+      keyPath,
+      outPath: join(original.root, "bundle.json"),
+      clock: () => at,
+    });
+    expect(await lastRecoveryExport(original.state)).toBe(at.toISOString());
   });
 
   test("a wrong recovery key is refused and nothing is written", async () => {

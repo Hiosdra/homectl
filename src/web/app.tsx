@@ -9,7 +9,7 @@ import {
 } from "react";
 import { createRoot } from "react-dom/client";
 import { handleAction } from "./actions";
-import { ConfirmDialog, UnlockDialog } from "./dialogs";
+import { ClientDialog, ConfirmDialog, UnlockDialog } from "./dialogs";
 import { Connection, Workspace } from "./shell";
 import { handleSubmit } from "./submit";
 import {
@@ -64,6 +64,7 @@ function App() {
       {ui.connected && ui.state !== undefined ? <Workspace /> : null}
       <ConfirmDialog />
       <UnlockDialog />
+      <ClientDialog />
     </>
   );
 }
@@ -115,9 +116,24 @@ async function boot() {
     render();
   }
   const hash = location.hash.slice(1);
-  ui.view = ["dashboard", "approvals", "access", "machines", "sync", "peers", "settings"].includes(hash)
+  // A workspace with no SSH machine and no paired device starts at Welcome.
+  const fresh =
+    Object.values(ui.state.inventory.machines).every((m) => m.transport === "local") &&
+    ui.state.peers.length === 0;
+  ui.view = [
+    "dashboard",
+    "approvals",
+    "access",
+    "machines",
+    "sync",
+    "peers",
+    "settings",
+    "welcome",
+  ].includes(hash)
     ? hash
-    : "dashboard";
+    : fresh
+      ? "welcome"
+      : "dashboard";
   render();
 }
 

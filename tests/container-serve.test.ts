@@ -173,17 +173,14 @@ describe("authenticated remote panel proxy", () => {
       });
       expect(app.status).toBe(200);
       const appScript = await app.text();
-      expect(appScript).toContain("Workspace access code");
-      expect(appScript).toContain("HOMECTL_PANEL_TOKEN_FILE");
-      expect(appScript).toContain("workspace-origin");
-      expect(appScript).toContain("Join a pairing session");
-      expect(appScript).toContain("not a container-only IP");
-      expect(appScript).toContain("UDP 5353");
-      expect(appScript).toContain("TCP 7448");
-      expect(appScript).toContain("Custom duration…");
+      // The unlock screen is the only entry point: the panel password is the vault password.
+      expect(appScript).toContain("Unlock homectl");
+      expect(appScript).toContain("Served over plain HTTP on the LAN");
+      expect(appScript).toContain("Pair device");
+      expect(appScript).toContain("Change length");
       expect(appScript).toContain("Until this computer restarts");
       expect(appScript).toContain("Approved admin commands");
-      expect(appScript).toContain("Choose how to get started");
+      expect(appScript).toContain("Four steps to a working setup");
       expect(appScript).toContain("Vault unlocked");
       expect(appScript).toContain("SSH access is managed separately");
 

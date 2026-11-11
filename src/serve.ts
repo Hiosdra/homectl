@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { dirname, join } from "node:path";
@@ -15,10 +15,10 @@ import { ControlReplicator } from "./control/replicator";
 import { SYNC_INTERVAL_MS, SyncLoop } from "./control/sync-loop";
 import { loadInventory, parseInventory, saveInventory } from "./inventory";
 import { execute, writeSSHConfig } from "./operations";
+import { syncApply } from "./peer/apply";
 import { discovery } from "./peer/discovery";
 import { Hub, peerAddress } from "./peer/hub";
 import type { Permissions } from "./peer/store";
-import type { Choice } from "./peer/sync";
 import { previewCounts } from "./peer/sync";
 import { privateDirectory, protect } from "./platform";
 import { createKey, keyReference } from "./session/keys";
@@ -26,8 +26,16 @@ import { doctor } from "./setup";
 import { HomectlError, type Machine, type Runner } from "./types";
 import { startAttentionWatch } from "./web/attention";
 import { controlPanel } from "./web/control-view";
+import {
+  body,
+  failure,
+  isLoopbackInterface,
+  response,
+  sameSecret,
+} from "./web/http";
 import { panelAssets } from "./web/panel-assets";
 import { security } from "./web/panel-headers";
+import { handleServiceRoute } from "./web/service-route";
 import { handleUnlockRoute } from "./web/unlock-gate";
 import { openPanelGate, saveSession, unlockVault } from "./web/unlock-open";
 import { handleUpdateRoute, updateChecker } from "./web/update-status";
@@ -53,47 +61,6 @@ export type ServeOptions = {
   // The ordinary panel stays on loopback for local CLI and health access.
   panel?: { interface: string; origin: string; accessToken?: string };
 };
-async function body(request: Request): Promise<Record<string, unknown>> {
-  if (!request.headers.get("Content-Type")?.startsWith("application/json"))
-    throw new HomectlError(2, "JSON content type required");
-  const text = await request.text();
-  if (text.length > 24 * 1024 * 1024)
-    throw new HomectlError(2, "Request too large");
-  const data = JSON.parse(text);
-  if (!data || typeof data !== "object" || Array.isArray(data))
-    throw new HomectlError(2, "JSON object required");
-  return data;
-}
-// Constant-time comparison of a presented secret with the expected one.
-function sameSecret(given: unknown, expected: string): boolean {
-  if (typeof given !== "string") return false;
-  const a = Buffer.from(given, "utf8");
-  const b = Buffer.from(expected, "utf8");
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-function response(value: unknown, status = 200) {
-  return Response.json(value, { status, headers: security });
-}
-function isLoopbackInterface(address: string): boolean {
-  if (isIP(address) === 4) return address.startsWith("127.");
-  if (isIP(address) !== 6) return false;
-  const normalized = new URL(`http://[${address}]/`).hostname.toLowerCase();
-  return normalized === "[::1]" || normalized.startsWith("[::ffff:");
-}
-function failure(error: unknown) {
-  const e =
-    error instanceof HomectlError
-      ? error
-      : new HomectlError(
-          2,
-          "Invalid request or unavailable resource; details suppressed",
-        );
-  return response(
-    { error: e.message, code: e.code },
-    e.code === 3 ? 403 : e.code === 4 ? 409 : e.code === 5 ? 503 : 400,
-  );
-}
-
 // Upper bound for waiting on an in-flight control-sync round during shutdown.
 const SHUTDOWN_WAIT_MS = 10_000;
 
@@ -395,6 +362,12 @@ export async function serve(options: ServeOptions) {
               throw new HomectlError(3, "Connect to this local panel first");
             const update = await handleUpdateRoute(req, url, updateChecker);
             if (update) return update;
+            const serviceRoute = await handleServiceRoute(
+              req,
+              url,
+              options.inventoryPath,
+            );
+            if (serviceRoute) return serviceRoute;
             if (req.method === "POST" && req.headers.get("Origin") !== origin)
               throw new HomectlError(3, "Cross-origin operation refused");
             if (req.method === "GET" && url.pathname === "/api/state")
@@ -506,12 +479,7 @@ export async function serve(options: ServeOptions) {
             if (url.pathname === "/api/sync/readiness")
               return response(await hub.syncReadiness(String(v.id)));
             if (url.pathname === "/api/sync/apply")
-              return response(
-                await hub.syncCommit(
-                  String(v.id),
-                  (v.choices ?? {}) as Record<string, Choice>,
-                ),
-              );
+              return response(await syncApply(hub, v));
             if (url.pathname === "/api/peer/request")
               return response(
                 await hub.peerRequest(
@@ -577,12 +545,7 @@ export async function serve(options: ServeOptions) {
                   );
                 }
                 case "/api/sync/apply":
-                  return response(
-                    await hub.syncCommit(
-                      String(v.id),
-                      (v.choices ?? {}) as Record<string, Choice>,
-                    ),
-                  );
+                  return response(await syncApply(hub, v));
                 case "/api/sync/cancel":
                   hub.pending.delete(String(v.id));
                   return response({ cancelled: true });

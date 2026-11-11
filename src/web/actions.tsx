@@ -55,10 +55,17 @@ export async function handleAction(action: string | undefined, id: string) {
     case "navigate-peers":
       navigate("peers");
       return;
-    case "doctor":
+    case "doctor": {
       ui.result = await api("/api/doctor", { host: id });
+      // Reachable when every check of the host passes; the first failing check is named.
+      const checks = (ui.result as { checks?: { name: string; ok: boolean }[] }).checks ?? [];
+      const failed = checks.find((c) => !c.ok);
+      ui.machineStatus[id] = failed
+        ? { ok: false, text: "unreachable" }
+        : { ok: true, text: "reachable" };
       render();
       return;
+    }
     case "compare-conflict":
       ui.conflictChoice[Number(id)] = undefined;
       render();
@@ -157,8 +164,46 @@ export async function handleAction(action: string | undefined, id: string) {
         });
       await refresh();
       return;
+    case "service-restart":
+    case "service-stop": {
+      const verb = action === "service-stop" ? "stop" : "restart";
+      if (
+        !(await confirm(
+          `${verb === "stop" ? "Stop" : "Restart"} the background service?`,
+          "Sync and requests run only while the service is running. Restarting briefly interrupts this panel.",
+        ))
+      )
+        return;
+      const outcome = await api<{ text: string }>("/api/service", { action: verb });
+      report(outcome.text, "notice");
+      return;
+    }
+    case "welcome-vault":
+      navigate("access");
+      render();
+      return;
+    case "welcome-add-machine":
+      navigate("access");
+      ui.editing = "";
+      render();
+      return;
+    case "client-dialog":
+      ui.clientDialog = true;
+      render();
+      return;
+    case "pair-open-wizard":
+      ui.pairWizard = true;
+      ui.pairStep = 1;
+      render();
+      return;
+    case "dismiss-applied":
+      ui.applied = undefined;
+      render();
+      return;
     case "pair-cancel":
       await api("/api/pair/cancel", {});
+      ui.pairWizard = false;
+      ui.pairStep = 1;
       await refresh();
       return;
     case "discovered":
@@ -189,6 +234,8 @@ export async function handleAction(action: string | undefined, id: string) {
       render();
       return;
     case "sync-start":
+      // A new comparison replaces the last "applied changes" note.
+      ui.applied = undefined;
       ui.syncWaiting = undefined;
       ui.syncPeerId = id;
       ui.view = "sync";
@@ -198,6 +245,7 @@ export async function handleAction(action: string | undefined, id: string) {
       return;
     case "sync-preview":
       if (ui.view !== "sync") navigate("sync");
+      ui.applied = undefined;
       ui.syncWaiting = undefined;
       ui.syncPeerId = ui.state.pending.find((pending) => pending.id === id)?.peerId;
       ui.preview = await api<Preview>("/api/sync/preview", { id });
@@ -223,6 +271,7 @@ export async function handleAction(action: string | undefined, id: string) {
       ui.controlTab = "queue";
       ui.controlFilter = bucketOf(op);
       ui.highlightOperation = id;
+      ui.selectedOperation = id;
       render();
       return;
     }
@@ -238,6 +287,14 @@ export async function handleAction(action: string | undefined, id: string) {
       report(installed.next, "notice");
       return;
     }
+    case "open-operation":
+      ui.selectedOperation = id;
+      render();
+      return;
+    case "close-operation":
+      ui.selectedOperation = undefined;
+      render();
+      return;
     case "control-tab":
       ui.controlTab = id === "clients" ? "clients" : "queue";
       render();

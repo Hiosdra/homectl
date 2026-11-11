@@ -99,7 +99,7 @@ function sideName(p: Preview, side: Side) {
 function optionLabel(p: Preview, conflict: Conflict, side: Side) {
   const other: Side = side === "local" ? "remote" : "local";
   if (conflict[side].value === null) return "Keep removed";
-  if (conflict[other].value === null) return "Restore";
+  if (conflict[other].value === null) return "Restore on both devices";
   return `Use from ${sideName(p, side)}`;
 }
 
@@ -176,7 +176,7 @@ function ConflictCard({ p, index, conflict }: { p: Preview; index: number; confl
   const choice = ui.conflictChoice[index];
   const removal = conflict.local.value === null || conflict.remote.value === null;
   const suggested = conflict.suggested;
-  const options: { value: string; label: string; isDefault: boolean }[] = [
+  const options: { value: string; label: string; hint?: string; isDefault: boolean }[] = [
     "local",
     "remote",
   ].map((side) => ({
@@ -185,7 +185,7 @@ function ConflictCard({ p, index, conflict }: { p: Preview; index: number; confl
     isDefault: suggested === side,
   }));
   if (!conflict.id.startsWith("hostkey:") && !removal)
-    options.push({ value: "both", label: "Keep both as separate entries", isDefault: false });
+    options.push({ value: "both", label: "Keep both", hint: "Two separate entries", isDefault: false });
   const title = conflict.id;
   const choiceText =
     choice === "both"
@@ -254,7 +254,10 @@ function ConflictCard({ p, index, conflict }: { p: Preview; index: number; confl
               defaultChecked={option.isDefault}
               className="size-4 accent-primary"
             />
-            <span>{option.label}</span>
+            <span>
+              {option.label}
+              {option.hint ? <span className="block text-xs text-muted-foreground">{option.hint}</span> : null}
+            </span>
             {option.isDefault ? <Tag tone="info">default · later change</Tag> : null}
           </label>
         ))}
@@ -275,9 +278,7 @@ export function SyncCompare({ p }: { p: Preview }) {
       <SyncWait />
       <form id="sync-form" key={p.id} className="grid gap-5">
         <p className="text-sm text-muted-foreground">
-          {count} changed entr{count === 1 ? "y" : "ies"} · {p.conflicts.length} conflict
-          {p.conflicts.length === 1 ? "" : "s"}. Only conflicts need your choice. Secrets
-          stay hidden.
+          {p.conflicts.length} conflict{p.conflicts.length === 1 ? "" : "s"} to resolve · {ui.applied?.items.length ?? 0} change{(ui.applied?.items.length ?? 0) === 1 ? "" : "s"} applied automatically
         </p>
         {p.conflicts.map((c, i) => (
           <ConflictCard key={c.id + i} p={p} index={i} conflict={c} />
@@ -293,14 +294,15 @@ export function SyncCompare({ p }: { p: Preview }) {
                   ))}
             </div>
           </Disclosure>
-        <footer className="flex flex-wrap justify-end gap-2.5">
-          <Action action="sync-cancel" label="Close" />
-          {ui.syncPeerId ? (
-            <Action action="sync-restart" label="Compare devices again" />
-          ) : null}
-          <Button type="submit" disabled={syncWaitVisible()}>
-            Apply choices
-          </Button>
+        <footer className="flex flex-wrap items-center justify-between gap-3">
+          <span className="text-sm text-muted-foreground">Only conflicts need you</span>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Action action="sync-cancel" label="Close" kind="quiet" />
+            {ui.syncPeerId ? <Action action="sync-restart" label="Compare devices again" /> : null}
+            <Button type="submit" disabled={syncWaitVisible()}>
+              Apply choices
+            </Button>
+          </div>
         </footer>
       </form>
     </>

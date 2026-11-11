@@ -24,6 +24,7 @@ import {
 } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { Note, Pre } from "./shared";
 
 export function ConfirmDialog() {
   const request = ui.confirmRequest;
@@ -130,3 +131,37 @@ async function submitUnlock(event: FormEvent<HTMLFormElement>) {
     password.focus();
   }
 }
+
+// Connect an MCP client: the command to run in a private terminal, which writes the token
+// file locally. The panel never creates or shows a client token.
+export function ClientDialog() {
+  const close = () => {
+    ui.clientDialog = false;
+    render();
+  };
+  return (
+    <Dialog open={ui.clientDialog} onOpenChange={(next) => (next ? undefined : close())}>
+      <DialogPopup id="client-dialog" className="rounded-dialog">
+        <DialogHeader>
+          <DialogTitle>Connect an MCP client</DialogTitle>
+          <DialogDescription>Each client gets its own identity, scopes and host grants.</DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="grid gap-3">
+          <p>Run this in a private terminal. It writes the token file locally, so the token is never shown here.</p>
+          <Pre>
+            {COMMAND}
+          </Pre>
+          <Note>Replace the placeholders. Only clients granted approve:decide can approve operations.</Note>
+        </DialogPanel>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={close}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+const COMMAND =
+  'homectl control client add codex-pc --name "Codex PC" --scopes status:read,inspect:read,plan:create --hosts <host> --token-file <path>';

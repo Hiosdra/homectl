@@ -16,7 +16,12 @@ import {
 import { loadInventory, saveInventory } from "../src/inventory";
 import { serve } from "../src/serve";
 import { keyReference } from "../src/session/keys";
-import { assertExecuteInsideCard, denyReadyRequest } from "./ui-smoke-steps";
+import {
+  assertOpenInsideCard,
+  denyReadyRequest,
+  editMachine,
+  openRequest,
+} from "./ui-smoke-steps";
 
 const root = await mkdtemp(join(tmpdir(), "hcui-"));
 const inventory = join(root, "inventory.yaml");
@@ -204,11 +209,7 @@ try {
   await page.getByRole("searchbox").fill("voron");
   await expect(page.locator("tr[data-search]:visible")).toHaveCount(1);
   await page.getByRole("searchbox").fill("");
-  await page
-    .getByRole("row")
-    .filter({ hasText: "discard-me" })
-    .getByRole("button", { name: "Edit" })
-    .click();
+  await editMachine(page, "discard-me");
   await page.getByRole("button", { name: "Remove machine" }).click();
   await expect(page.locator("#confirm-dialog")).toContainText(
     "vault credential",
@@ -268,12 +269,13 @@ try {
     page.getByRole("heading", { name: "Sync", exact: true }),
   ).toBeVisible();
   await page.screenshot({ path: join(out, "peers.png"), fullPage: true });
-  await page.getByRole("button", { name: "Start pairing" }).click();
+  await page.getByRole("button", { name: "Pair device", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Pairing window open" }),
+    page.getByRole("heading", { name: "Pair a computer" }),
   ).toBeVisible();
-  expect(running.hub.pair?.code).toMatch(/^\d{4}-\d{4}$/);
+  await page.getByRole("button", { name: "Show code", exact: true }).click();
   await expect(page.getByText(/^homectl pair --address /)).toBeVisible();
+  expect(running.hub.pair?.code).toMatch(/^\d{4}-\d{4}$/);
   await expect(
     page.getByRole("button", { name: "Copy command" }),
   ).toBeVisible();
@@ -281,7 +283,7 @@ try {
     page.getByRole("button", { name: "Copy one-time code" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Cancel pairing" }).click();
-  expect(running.hub.pair).toBeUndefined();
+  await expect.poll(() => running.hub.pair).toBeUndefined();
   // Model a new device with no SSH keys yet. Once the vault is created, the
   // synthetic SSH hosts are restored for the remaining machine/control flows.
   await saveInventory(inventory, {
@@ -297,12 +299,10 @@ try {
   });
   await page.getByRole("link", { name: /^Vault/ }).click();
   const smokePassword = "local UI smoke password";
-  await page.getByLabel("Choose a vault password").fill(smokePassword);
-  await page.getByLabel("Confirm vault password").fill(smokePassword);
-  await page.getByRole("button", { name: "Create and unlock vault" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Vault unlocked" }),
-  ).toBeVisible();
+  const safe = page.locator("form#unlock-form");
+  await safe.getByLabel("Safe password", { exact: true }).fill(smokePassword);
+  await safe.getByLabel("Confirm safe password").fill(smokePassword);
+  await safe.getByRole("button", { name: "Create and unlock safe" }).click();
   await expect(
     page.getByText("Vault created and unlocked on this device."),
   ).toBeVisible();
@@ -369,8 +369,11 @@ try {
     "Shared family files · demo";
   const proposed = await running.hub.preview(peerId, records);
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
-  await page.getByRole("link", { name: /^Sync/ }).click();
-  await page.getByRole("button", { name: "Review", exact: true }).click();
+  await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Compare", exact: true })
+    .first()
+    .click();
   await expect(
     page.getByRole("radio", { name: "Use from Linux · demo" }),
   ).toBeVisible();
@@ -497,11 +500,12 @@ try {
   expect(running.hub.pending.has(proposed.id)).toBe(false);
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page.getByLabel("Device name").fill("Linux · demo");
-  await page.getByLabel("Session lifetime").click();
-  await page.getByRole("option", { name: "Custom duration…" }).click();
-  await expect(page.getByLabel("Duration")).toBeVisible();
-  await page.getByLabel("Duration").fill("2d");
-  await page.getByRole("button", { name: "Save settings" }).click();
+  await page.getByRole("button", { name: "Save name" }).click();
+  await expect(page.getByRole("status")).toContainText("Changes saved");
+  await page.getByRole("button", { name: "Change length" }).click();
+  await page.getByLabel("Session length").click();
+  await page.getByRole("option", { name: "7 days" }).click();
+  await page.getByRole("button", { name: "Save length" }).click();
   await expect(page.getByRole("status")).toContainText("Changes saved");
   // Replicated state (synthetic), written through the real signing path. Each
   // fixture device has its own Ed25519 key; every record is sealed by its
@@ -595,25 +599,21 @@ try {
   await rep.decide(hermes, pendingRemote, "7c1e0d2a9b44f1c8", "approve");
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await page.getByRole("link", { name: /^Sync/ }).click();
+  // A device that cannot sign has an expired lease and is shown for re-pairing.
+  const legacy = page.locator("article", { hasText: "Legacy · demo" });
+  await expect(legacy.getByText("lease expired")).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Control sync", exact: true }),
+    legacy.getByText("re-pair to enable control sync"),
   ).toBeVisible();
-  await expect(
-    page.getByText("excluded from lease: re-pair required"),
-  ).toBeVisible();
-  // The Mac device is offline in this fixture: suspend it from the lease, as the
-  // operator would from the panel, then check the row.
-  await page
-    .locator("tr", { hasText: "Mac · demo" })
-    .getByRole("button", { name: "Suspend from lease", exact: true })
+  // Suspend it from this device's lease, as the operator would from the panel.
+  await legacy
+    .getByRole("button", { name: "Suspend lease…", exact: true })
     .click();
   await expect(page.locator("#confirm-dialog")).toBeVisible();
   await page.locator("#confirm-dialog button[value=confirm]").click();
-  await expect(
-    page.getByText("suspended by Linux · demo", { exact: false }).first(),
-  ).toBeVisible();
+  await expect(legacy.getByText("suspended", { exact: true })).toBeVisible();
   await expect(page.locator("#control-live")).toContainText(
-    "Mac · demo is suspended from this device's lease.",
+    "Legacy · demo is suspended from this device's lease.",
   );
   await page.screenshot({
     path: join(out, "control-sync.png"),
@@ -621,57 +621,44 @@ try {
   });
   await page.getByRole("link", { name: /^Sync/ }).click();
   await expect(
-    page.getByText("Re-pair this device to enable control sync").first(),
+    page.getByText("re-pair to enable control sync").first(),
   ).toBeVisible();
-  await expect(page.getByText("Signing key").first()).toBeVisible();
+  await expect(page.getByText(/^key [0-9a-f]/).first()).toBeVisible();
   await page.screenshot({ path: join(out, "devices.png"), fullPage: true });
   // Approvals: the queue, an inspection run from the panel, and the client list.
   await page.getByRole("link", { name: /^(Accept requests|Requests)/ }).click();
-  await expect(page.getByText("Runs on Windows · demo").first()).toBeVisible();
+  await expect(page.getByText("owned by Windows · demo").first()).toBeVisible();
   await expect(
     page
-      .locator("tr", { hasText: "Runs on Windows · demo" })
-      .getByRole("button", { name: "Accept", exact: true }),
-  ).toHaveCount(0);
-  // Approvals: the queue, an inspection run from the panel, and the client list.
-  await page.getByRole("link", { name: /^(Accept requests|Requests)/ }).click();
-  await expect(page.getByText("Runs on Windows · demo").first()).toBeVisible();
-  await expect(
-    page
-      .locator("tr", { hasText: "Runs on Windows · demo" })
+      .locator("tr", { hasText: "owned by Windows · demo" })
       .getByRole("button", { name: "Accept", exact: true }),
   ).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Accept requests", exact: true }),
   ).toBeVisible();
-  await expect(page.getByText(/entries · head/)).toBeVisible();
   await page.screenshot({ path: join(out, "approvals.png"), fullPage: true });
-  await page.getByRole("button", { name: /^Needs approval/ }).click();
-  await expect(
-    page.getByText("Waiting for approval by another client"),
-  ).toBeVisible();
-  // The forwarded approval shows as awaiting confirmation until the owner reflects it.
-  await expect(
-    page.getByText("forwarded, awaiting confirmation").first(),
-  ).toBeVisible();
+  await page.getByRole("tab", { name: /^Waiting for approval/ }).click();
+  await expect(page.getByText("awaiting approval").first()).toBeVisible();
   await page.screenshot({
     path: join(out, "approvals-needs.png"),
     fullPage: true,
   });
-  await page.getByRole("button", { name: /^Ready to run/ }).click();
-  await assertExecuteInsideCard(page, "1440px");
+  await page.getByRole("tab", { name: /^To run/ }).click();
+  await assertOpenInsideCard(page, "1440px");
   await page.setViewportSize({ width: 1280, height: 960 });
-  await assertExecuteInsideCard(page, "1280px");
+  await assertOpenInsideCard(page, "1280px");
   await page.screenshot({
     path: join(out, "approvals-1280.png"),
     fullPage: true,
   });
   await page.setViewportSize({ width: 1440, height: 960 });
   // Target the inspection row only: the approved SSH change in the same tab must not run.
-  const inspectionRun = page
-    .locator("tr", { hasText: "hostname" })
-    .getByRole("button", { name: "Accept", exact: true });
-  // Escape cancels the confirmation and returns focus to the Execute button.
+  // Escape cancels the confirmation and returns focus to the Accept button.
+  const details = await openRequest(page, "hostname");
+  const inspectionRun = details.getByRole("button", {
+    name: "Accept",
+    exact: true,
+  });
   await inspectionRun.click();
   await expect(page.locator("#confirm-dialog")).toBeVisible();
   await page.keyboard.press("Escape");
@@ -708,10 +695,10 @@ try {
     issueToken: false,
   });
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
-  await page.getByRole("tab", { name: "Clients", exact: true }).click();
-  await expect(page.getByText("OIDC only · idp.example.test")).toBeVisible();
+  // Clients and sign-in live in Settings. The client command opens from Add client.
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
   await expect(
-    page.getByText("Read-only. Change it from a private terminal."),
+    page.getByText("idp.example.test", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("synthetic-subject-01")).toHaveCount(0);
   await page.screenshot({
@@ -719,8 +706,17 @@ try {
     fullPage: true,
   });
   await expect(page.getByText("Codex PC", { exact: true })).toBeVisible();
-  await expect(page.getByText("homectl control client add")).toBeVisible();
-  await page.getByRole("tab", { name: "Operations", exact: true }).click();
+  await page.getByRole("button", { name: "Add client", exact: true }).click();
+  await expect(page.locator("#client-dialog")).toContainText(
+    "homectl control client add",
+  );
+  await page
+    .locator("#client-dialog")
+    .getByRole("button", { name: "Close", exact: true })
+    .first()
+    .click();
+  await expect(page.locator("#client-dialog")).toHaveCount(0);
+  await page.getByRole("link", { name: /^(Accept requests|Requests)/ }).click();
   // Full-page captures start at the top so the sticky rail is not offset.
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
@@ -739,7 +735,7 @@ try {
   });
   await page.getByRole("link", { name: /^Sync/ }).click();
   await expect(
-    page.getByRole("heading", { name: "Control sync", exact: true }),
+    page.getByRole("heading", { name: "Sync", exact: true }),
   ).toBeVisible();
   await page.screenshot({
     path: join(out, "sync-mobile.png"),
@@ -764,7 +760,7 @@ try {
     ),
   ).toBe(true);
   await expect(
-    page.getByRole("button", { name: "Edit", exact: true }).first(),
+    page.getByRole("button", { name: /^More actions for/ }).first(),
   ).toBeVisible();
   expect(errors).toEqual([]);
   console.log(
