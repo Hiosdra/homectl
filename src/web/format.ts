@@ -28,6 +28,35 @@ export function sessionTtlLabel(value: string) {
     : value;
 }
 
+// One change the last sync applied on its own: added, updated or removed, and the device
+// it came from. Record ids are "type:name", as the conflicts screen reads them.
+export type AppliedChange = {
+  id: string;
+  action: "add" | "update" | "remove";
+  kind: string;
+  name: string;
+  source: string;
+};
+
+export function appliedChanges(
+  preview: Preview,
+  ids: string[],
+): AppliedChange[] {
+  return ids.map((id) => {
+    const entry = preview.entries?.find((e) => e.id === id);
+    const [kind = "entry", ...parts] = id.split(":");
+    const removed = entry?.remote.value === null;
+    const added = !removed && (!entry?.local || entry.local.value === null);
+    return {
+      id,
+      action: removed ? "remove" : added ? "add" : "update",
+      kind,
+      name: parts.join(":") || id,
+      source: preview.remoteName,
+    };
+  });
+}
+
 export function accessLabel(value: string) {
   return (
     {

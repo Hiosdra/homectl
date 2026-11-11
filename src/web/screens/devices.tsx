@@ -1,6 +1,7 @@
 // Sync, the device list: one card per paired computer with its sync status, key, grants and
 // lease, plus the three-step pairing dialog and the changes applied on their own.
 import { useState } from "react";
+import type { AppliedChange } from "../format";
 import { cn } from "../lib/utils";
 import { PairWizard } from "../pair-wizard";
 import { ui } from "../store";
@@ -137,29 +138,49 @@ function DeviceMenu({ id }: { id: string }) {
   );
 }
 
+const ACTION_TONE = { add: "success", update: "warning", remove: "danger" } as const;
+
+const KIND_LABEL: Record<string, string> = {
+  machine: "Machine",
+  credential: "Credential",
+  hostkey: "Trusted host key",
+  provider: "Provider",
+};
+
+function changeNote(item: AppliedChange) {
+  if (item.action === "remove") return "Stays removed";
+  const kind = KIND_LABEL[item.kind] ?? "Entry";
+  return item.action === "add" ? `${kind} from ${item.source}` : `${kind} changed on ${item.source}`;
+}
+
+// Applied changes, as in the approved design: a way back to Sync, what changed and from
+// which device, and a read-only note. On phones it is a full-screen layer.
 function AppliedChanges() {
   const applied = ui.applied;
   if (!applied) return null;
   return (
-    <Section
-      title="Applied changes"
-      className="mb-6 max-[700px]:fixed max-[700px]:inset-0 max-[700px]:z-30 max-[700px]:overflow-y-auto max-[700px]:rounded-none max-[700px]:border-0 max-[700px]:bg-background max-[700px]:p-4"
-    >
-      <Muted>
-        {applied.items.length} change{applied.items.length === 1 ? "" : "s"} applied automatically. Conflicts, if any,
-        were left for your choice.
-      </Muted>
-      <ul className="mt-3 grid gap-2">
+    <Section className="mb-6 max-[700px]:fixed max-[700px]:inset-0 max-[700px]:z-30 max-[700px]:overflow-y-auto max-[700px]:rounded-none max-[700px]:border-0 max-[700px]:bg-background max-[700px]:p-4">
+      <div className="flex items-center justify-between gap-3">
+        <Action action="dismiss-applied" label="← Sync" kind="quiet" />
+        <Action action="open-audit" label="Log" kind="quiet" />
+      </div>
+      <h2 className="mt-3 text-lg font-semibold">Applied changes</h2>
+      <p className="text-sm text-muted-foreground">Applied automatically during the last sync</p>
+      <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
         {applied.items.map((item) => (
-          <li key={item} className="flex items-center gap-2 text-sm">
-            <span className="text-success" aria-hidden="true">✓</span>
-            <code className="font-mono text-[12px]">{item}</code>
+          <li key={item.id} className="grid gap-1 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Tag tone={ACTION_TONE[item.action]}>{item.action}</Tag>
+              <b className="font-semibold">{item.name}</b>
+            </div>
+            <p className="text-sm text-muted-foreground">{changeNote(item)}</p>
           </li>
         ))}
       </ul>
-      <div className="mt-4">
-        <Action action="dismiss-applied" label="Done" kind="secondary" />
-      </div>
+      <p className="mt-4 text-sm text-muted-foreground">
+        Each change shows its source device. Removals can be restored from the conflicts screen.
+      </p>
+      <p className="mt-4 text-xs text-muted-foreground">Read-only log</p>
     </Section>
   );
 }

@@ -2,7 +2,7 @@
 // after a change; nothing here renders JSX.
 import type { ReactNode } from "react";
 import type { ControlBucket } from "./format";
-import { autoApplies } from "./format";
+import { type AppliedChange, appliedChanges, autoApplies } from "./format";
 import type {
   ControlExecution,
   ControlOverview,
@@ -69,7 +69,7 @@ export const ui = {
   pairWizard: false,
   pairStep: 1 as 1 | 2 | 3,
   // Changes the last sync applied on their own, shown until dismissed.
-  applied: undefined as { items: string[]; at: number } | undefined,
+  applied: undefined as { items: AppliedChange[]; at: number } | undefined,
   // Result of the last "Check" per machine: reachable or not, with a short note.
   machineStatus: {} as Record<string, { ok: boolean; text: string }>,
   // Dialogs opened from Settings and Welcome.
@@ -264,7 +264,7 @@ export async function updateSyncPreview(peerId: string) {
   ui.preview = next;
   if (autoApplies(next)) {
     ui.result = await api("/api/sync/apply", { id: next.id, choices: {} });
-    ui.applied = { items: next.changes, at: Date.now() };
+    ui.applied = { items: appliedChanges(next, next.changes), at: Date.now() };
     ui.preview = undefined;
     announce(
       `Synced ${next.changes.length} change${next.changes.length === 1 ? "" : "s"}.`,
@@ -273,7 +273,7 @@ export async function updateSyncPreview(peerId: string) {
     // Clean changes apply on their own; the conflicts stay for a choice.
     const items = cleanChanges(next);
     await api("/api/sync/apply", { id: next.id, choices: {}, partial: true });
-    ui.applied = { items, at: Date.now() };
+    ui.applied = { items: appliedChanges(next, items), at: Date.now() };
     const remaining = await api<Preview>("/api/sync/start", { id: peerId });
     ui.preview = remaining.changes.length ? remaining : undefined;
     if (ui.preview) armSyncWait(remaining);

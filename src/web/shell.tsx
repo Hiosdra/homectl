@@ -1,5 +1,6 @@
 // The workspace shell: the navigation rail (a bottom bar on phones), the top bar with
 // the status pill and session state, and the screen that the current view selects.
+import { BrandMark } from "./brand";
 import { isReady } from "./format";
 import { NAV_ICONS } from "./nav-icons";
 import { Dashboard } from "./dashboard";
@@ -65,9 +66,7 @@ export function Workspace() {
             className="mx-2.5 mb-9 flex items-center gap-2.5 text-[22px] font-bold tracking-[-0.025em] no-underline max-[700px]:hidden"
             href="#machines"
           >
-            <span className="grid size-[30px] place-items-center rounded-[9px] bg-primary text-[23px] text-primary-foreground">
-              h
-            </span>
+            <BrandMark />
             homectl
           </a>
           <nav aria-label="Main navigation" className="grid gap-1.5 max-[700px]:grid-cols-5 max-[700px]:gap-0.5">

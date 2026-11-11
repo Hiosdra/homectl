@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { BrandMark } from "./brand";
 import { Tag } from "./shared";
 import { fromHex, sealPassword } from "./unlock-seal";
 
@@ -101,9 +102,7 @@ export function UnlockConnect({ onDone }: { onDone: () => void }) {
     <div id="connection" className="grid min-h-dvh place-items-center p-8 max-[700px]:p-4">
       <div className="grid w-full max-w-[640px] gap-5">
         <div className="flex items-center gap-2.5 text-[22px] font-bold tracking-[-0.025em]">
-          <span className="grid size-[30px] place-items-center rounded-[9px] bg-primary text-[23px] text-primary-foreground">
-            h
-          </span>
+          <BrandMark />
           homectl
         </div>
         <h1 className="text-[38px] leading-[1.15] font-semibold tracking-[-0.025em] max-[700px]:text-[32px]">

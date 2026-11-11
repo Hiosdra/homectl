@@ -196,6 +196,11 @@ export async function handleAction(action: string | undefined, id: string) {
       ui.pairStep = 1;
       render();
       return;
+    case "open-audit":
+      // The audit log is verified on the dashboard.
+      navigate("dashboard");
+      render();
+      return;
     case "dismiss-applied":
       ui.applied = undefined;
       render();

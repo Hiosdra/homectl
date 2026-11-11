@@ -103,6 +103,8 @@ function SafeCard() {
   );
 }
 
+const EXPORT_COMMAND = "homectl control recovery export --key <path> --out <path>";
+
 function RecoveryCard() {
   const last = ui.control?.recovery?.lastExportAt;
   const days = last ? Math.floor((Date.now() - Date.parse(last)) / 86_400_000) : undefined;
@@ -126,9 +128,15 @@ function RecoveryCard() {
       }
     >
       <Muted>Stored outside your devices. Created and used in the terminal.</Muted>
-      <pre className="mt-3 overflow-auto rounded-[7px] border border-border bg-muted p-4 font-mono text-[12px] whitespace-pre-wrap break-words">
-        homectl control recovery export --key &lt;path&gt; --out &lt;path&gt;
+      <pre className="mt-3 overflow-auto rounded-[7px] border border-border bg-muted p-4 font-mono text-[12px] whitespace-pre-wrap break-words max-[700px]:hidden">
+        {EXPORT_COMMAND}
       </pre>
+      {/* Phones keep the command behind a button, as in the mobile design. */}
+      <Disclosure title="Show export command" className="mt-3 hidden max-[700px]:block">
+        <pre className="overflow-auto rounded-[7px] border border-border bg-muted p-4 font-mono text-[12px] whitespace-pre-wrap break-words">
+          {EXPORT_COMMAND}
+        </pre>
+      </Disclosure>
     </Section>
   );
 }
