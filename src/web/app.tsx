@@ -9,82 +9,55 @@ import {
 } from "react";
 import { createRoot } from "react-dom/client";
 import { UnlockConnect } from "./unlock-connect";
+import { Dashboard } from "./dashboard";
+import type {
+  Machine,
+  Permissions,
+  Peer,
+  State,
+  Preview,
+  ControlOp,
+  ControlSync,
+  ControlDevices,
+  ControlAudit,
+  ControlClient,
+  OidcOverview,
+  ControlOverview,
+  ControlExecution,
+} from "./types";
+import {
+  displayArgv,
+  sessionTtlPresets,
+  sessionTtlLabel,
+  accessLabel,
+  formatLocalDate,
+  ControlBucket,
+  isReady,
+  bucketOf,
+  rankOf,
+  labelOf,
+  displayStateOf,
+  formatMs,
+  durationText,
+  span,
+  relative,
+  localStamp,
+  shellArgv,
+  shortHash,
+  autoApplies,
+} from "./format";
+
 export {};
-type Machine = {
-  description: string;
-  transport: string;
-  address?: string;
-  user?: string;
-  access: string;
-  auth?: unknown;
-  [key: string]: unknown;
-};
-type Permissions = {
-  sync: boolean;
-  diagnostics: boolean;
-  operations: string[];
-  administer: boolean;
-};
-type Peer = {
-  id: string;
-  name: string;
-  platform: string;
-  address: string;
-  permissions: Permissions;
-};
-type State = {
-  device: { id: string; name: string; platform: string };
-  session: { unlocked: boolean; expiresAt?: number | null };
-  vaultUnlocked: boolean;
-  vaultExists: boolean;
-  inventory: {
-    machines: Record<string, Machine>;
-    session?: { ttl: string; database: string };
-  };
-  peers: Peer[];
-  pair: null | {
-    code?: string;
-    sas?: string;
-    remote?: { name: string };
-    expiresAt: number;
-    localConfirmed: boolean;
-    remoteConfirmed: boolean;
-  };
-  discovery: { devices: { id: string; address: string }[]; error?: string };
-  pending: { id: string; peerId: string; remoteName: string }[];
-  address: string;
-  operations: {
-    id: string;
-    peerName: string;
-    host: string;
-    argv: string[];
-    impact?: string;
-  }[];
-};
-type Preview = {
-  id: string;
-  localName: string;
-  remoteName: string;
-  blocker?: { type: "remote_vault_locked" };
-  changes: string[];
-  entries?: {
-    id: string;
-    local: { value: unknown } | null;
-    remote: { value: unknown };
-  }[];
-  conflicts: {
-    id: string;
-    local: { value: unknown };
-    remote: { value: unknown };
-  }[];
-};
+let version = 0;
+let focusPending = false;
+
 let state: State;
 let preview: Preview | undefined;
 let syncPeerId: string | undefined;
 let syncWaiting: { peerId: string; previewId: string } | undefined;
 let syncPoll = false;
 let syncPollAfter = 0;
-let view = "machines";
+let view = "dashboard";
 let editing: string | undefined;
 let result: unknown;
 let busy = false;
@@ -100,172 +73,16 @@ let remoteHosts:
     }
   | undefined;
 
-type ControlOp = {
-  operationId: string;
-  state: string;
-  host: string;
-  classification: string;
-  needsApproval: boolean;
-  fingerprint: string;
-  argv: string[];
-  impact: string;
-  issuer: string;
-  createdAt: string;
-  expiresAt: string;
-  updatedAt: string;
-  expired: boolean;
-  approval?: { approver: string; expiresAt: string; state: string };
-  spawnAttempted: boolean;
-  startedAt?: string;
-  finishedAt?: string;
-  exitCode?: number;
-  reason?: string;
-  remote?: boolean;
-  ownerName?: string;
-  runsOn?: string;
-  conflict?: boolean;
-  takeover?: { possible: boolean; reason?: string; at?: string };
-  delivery?: {
-    decision: "approve" | "reject";
-    status: "awaiting-confirmation" | "approved" | "rejected";
-    ownerName: string;
-    since: string;
-  };
-  approvedBy?: string;
-  offerTo?: string;
-  offerFrom?: string;
-  offerExpires?: string;
-};
-type ControlSync = {
-  running: boolean;
-  disabledBy?: string;
-  peers: {
-    id: string;
-    name: string;
-    lastSync?: number;
-    leaseOk: boolean;
-    excluded?: boolean;
-    suspended?: { by: string; at: string; reason?: string };
-    refused?: string;
-    failures?: number;
-    nextAttemptAt?: number;
-    lastError?: string;
-  }[];
-  blocked: Record<string, string>;
-  conflicts: { opId: string; epoch: number; candidates: string[] }[];
-  resolutions?: {
-    opId: string;
-    conflictEpoch: number;
-    winner: string;
-    resolver: string;
-    waitingForSelf?: boolean;
-  }[];
-  names?: Record<string, string>;
-};
-type ControlDevices = {
-  self: { id: string; name: string; fingerprint?: string };
-  peers: { id: string; name: string; fingerprint?: string; legacy: boolean }[];
-};
-type ControlAudit = {
-  ok: boolean;
-  entries: number;
-  head: string;
-  checkedAt?: string;
-  error?: string;
-};
-type ControlClient = {
-  id: string;
-  name: string;
-  scopes: string[];
-  hosts: string[];
-  createdAt: string;
-  revoked: boolean;
-  oidc?: {
-    issuerHost: string;
-    claim: "sub" | "client_id";
-    identityHash: string;
-  };
-  hasToken: boolean;
-};
-// Read-only view of the OIDC configuration (no secrets, no subjects).
-type OidcOverview = {
-  issuer: string;
-  issuerHost: string;
-  audience: string;
-  jwks: "configured" | "discovery";
-  jwksHost?: string;
-  maxLifetimeSeconds: number;
-  keyCount: number;
-  refreshedAt?: string;
-  lastError?: string;
-  mappedClients: number;
-};
-type ControlOverview = {
-  operations: ControlOp[];
-  clients: ControlClient[];
-  audit: ControlAudit;
-  sync?: ControlSync;
-  devices?: ControlDevices;
-  oidc?: OidcOverview;
-};
-type ControlExecution = {
-  operation: ControlOp;
-  output?: { stdout: string; stderr: string };
-};
 let control: ControlOverview | undefined;
 let controlTab: "queue" | "clients" = "queue";
 let controlFilter: ControlBucket = "ready";
 let controlResult: ControlExecution | undefined;
-// Operation whose handoff picker is open (owner side).
-let handoffPicker: string | undefined;
 function element<T extends HTMLElement = HTMLElement>(id: string): T {
   const e = document.getElementById(id);
   if (!e) throw new Error(`Missing ${id}`);
   return e as T;
 }
 
-function displayArgv(argv: string[]) {
-  return argv.map((arg) => JSON.stringify(arg)).join(" ");
-}
-const sessionTtlPresets = [
-  ["1h", "1 hour"],
-  ["12h", "12 hours"],
-  ["24h", "24 hours"],
-  ["7d", "7 days"],
-  ["until-reboot", "Until this computer restarts"],
-] as const;
-function sessionTtlLabel(value: string) {
-  if (value === "until-reboot") return "Until this computer restarts";
-  const match = /^(\d+)(s|m|h|d)$/.exec(value);
-  if (!match) return value;
-  const units: Record<string, [string, string]> = {
-    s: ["second", "seconds"],
-    m: ["minute", "minutes"],
-    h: ["hour", "hours"],
-    d: ["day", "days"],
-  };
-  const unit = units[match[2] ?? ""];
-  return unit
-    ? `${match[1]} ${Number(match[1]) === 1 ? unit[0] : unit[1]}`
-    : value;
-}
-
-function accessLabel(value: string) {
-  return (
-    {
-      observe: "Read-only",
-      user: "Standard user",
-      "sudo-approved": "Approved admin commands",
-      full: "Full account access",
-    }[value] ?? value
-  );
-}
-function formatLocalDate(value: number) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(value);
-}
 function pairingAddress() {
   try {
     const peer = new URL(state.address);
@@ -328,99 +145,6 @@ async function copyText(value: string) {
     throw new Error("Copy failed. Select the text and copy it manually.");
 }
 
-type ControlBucket = "ready" | "needs" | "history";
-function isReady(op: ControlOp) {
-  return (
-    op.state === "approved" || (op.state === "pending" && !op.needsApproval)
-  );
-}
-function bucketOf(op: ControlOp): ControlBucket {
-  if (isReady(op)) return "ready";
-  if (op.state === "pending") return "needs";
-  return "history";
-}
-function rankOf(op: ControlOp) {
-  const bucket = bucketOf(op);
-  if (bucket === "ready") return 0;
-  if (bucket === "needs") return 1;
-  return op.state === "executing" ? 2 : 3;
-}
-function labelOf(op: ControlOp) {
-  return op.state === "failed" &&
-    (op.reason === "plan-expired" || op.reason === "approval-expired")
-    ? "expired"
-    : op.state;
-}
-// What a person should read at a glance; the stored state is unchanged.
-function displayStateOf(op: ControlOp) {
-  const label = labelOf(op);
-  if (label === "expired") return "expired";
-  if (op.state === "pending")
-    return op.needsApproval ? "needs approval" : "ready";
-  if (op.state === "approved") return "ready";
-  return op.state;
-}
-
-function formatMs(ms: number) {
-  if (ms < 1_000) return `${Math.max(0, Math.round(ms))} ms`;
-  if (ms < 60_000) return `${(ms / 1_000).toFixed(1)} s`;
-  const total = Math.round(ms / 1_000);
-  return `${Math.floor(total / 60)} min ${total % 60} s`;
-}
-function durationText(op: ControlOp) {
-  if (!op.startedAt || !op.finishedAt) return undefined;
-  return formatMs(Date.parse(op.finishedAt) - Date.parse(op.startedAt));
-}
-function span(ms: number) {
-  const a = Math.abs(ms);
-  if (a < 60_000) return "<1 min";
-  if (a < 3_600_000) return `${Math.round(a / 60_000)} min`;
-  if (a < 86_400_000) return `${Math.round(a / 3_600_000)} h`;
-  return `${Math.round(a / 86_400_000)} d`;
-}
-function relative(iso: string, expiry = false) {
-  const delta = Date.parse(iso) - Date.now();
-  if (expiry)
-    return delta >= 0
-      ? `expires in ${span(delta)}`
-      : `expired ${span(delta)} ago`;
-  return delta >= 0 ? `in ${span(delta)}` : `${span(delta)} ago`;
-}
-function localStamp(iso: string) {
-  const d = new Date(iso);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-}
-function shellArgv(argv: string[]) {
-  return argv
-    .map((arg) =>
-      /^[A-Za-z0-9_/.:=@%+,-]+$/.test(arg)
-        ? arg
-        : `'${arg.replaceAll("'", "'\\''")}'`,
-    )
-    .join(" ");
-}
-function shortHash(value: string) {
-  return `${value.slice(0, 8)}…${value.slice(-4)}`;
-}
-
-// Takeover is shown with its earliest time, or the reason it is unavailable.
-function takeoverText(op: ControlOp) {
-  const t = op.takeover;
-  if (!t) return "";
-  if (t.possible) return "Takeover available";
-  if (t.at) return `Takeover possible after ${localStamp(t.at)}`;
-  return t.reason ?? "Takeover unavailable";
-}
-
-// "offer expires in 12 min" or "offer expired 2 min ago".
-function offerExpiry(op: ControlOp) {
-  return op.offerExpires ? `offer ${relative(op.offerExpires, true)}` : "";
-}
-
-// ---- React store: every change to the shared state goes through render() ----
-let version = 0;
-let focusPending = false;
 const listeners = new Set<() => void>();
 function subscribe(listener: () => void) {
   listeners.add(listener);
@@ -535,7 +259,13 @@ async function updateSyncPreview(peerId: string) {
     return false;
   }
   preview = next;
-  armSyncWait(next);
+  if (autoApplies(next)) {
+    result = await api("/api/sync/apply", { id: next.id, choices: {} });
+    preview = undefined;
+    announce(`Synced ${next.changes.length} change${next.changes.length === 1 ? "" : "s"}.`);
+  } else {
+    armSyncWait(next);
+  }
   if (old && old.id !== next.id)
     await api("/api/sync/cancel", { id: old.id }).catch(() => {});
   render();
@@ -1912,25 +1642,10 @@ function ConflictRow({
         ))}
       </div>
       <div className="conflict-controls">
-        {accept ? (
-          <Btn
-            action="control-resolve-accept"
-            label="Accept resolution"
-            id={c.opId}
-            kind="primary"
-          />
-        ) : null}
-        <label className="sr-only" htmlFor={`resolve-${c.opId}`}>
-          Owner for {c.opId.slice(0, 8)}
-        </label>
-        <select id={`resolve-${c.opId}`} data-conflict-select={c.opId}>
-          {c.candidates.map((id) => (
-            <option key={id} value={id}>
-              {names[id] ?? id}
-            </option>
-          ))}
-        </select>
-        <Btn action="control-resolve" label="Resolve…" id={c.opId} kind="quiet" />
+        <span className="muted">
+          Two devices claim this operation. Resolve it from a private terminal with
+          <code> homectl control resolve</code>.
+        </span>
       </div>
     </div>
   );
@@ -1942,7 +1657,7 @@ function Access() {
   return (
     <>
       <Heading
-        title="Access"
+        title="Vault"
         description="Vaults and sessions are local. Pairing does not unlock the other computer."
       />
       <div className="split">
@@ -2075,7 +1790,13 @@ function Access() {
 }
 
 // The session lifetime control: presets, or a custom duration in a disclosure.
-function SessionTtlControl({ value }: { value: string }) {
+const idlePresets = [
+  ["30m", "30 minutes"],
+  ["2h", "2 hours"],
+  ["8h", "8 hours"],
+  ["24h", "24 hours"],
+] as const;
+function SessionTtlControl({ value, idle }: { value: string; idle: string }) {
   const isPreset = sessionTtlPresets.some(([ttl]) => ttl === value);
   const [custom, setCustom] = useState(!isPreset);
   const selected = custom ? "custom" : value;
@@ -2094,6 +1815,14 @@ function SessionTtlControl({ value }: { value: string }) {
           </option>
         ))}
         <option value="custom">Custom duration…</option>
+      </select>
+      <label htmlFor="idle">Lock after no activity</label>
+      <select id="idle" name="idle" defaultValue={idle}>
+        {idlePresets.map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
       </select>
       <details id="custom-ttl" open={custom}>
         <summary>Set a custom duration</summary>
@@ -2135,7 +1864,10 @@ function Settings() {
                 required
               />
             </div>
-            <SessionTtlControl value={state.inventory.session?.ttl ?? "24h"} />
+            <SessionTtlControl
+              value={state.inventory.session?.ttl ?? "24h"}
+              idle={state.inventory.session?.idle ?? "2h"}
+            />
             <p className="inline-note">
               Changing the session lifetime locks the current SSH session.
             </p>
@@ -2208,19 +1940,25 @@ function ClassBadge({ op }: { op: ControlOp }) {
 }
 
 function PrimaryAction({ op }: { op: ControlOp }) {
-  // Inspection is the primary action; changes get a distinct warning outline.
   if (isReady(op))
     return (
       <Btn
         action="control-execute"
-        label="Execute"
+        label="Accept"
         id={op.operationId}
-        kind={op.classification === "inspect" ? "primary" : "change"}
+        kind="accept"
       />
     );
   if (op.state === "pending")
     return (
-      <span className="muted">Waiting for approval by another client</span>
+      <>
+        <span className="muted">Waiting for approval by another client</span>
+        {op.needsApproval ? (
+          <div className="sub">
+            <Btn action="operation-reject" label="Deny" id={op.operationId} kind="danger" />
+          </div>
+        ) : null}
+      </>
     );
   if (op.state === "executing") return <span className="muted">Running…</span>;
   if (op.state === "succeeded")
@@ -2234,81 +1972,9 @@ function PrimaryAction({ op }: { op: ControlOp }) {
 }
 
 function OpAction({ op }: { op: ControlOp }) {
-  // An operation that another device owns runs there; it is never executed here.
-  if (op.runsOn) {
-    const expired =
-      op.offerExpires !== undefined && Date.parse(op.offerExpires) <= Date.now();
-    const accept =
-      op.offerFrom && !expired ? (
-        <Btn
-          action="control-handoff-accept"
-          label="Accept handoff"
-          id={op.operationId}
-          kind="primary"
-        />
-      ) : null;
-    const offer = op.offerFrom ? (
-      <div className="sub muted">
-        Offered by {op.runsOn}; {offerExpiry(op)}
-      </div>
-    ) : null;
-    const takeover = op.takeover?.possible ? (
-      <Btn
-        action="control-takeover"
-        label="Take over here"
-        id={op.operationId}
-        kind="quiet"
-      />
-    ) : op.takeover ? (
-      <span className="muted">{takeoverText(op)}</span>
-    ) : null;
-    return (
-      <>
-        <span className="muted">Runs on {op.runsOn}</span>
-        {offer}
-        {accept || takeover ? (
-          <div className="sub">
-            {accept}
-            {takeover}
-          </div>
-        ) : null}
-      </>
-    );
-  }
-  if (op.conflict) return <span className="muted">{takeoverText(op)}</span>;
-  // An open offer stops execution here until the receiver accepts, it is cancelled, or it expires.
-  if (op.offerTo)
-    return (
-      <>
-        <span className="muted">Offered to {op.offerTo}; not runnable here</span>
-        <div className="sub muted">{offerExpiry(op)}</div>
-        <div className="sub">
-          <Btn
-            action="control-handoff-cancel"
-            label="Cancel offer"
-            id={op.operationId}
-            kind="quiet danger"
-          />
-        </div>
-      </>
-    );
-  const handoff =
-    op.remote || bucketOf(op) === "history" ? null : (
-      <div className="sub">
-        <Btn
-          action="control-handoff-open"
-          label="Hand off…"
-          id={op.operationId}
-          kind="quiet"
-        />
-      </div>
-    );
-  return (
-    <>
-      <PrimaryAction op={op} />
-      {handoff}
-    </>
-  );
+  // An operation another device owns runs there. This device never runs it.
+  if (op.runsOn) return <span className="muted">Runs on {op.runsOn}</span>;
+  return <PrimaryAction op={op} />;
 }
 
 // Six columns at 1280px: class sits under the state, impact and fingerprint
@@ -2672,56 +2338,6 @@ function ExecutionResult({ r }: { r: ControlExecution }) {
   );
 }
 
-// Owner-side picker: choose the receiving device, then confirm the offer.
-function HandoffPicker() {
-  if (!handoffPicker) return null;
-  const op = control?.operations.find((o) => o.operationId === handoffPicker);
-  if (!op) return null;
-  const devices = (control?.devices?.peers ?? []).filter((p) => !p.legacy);
-  if (!devices.length)
-    return (
-      <section className="panel section">
-        <h2>Hand off {op.host}</h2>
-        <p className="muted">
-          No paired device can take a handoff yet. Pair a device again so it has a
-          signing key.
-        </p>
-        <div className="form-actions">
-          <Btn action="control-handoff-close" label="Close" />
-        </div>
-      </section>
-    );
-  return (
-    <section className="panel section">
-      <h2>Hand off {op.host}</h2>
-      <p className="muted">
-        The receiving device must accept. Until it does, this device keeps the
-        operation and will not run it. You can cancel the offer before it is
-        accepted.
-      </p>
-      <div>
-        <label htmlFor="handoff-target">Receiving device</label>
-        <select id="handoff-target">
-          {devices.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="form-actions">
-        <Btn action="control-handoff-close" label="Close" />
-        <Btn
-          action="control-handoff-go"
-          label="Continue…"
-          id={op.operationId}
-          kind="primary"
-        />
-      </div>
-    </section>
-  );
-}
-
 // Read-only OIDC card with the command to change it, ready to copy.
 function OidcCard({ oidc }: { oidc: OidcOverview | undefined }) {
   if (!oidc)
@@ -2777,7 +2393,7 @@ function Approvals() {
   return (
     <>
       <Heading
-        title="Approvals"
+        title="Accept requests"
         description="Plans and runs from MCP clients. Approval comes from another client; this panel runs only what is already approved."
       />
       <AuditCard audit={control?.audit} />
@@ -2811,7 +2427,6 @@ function Approvals() {
           <ClientsSection clients={control?.clients ?? []} />
         </>
       )}
-      <HandoffPicker />
       {controlResult ? <ExecutionResult r={controlResult} /> : null}
     </>
   );
@@ -3191,137 +2806,6 @@ async function handleAction(action: string | undefined, id: string) {
       focusScreen();
       return;
     }
-    case "control-takeover": {
-      const op = control?.operations.find((o) => o.operationId === id);
-      if (!op?.takeover?.possible) return;
-      const owner = op.ownerName ?? "the current owner";
-      if (
-        !(await confirm(
-          `Take over ${op.host} on this device?`,
-          `This device becomes the owner from ${owner}. The operation then needs a fresh approval here before it can run, and ${owner} is refused if it returns.`,
-          <dl>
-            <dt>Host</dt>
-            <dd>{op.host}</dd>
-            <dt>Command</dt>
-            <dd>
-              <code>{shellArgv(op.argv)}</code>
-            </dd>
-            <dt>Current owner</dt>
-            <dd>{owner}</dd>
-          </dl>,
-        ))
-      )
-        return;
-      await api("/api/control/handoff", { operationId: id });
-      await refresh();
-      announce(`Took over ${op.host}. It needs a fresh approval on this device.`);
-      return;
-    }
-    case "control-handoff-open":
-      handoffPicker = id;
-      render();
-      return;
-    case "control-handoff-close":
-      handoffPicker = undefined;
-      render();
-      return;
-    case "control-handoff-go": {
-      const op = control?.operations.find((o) => o.operationId === id);
-      const target = element<HTMLSelectElement>("handoff-target");
-      if (!op || !target.value) return;
-      const name = target.selectedOptions[0]?.textContent ?? target.value;
-      if (
-        !(await confirm(
-          `Offer ${op.host} to ${name}?`,
-          `${name} must accept. Until it does, this device keeps the operation and will not run it. You can cancel the offer before it is accepted.`,
-          <dl>
-            <dt>Host</dt>
-            <dd>{op.host}</dd>
-            <dt>Command</dt>
-            <dd>
-              <code>{shellArgv(op.argv)}</code>
-            </dd>
-            <dt>Receiving device</dt>
-            <dd>{name}</dd>
-          </dl>,
-        ))
-      )
-        return;
-      await api("/api/control/handoff", { operationId: id, to: target.value });
-      handoffPicker = undefined;
-      await refresh();
-      announce(`Offered ${op.host} to ${name}. It applies when ${name} accepts.`);
-      return;
-    }
-    case "control-handoff-cancel": {
-      const op = control?.operations.find((o) => o.operationId === id);
-      if (
-        !(await confirm(
-          "Cancel the offer?",
-          "The receiving device can no longer accept it. This device owns the operation again.",
-        ))
-      )
-        return;
-      await api("/api/control/handoff", { operationId: id, cancel: true });
-      await refresh();
-      announce(`Offer cancelled${op ? ` for ${op.host}` : ""}.`);
-      return;
-    }
-    case "control-handoff-accept": {
-      const op = control?.operations.find((o) => o.operationId === id);
-      if (!op) return;
-      const owner = op.ownerName ?? "the current owner";
-      if (
-        !(await confirm(
-          `Accept the handoff of ${op.host}?`,
-          `This device becomes the owner from ${owner}. The operation then needs a fresh approval here before it can run.`,
-        ))
-      )
-        return;
-      await api("/api/control/handoff", { operationId: id });
-      await refresh();
-      announce(`Accepted ${op.host}. It needs a fresh approval on this device.`);
-      return;
-    }
-    case "control-resolve": {
-      const select = document.querySelector<HTMLSelectElement>(
-        `select[data-conflict-select="${CSS.escape(id)}"]`,
-      );
-      const owner = select?.value;
-      if (!owner || !select) return;
-      const name = select.selectedOptions[0]?.textContent ?? owner;
-      if (
-        !(await confirm(
-          `Propose ${name} as the owner?`,
-          `The proposal applies only when ${name} accepts it on its own device. Until then the operation has no owner and cannot run.`,
-        ))
-      )
-        return;
-      const answer = await api<{ accepted?: boolean }>("/api/control/resolve", {
-        operationId: id,
-        owner,
-      });
-      await refresh();
-      announce(
-        answer.accepted
-          ? "Resolution applied on this device."
-          : `Resolution proposed for ${name}; it applies once that device accepts.`,
-      );
-      return;
-    }
-    case "control-resolve-accept": {
-      if (
-        !(await confirm(
-          "Accept this resolution?",
-          "This device becomes the owner of the operation and needs a fresh approval here before it can run.",
-        ))
-      )
-        return;
-      await api("/api/control/resolve", { operationId: id });
-      await refresh();
-      announce("Resolution accepted on this device.");
-      return;
-    }
     case "control-peer-suspend": {
       const peer = control?.sync?.peers.find((p) => p.id === id);
       if (!peer) return;
@@ -3473,7 +2957,11 @@ function handleSubmit(form: HTMLFormElement) {
       const ttl = selection === "custom" ? customTtl : selection;
       if (selection === "custom" && !/^[1-9][0-9]{0,6}[smhd]$/.test(ttl))
         throw new Error("Enter a custom duration like 30m or 2d.");
-      await api("/api/settings", { name: values.get("name"), ttl });
+      await api("/api/settings", {
+        name: values.get("name"),
+        ttl,
+        ...(values.has("idle") ? { idle: values.get("idle") } : {}),
+      });
     }
     if (form.id === "machine-form") {
       const name = String(values.get("name"));
@@ -3513,35 +3001,89 @@ function handleSubmit(form: HTMLFormElement) {
 
 // ---- App shell ----
 const NAV: [string, string][] = [
-  ["machines", "Machines"],
-  ["peers", "Devices"],
+  ["dashboard", "Dashboard"],
+  ["approvals", "Accept requests"],
+  ["access", "Vault"],
   ["sync", "Sync"],
-  ["access", "Access"],
-  ["approvals", "Approvals"],
   ["settings", "Settings"],
 ];
+const NAV_ICONS: Record<string, ReactNode> = {
+  dashboard: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="3" width="7" height="9" rx="1" />
+      <rect x="14" y="3" width="7" height="5" rx="1" />
+      <rect x="14" y="12" width="7" height="9" rx="1" />
+      <rect x="3" y="16" width="7" height="5" rx="1" />
+    </svg>
+  ),
+  approvals: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+      <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+    </svg>
+  ),
+  access: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  ),
+  sync: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M21 12a9 9 0 0 0-15-6.7L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M3 12a9 9 0 0 0 15 6.7L21 16" />
+      <path d="M16 16h5v5" />
+    </svg>
+  ),
+  settings: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="4" y1="21" x2="4" y2="14" />
+      <line x1="4" y1="10" x2="4" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12" y2="3" />
+      <line x1="20" y1="21" x2="20" y2="16" />
+      <line x1="20" y1="12" x2="20" y2="3" />
+      <line x1="1" y1="14" x2="7" y2="14" />
+      <line x1="9" y1="8" x2="15" y2="8" />
+      <line x1="17" y1="16" x2="23" y2="16" />
+    </svg>
+  ),
+};
 
 function Screen() {
   if (permissionPeer) return <PermissionPanel id={permissionPeer} />;
   if (commandHost) return <CommandPanel host={commandHost} />;
   switch (view) {
-    case "peers":
-      return <Peers />;
-    case "sync":
-      return <SyncView />;
-    case "access":
-      return <Access />;
     case "approvals":
       return <Approvals />;
+    case "access":
+    case "machines":
+      return (
+        <>
+          <Access />
+          <Machines />
+        </>
+      );
+    case "sync":
+    case "peers":
+      return (
+        <>
+          <Peers />
+          <SyncView />
+        </>
+      );
     case "settings":
       return <Settings />;
     default:
-      return <Machines />;
+      return <Dashboard state={state} control={control} />;
   }
 }
 
 function Workspace() {
   const pendingCount = state.pending.length;
+  // Peer and machine views live under Sync and Vault now; highlight their parent.
+  const current = view === "peers" ? "sync" : view === "machines" ? "access" : view;
   const ready = (control?.operations ?? []).filter(
     (op) => isReady(op) && !op.runsOn,
   ).length;
@@ -3557,8 +3099,9 @@ function Workspace() {
               key={id}
               href={`#${id}`}
               data-view={id}
-              aria-current={view === id ? "page" : undefined}
+              aria-current={current === id ? "page" : undefined}
             >
+              <span className="nav-icon">{NAV_ICONS[id]}</span>
               {label}
               {id === "sync" ? (
                 <>
@@ -3598,6 +3141,15 @@ function Workspace() {
             </span>
           </div>
           <div className="toolbar-actions">
+            <a
+              id="status-pill"
+              className={`status-pill ${pendingCount + ready ? "warn" : "ok"}`}
+              href="#approvals"
+              data-view="approvals"
+            >
+              <span className="dot" aria-hidden="true"></span>
+              {pendingCount + ready ? `${pendingCount + ready} need you` : "All good"}
+            </a>
             <span
               id="session-state"
               className={`badge ${state.session.unlocked ? "success" : ""}`}
@@ -3739,16 +3291,11 @@ async function boot() {
     connected = false;
     render();
   }
-  view = [
-    "machines",
-    "peers",
-    "sync",
-    "access",
-    "approvals",
-    "settings",
-  ].includes(location.hash.slice(1))
+  view = ["dashboard", "approvals", "access", "machines", "sync", "peers", "settings"].includes(
+    location.hash.slice(1),
+  )
     ? location.hash.slice(1)
-    : "machines";
+    : "dashboard";
   render();
 }
 

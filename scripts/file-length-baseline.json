@@ -1,5 +1,5 @@
 {
-  "scripts/ui-smoke.ts": 852,
+  "scripts/ui-smoke.ts": 788,
   "src/cli/help.ts": 623,
   "src/cli/main.ts": 1010,
   "src/control/cli.ts": 810,
@@ -8,9 +8,9 @@
   "src/control/replicate.ts": 604,
   "src/control/replicator.ts": 1384,
   "src/peer/hub.ts": 1031,
-  "src/serve.ts": 1102,
+  "src/serve.ts": 1100,
   "src/session/index.ts": 516,
-  "src/web/app.tsx": 3769,
+  "src/web/app.tsx": 3316,
   "tests/container-serve.test.ts": 504,
   "tests/control-cli.test.ts": 655,
   "tests/control-engine.test.ts": 1244,

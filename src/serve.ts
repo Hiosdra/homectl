@@ -21,14 +21,13 @@ import { Hub, peerAddress } from "./peer/hub";
 import type { Permissions } from "./peer/store";
 import type { Choice } from "./peer/sync";
 import { privateDirectory, protect } from "./platform";
-import { sessionConfig, ttlSeconds } from "./session";
 import { createKey, keyReference } from "./session/keys";
 import { doctor } from "./setup";
 import { HomectlError, type Machine, type Runner } from "./types";
 import { embeddedPanel } from "./web/embedded";
 import { security } from "./web/panel-headers";
 import { handleUnlockRoute } from "./web/unlock-gate";
-import { openPanelGate, unlockVault } from "./web/unlock-open";
+import { openPanelGate, saveSession, unlockVault } from "./web/unlock-open";
 import { handleUpdateRoute, updateChecker } from "./web/update-status";
 export type ServeOptions = {
   inventoryPath: string;
@@ -738,15 +737,14 @@ export async function serve(options: ServeOptions) {
                   );
                 }
                 case "/api/settings": {
-                  const inv = await loadInventory(options.inventoryPath);
-                  const ttl = String(v.ttl);
-                  ttlSeconds(ttl);
-                  await hub.lock();
-                  inv.session = {
-                    ...sessionConfig(inv, options.inventoryPath),
-                    ttl,
-                  };
-                  await saveInventory(options.inventoryPath, inv);
+                  await saveSession(
+                    options.inventoryPath,
+                    {
+                      ttl: String(v.ttl),
+                      idle: v.idle === undefined ? undefined : String(v.idle),
+                    },
+                    () => hub.lock(),
+                  );
                   if (
                     typeof v.name === "string" &&
                     v.name.trim() &&
