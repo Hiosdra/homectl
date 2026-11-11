@@ -13,12 +13,15 @@
     "test": "bun test",
     "build:panel": "bun scripts/build-panel.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check src tests scripts schema package.json tsconfig.json biome.json",
+    "lint": "bun scripts/check-file-length.ts && biome check src tests scripts schema package.json tsconfig.json biome.json",
     "format": "biome check --write src tests scripts schema package.json tsconfig.json biome.json",
     "check": "bun run typecheck && bun run lint && bun test",
     "test:ui": "bun scripts/ui-smoke.ts"
   },
   "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
     "ajv": "8.18.0",
     "hash-wasm": "4.12.0",
     "kdbxweb": "2.1.1",

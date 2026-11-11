@@ -26,6 +26,9 @@ import { createKey, keyReference } from "./session/keys";
 import { doctor } from "./setup";
 import { HomectlError, type Machine, type Runner } from "./types";
 import { embeddedPanel } from "./web/embedded";
+import { security } from "./web/panel-headers";
+import { handleUnlockRoute } from "./web/unlock-gate";
+import { openPanelGate, unlockVault } from "./web/unlock-open";
 export type ServeOptions = {
   inventoryPath: string;
   configPath: string;
@@ -47,13 +50,6 @@ export type ServeOptions = {
   // An optional, authenticated reverse-proxy listener for the existing panel.
   // The ordinary panel stays on loopback for local CLI and health access.
   panel?: { interface: string; origin: string; accessToken: string };
-};
-const security = {
-  "Cache-Control": "no-store",
-  "Content-Security-Policy":
-    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
-  "X-Content-Type-Options": "nosniff",
-  "Referrer-Policy": "no-referrer",
 };
 async function body(request: Request): Promise<Record<string, unknown>> {
   if (!request.headers.get("Content-Type")?.startsWith("application/json"))
@@ -211,6 +207,7 @@ export async function serve(options: ServeOptions) {
   const token =
     externalPanel?.accessToken ?? randomBytes(32).toString("base64url");
   const cookie = randomBytes(32).toString("base64url");
+  const gate = await openPanelGate(options.inventoryPath, cookie);
   let hub: Hub;
   let control: ControlPlane;
   let replicator: ControlReplicator | undefined;
@@ -436,18 +433,18 @@ export async function serve(options: ServeOptions) {
               if (!sameSecret(v.token, token))
                 throw new HomectlError(3, "Invalid workspace access code");
               const r = response({ connected: true });
-              r.headers.set(
-                "Set-Cookie",
-                `homectl=${cookie}; HttpOnly; SameSite=Strict; Path=/`,
-              );
+              r.headers.set("Set-Cookie", gate.grantPanel());
               return r;
             }
-            if (
-              !req.headers
-                .get("Cookie")
-                ?.split("; ")
-                .some((v) => sameSecret(v, `homectl=${cookie}`))
-            )
+            const unlock = await handleUnlockRoute(
+              req,
+              url,
+              origin,
+              gate,
+              (password) => unlockVault(options.inventoryPath, password),
+            );
+            if (unlock) return unlock;
+            if (!gate.authorize(req.headers.get("Cookie")))
               throw new HomectlError(3, "Connect to this local panel first");
             if (req.method === "POST" && req.headers.get("Origin") !== origin)
               throw new HomectlError(3, "Cross-origin operation refused");
