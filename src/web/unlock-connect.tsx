@@ -94,7 +94,7 @@ export function UnlockConnect({ onDone }: { onDone: () => void }) {
         </div>
         <h1>Unlock homectl</h1>
         <p className="muted">
-          Your vault password is the only password for this panel. It is encrypted in this
+          Open this workspace at <code id="workspace-origin">{location.origin}</code>. Your vault password is the only password for this panel. It is encrypted in this
           browser before it is sent.
         </p>
         {key ? (
@@ -126,6 +126,11 @@ export function UnlockConnect({ onDone }: { onDone: () => void }) {
         </form>
         <details open={showCode} onToggle={(event) => setShowCode(event.currentTarget.open)}>
           <summary className="muted">Use a workspace access code instead</summary>
+          <p className="muted">
+            Local workspaces started with <code>homectl panel</code> open with their private link.
+            Compose deployments may still use the code from the protected file set as{" "}
+            <code>HOMECTL_PANEL_TOKEN_FILE</code>.
+          </p>
           <form
             id="connect-form"
             onSubmit={(event) => {
