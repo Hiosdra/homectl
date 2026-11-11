@@ -36,6 +36,16 @@ describe("notification commands", () => {
     expect(script).not.toContain("CreateToastNotifier('homectl')");
   });
 
+  test("Windows fills both text lines from one snapshot of the live template list", () => {
+    const argv = notifyArgv("win32", notice);
+    const script = Buffer.from(argv?.at(-1) ?? "", "base64").toString(
+      "utf16le",
+    );
+    expect(script).toContain("$texts = @($xml.GetElementsByTagName('text'))");
+    expect(script).toContain("$texts[1].AppendChild");
+    expect(script).not.toContain("GetElementsByTagName('text')[1]");
+  });
+
   test("Windows sends the text base64-encoded, so it cannot break out of the script", () => {
     const argv = notifyArgv("win32", {
       title: "x'); Remove-Item C:\\ -Recurse; ('",

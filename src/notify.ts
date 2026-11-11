@@ -36,8 +36,11 @@ export function notifyArgv(
       `$b = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encode(notice.body)}'))`,
       "[Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,ContentType=WindowsRuntime] > $null",
       "$xml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)",
-      "$xml.GetElementsByTagName('text')[0].AppendChild($xml.CreateTextNode($t)) > $null",
-      "$xml.GetElementsByTagName('text')[1].AppendChild($xml.CreateTextNode($b)) > $null",
+      // GetElementsByTagName returns a live list; take a snapshot before appending, or the
+      // second lookup fails with "Collection was modified" and the body stays empty.
+      "$texts = @($xml.GetElementsByTagName('text'))",
+      "$texts[0].AppendChild($xml.CreateTextNode($t)) > $null",
+      "$texts[1].AppendChild($xml.CreateTextNode($b)) > $null",
       "$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)",
       `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('${WINDOWS_TOAST_APP_ID}').Show($toast)`,
     ].join("; ");
