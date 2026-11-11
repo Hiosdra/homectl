@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { selfCommand } from "./internal";
 import { privateDirectory, protect, windows } from "./platform";
 import { run } from "./process";
+import { launchdService } from "./service-launchd";
 import { HomectlError } from "./types";
 export type ServiceOptions = {
   inventory: string;
@@ -11,6 +12,7 @@ export type ServiceOptions = {
   wrapper?: string;
   dryRun?: boolean;
   home?: string;
+  platform?: NodeJS.Platform;
 };
 export function systemdUnit(inventory: string, interfaceIP: string) {
   const quote = (v: string) =>
@@ -72,6 +74,13 @@ export async function service(action: string, options: ServiceOptions) {
       2,
       "Use service install, uninstall, start, stop, restart, status or logs",
     );
+  if ((options.platform ?? process.platform) === "darwin")
+    return launchdService(action, {
+      inventory: options.inventory,
+      interfaceIP,
+      home,
+      dryRun: options.dryRun,
+    });
   if (options.dryRun)
     return {
       action,

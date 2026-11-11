@@ -29,6 +29,7 @@ import { embeddedPanel } from "./web/embedded";
 import { security } from "./web/panel-headers";
 import { handleUnlockRoute } from "./web/unlock-gate";
 import { openPanelGate, unlockVault } from "./web/unlock-open";
+import { handleUpdateRoute, updateChecker } from "./web/update-status";
 export type ServeOptions = {
   inventoryPath: string;
   configPath: string;
@@ -446,6 +447,8 @@ export async function serve(options: ServeOptions) {
             if (unlock) return unlock;
             if (!gate.authorize(req.headers.get("Cookie")))
               throw new HomectlError(3, "Connect to this local panel first");
+            const update = await handleUpdateRoute(req, url, updateChecker);
+            if (update) return update;
             if (req.method === "POST" && req.headers.get("Origin") !== origin)
               throw new HomectlError(3, "Cross-origin operation refused");
             if (req.method === "GET" && url.pathname === "/api/state")
