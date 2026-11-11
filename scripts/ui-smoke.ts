@@ -19,6 +19,7 @@ import { keyReference } from "../src/session/keys";
 import {
   assertOpenInsideCard,
   captureScreens,
+  closeRequestDrawer,
   denyReadyRequest,
   editMachine,
   openRequest,
@@ -735,6 +736,7 @@ try {
     path: join(out, "approvals-mobile.png"),
     fullPage: true,
   });
+  await closeRequestDrawer(page);
   await page.getByRole("link", { name: /^Sync/ }).click();
   await expect(
     page.getByRole("heading", { name: "Sync", exact: true }),

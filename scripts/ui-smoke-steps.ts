@@ -32,6 +32,7 @@ export async function captureScreens(
     page.getByRole("heading", { name: "Welcome to homectl", exact: true }),
   ).toBeVisible();
   await page.screenshot({ path: join(out, "welcome.png"), fullPage: true });
+  await captureDarkAndPhone(page, out);
   // A new context has no session cookie, so the panel shows the unlock screen.
   const context = await browser.newContext({
     viewport: { width: 1440, height: 960 },
@@ -48,6 +49,51 @@ export async function captureScreens(
     fullPage: true,
   });
   await context.close();
+}
+
+// On phones the request drawer is a full-screen layer over the bar. Close it, as the
+// person would with its Close control, so the bar and the other screens can be reached.
+export async function closeRequestDrawer(page: Page) {
+  const close = page
+    .locator('aside[aria-label="Request details"]')
+    .getByRole("button", { name: "Close", exact: true });
+  if (await close.isVisible()) await close.click();
+}
+
+// The main screens in the dark theme and at phone width, for the comparison with the
+// approved mockup. Each screen is opened from the navigation the person would use.
+export async function captureDarkAndPhone(page: Page, out: string) {
+  const screens: [string, RegExp, string][] = [
+    ["dashboard", /^Dashboard/, "Dashboard"],
+    ["approvals", /^(Accept requests|Requests)/, "Accept requests"],
+    ["vault", /^Vault/, "Vault"],
+    ["sync", /^Sync/, "Sync"],
+  ];
+  const open = async (link: RegExp, heading: string) => {
+    await page.getByRole("link", { name: link }).first().click();
+    await expect(
+      page.getByRole("heading", { name: heading, exact: true, level: 1 }),
+    ).toBeVisible();
+  };
+  await page.emulateMedia({ colorScheme: "dark" });
+  for (const [file, link, heading] of screens) {
+    await open(link, heading);
+    await page.screenshot({
+      path: join(out, `${file}-dark.png`),
+      fullPage: true,
+    });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const [file, link, heading] of screens) {
+    await open(link, heading);
+    await page.screenshot({
+      path: join(out, `${file}-phone.png`),
+      fullPage: true,
+    });
+    await closeRequestDrawer(page);
+  }
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.emulateMedia({ colorScheme: "light" });
 }
 
 // Every row's Open button must sit inside the table card, with no clipping, at

@@ -158,7 +158,10 @@ function Details({ op }: { op: ControlOp }) {
   const open = op.state === "pending" || op.state === "approved";
   const result = ui.controlResult?.operation.operationId === op.operationId ? ui.controlResult : undefined;
   return (
-    <aside className="grid content-start gap-4 rounded-panel border border-border bg-card p-5" aria-label="Request details">
+    <aside
+      className="grid content-start gap-4 rounded-panel border border-border bg-card p-5 max-[700px]:fixed max-[700px]:inset-0 max-[700px]:z-30 max-[700px]:overflow-y-auto max-[700px]:rounded-none max-[700px]:border-0 max-[700px]:bg-background max-[700px]:p-4"
+      aria-label="Request details"
+    >
       <div className="flex items-start justify-between gap-3">
         <h2 className="text-lg font-semibold">{op.host}</h2>
         <Action action="close-operation" label="Close" kind="quiet" />

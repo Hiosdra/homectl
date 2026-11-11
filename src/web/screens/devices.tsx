@@ -141,7 +141,10 @@ function AppliedChanges() {
   const applied = ui.applied;
   if (!applied) return null;
   return (
-    <Section title="Applied changes" className="mb-6">
+    <Section
+      title="Applied changes"
+      className="mb-6 max-[700px]:fixed max-[700px]:inset-0 max-[700px]:z-30 max-[700px]:overflow-y-auto max-[700px]:rounded-none max-[700px]:border-0 max-[700px]:bg-background max-[700px]:p-4"
+    >
       <Muted>
         {applied.items.length} change{applied.items.length === 1 ? "" : "s"} applied automatically. Conflicts, if any,
         were left for your choice.
