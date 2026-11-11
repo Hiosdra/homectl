@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { accessLabel } from "../format";
 import { HelpLabel } from "../help";
+import { Disclosure } from "../disclosure";
 import { render, ui } from "../store";
 import { Action, Cell, DataTable, Note, Row, Section, Tag, type Tone } from "../shared";
 import { Button } from "../ui/button";
@@ -37,7 +38,7 @@ export function MachinesCard() {
             className="h-9 w-full max-w-[420px] rounded-lg border border-input bg-background px-3 text-sm"
           />
           {hosts.length ? (
-            <DataTable head={["Machine", "Connection", "Access", "Status", ""]}>
+            <DataTable head={["Machine", "Connection", "Access", "Status", "Key", ""]}>
               {hosts.map(([name, m]) => (
                 <MachineRow key={name} name={name} m={m} />
               ))}
@@ -45,10 +46,33 @@ export function MachinesCard() {
           ) : (
             <p className="text-muted-foreground">Add an SSH machine, or bring in a setup from another computer.</p>
           )}
+          <CreateKey />
         </div>
         {form ? <MachineForm /> : null}
       </div>
     </Section>
+  );
+}
+
+// Creates a machine's SSH key in the Vault. The key takes the machine's name.
+function CreateKey() {
+  return (
+    <Disclosure title="Create SSH key">
+      <form id="key-form" className="grid gap-3">
+        <div className="grid gap-1.5">
+          <HelpLabel htmlFor="key-name" label="Key and machine name" help="The name of the SSH key and of the machine it belongs to. Use the same name as the machine, for example voron." />
+          <Input id="key-name" name="name" pattern="[a-z][a-z0-9-]{0,62}" placeholder="storage-nas" required />
+        </div>
+        <div className="grid gap-1.5">
+          <HelpLabel htmlFor="key-password" label="Safe password" help="The safe password. It is needed to create the key." />
+          <Input id="key-password" name="password" type="password" autoComplete="current-password" required />
+        </div>
+        <div className="flex justify-end">
+          <Button type="submit">Create SSH key</Button>
+        </div>
+      </form>
+      <Note>You’ll get the public key to install on the machine. Creating a key locks SSH access; unlock again afterwards.</Note>
+    </Disclosure>
   );
 }
 
@@ -91,6 +115,13 @@ function MachineRow({ name, m }: { name: string; m: Machine }) {
       </Cell>
       <Cell label="Status">
         <StatusCell name={name} local={local} />
+      </Cell>
+      <Cell label="Key">
+        {local ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <Tag tone={ui.state.vaultUnlocked ? "success" : "neutral"}>{ui.state.vaultUnlocked ? "in safe" : "safe locked"}</Tag>
+        )}
       </Cell>
       <Cell label="Actions">
         <div className="flex flex-wrap items-center gap-1.5">

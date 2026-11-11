@@ -1,4 +1,5 @@
 import { HelpLabel } from "../help";
+import { RecoveryCard } from "./recovery";
 // Settings, as in the approved design: MCP clients, sign-in, the session, the background
 // service, and the panel. Clients are created in a terminal; the panel shows the command.
 import { useEffect, useState } from "react";
@@ -35,6 +36,7 @@ export function Settings() {
         <SignInCard />
         <SessionCard />
         <ServiceCard />
+        <RecoveryCard />
       </div>
       <div className="mt-5">
         <PanelCard />
