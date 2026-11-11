@@ -16,6 +16,7 @@ import {
 import { loadInventory, saveInventory } from "../src/inventory";
 import { serve } from "../src/serve";
 import { keyReference } from "../src/session/keys";
+import { assertExecuteInsideCard, denyReadyRequest } from "./ui-smoke-steps";
 
 const root = await mkdtemp(join(tmpdir(), "hcui-"));
 const inventory = join(root, "inventory.yaml");
@@ -260,10 +261,11 @@ try {
     page.locator("#confirm-dialog button[value=confirm]"),
   ).toBeEnabled();
   await page.locator("#confirm-dialog button[value=cancel]").click();
+  await expect(page.locator("#confirm-dialog")).toHaveCount(0);
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByRole("link", { name: /^Sync/ }).click();
   await expect(
-    page.getByRole("heading", { name: "Devices", exact: true }),
+    page.getByRole("heading", { name: "Sync", exact: true }),
   ).toBeVisible();
   await page.screenshot({ path: join(out, "peers.png"), fullPage: true });
   await page.getByRole("button", { name: "Start pairing" }).click();
@@ -372,20 +374,26 @@ try {
   await expect(
     page.getByRole("radio", { name: "Use from Linux · demo" }),
   ).toBeVisible();
-  await expect(page.locator(".conflict .sync-change").first()).toContainText(
+  await expect(page.locator("[data-conflict] article").first()).toContainText(
     "Machine: storage-nas",
   );
-  await expect(page.locator(".conflict pre")).toHaveCount(0);
-  await page.getByRole("radio", { name: "Use from Linux · demo" }).check();
+  await expect(page.locator("[data-conflict] pre")).toHaveCount(0);
+  // The later change is preselected, so the first explicit choice is the other version.
+  await expect(
+    page.getByRole("radio", { name: "Use from Linux · demo" }),
+  ).toBeChecked();
+  await page.getByRole("radio", { name: "Use from Legacy · demo" }).check();
   await expect(
     page.getByRole("heading", { name: "Selected version" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Compare again" }).click();
-  await expect(page.locator(".conflict .split")).toBeVisible();
+  await expect(
+    page.locator("[data-conflict]").getByText("Received", { exact: true }),
+  ).toBeVisible();
   await page.screenshot({ path: join(out, "conflicts.png"), fullPage: true });
   await page.getByText("Changes to review", { exact: true }).click();
-  await expect(page.locator(".sync-change").first()).toBeVisible();
-  await expect(page.locator(".sync-change-list pre")).toHaveCount(0);
+  await expect(page.locator("#sync-form article").first()).toBeVisible();
+  await expect(page.locator("#sync-form pre")).toHaveCount(0);
   let compareCount = 0;
   let remoteBlocksPreview = false;
   await page.route("**/api/sync/start", (route) => {
@@ -409,7 +417,7 @@ try {
       },
     }),
   );
-  await page.locator("#sync-form button.primary").click();
+  await page.locator("#sync-form button[type=submit]").click();
   await page.locator("#confirm-dialog button[value=confirm]").click();
   await expect(page.locator("#sync-unlock-dialog")).toBeVisible();
   await page.route("**/api/vault/unlock", (route) =>
@@ -444,7 +452,7 @@ try {
     });
   });
   await page.getByRole("radio", { name: "Use from Linux · demo" }).check();
-  await page.locator("#sync-form button.primary").click();
+  await page.locator("#sync-form button[type=submit]").click();
   await page.locator("#confirm-dialog button[value=confirm]").click();
   await expect(page.locator("#sync-wait-title")).toContainText("Legacy · demo");
   await expect(page.locator("#sync-wait-status")).toContainText(
@@ -453,7 +461,7 @@ try {
   await expect(
     page.getByRole("button", { name: "Copy command" }),
   ).toBeVisible();
-  await expect(page.locator("#sync-form button.primary")).toBeDisabled();
+  await expect(page.locator("#sync-form button[type=submit]")).toBeDisabled();
   await expect.poll(() => readinessChecks).toBeGreaterThan(0);
   remoteUnlocked = true;
   await expect(page.locator("#notice")).toContainText(
@@ -462,14 +470,15 @@ try {
   );
   expect(compareCount).toBe(2);
   expect(applyAttempts).toBe(1);
+  // The refreshed comparison starts from its own default, not the earlier choice.
   await expect(
     page.getByRole("radio", { name: "Use from Linux · demo" }),
-  ).not.toBeChecked();
+  ).toBeChecked();
   remoteUnlocked = false;
   remoteBlocksPreview = true;
   await page.getByRole("button", { name: "Compare devices again" }).click();
   await expect(page.locator("#sync-wait-title")).toBeVisible();
-  await expect(page.locator("#sync-form button.primary")).toBeDisabled();
+  await expect(page.locator("#sync-form button[type=submit]")).toBeDisabled();
   expect(applyAttempts).toBe(1);
   remoteBlocksPreview = false;
   remoteUnlocked = true;
@@ -483,12 +492,13 @@ try {
   await page.unroute("**/api/sync/start");
   await page
     .locator("#sync-form")
-    .getByRole("button", { name: "Cancel", exact: true })
+    .getByRole("button", { name: "Close", exact: true })
     .click();
   expect(running.hub.pending.has(proposed.id)).toBe(false);
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page.getByLabel("Device name").fill("Linux · demo");
-  await page.getByLabel("Session lifetime").selectOption("custom");
+  await page.getByLabel("Session lifetime").click();
+  await page.getByRole("option", { name: "Custom duration…" }).click();
   await expect(page.getByLabel("Duration")).toBeVisible();
   await page.getByLabel("Duration").fill("2d");
   await page.getByRole("button", { name: "Save settings" }).click();
@@ -649,33 +659,9 @@ try {
     fullPage: true,
   });
   await page.getByRole("button", { name: /^Ready to run/ }).click();
-  // Every Execute button must sit inside the table card, with no clipping, at
-  // the desktop widths. Clipping or overflow fails the smoke run.
-  const assertExecuteInsideCard = async (label: string) => {
-    const report = await page.evaluate(() => {
-      const card = document.querySelector<HTMLElement>(".table-wrap");
-      if (!card) return { error: "no table card" };
-      const box = card.getBoundingClientRect();
-      const buttons = [
-        ...document.querySelectorAll<HTMLElement>(
-          'button[data-action="control-execute"]',
-        ),
-      ].map((b) => b.getBoundingClientRect());
-      return {
-        count: buttons.length,
-        outside: buttons.filter((b) => b.left < box.left || b.right > box.right)
-          .length,
-        overflowsX: card.scrollWidth > card.clientWidth,
-      };
-    });
-    expect(report, label).not.toHaveProperty("error");
-    expect(report.count, label).toBeGreaterThan(0);
-    expect(report.outside, `${label}: Execute outside card`).toBe(0);
-    expect(report.overflowsX, `${label}: table scrolls sideways`).toBe(false);
-  };
-  await assertExecuteInsideCard("1440px");
+  await assertExecuteInsideCard(page, "1440px");
   await page.setViewportSize({ width: 1280, height: 960 });
-  await assertExecuteInsideCard("1280px");
+  await assertExecuteInsideCard(page, "1280px");
   await page.screenshot({
     path: join(out, "approvals-1280.png"),
     fullPage: true,
@@ -703,6 +689,9 @@ try {
   await expect(page.locator("#control-result")).toBeFocused();
   await expect(page.locator("#control-live")).toContainText(
     "finished: succeeded",
+  );
+  await denyReadyRequest(page, () =>
+    planAs(codex, "agent-host", ["uptime"], "Read the uptime"),
   );
   // OIDC: configure the issuer (no network access until a sign-in) and map a
   // client to a synthetic subject. The panel shows the issuer host only.

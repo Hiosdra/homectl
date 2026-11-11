@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { bundled } from "../internal";
 import { HomectlError } from "../types";
 import { embeddedPanel } from "./embedded";
+import { buildPanelCss } from "./panel-css";
 
 // The panel assets. A compiled release carries them (src/web/embedded.ts, written
 // by `bun run build:panel`). A source checkout builds the panel from web/ at run time.
@@ -29,7 +30,7 @@ export async function panelAssets(): Promise<{
   if (script === undefined) throw new HomectlError(5, "Frontend build failed");
   return {
     html: await readFile(resolve(import.meta.dir, "index.html"), "utf8"),
-    css: await readFile(resolve(import.meta.dir, "style.css"), "utf8"),
+    css: await buildPanelCss(),
     script,
   };
 }

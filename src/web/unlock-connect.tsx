@@ -2,7 +2,12 @@
 // this browser to the server key before it is sent (ADR-0003). The key fingerprint is
 // pinned per host. A changed key blocks the form until the user trusts it on purpose.
 import { type FormEvent, useEffect, useState } from "react";
-import { fingerprint, fromHex, sealPassword } from "./unlock-seal";
+import { fromHex, sealPassword } from "./unlock-seal";
+import { Alert, AlertDescription } from "./ui/alert";
+import { Button } from "./ui/button";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "./ui/collapsible";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 
 type KeyInfo = { pub: string; fingerprint: string };
 type Answer<T> = { status: number; body: T & { error?: string } };
@@ -87,72 +92,94 @@ export function UnlockConnect({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <div id="connection" className="connection">
-      <div className="connection-form">
-        <div className="brand">
-          <span className="brand-mark">h</span>homectl
+    <div id="connection" className="grid min-h-dvh place-items-center p-8 max-[700px]:p-4">
+      <div className="grid w-full max-w-[500px] gap-5">
+        <div className="mb-6 flex items-center gap-2.5 text-[22px] font-bold tracking-[-0.025em]">
+          <span className="grid size-[30px] place-items-center rounded-[9px] bg-primary text-[23px] text-primary-foreground">h</span>
+          homectl
         </div>
-        <h1>Unlock homectl</h1>
-        <p className="muted">
-          Open this workspace at <code id="workspace-origin">{location.origin}</code>. Your vault password is the only password for this panel. It is encrypted in this
+        <h1 className="text-[38px] leading-[1.15] font-semibold tracking-[-0.025em] max-[700px]:text-[32px]">
+          Unlock homectl
+        </h1>
+        <p className="text-muted-foreground">
+          Open this workspace at <code id="workspace-origin">{location.origin}</code>. Your
+          vault password is the only password for this panel. It is encrypted in this
           browser before it is sent.
         </p>
         {key ? (
-          <p className="muted">
+          <p className="text-muted-foreground">
             Server key: <code id="server-fingerprint">{key.fingerprint}</code>. Compare it
             once with the terminal.
           </p>
         ) : null}
         {changed ? (
-          <div id="connection-error" role="alert">
-            The server key changed since your last visit. Do not enter your password until
-            you have checked the new key in the terminal.{" "}
-            <button type="button" onClick={trustChangedKey}>
-              Trust the new key
-            </button>
-          </div>
+          <Alert id="connection-error" variant="error">
+            <AlertDescription>
+              The server key changed since your last visit. Do not enter your password
+              until you have checked the new key in the terminal.{" "}
+              <Button type="button" variant="outline" size="sm" onClick={trustChangedKey}>
+                Trust the new key
+              </Button>
+            </AlertDescription>
+          </Alert>
         ) : null}
         {error ? (
-          <div id="connection-error" role="alert">
-            {error}
-          </div>
+          <Alert id="connection-error" variant="error">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         ) : null}
-        <form id="unlock-form" onSubmit={(event) => void unlock(event)}>
-          <label htmlFor="password">Vault password</label>
-          <input id="password" name="password" type="password" autoComplete="current-password" required disabled={!key || changed || busy} />
-          <button className="primary" type="submit" disabled={!key || changed || busy}>
-            {busy ? "Unlocking…" : "Unlock"}
-          </button>
+        <form id="unlock-form" className="grid gap-3" onSubmit={(event) => void unlock(event)}>
+          <Label htmlFor="password">Vault password</Label>
+          <Input
+            id="password"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            required
+            disabled={!key || changed || busy}
+          />
+          <div>
+            <Button type="submit" disabled={!key || changed || busy}>
+              {busy ? "Unlocking…" : "Unlock"}
+            </Button>
+          </div>
         </form>
-        <details open={showCode} onToggle={(event) => setShowCode(event.currentTarget.open)}>
-          <summary className="muted">Use a workspace access code instead</summary>
-          <p className="muted">
-            Local workspaces started with <code>homectl panel</code> open with their private link.
-            Compose deployments may still use the code from the protected file set as{" "}
-            <code>HOMECTL_PANEL_TOKEN_FILE</code>.
-          </p>
-          <form
-            id="connect-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const input = event.currentTarget.elements.namedItem("token") as HTMLInputElement;
-              const token = input.value;
-              input.value = "";
-              void call("/api/connect", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ token }),
-              }).then((answer) => {
-                if (answer.status === 200) onDone();
-                else setError(answer.body.error ?? "Invalid workspace access code.");
-              });
-            }}
-          >
-            <label htmlFor="token">Workspace access code</label>
-            <input id="token" name="token" type="password" autoComplete="off" required />
-            <button type="submit">Open workspace</button>
-          </form>
-        </details>
+        <Collapsible open={showCode} onOpenChange={setShowCode}>
+          <CollapsibleTrigger className="cursor-pointer text-muted-foreground">
+            Use a workspace access code instead
+          </CollapsibleTrigger>
+          <CollapsiblePanel className="grid gap-3 pt-3">
+            <p className="text-muted-foreground">
+              Local workspaces started with <code>homectl panel</code> open with their
+              private link. Compose deployments may still use the code from the protected
+              file set as <code>HOMECTL_PANEL_TOKEN_FILE</code>.
+            </p>
+            <form
+              id="connect-form"
+              className="grid gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const input = event.currentTarget.elements.namedItem("token") as HTMLInputElement;
+                const token = input.value;
+                input.value = "";
+                void call("/api/connect", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ token }),
+                }).then((answer) => {
+                  if (answer.status === 200) onDone();
+                  else setError(answer.body.error ?? "Invalid workspace access code.");
+                });
+              }}
+            >
+              <Label htmlFor="token">Workspace access code</Label>
+              <Input id="token" name="token" type="password" autoComplete="off" required />
+              <div>
+                <Button type="submit" variant="secondary">Open workspace</Button>
+              </div>
+            </form>
+          </CollapsiblePanel>
+        </Collapsible>
       </div>
     </div>
   );

@@ -58,13 +58,15 @@ export type Preview = {
   changes: string[];
   entries?: {
     id: string;
-    local: { value: unknown } | null;
-    remote: { value: unknown };
+    local: { value: unknown; at?: number } | null;
+    remote: { value: unknown; at?: number };
   }[];
   conflicts: {
     id: string;
-    local: { value: unknown };
-    remote: { value: unknown };
+    local: { value: unknown; at?: number };
+    remote: { value: unknown; at?: number };
+    // The later change; the person still chooses.
+    suggested?: "local" | "remote";
   }[];
 };
 export type ControlOp = {

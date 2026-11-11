@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,9 +10,13 @@ import { merge } from "../src/peer/sync";
 import { credentialPublicKey } from "../src/peer/vault";
 import { available } from "../src/platform";
 import { serve } from "../src/serve";
+
 import { systemdUnit, windowsServiceConfig } from "../src/service";
 import { createKey, keyReference } from "../src/session/keys";
 import type { Inventory } from "../src/types";
+
+// Pairing and sync run real peers over local sockets; the 5 s default is too tight on a busy machine.
+setDefaultTimeout(30_000);
 
 const a = randomUUID(),
   b = randomUUID();
