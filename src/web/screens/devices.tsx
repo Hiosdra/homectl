@@ -15,7 +15,7 @@ import {
   Tag,
 } from "../shared";
 import { Button } from "../ui/button";
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
+import { Disclosure } from "../disclosure";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { ControlSyncSection } from "./control-sync";
@@ -65,11 +65,7 @@ export function Devices() {
                   No device found automatically. That’s okay: enter its address and code
                   below.
                 </Muted>
-                <Collapsible className="mt-3">
-                  <CollapsibleTrigger className="cursor-pointer text-muted-foreground">
-                    Why automatic discovery may not work
-                  </CollapsibleTrigger>
-                  <CollapsiblePanel className="grid gap-2 pt-3">
+                <Disclosure title={<>Why automatic discovery may not work</>} className="mt-3" panelClassName="grid gap-2 pt-3">
                     <p>
                       Docker, Wi-Fi isolation, VLANs, and firewalls can block LAN
                       discovery. Direct connection still works. For troubleshooting, allow
@@ -79,8 +75,7 @@ export function Devices() {
                     {ui.state.discovery.error ? (
                       <Note>{ui.state.discovery.error}</Note>
                     ) : null}
-                  </CollapsiblePanel>
-                </Collapsible>
+                  </Disclosure>
               </>
             )}
           </Section>

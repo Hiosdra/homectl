@@ -2,7 +2,7 @@
 import { displayStateOf, durationText, shellArgv } from "../format";
 import { Facts, Pre, Tag, type Tone } from "../shared";
 import { Button } from "../ui/button";
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
+import { Disclosure } from "../disclosure";
 import type { ControlExecution, ControlOp } from "../types";
 
 export function classificationTone(op: ControlOp): Tone {
@@ -92,13 +92,8 @@ function ResultBlock({ title, text }: { title: string; text: string }) {
   if (!body.trim()) return null;
   const lines = body.split("\n").length;
   return (
-    <Collapsible defaultOpen={lines <= 20}>
-      <CollapsibleTrigger className="cursor-pointer text-muted-foreground">
-        {title} · {lines} line{lines === 1 ? "" : "s"}
-      </CollapsibleTrigger>
-      <CollapsiblePanel>
+    <Disclosure title={<>{title} · {lines} line{lines === 1 ? "" : "s"}</>} compact>
         <Pre>{body}</Pre>
-      </CollapsiblePanel>
-    </Collapsible>
+      </Disclosure>
   );
 }

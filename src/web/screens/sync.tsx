@@ -7,7 +7,7 @@ import type { Preview } from "../types";
 import { Action, Muted, Note, PageHeading, Tag } from "../shared";
 import { Button } from "../ui/button";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
+import { Disclosure } from "../disclosure";
 import { cn } from "../lib/utils";
 
 type Conflict = Preview["conflicts"][number];
@@ -282,11 +282,7 @@ export function SyncCompare({ p }: { p: Preview }) {
         {p.conflicts.map((c, i) => (
           <ConflictCard key={c.id + i} p={p} index={i} conflict={c} />
         ))}
-        <Collapsible>
-          <CollapsibleTrigger className="cursor-pointer text-muted-foreground">
-            Changes to review
-          </CollapsibleTrigger>
-          <CollapsiblePanel className="pt-3">
+        <Disclosure title={<>Changes to review</>} panelClassName="pt-3">
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {p.entries
                 ? syncChangeCards(p.entries)
@@ -296,8 +292,7 @@ export function SyncCompare({ p }: { p: Preview }) {
                     </article>
                   ))}
             </div>
-          </CollapsiblePanel>
-        </Collapsible>
+          </Disclosure>
         <footer className="flex flex-wrap justify-end gap-2.5">
           <Action action="sync-cancel" label="Close" />
           {ui.syncPeerId ? (

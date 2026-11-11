@@ -5,7 +5,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { fromHex, sealPassword } from "./unlock-seal";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Button } from "./ui/button";
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "./ui/collapsible";
+import { Disclosure } from "./disclosure";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 
@@ -144,11 +144,7 @@ export function UnlockConnect({ onDone }: { onDone: () => void }) {
             </Button>
           </div>
         </form>
-        <Collapsible open={showCode} onOpenChange={setShowCode}>
-          <CollapsibleTrigger className="cursor-pointer text-muted-foreground">
-            Use a workspace access code instead
-          </CollapsibleTrigger>
-          <CollapsiblePanel className="grid gap-3 pt-3">
+        <Disclosure title={<>Use a workspace access code instead</>} panelClassName="grid gap-3 pt-3">
             <p className="text-muted-foreground">
               Local workspaces started with <code>homectl panel</code> open with their
               private link. Compose deployments may still use the code from the protected
@@ -178,8 +174,7 @@ export function UnlockConnect({ onDone }: { onDone: () => void }) {
                 <Button type="submit" variant="secondary">Open workspace</Button>
               </div>
             </form>
-          </CollapsiblePanel>
-        </Collapsible>
+          </Disclosure>
       </div>
     </div>
   );

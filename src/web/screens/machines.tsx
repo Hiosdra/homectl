@@ -17,7 +17,7 @@ import {
   Tag,
 } from "../shared";
 import { Button } from "../ui/button";
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
+import { Disclosure } from "../disclosure";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import {
@@ -122,11 +122,7 @@ function MachineRow({ name, m }: { name: string; m: Machine }) {
         <span className="inline-block align-middle">
           {name}
           <p className="mt-1 text-xs font-normal text-muted-foreground">{m.description}</p>
-          <Collapsible>
-            <CollapsibleTrigger className="mt-1.5 cursor-pointer text-xs font-normal text-muted-foreground">
-              Details
-            </CollapsibleTrigger>
-            <CollapsiblePanel className="pt-2.5 text-xs font-normal">
+          <Disclosure title={<>Details</>} panelClassName="pt-2.5 text-xs font-normal">
               <Facts
                 items={[
                   ["Transport", m.transport === "local" ? "This device" : "SSH"],
@@ -139,8 +135,7 @@ function MachineRow({ name, m }: { name: string; m: Machine }) {
                   ],
                 ]}
               />
-            </CollapsiblePanel>
-          </Collapsible>
+            </Disclosure>
         </span>
       </Cell>
       <Cell label="Connection">
@@ -255,19 +250,14 @@ function MachineForm() {
             required
           />
         </div>
-        <Collapsible className="md:col-span-2">
-          <CollapsibleTrigger className="cursor-pointer text-muted-foreground">
-            Advanced SSH settings
-          </CollapsibleTrigger>
-          <CollapsiblePanel className="grid gap-2 pt-3">
+        <Disclosure title={<>Advanced SSH settings</>} className="md:col-span-2" panelClassName="grid gap-2 pt-3">
             <Note>
               Optional JSON fields for a non-default port, cautions, sudo rules, or a
               custom key reference.
             </Note>
             <Label htmlFor="machine-json">Additional fields (JSON)</Label>
             <Textarea id="machine-json" name="extra" defaultValue={extra} />
-          </CollapsiblePanel>
-        </Collapsible>
+          </Disclosure>
         <div className="flex flex-wrap justify-end gap-2.5 md:col-span-2">
           {m ? (
             <Action
