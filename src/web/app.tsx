@@ -10,6 +10,7 @@ import {
 import { createRoot } from "react-dom/client";
 import { UnlockConnect } from "./unlock-connect";
 import { Dashboard } from "./dashboard";
+import { NAV_ICONS } from "./nav-icons";
 import type {
   Machine,
   Permissions,
@@ -1652,6 +1653,10 @@ function ConflictRow({
 }
 
 // ---- Access and settings ----
+function phoneView(): boolean {
+  return window.matchMedia("(max-width: 700px)").matches;
+}
+
 function Access() {
   const createVault = !state.vaultExists;
   return (
@@ -1661,8 +1666,8 @@ function Access() {
         description="Vaults and sessions are local. Pairing does not unlock the other computer."
       />
       <div className="split">
-        <section className="panel">
-          <h2>Encrypted vault</h2>
+        <details className="panel" open={!phoneView()}>
+          <summary><h2>Encrypted vault</h2></summary>
           {state.vaultUnlocked ? (
             <div className="empty">
               <h3>Vault unlocked</h3>
@@ -1722,7 +1727,7 @@ function Access() {
               </p>
             </>
           )}
-        </section>
+        </details>
         <section className="panel">
           <h2>SSH session</h2>
           <dl>
@@ -1748,8 +1753,8 @@ function Access() {
           </p>
         </section>
       </div>
-      <section className="section panel">
-        <h2>Create an SSH key</h2>
+      <details className="section panel" open={!phoneView()}>
+        <summary><h2>Create an SSH key</h2></summary>
         <p className="muted">
           Create a key for the machine you plan to add, then install its public
           key there.
@@ -1783,7 +1788,7 @@ function Access() {
           You’ll get the public key to install on the machine. Creating a key locks
           SSH access; unlock again afterwards.
         </p>
-      </section>
+      </details>
       <Output />
     </>
   );
@@ -1942,12 +1947,15 @@ function ClassBadge({ op }: { op: ControlOp }) {
 function PrimaryAction({ op }: { op: ControlOp }) {
   if (isReady(op))
     return (
-      <Btn
+      <>
+        <Btn
         action="control-execute"
         label="Accept"
         id={op.operationId}
         kind="accept"
       />
+        <Btn action="control-deny" label="Deny" id={op.operationId} kind="danger" />
+      </>
     );
   if (op.state === "pending")
     return (
@@ -1955,7 +1963,7 @@ function PrimaryAction({ op }: { op: ControlOp }) {
         <span className="muted">Waiting for approval by another client</span>
         {op.needsApproval ? (
           <div className="sub">
-            <Btn action="operation-reject" label="Deny" id={op.operationId} kind="danger" />
+            <Btn action="control-deny" label="Deny" id={op.operationId} kind="danger" />
           </div>
         ) : null}
       </>
@@ -2658,6 +2666,19 @@ async function handleAction(action: string | undefined, id: string) {
         result = await api("/api/operation/decide", { id, approved: true });
       await refresh();
       return;
+    case "control-deny": {
+      if (
+        !(await confirm(
+          "Deny this request?",
+          "It will be closed and cannot run. Another plan can be made later.",
+        ))
+      )
+        return;
+      await api("/api/control/deny", { operationId: id });
+      await refresh();
+      announce("Request denied.");
+      return;
+    }
     case "operation-reject":
       await api("/api/operation/decide", { id, approved: false });
       await refresh();
@@ -3007,49 +3028,9 @@ const NAV: [string, string][] = [
   ["sync", "Sync"],
   ["settings", "Settings"],
 ];
-const NAV_ICONS: Record<string, ReactNode> = {
-  dashboard: (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3" y="3" width="7" height="9" rx="1" />
-      <rect x="14" y="3" width="7" height="5" rx="1" />
-      <rect x="14" y="12" width="7" height="9" rx="1" />
-      <rect x="3" y="16" width="7" height="5" rx="1" />
-    </svg>
-  ),
-  approvals: (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M22 12h-6l-2 3h-4l-2-3H2" />
-      <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
-    </svg>
-  ),
-  access: (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="4" y="11" width="16" height="10" rx="2" />
-      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-    </svg>
-  ),
-  sync: (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M21 12a9 9 0 0 0-15-6.7L3 8" />
-      <path d="M3 3v5h5" />
-      <path d="M3 12a9 9 0 0 0 15 6.7L21 16" />
-      <path d="M16 16h5v5" />
-    </svg>
-  ),
-  settings: (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <line x1="4" y1="21" x2="4" y2="14" />
-      <line x1="4" y1="10" x2="4" y2="3" />
-      <line x1="12" y1="21" x2="12" y2="12" />
-      <line x1="12" y1="8" x2="12" y2="3" />
-      <line x1="20" y1="21" x2="20" y2="16" />
-      <line x1="20" y1="12" x2="20" y2="3" />
-      <line x1="1" y1="14" x2="7" y2="14" />
-      <line x1="9" y1="8" x2="15" y2="8" />
-      <line x1="17" y1="16" x2="23" y2="16" />
-    </svg>
-  ),
-};
+
+// Shorter labels where the bottom bar is narrow.
+const SHORT_LABEL: Record<string, string> = { approvals: "Requests" };
 
 function Screen() {
   if (permissionPeer) return <PermissionPanel id={permissionPeer} />;
@@ -3102,7 +3083,8 @@ function Workspace() {
               aria-current={current === id ? "page" : undefined}
             >
               <span className="nav-icon">{NAV_ICONS[id]}</span>
-              {label}
+              <span className="nav-long">{label}</span>
+              <span className="nav-short">{SHORT_LABEL[id] ?? label}</span>
               {id === "sync" ? (
                 <>
                   {" "}

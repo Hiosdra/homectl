@@ -55,6 +55,11 @@ import {
   validateOidcConfigInput,
   verifyOidcToken,
 } from "./oidc";
+import {
+  CONTAINER_CONTROL,
+  NEVER_EXECUTABLES,
+  RUNTIME_SOCKET,
+} from "./policy-constants";
 import { containsSecretMaterial, redactArgv } from "./redact";
 import type { ReplicaOverlay } from "./replicator";
 import { schemas } from "./schema";
@@ -101,59 +106,6 @@ const TERMINAL_EVENTS: Partial<Record<AuditEventName, OperationState>> = {
 
 // Executables that take arbitrary commands or escalate privilege. Refused
 // for every control-plane plan, whatever the tier.
-const NEVER_EXECUTABLES = new Set([
-  "sh",
-  "bash",
-  "zsh",
-  "fish",
-  "dash",
-  "ksh",
-  "csh",
-  "tcsh",
-  "ash",
-  "busybox",
-  "env",
-  "eval",
-  "exec",
-  "xargs",
-  "su",
-  "doas",
-  "pkexec",
-  "chroot",
-  "nsenter",
-  "unshare",
-  "ssh",
-  "scp",
-  "sftp",
-  "rsync",
-  "nc",
-  "ncat",
-  "socat",
-  "telnet",
-  "python",
-  "python2",
-  "python3",
-  "perl",
-  "ruby",
-  "node",
-  "bun",
-  "awk",
-  "gawk",
-  "sed",
-  "find",
-]);
-// Container and hypervisor control. Only inspection is allowed through MCP.
-const CONTAINER_CONTROL = new Set([
-  "docker",
-  "podman",
-  "nerdctl",
-  "ctr",
-  "kubectl",
-  "qm",
-  "pct",
-  "pvesh",
-]);
-const RUNTIME_SOCKET = /docker\.sock|\/run\/podman|\/run\/containerd/i;
 
 type PlanRequest = Extract<OperationRequest, { op: "plan" }>;
 type ApproveRequest = Extract<OperationRequest, { op: "approve" }>;
@@ -940,6 +892,26 @@ export class ControlPlane {
   }
 
   // Full id, or a unique prefix of at least 8 characters.
+  // Local operator only. Refuses a request that has not started running. A running or
+  // finished request cannot be denied, and the refusal is audited like any other failure.
+  async denyOperation(operationId: string): Promise<OperationView> {
+    return this.mutate(async (state, now) => {
+      const op = Object.hasOwn(state.operations, operationId)
+        ? state.operations[operationId]
+        : undefined;
+      if (!op) throw new HomectlError(2, "Unknown operation");
+      if (op.state !== "pending" && op.state !== "approved")
+        throw new HomectlError(
+          3,
+          "Only a request that has not started can be denied",
+        );
+      await this.close(state, op, "failed", "denied", now, [
+        failedEvent(op, "denied", LOCAL_ACTOR),
+      ]);
+      return operationView(op, now);
+    });
+  }
+
   async resolveOperation(idOrPrefix: string): Promise<string> {
     const state = await this.store.loadState();
     const ids = (await this.allViews(this.clock(), state)).map(

@@ -76,3 +76,16 @@ button.danger:hover{background:#382126}
   main{padding-bottom:96px}
   .status-pill{font-size:12px;padding:4px 10px}
 }
+
+/* Phones: disclosures for the long vault sections, short navigation labels, a lighter top bar. */
+details.fold{padding:0}
+details>summary{cursor:pointer;list-style:none}
+details>summary::-webkit-details-marker{display:none}
+details>summary h2{display:inline-block;margin:0}
+.nav-short{display:none}
+@media(max-width:700px){
+  .nav-long{display:none}
+  .nav-short{display:inline}
+  #refresh,.device-platform{display:none}
+  .toolbar{padding:10px 14px;gap:8px}
+}

@@ -616,7 +616,7 @@ try {
   await expect(page.getByText("Signing key").first()).toBeVisible();
   await page.screenshot({ path: join(out, "devices.png"), fullPage: true });
   // Approvals: the queue, an inspection run from the panel, and the client list.
-  await page.getByRole("link", { name: /^Accept requests/ }).click();
+  await page.getByRole("link", { name: /^(Accept requests|Requests)/ }).click();
   await expect(page.getByText("Runs on Windows · demo").first()).toBeVisible();
   await expect(
     page
@@ -624,7 +624,7 @@ try {
       .getByRole("button", { name: "Accept", exact: true }),
   ).toHaveCount(0);
   // Approvals: the queue, an inspection run from the panel, and the client list.
-  await page.getByRole("link", { name: /^Accept requests/ }).click();
+  await page.getByRole("link", { name: /^(Accept requests|Requests)/ }).click();
   await expect(page.getByText("Runs on Windows · demo").first()).toBeVisible();
   await expect(
     page
@@ -729,7 +729,6 @@ try {
     path: join(out, "clients-oidc.png"),
     fullPage: true,
   });
-
   await expect(page.getByText("Codex PC", { exact: true })).toBeVisible();
   await expect(page.getByText("homectl control client add")).toBeVisible();
   await page.getByRole("tab", { name: "Operations", exact: true }).click();
@@ -741,7 +740,7 @@ try {
   });
   await page.getByRole("link", { name: /^Vault/ }).click();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("link", { name: /^Accept requests/ }).click();
+  await page.getByRole("link", { name: /^(Accept requests|Requests)/ }).click();
   await expect(
     page.getByRole("heading", { name: "Accept requests", exact: true }),
   ).toBeVisible();
@@ -769,6 +768,7 @@ try {
   ).toBe(true);
   await page.getByRole("link", { name: /^Vault/ }).click();
   await page.screenshot({ path: join(out, "mobile.png"), fullPage: true });
+  await page.screenshot({ path: join(out, "mobile-viewport.png") });
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,

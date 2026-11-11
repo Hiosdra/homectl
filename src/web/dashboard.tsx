@@ -86,6 +86,14 @@ export function Dashboard({
             >
               Accept
             </button>
+            <button
+              type="button"
+              className="danger"
+              data-action="control-deny"
+              data-id={op.operationId}
+            >
+              Deny
+            </button>
           </div>
         ))}
         {awaiting.map((op) => (
@@ -97,7 +105,7 @@ export function Dashboard({
             <button
               type="button"
               className="danger"
-              data-action="operation-reject"
+              data-action="control-deny"
               data-id={op.operationId}
             >
               Deny

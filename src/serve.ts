@@ -1,7 +1,7 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { healthBody, VERSION } from "./container/health";
 import {
   HEARTBEAT_MS,
@@ -13,7 +13,6 @@ import { fingerprintOf } from "./control/device-key";
 import { ControlPlane, controlStateDirectory } from "./control/engine";
 import { ControlReplicator } from "./control/replicator";
 import { SYNC_INTERVAL_MS, SyncLoop } from "./control/sync-loop";
-import { bundled } from "./internal";
 import { loadInventory, parseInventory, saveInventory } from "./inventory";
 import { execute, writeSSHConfig } from "./operations";
 import { discovery } from "./peer/discovery";
@@ -26,7 +25,7 @@ import { doctor } from "./setup";
 import { HomectlError, type Machine, type Runner } from "./types";
 import { startAttentionWatch } from "./web/attention";
 import { controlPanel } from "./web/control-view";
-import { embeddedPanel } from "./web/embedded";
+import { panelAssets } from "./web/panel-assets";
 import { security } from "./web/panel-headers";
 import { handleUnlockRoute } from "./web/unlock-gate";
 import { openPanelGate, saveSession, unlockVault } from "./web/unlock-open";
@@ -106,36 +105,6 @@ async function settle(work: Promise<unknown>, ms: number): Promise<void> {
     }),
   ]);
   clearTimeout(timer);
-}
-
-// The panel assets. A compiled release carries them (src/web/embedded.ts, written
-// by `bun run build:panel`). A source checkout builds the panel from web/ at run time.
-async function panelAssets(): Promise<{
-  html: string;
-  css: string;
-  script: string;
-}> {
-  if (bundled) {
-    if (embeddedPanel === undefined)
-      throw new HomectlError(
-        5,
-        "This build has no embedded web panel. Run bun run build:panel before bun build --compile.",
-      );
-    return embeddedPanel;
-  }
-  const js = await Bun.build({
-    entrypoints: [resolve(import.meta.dir, "web/app.tsx")],
-    target: "browser",
-    minify: true,
-  });
-  if (!js.success) throw new HomectlError(5, "Frontend build failed");
-  const script = await js.outputs[0]?.text();
-  if (script === undefined) throw new HomectlError(5, "Frontend build failed");
-  return {
-    html: await readFile(resolve(import.meta.dir, "web/index.html"), "utf8"),
-    css: await readFile(resolve(import.meta.dir, "web/style.css"), "utf8"),
-    script,
-  };
 }
 
 export async function serve(options: ServeOptions) {
@@ -475,6 +444,12 @@ export async function serve(options: ServeOptions) {
             // queue: a long SSH run must not block peer requests.
             // The panel is the local operator: it can execute approved work and
             // revoke clients, but it never approves on behalf of a client.
+            if (url.pathname === "/api/control/deny")
+              return response(
+                await control.denyOperation(
+                  await control.resolveOperation(String(v.operationId)),
+                ),
+              );
             if (url.pathname === "/api/control/execute")
               return response(
                 await control.request(
