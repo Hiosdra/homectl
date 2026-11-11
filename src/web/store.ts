@@ -61,6 +61,8 @@ export const ui = {
   controlTab: "queue" as "queue" | "clients",
   controlFilter: "ready" as ControlBucket,
   controlResult: undefined as ControlExecution | undefined,
+  // The request a dashboard Review opened; its row is marked and scrolled to.
+  highlightOperation: undefined as string | undefined,
   confirmRequest: undefined as ConfirmRequest | undefined,
   unlockRequest: undefined as UnlockRequest | undefined,
 };
@@ -411,6 +413,7 @@ export async function pollPairing() {
 
 export function navigate(next: string) {
   ui.view = next;
+  ui.highlightOperation = undefined;
   // Banners describe the view that produced them; they do not follow the user.
   ui.banners = { connection: ui.banners.connection };
   ui.editing = undefined;

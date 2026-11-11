@@ -40,7 +40,13 @@ export type State = {
     remoteConfirmed: boolean;
   };
   discovery: { devices: { id: string; address: string }[]; error?: string };
-  pending: { id: string; peerId: string; remoteName: string }[];
+  pending: {
+    id: string;
+    peerId: string;
+    remoteName: string;
+    changes?: number;
+    conflicts?: number;
+  }[];
   address: string;
   operations: {
     id: string;

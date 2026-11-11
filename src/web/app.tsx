@@ -33,6 +33,10 @@ function App() {
   useEffect(() => {
     if (!ui.focusPending) return;
     ui.focusPending = false;
+    if (ui.highlightOperation)
+      document
+        .querySelector(`[data-operation="${ui.highlightOperation}"]`)
+        ?.scrollIntoView({ block: "center" });
     const card = document.getElementById("control-result");
     if (card) {
       card.scrollIntoView({ block: "nearest" });

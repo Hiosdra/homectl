@@ -160,3 +160,15 @@ export function merge(
   }
   return { records, conflicts, copies };
 }
+
+// The numbers a pending comparison shows: entries that differ and the conflicts merge finds.
+export function previewCounts(
+  local: Record<string, Version>,
+  records: Record<string, Version>,
+  device: string,
+) {
+  const changes = Object.keys(records).filter(
+    (id) => hash(local[id] ?? null) !== hash(records[id]),
+  ).length;
+  return { changes, conflicts: merge(local, records, device).conflicts.length };
+}

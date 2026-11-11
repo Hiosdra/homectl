@@ -112,7 +112,10 @@ function OpRow({ op }: { op: ControlOp }) {
     <span className="text-muted-foreground">not needed</span>
   );
   return (
-    <Row>
+    <Row
+      operationId={op.operationId}
+      className={cn(ui.highlightOperation === op.operationId && "bg-[#2b2545]/60")}
+    >
       <Cell label="State">
         <div>
           <StateTag label={label} />

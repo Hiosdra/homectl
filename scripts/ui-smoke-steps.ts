@@ -34,6 +34,20 @@ export async function denyReadyRequest(
 ) {
   await plan();
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  // The dashboard Review opens a request in Accept requests, with its row marked.
+  await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+  await page
+    .locator("section")
+    .filter({
+      has: page.getByRole("heading", { name: "Needs attention", exact: true }),
+    })
+    .getByRole("button", { name: "Review", exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Accept requests", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator("tr[data-operation]").first()).toBeVisible();
   await page.getByRole("button", { name: /^Ready to run/ }).click();
   const denied = page.locator("tr", { hasText: "uptime" });
   await denied.getByRole("button", { name: "Deny", exact: true }).click();

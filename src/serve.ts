@@ -19,6 +19,7 @@ import { discovery } from "./peer/discovery";
 import { Hub, peerAddress } from "./peer/hub";
 import type { Permissions } from "./peer/store";
 import type { Choice } from "./peer/sync";
+import { previewCounts } from "./peer/sync";
 import { privateDirectory, protect } from "./platform";
 import { createKey, keyReference } from "./session/keys";
 import { doctor } from "./setup";
@@ -409,6 +410,7 @@ export async function serve(options: ServeOptions) {
                   id: p.id,
                   peerId: p.peerId,
                   remoteName: hub.state.peers[p.peerId]?.name,
+                  ...previewCounts(p.local, p.records, hub.state.id),
                 })),
                 address,
               });

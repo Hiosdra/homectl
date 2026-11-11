@@ -193,14 +193,17 @@ export function Row({
   className,
   search,
   hidden,
+  operationId,
 }: {
   children: ReactNode;
   className?: string;
   search?: string;
   hidden?: boolean;
+  operationId?: string;
 }) {
   return (
     <TableRow
+      data-operation={operationId}
       data-search={search}
       hidden={hidden}
       className={cn(

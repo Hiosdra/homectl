@@ -19,7 +19,7 @@ import {
   armSyncWait,
 } from "./store";
 import type { ControlExecution, Preview } from "./types";
-import { displayStateOf } from "./format";
+import { bucketOf, displayStateOf } from "./format";
 
 export async function handleAction(action: string | undefined, id: string) {
   switch (action) {
@@ -197,6 +197,7 @@ export async function handleAction(action: string | undefined, id: string) {
       render();
       return;
     case "sync-preview":
+      if (ui.view !== "sync") navigate("sync");
       ui.syncWaiting = undefined;
       ui.syncPeerId = ui.state.pending.find((pending) => pending.id === id)?.peerId;
       ui.preview = await api<Preview>("/api/sync/preview", { id });
@@ -214,6 +215,29 @@ export async function handleAction(action: string | undefined, id: string) {
       ui.preview = undefined;
       await refresh();
       return;
+    case "review-operation": {
+      // Opens the request in Accept requests, with its row marked.
+      const op = ui.control?.operations.find((o) => o.operationId === id);
+      if (!op) return;
+      navigate("approvals");
+      ui.controlTab = "queue";
+      ui.controlFilter = bucketOf(op);
+      ui.highlightOperation = id;
+      render();
+      return;
+    }
+    case "dashboard-update": {
+      if (
+        !(await confirm(
+          `Install homectl ${id}?`,
+          "The new release is installed next to this one. Restart homectl afterwards to run it. A source checkout pulls its branch instead.",
+        ))
+      )
+        return;
+      const installed = await api<{ next: string }>("/api/update/apply", {});
+      report(installed.next, "notice");
+      return;
+    }
     case "control-tab":
       ui.controlTab = id === "clients" ? "clients" : "queue";
       render();
