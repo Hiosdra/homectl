@@ -1,3 +1,4 @@
+import { HelpLabel } from "../help";
 // Settings, as in the approved design: MCP clients, sign-in, the session, the background
 // service, and the panel. Clients are created in a terminal; the panel shows the command.
 import { useEffect, useState } from "react";
@@ -134,7 +135,7 @@ function SessionCard() {
       {changing ? (
         <form id="session-form" className="mt-4 grid gap-3">
           <div className="grid gap-1.5">
-            <Label htmlFor="session-ttl">Session length</Label>
+            <HelpLabel htmlFor="session-ttl" label="Session length" help="How long the vault stays unlocked after you unlock it. When this ends, you unlock again." />
             <Select name="ttl" items={LENGTHS.map(([value, label]) => ({ value, label }))} defaultValue={ttl}>
               <SelectTrigger id="session-ttl" className="w-full">
                 <SelectValue />
@@ -149,7 +150,7 @@ function SessionCard() {
             </Select>
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="session-idle">Lock after no activity</Label>
+            <HelpLabel htmlFor="session-idle" label="Lock after no activity" help="The vault locks itself when the panel has not been used for this long, even before the session length ends." />
             <Select name="idle" items={IDLE.map(([value, label]) => ({ value, label }))} defaultValue={idle}>
               <SelectTrigger id="session-idle" className="w-full">
                 <SelectValue />
@@ -238,7 +239,7 @@ function PanelCard() {
     <Section title="Panel">
       <form id="settings-form" className="grid gap-4 md:grid-cols-2">
         <div className="grid gap-1.5">
-          <Label htmlFor="device-label">Device name</Label>
+          <HelpLabel htmlFor="device-label" label="Device name" help="The name other paired computers show for this one." />
           <Input id="device-label" name="name" defaultValue={ui.state.device.name} maxLength={100} required />
         </div>
         <div className="flex items-end justify-end">

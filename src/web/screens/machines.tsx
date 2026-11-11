@@ -2,6 +2,7 @@
 // and edit open a side panel with the form; the ⋯ menu offers Edit and Remove.
 import { useState } from "react";
 import { accessLabel } from "../format";
+import { HelpLabel } from "../help";
 import { render, ui } from "../store";
 import { Action, Cell, DataTable, Note, Row, Section, Tag, type Tone } from "../shared";
 import { Button } from "../ui/button";
@@ -117,17 +118,6 @@ function MachineRow({ name, m }: { name: string; m: Machine }) {
 // The add and edit form, in the side panel next to the table.
 export function MachineForm() {
   const m = ui.editing !== undefined ? ui.state.inventory.machines[ui.editing] : undefined;
-  const extra = JSON.stringify(
-    m
-      ? Object.fromEntries(
-          Object.entries(m).filter(
-            ([k]) => !["address", "user", "description", "access", "transport", "ssh_alias"].includes(k),
-          ),
-        )
-      : {},
-    null,
-    2,
-  );
   const access = [
     ["observe", "Read-only (observe)"],
     ["user", "Standard user (user)"],
@@ -143,19 +133,23 @@ export function MachineForm() {
       </p>
       <form id="machine-form" key={ui.editing} className="grid gap-3">
         <div className="grid gap-1.5">
-          <Label htmlFor="machine-name">Name</Label>
+          <HelpLabel htmlFor="machine-name" label="Name" help="The name you use in commands, for example homectl exec voron. Lowercase letters, numbers and dashes. It cannot be changed later." />
           <Input id="machine-name" name="name" pattern="[a-z][a-z0-9-]{0,62}" defaultValue={ui.editing} required readOnly={m !== undefined} />
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="machine-address">Address</Label>
+          <HelpLabel htmlFor="machine-address" label="Address" help="The IP address or host name of the machine on your network, for example 192.168.1.20." />
           <Input id="machine-address" name="address" defaultValue={m?.address} required />
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="machine-user">SSH account</Label>
+          <HelpLabel htmlFor="machine-user" label="SSH account" help="The user name homectl logs in with over SSH. Use an account set up for this purpose, not your personal one." />
           <Input id="machine-user" name="user" defaultValue={m?.user} required />
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="machine-access">Access</Label>
+          <HelpLabel
+            htmlFor="machine-access"
+            label="Access"
+            help="What homectl may do here. Read-only only looks. Standard user runs commands as the SSH account. Approved admin commands runs only the admin commands listed under Advanced SSH settings. Full account can do anything the account can. Start with Read-only."
+          />
           <Select name="access" items={access.map(([value, label]) => ({ value, label }))} defaultValue={m?.access ?? "observe"}>
             <SelectTrigger id="machine-access" className="w-full">
               <SelectValue />
@@ -170,15 +164,70 @@ export function MachineForm() {
           </Select>
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="machine-description">Description</Label>
+          <HelpLabel htmlFor="machine-description" label="Description" help="A short note for people and clients, for example Printer on the workshop shelf." />
           <Input id="machine-description" name="description" defaultValue={m?.description} required />
         </div>
         <details>
           <summary className="cursor-pointer text-sm text-muted-foreground">Advanced SSH settings</summary>
-          <div className="mt-2 grid gap-2">
-            <Note>Optional JSON fields for a non-default port, cautions, sudo rules, or a custom key reference.</Note>
-            <Label htmlFor="machine-json">Additional fields (JSON)</Label>
-            <Textarea id="machine-json" name="extra" defaultValue={extra} />
+          <div className="mt-2 grid gap-3">
+            <Note>Most machines need none of these. Leave them empty to use the defaults.</Note>
+            <div className="grid gap-1.5">
+              <HelpLabel
+                htmlFor="machine-port"
+                label="SSH port"
+                help="The SSH port on the machine. Leave it empty for the standard port 22."
+              />
+              <Input id="machine-port" name="port" type="number" inputMode="numeric" min={1} max={65535} placeholder="22" defaultValue={m?.port ?? ""} />
+            </div>
+            <div className="grid gap-1.5">
+              <HelpLabel
+                htmlFor="machine-caution"
+                label="Cautions"
+                help="Warnings shown before a command runs on this machine, one per line. For example: Do not restart while a print is running."
+              />
+              <Textarea id="machine-caution" name="caution" defaultValue={(m?.caution ?? []).join("\n")} />
+            </div>
+            <div className="grid gap-1.5">
+              <HelpLabel
+                htmlFor="machine-sudo"
+                label="Admin commands"
+                help="Commands allowed to run with sudo, one per line, written as you would type them, for example: systemctl restart klipper. Used only with Approved admin commands access."
+              />
+              <Textarea id="machine-sudo" name="sudo_allow" defaultValue={(m?.sudo_allow ?? []).map((argv) => argv.join(" ")).join("\n")} />
+            </div>
+            <div className="grid gap-1.5">
+              <HelpLabel
+                htmlFor="machine-enforcement"
+                label="Enforcement"
+                help="Advisory: homectl checks the admin rules itself. Sudoers file: the rules are also enforced on the machine by a sudoers file, which you create with homectl sudoers."
+              />
+              <Select
+                name="enforcement"
+                items={[
+                  { value: "advisory", label: "Advisory (homectl checks the rules)" },
+                  { value: "sudoers", label: "Sudoers file (enforced on the machine)" },
+                ]}
+                defaultValue={m?.enforcement ?? "advisory"}
+              >
+                <SelectTrigger id="machine-enforcement" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value="advisory">Advisory (homectl checks the rules)</SelectItem>
+                  <SelectItem value="sudoers">Sudoers file (enforced on the machine)</SelectItem>
+                </SelectPopup>
+              </Select>
+            </div>
+            {m?.auth ? (
+              <div className="grid gap-1.5">
+                <HelpLabel
+                  htmlFor="machine-key"
+                  label="Vault key entry"
+                  help="The name of this machine's SSH key in the Vault. Change it only if you renamed the key."
+                />
+                <Input id="machine-key" name="key_entry" defaultValue={m.auth.entry} />
+              </div>
+            ) : null}
           </div>
         </details>
         <div className="flex flex-wrap justify-end gap-2">

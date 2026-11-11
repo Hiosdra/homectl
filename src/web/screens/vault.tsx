@@ -1,3 +1,4 @@
+import { HelpLabel } from "../help";
 // Vault, as in the approved design: the SSH session, the safe (encrypted credentials), the
 // recovery key, the machines, and the SSH keys. Nothing here leaves this device.
 import { formatLocalDate } from "../format";
@@ -81,13 +82,13 @@ function SafeCard() {
       ) : (
         <form id="unlock-form" key={exists ? "unlock" : "create"} className="grid gap-3">
           <div className="grid gap-1.5">
-            <Label htmlFor="password">Safe password</Label>
+            <HelpLabel htmlFor="password" label="Safe password" help="The safe holds the credentials that sync between your computers. Its password is separate from the SSH session and never leaves this device." />
             <Input id="password" name="password" type="password" autoComplete={exists ? "current-password" : "new-password"} required />
           </div>
           {exists ? null : (
             <>
               <div className="grid gap-1.5">
-                <Label htmlFor="password-confirm">Confirm safe password</Label>
+                <HelpLabel htmlFor="password-confirm" label="Confirm safe password" help="Type the same password again, so a typing mistake does not go unnoticed." />
                 <Input id="password-confirm" name="password-confirm" type="password" autoComplete="new-password" required />
               </div>
               <input type="hidden" name="create" value="true" />
@@ -164,7 +165,7 @@ function KeysCard() {
         <Disclosure title="Create key">
           <form id="key-form" className="grid gap-3">
             <div className="grid gap-1.5">
-              <Label htmlFor="key-name">Key and machine name</Label>
+              <HelpLabel htmlFor="key-name" label="Key and machine name" help="The name of the SSH key and of the machine it belongs to. Use the same name as the machine, for example voron." />
               <Input id="key-name" name="name" pattern="[a-z][a-z0-9-]{0,62}" placeholder="storage-nas" required />
             </div>
             <div className="grid gap-1.5">

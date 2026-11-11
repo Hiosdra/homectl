@@ -1,3 +1,4 @@
+import { HelpLabel } from "../help";
 // Panels opened from a device or a host: the peer's grants, and a command to run.
 import type { ReactNode } from "react";
 import { accessLabel } from "../format";
@@ -102,7 +103,7 @@ export function CommandPanel({ host }: { host: string }) {
       <Section>
         <form id="command-form" key={host} className="grid gap-4">
           <div className="grid gap-1.5">
-            <Label htmlFor="command-peer">Run on</Label>
+            <HelpLabel htmlFor="command-peer" label="Run on" help="The machine the command runs on. Pick one from the list." />
             <Select name="peer" items={items} defaultValue={ui.commandPeer}>
               <SelectTrigger id="command-peer" className="w-full">
                 <SelectValue />
@@ -117,16 +118,16 @@ export function CommandPanel({ host }: { host: string }) {
             </Select>
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="command-program">Program</Label>
+            <HelpLabel htmlFor="command-program" label="Program" help="The program to run, for example uname. Only the program name, not the whole command line." />
             <Input id="command-program" name="program" defaultValue="uname" required />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="command-arguments">Arguments (one per line)</Label>
+            <HelpLabel htmlFor="command-arguments" label="Arguments (one per line)" help="Each argument on its own line. For example, -s on its own line makes uname -s." />
             <Textarea id="command-arguments" name="arguments" defaultValue="-s" />
             <Note>Each line is passed as one argument. Homectl does not run a shell.</Note>
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="command-impact">What should this do?</Label>
+            <HelpLabel htmlFor="command-impact" label="What should this do?" help="A plain description for whoever approves the request, for example: Read the system name." />
             <Input
               id="command-impact"
               name="impact"

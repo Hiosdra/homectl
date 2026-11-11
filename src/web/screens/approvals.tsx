@@ -25,6 +25,13 @@ const TABS: [ControlBucket, string][] = [
   ["history", "History"],
 ];
 
+// One plain sentence per tab, for people who are new to requests.
+const TAB_HELP: Record<ControlBucket, string> = {
+  ready: "Requests you can run here. Open one to read the command, then Accept to run it or Deny to close it.",
+  needs: "Requests another client has to approve before they can run. Nothing runs until then.",
+  history: "Finished requests: what ran, what was denied, and when.",
+};
+
 const STATE_TONE: Record<string, Tone> = {
   ready: "success",
   "needs approval": "warning",
@@ -85,6 +92,7 @@ export function Approvals() {
               ))}
             </TabsList>
           </Tabs>
+          <p className="mb-4 text-sm text-muted-foreground">{TAB_HELP[ui.controlFilter]}</p>
           {visible.length ? (
             <DataTable head={["State", "Host", "Command", "Requested by", "When", ""]}>
               {visible.map((op) => (

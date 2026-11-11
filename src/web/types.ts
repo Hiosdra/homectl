@@ -5,7 +5,11 @@ export type Machine = {
   address?: string;
   user?: string;
   access: string;
-  auth?: unknown;
+  enforcement?: string;
+  port?: number;
+  caution?: string[];
+  sudo_allow?: string[][];
+  auth?: { entry: string; [key: string]: unknown };
   [key: string]: unknown;
 };
 export type Permissions = {

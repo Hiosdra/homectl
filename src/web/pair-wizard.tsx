@@ -1,3 +1,4 @@
+import { HelpLabel } from "./help";
 // Pairing as a three-step dialog: the code and address, the phrase both screens must show,
 // and the permissions the other computer gets (sync only, by default).
 import { useState } from "react";
@@ -107,11 +108,11 @@ function StepCode() {
       <form id="pair-form" className="grid content-start gap-3 rounded-lg border border-border p-4">
         <b>Enter a code</b>
         <div className="grid gap-1.5">
-          <Label htmlFor="peer-address">Other computer’s address (port 7448)</Label>
+          <HelpLabel htmlFor="peer-address" label="Other computer’s address" help="The address the other computer shows on its pairing screen, with port 7448, for example http://192.168.1.20:7448. Both computers must be on the same network." />
           <Input id="peer-address" name="address" placeholder="http://192.0.2.10:7448" required />
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="pair-code">One-time code</Label>
+          <HelpLabel htmlFor="pair-code" label="One-time code" help="The code shown on the other computer. It expires after a few minutes and can be used for one pairing only." />
           <Input id="pair-code" name="code" inputMode="numeric" placeholder="1234-5678" autoComplete="off" required />
         </div>
         <div>

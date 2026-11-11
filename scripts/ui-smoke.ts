@@ -255,8 +255,12 @@ try {
     .getByRole("button", { name: "Command", exact: true })
     .first()
     .click();
-  await expect(page.getByLabel("Program")).toHaveValue("uname");
-  await expect(page.getByLabel("Arguments (one per line)")).toHaveValue("-s");
+  await expect(page.getByLabel("Program", { exact: true })).toHaveValue(
+    "uname",
+  );
+  await expect(
+    page.getByLabel("Arguments (one per line)", { exact: true }),
+  ).toHaveValue("-s");
   await page
     .getByRole("button", { name: "Review command", exact: true })
     .click();
@@ -304,7 +308,9 @@ try {
   const smokePassword = "local UI smoke password";
   const safe = page.locator("form#unlock-form");
   await safe.getByLabel("Safe password", { exact: true }).fill(smokePassword);
-  await safe.getByLabel("Confirm safe password").fill(smokePassword);
+  await safe
+    .getByLabel("Confirm safe password", { exact: true })
+    .fill(smokePassword);
   await safe.getByRole("button", { name: "Create and unlock safe" }).click();
   await expect(
     page.getByText("Vault created and unlocked on this device."),
@@ -502,11 +508,11 @@ try {
     .click();
   expect(running.hub.pending.has(proposed.id)).toBe(false);
   await page.getByRole("link", { name: "Settings", exact: true }).click();
-  await page.getByLabel("Device name").fill("Linux · demo");
+  await page.getByLabel("Device name", { exact: true }).fill("Linux · demo");
   await page.getByRole("button", { name: "Save name" }).click();
   await expect(page.getByRole("status")).toContainText("Changes saved");
   await page.getByRole("button", { name: "Change length" }).click();
-  await page.getByLabel("Session length").click();
+  await page.getByLabel("Session length", { exact: true }).click();
   await page.getByRole("option", { name: "7 days" }).click();
   await page.getByRole("button", { name: "Save length" }).click();
   await expect(page.getByRole("status")).toContainText("Changes saved");
