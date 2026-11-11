@@ -3,7 +3,13 @@ import { HomectlError } from "../types";
 import { digest } from "./crypto";
 import type { PeerState, Version } from "./store";
 export type Choice = "local" | "remote" | "both";
-export type Conflict = { id: string; local: Version; remote: Version };
+export type Conflict = {
+  id: string;
+  local: Version;
+  remote: Version;
+  // The later change, pre-selected for the user. The user still decides.
+  suggested: "local" | "remote";
+};
 function stable(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
@@ -56,7 +62,7 @@ export function capture(
     const prior = state.records[id];
     const clock = { ...prior?.clock };
     clock[state.id] = (clock[state.id] ?? 0) + 1;
-    state.records[id] = { value, clock };
+    state.records[id] = { value, clock, at: Date.now() };
     state.observed[id] = fingerprint;
   }
 }
@@ -83,6 +89,7 @@ export function validateRecords(input: unknown): Record<string, Version> {
       typeof v.clock !== "object" ||
       Array.isArray(v.clock) ||
       !("value" in v) ||
+      (v.at !== undefined && (!Number.isSafeInteger(v.at) || v.at < 0)) ||
       Object.keys(v.clock).length > 128 ||
       Object.entries(v.clock).some(
         ([p, n]) =>
@@ -120,7 +127,12 @@ export function merge(
     }
     const choice = choices[id];
     if (!choice || !["local", "remote", "both"].includes(choice)) {
-      conflicts.push({ id, local: current, remote });
+      conflicts.push({
+        id,
+        local: current,
+        remote,
+        suggested: (remote.at ?? 0) > (current.at ?? 0) ? "remote" : "local",
+      });
       continue;
     }
     const clock = joined(current.clock, remote.clock);

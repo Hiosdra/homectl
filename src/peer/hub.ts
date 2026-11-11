@@ -606,7 +606,7 @@ export class Hub {
           remote: safeVersion(id, records[id] as Version),
         })),
       conflicts: result.conflicts.map((c) => ({
-        id: c.id,
+        ...c,
         local: safeVersion(c.id, c.local),
         remote: safeVersion(c.id, c.remote),
       })),

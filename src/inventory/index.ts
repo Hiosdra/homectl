@@ -4,7 +4,7 @@ import Ajv from "ajv";
 import { parse, stringify } from "yaml";
 import schema from "../../schema/inventory.schema.json";
 import { atomicReplace, privateDirectory, protect } from "../platform";
-import { ttlSeconds } from "../session/config";
+import { idleSeconds, ttlSeconds } from "../session/config";
 import { HomectlError, type Inventory, type Machine } from "../types";
 
 const validate = new Ajv({ allErrors: true, strict: false }).compile(schema);
@@ -29,6 +29,8 @@ export function parseInventory(text: string): Inventory {
     ); // Do not echo offending values.
   const inventory = data as unknown as Inventory;
   if (inventory.session) ttlSeconds(inventory.session.ttl);
+  if (inventory.session?.idle !== undefined)
+    idleSeconds(inventory.session.idle);
   const aliases = new Set<string>();
   for (const m of Object.values(inventory.machines)) {
     if (m.auth?.type === "keepassxc" && !inventory.session)

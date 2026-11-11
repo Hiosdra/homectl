@@ -3,23 +3,22 @@
 import { dirname, join } from "node:path";
 import { loadInventory } from "../inventory";
 import { lockSession, unlockSession } from "../session";
-import {
-  loadOrCreateServerKeys,
-  PANEL_IDLE_MS,
-  PanelGate,
-} from "./unlock-gate";
+import { idleSeconds } from "../session/config";
+import { loadOrCreateServerKeys, PanelGate } from "./unlock-gate";
 
 export async function openPanelGate(
   inventoryPath: string,
   cookie: string,
 ): Promise<PanelGate> {
+  const inventory = await loadInventory(inventoryPath);
+  const idle = inventory.session?.idle ?? "2h";
   const keys = await loadOrCreateServerKeys(
     join(dirname(inventoryPath), "serve"),
   );
   return new PanelGate({
     keys,
     cookie,
-    idleMs: PANEL_IDLE_MS,
+    idleMs: idleSeconds(idle) * 1000,
     onLock: () => {
       lockSession(inventoryPath).catch(() => undefined);
     },

@@ -36,7 +36,8 @@ export interface ProviderConfig {
 }
 export interface Inventory {
   version: 1;
-  session?: { ttl: string; database: string };
+  // ttl: how long the vault session lasts. idle: how long the panel may sit unused.
+  session?: { ttl: string; database: string; idle?: string };
   machines: Record<string, Machine>;
   providers?: Record<string, ProviderConfig>;
 }
