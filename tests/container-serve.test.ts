@@ -302,7 +302,7 @@ describe("container serve (child process)", () => {
     expect(await incomplete.exited).toBe(2);
     const incompleteStderr = await new Response(incomplete.stderr).text();
     expect(incompleteStderr).toContain(
-      "Remote panel needs --panel-interface, --panel-origin and --panel-token-file",
+      "Remote panel needs --panel-interface and --panel-origin; --panel-token-file is optional",
     );
 
     const notContainer = Bun.spawn(
@@ -331,6 +331,32 @@ describe("container serve (child process)", () => {
     expect(await notContainer.exited).toBe(2);
     const notContainerStderr = await new Response(notContainer.stderr).text();
     expect(notContainerStderr).toContain(
+      "Remote panel options apply only to serve --container",
+    );
+  });
+
+  test("remote panel needs no access code: interface and origin are enough", async () => {
+    const v = await volume();
+    const noCode = Bun.spawn(
+      [
+        process.execPath,
+        MAIN,
+        "serve",
+        "--inventory",
+        v.inventory,
+        "--interface",
+        "127.0.0.1",
+        "--panel-interface",
+        "127.0.0.2",
+        "--panel-origin",
+        "http://panel.example.test",
+      ],
+      { cwd: REPO, stdout: "pipe", stderr: "pipe", windowsHide: true },
+    );
+    expect(await noCode.exited).toBe(2);
+    const stderr = await new Response(noCode.stderr).text();
+    // The access code is optional, so the guard reaches the container-only check.
+    expect(stderr).toContain(
       "Remote panel options apply only to serve --container",
     );
   });

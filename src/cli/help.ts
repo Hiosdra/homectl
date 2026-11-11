@@ -350,7 +350,7 @@ pages.serve = {
         ],
         [
           "--panel-token-file PATH",
-          "Read the remote panel access code from a protected file or Compose secret; never logged.",
+          "Optional extra access code for the remote panel, read from a protected file or Compose secret; never logged. The vault password unlocks the panel without it.",
         ],
         [
           "--no-discovery",

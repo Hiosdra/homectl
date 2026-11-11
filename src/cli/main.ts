@@ -196,10 +196,14 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           2,
           "Remote panel options apply only to serve --container",
         );
-      if (remotePanelArgs.some((value) => value === undefined || value === ""))
+      if (
+        [v["panel-interface"], v["panel-origin"]].some(
+          (value) => value === undefined || value === "",
+        )
+      )
         throw new HomectlError(
           2,
-          "Remote panel needs --panel-interface, --panel-origin and --panel-token-file",
+          "Remote panel needs --panel-interface and --panel-origin; --panel-token-file is optional",
         );
     }
     const p = paths();

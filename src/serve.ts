@@ -50,7 +50,7 @@ export type ServeOptions = {
   container?: { recovered: boolean };
   // An optional, authenticated reverse-proxy listener for the existing panel.
   // The ordinary panel stays on loopback for local CLI and health access.
-  panel?: { interface: string; origin: string; accessToken: string };
+  panel?: { interface: string; origin: string; accessToken?: string };
 };
 async function body(request: Request): Promise<Record<string, unknown>> {
   if (!request.headers.get("Content-Type")?.startsWith("application/json"))
@@ -125,11 +125,12 @@ export async function serve(options: ServeOptions) {
       externalPanel.interface === "0.0.0.0" ||
       externalPanel.interface === "::" ||
       isLoopbackInterface(externalPanel.interface) ||
-      Buffer.byteLength(externalPanel.accessToken, "utf8") < 32
+      (externalPanel.accessToken !== undefined &&
+        Buffer.byteLength(externalPanel.accessToken, "utf8") < 32)
     )
       throw new HomectlError(
         2,
-        "Remote panel needs a non-loopback interface and a long access code",
+        "Remote panel needs a non-loopback interface; an access code, when given, needs 32 bytes or more",
       );
     try {
       externalPanelOrigin = new URL(externalPanel.origin);
