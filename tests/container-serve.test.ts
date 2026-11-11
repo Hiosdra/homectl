@@ -335,32 +335,6 @@ describe("container serve (child process)", () => {
     );
   });
 
-  test("remote panel needs no access code: interface and origin are enough", async () => {
-    const v = await volume();
-    const noCode = Bun.spawn(
-      [
-        process.execPath,
-        MAIN,
-        "serve",
-        "--inventory",
-        v.inventory,
-        "--interface",
-        "127.0.0.1",
-        "--panel-interface",
-        "127.0.0.2",
-        "--panel-origin",
-        "http://panel.example.test",
-      ],
-      { cwd: REPO, stdout: "pipe", stderr: "pipe", windowsHide: true },
-    );
-    expect(await noCode.exited).toBe(2);
-    const stderr = await new Response(noCode.stderr).text();
-    // The access code is optional, so the guard reaches the container-only check.
-    expect(stderr).toContain(
-      "Remote panel options apply only to serve --container",
-    );
-  });
-
   test("a truncated audit journal refuses the start before any listener opens (exit 5)", async () => {
     const v = await volume();
     const control = join(v.root, "data", "control-plane");

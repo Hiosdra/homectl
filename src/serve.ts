@@ -128,10 +128,7 @@ export async function serve(options: ServeOptions) {
       (externalPanel.accessToken !== undefined &&
         Buffer.byteLength(externalPanel.accessToken, "utf8") < 32)
     )
-      throw new HomectlError(
-        2,
-        "Remote panel needs a non-loopback interface; an access code, when given, needs 32 bytes or more",
-      );
+      throw new HomectlError(2, "Remote panel needs a non-loopback interface");
     try {
       externalPanelOrigin = new URL(externalPanel.origin);
     } catch {
