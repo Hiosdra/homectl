@@ -8,6 +8,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { createRoot } from "react-dom/client";
+import { UnlockConnect } from "./unlock-connect";
 export {};
 type Machine = {
   description: string;
@@ -3645,63 +3646,8 @@ function Workspace() {
 }
 
 function Connection() {
-  return (
-    <div id="connection" className="connection">
-      <div className="connection-form">
-        <div className="brand">
-          <span className="brand-mark">h</span>homectl
-        </div>
-        <h1>
-          Your homelab.
-          <br />
-          Across your devices.
-        </h1>
-        <p>
-          Open this workspace at <code id="workspace-origin">{location.origin}</code>.
-          For a local workspace, run <code>homectl panel</code> in a private
-          terminal and open its link. For a Compose deployment, enter the code
-          stored in the protected file configured as{" "}
-          <code>HOMECTL_PANEL_TOKEN_FILE</code> or{" "}
-          <code>--panel-token-file</code>.
-        </p>
-        <div id="connection-error" role="alert" hidden={!banners.connection}>
-          {banners.connection}
-        </div>
-        <form
-          id="connect-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void task(async () => {
-              const input = element<HTMLInputElement>("token");
-              const token = input.value;
-              input.value = "";
-              await api("/api/connect", { token });
-              await refresh();
-            });
-          }}
-        >
-          <label htmlFor="token">Workspace access code</label>
-          <input
-            id="token"
-            name="token"
-            type="password"
-            autoComplete="off"
-            required
-          />
-          <button className="primary" type="submit">
-            Open workspace
-          </button>
-        </form>
-        <p className="muted">
-          This code opens the workspace; it is separate from the KeePass password
-          and one-time pairing code. After connecting, pair devices from the
-          Devices page.
-        </p>
-      </div>
-    </div>
-  );
+  return <UnlockConnect onDone={() => void refresh()} />;
 }
-
 function App() {
   useSyncExternalStore(subscribe, snapshot);
   // Focus the screen heading after a user action, as the imperative panel did.

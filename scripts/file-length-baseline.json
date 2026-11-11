@@ -10,7 +10,7 @@
   "src/peer/hub.ts": 1031,
   "src/serve.ts": 1102,
   "src/session/index.ts": 516,
-  "src/web/app.tsx": 3823,
+  "src/web/app.tsx": 3769,
   "tests/container-serve.test.ts": 504,
   "tests/control-cli.test.ts": 655,
   "tests/control-engine.test.ts": 1244,
