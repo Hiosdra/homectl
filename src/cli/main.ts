@@ -119,6 +119,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         target: { type: "string" },
         json: { type: "boolean" },
         "dry-run": { type: "boolean" },
+        task: { type: "boolean" },
         "install-deps": { type: "boolean" },
         "configure-firewall": { type: "boolean" },
         inventory: { type: "string" },
@@ -443,10 +444,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
     }
     if (command === "service") {
       emit(
-        await (await import("../service")).service(host ?? "status", {
+        await (await import("../service")).serviceFromFlags(host, {
+          ...v,
           inventory: inventoryPath,
-          interface: v.interface,
-          wrapper: v.wrapper,
           dryRun,
         }),
       );

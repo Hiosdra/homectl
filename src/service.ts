@@ -5,12 +5,15 @@ import { selfCommand } from "./internal";
 import { privateDirectory, protect, windows } from "./platform";
 import { run } from "./process";
 import { launchdService } from "./service-launchd";
+import { serviceTask } from "./service-task";
 import { HomectlError } from "./types";
 export type ServiceOptions = {
   inventory: string;
   interface?: string;
   wrapper?: string;
   dryRun?: boolean;
+  // Windows only: a logon scheduled task instead of the WinSW service.
+  task?: boolean;
   home?: string;
   platform?: NodeJS.Platform;
 };
@@ -49,6 +52,14 @@ export function windowsServiceConfig(inventory: string, interfaceIP: string) {
     .join(" ");
   return `<service>\n<id>homectl</id><name>homectl peer workspace</name><description>Local homectl panel and peer sync</description>\n<executable>${xml(executable)}</executable><arguments>${xml(args)}</arguments>\n<startmode>Manual</startmode><log mode="roll"/><onfailure action="restart" delay="5 sec"/>\n</service>\n`;
 }
+// The `homectl service` command with its parsed flags.
+export function serviceFromFlags(
+  action: string | undefined,
+  flags: ServiceOptions,
+) {
+  return service(action ?? "status", flags);
+}
+
 export async function service(action: string, options: ServiceOptions) {
   const home = options.home ?? homedir();
   const directory = windows
@@ -74,6 +85,18 @@ export async function service(action: string, options: ServiceOptions) {
       2,
       "Use service install, uninstall, start, stop, restart, status or logs",
     );
+  if (options.task) {
+    if ((options.platform ?? process.platform) !== "win32")
+      throw new HomectlError(
+        2,
+        "--task is for Windows. Linux uses a systemd user service and macOS a LaunchAgent.",
+      );
+    return serviceTask(action, {
+      inventory: options.inventory,
+      interfaceIP,
+      dryRun: options.dryRun,
+    });
+  }
   if ((options.platform ?? process.platform) === "darwin")
     return launchdService(action, {
       inventory: options.inventory,

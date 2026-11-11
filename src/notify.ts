@@ -5,6 +5,12 @@ import { run } from "./process";
 
 export type Notice = { title: string; body: string };
 
+// Windows shows a toast only for an application id it knows. Windows PowerShell's id is
+// registered on every Windows install, so the toast appears without a Start menu shortcut
+// or a registry entry. The toast names "Windows PowerShell" as its source.
+const WINDOWS_TOAST_APP_ID =
+  "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe";
+
 // AppleScript string literal: escape backslashes and double quotes.
 function appleString(value: string): string {
   return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
@@ -33,7 +39,7 @@ export function notifyArgv(
       "$xml.GetElementsByTagName('text')[0].AppendChild($xml.CreateTextNode($t)) > $null",
       "$xml.GetElementsByTagName('text')[1].AppendChild($xml.CreateTextNode($b)) > $null",
       "$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)",
-      "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('homectl').Show($toast)",
+      `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('${WINDOWS_TOAST_APP_ID}').Show($toast)`,
     ].join("; ");
     const encoded = Buffer.from(script, "utf16le").toString("base64");
     return [

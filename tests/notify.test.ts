@@ -24,6 +24,18 @@ describe("notification commands", () => {
     ]);
   });
 
+  test("Windows names a registered application id, so the toast is shown", () => {
+    const argv = notifyArgv("win32", notice);
+    const script = Buffer.from(argv?.at(-1) ?? "", "base64").toString(
+      "utf16le",
+    );
+    expect(script).toContain("WindowsPowerShell");
+    expect(script).toContain(
+      "CreateToastNotifier('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}",
+    );
+    expect(script).not.toContain("CreateToastNotifier('homectl')");
+  });
+
   test("Windows sends the text base64-encoded, so it cannot break out of the script", () => {
     const argv = notifyArgv("win32", {
       title: "x'); Remove-Item C:\\ -Recurse; ('",

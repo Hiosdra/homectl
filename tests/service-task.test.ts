@@ -3,8 +3,10 @@ import {
   createTaskArgv,
   deleteTaskArgv,
   queryTaskArgv,
+  serviceTask,
   TASK_NAME,
   taskCommand,
+  taskPlan,
 } from "../src/service-task";
 
 describe("Windows scheduled task commands", () => {
@@ -44,5 +46,48 @@ describe("Windows scheduled task commands", () => {
       TASK_NAME,
       "/F",
     ]);
+  });
+});
+
+describe("scheduled task plan", () => {
+  test("the logon task serves the inventory on one interface, with a quoted path", () => {
+    const plan = taskPlan("C:UsersmeMy Homelabinventory.yaml", "192.168.1.20");
+    expect(plan.task).toBe(TASK_NAME);
+    expect(plan.command).toContain(
+      `"serve" "--inventory" "C:UsersmeMy Homelabinventory.yaml" "--interface" "192.168.1.20"`,
+    );
+    expect(plan.create).toContain(plan.command);
+    expect(plan.create).not.toContain("/F");
+  });
+
+  test("a dry run returns the command and changes nothing", async () => {
+    const result = await serviceTask("install", {
+      inventory: "C:inv.yaml",
+      interfaceIP: "127.0.0.1",
+      dryRun: true,
+    });
+    expect(result).toMatchObject({ changed: false, credentialAccess: false });
+    expect(JSON.stringify(result)).toContain("serve");
+  });
+
+  test("dry runs of removal and start do not touch the task", async () => {
+    for (const action of ["uninstall", "start", "stop"]) {
+      const result = await serviceTask(action, {
+        inventory: "C:inv.yaml",
+        interfaceIP: "127.0.0.1",
+        dryRun: true,
+      });
+      expect(result).toMatchObject({ changed: false, action });
+    }
+  });
+
+  test("actions without a task equivalent are refused before any command runs", async () => {
+    await expect(
+      serviceTask("logs", {
+        inventory: "C:inv.yaml",
+        interfaceIP: "127.0.0.1",
+        dryRun: true,
+      }),
+    ).rejects.toMatchObject({ code: 2 });
   });
 });

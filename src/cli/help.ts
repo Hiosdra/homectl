@@ -368,7 +368,7 @@ pages.serve = {
 pages.service = {
   usage: "homectl service <install|start|stop|restart|status|logs|uninstall>",
   intro:
-    "Linux/WSL use a systemd user service. Windows uses an official WinSW host with an explicitly configured user account.",
+    "Linux/WSL use a systemd user service. Windows uses an official WinSW host with an explicitly configured user account. On Windows, --task uses a scheduled task that starts at your sign-in instead, with no service account and no password; install it with --dry-run first to see the command.",
   sections: [
     {
       title: "Install",
