@@ -273,8 +273,13 @@ export async function updateSyncPreview(peerId: string) {
     // Clean changes apply on their own; the conflicts stay for a choice.
     const items = cleanChanges(next);
     await api("/api/sync/apply", { id: next.id, choices: {}, partial: true });
-    ui.applied = { items: appliedChanges(next, items), at: Date.now() };
     const remaining = await api<Preview>("/api/sync/start", { id: peerId });
+    // Report only what is no longer different. The merge can keep the local version of a
+    // clean change; that change is still listed here, so it was not applied.
+    const done = items.filter((id) => !remaining.changes.includes(id));
+    ui.applied = done.length
+      ? { items: appliedChanges(next, done), at: Date.now() }
+      : undefined;
     ui.preview = remaining.changes.length ? remaining : undefined;
     if (ui.preview) armSyncWait(remaining);
     else await api("/api/sync/cancel", { id: remaining.id }).catch(() => {});

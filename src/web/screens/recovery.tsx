@@ -8,7 +8,8 @@ const EXPORT_COMMAND = "homectl control recovery export --key <path> --out <path
 
 export function RecoveryCard() {
   const last = ui.control?.recovery?.lastExportAt;
-  const days = last ? Math.floor((Date.now() - Date.parse(last)) / 86_400_000) : undefined;
+  // A timestamp ahead of this clock (clock set back) counts as today, not as negative days.
+  const days = last ? Math.max(0, Math.floor((Date.now() - Date.parse(last)) / 86_400_000)) : undefined;
   // A week without an export is flagged, as in the approved design.
   const stale = days === undefined || days > 7;
   const tone: Tone = stale ? "warning" : "success";

@@ -259,6 +259,8 @@ export async function handleAction(action: string | undefined, id: string) {
       return;
     case "sync-restart":
       if (!ui.syncPeerId) throw new Error("Choose the device again to compare it.");
+      // A new comparison replaces the note of the last applied changes.
+      ui.applied = undefined;
       if ((await updateSyncPreview(ui.syncPeerId)) && !ui.syncWaiting)
         report("Comparison updated. Review the changes before applying them.", "notice");
       return;

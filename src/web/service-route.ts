@@ -47,19 +47,25 @@ export async function handleServiceRoute(
   const body = (await request.json().catch(() => ({}))) as { action?: unknown };
   if (body.action !== "restart" && body.action !== "stop")
     return json(400, { error: "Unknown service action" });
-  try {
-    const result = (await service(body.action, {
-      inventory: inventoryPath,
-    })) as { exitCode?: number };
-    if (result.exitCode)
-      throw new Error("The service manager refused the change.");
-    return json(200, {
-      text: body.action === "stop" ? "Service stopped." : "Service restarted.",
-    });
-  } catch (error) {
-    return json(500, {
-      error:
-        error instanceof Error ? error.message : "The service change failed.",
-    });
-  }
+  // A restart or stop ends the process that is answering, so the answer goes out first and the
+  // change follows. A refused change is written to the log; the status line shows the result.
+  setTimeout(() => {
+    service(body.action as "restart" | "stop", { inventory: inventoryPath })
+      .then((result) => {
+        const code = (result as { exitCode?: number }).exitCode;
+        if (code)
+          console.error(
+            `homectl service ${body.action} refused (exit ${code})`,
+          );
+      })
+      .catch((error: unknown) =>
+        console.error(`homectl service ${body.action} failed`, error),
+      );
+  }, 200);
+  return json(200, {
+    text:
+      body.action === "stop"
+        ? "Stopping the service."
+        : "Restarting the service.",
+  });
 }
