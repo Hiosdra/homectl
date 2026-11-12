@@ -1,6 +1,6 @@
 # Containerized peer on the NAS (slice 6, homelab #5 item 5)
 
-Status: implemented. The image and peer listener were built and run on Ugreen on 2026-11-07. The container reported `healthy`, and the peer port answered from the LAN. The authenticated remote panel and the prebuilt-image Compose Project example are being validated separately. Addresses and paths in the examples remain placeholders.
+Status: implemented. A `homectl-peer:pr6` image ran on Ugreen on 2026-11-10 and reported `healthy`, and the peer port answered from the LAN (record: homelab log 2026-11-11). An earlier draft dated this run to 2026-11-07; no record of that run exists, so the date was removed. The authenticated remote panel and the prebuilt-image Compose Project example are still being validated separately. Addresses and paths in the examples remain placeholders.
 
 Goal: homectl runs as an always-on peer in a container on the NAS. It pairs with the desktop peers, runs control sync, restarts cleanly, and holds no broad privilege.
 
@@ -164,7 +164,7 @@ Placeholders in this runbook: `192.0.2.20` is the NAS LAN address, `172.28.0.10`
 
 ### Live validation status
 
-- On Ugreen, the first `homectl-peer:pr6` image build and entry-point check succeeded. The container started as UID 10001 with a read-only root filesystem, reported `healthy`, and accepted TCP on the NAS LAN peer port.
+- On Ugreen, on 2026-11-10, the first `homectl-peer:pr6` image build and entry-point check succeeded. The container started as UID 10001 with a read-only root filesystem, reported `healthy`, and accepted TCP on the NAS LAN peer port.
 - The panel changes and Compose Project import need a new image and restart before their live behavior can be confirmed.
 - Container `session unlock` and whether a session agent survives the exit of `docker exec` remain unverified.
 
