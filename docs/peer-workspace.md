@@ -1,97 +1,75 @@
-# Local workspace, pairing and peer sync
+# Sync and pairing
 
-Run the current checkout with Bun 1.4.2 or newer. The browser UI is English, dark, and local; no cloud account or frontend framework is required.
+[← Back to the README](../README.md)
 
-## Start temporarily
+Pair your computers, then sync the machines, access rules and credentials you choose. Nothing is applied until you review it. Every computer is equal; none is a permanent primary.
+
+The browser panel is in English and runs locally. No cloud account is needed. Requires Bun 1.4.4 or newer for the source checkout.
+
+## Open the panel
 
 ```sh
 home-ctl panel
 ```
 
-This opens the panel and starts a temporary workspace when needed. Homectl reuses the LAN address saved by setup, chooses the only available private address, or asks when there are several. With no LAN address it stays on this computer only. The panel itself remains bound to `127.0.0.1:7447`; the peer channel uses the selected interface on port 7448. Keep the terminal open while using the panel. Ctrl+C stops only the temporary workspace started by this command. If a service or workspace is already running, `panel` opens it and exits.
+The panel listens on `127.0.0.1:7447` on this computer only. It starts a temporary workspace when needed, using the LAN address that setup saved. If there is no LAN address, the workspace stays on this computer. Peer connections use port `7448` on the chosen interface. Press `Ctrl+C` to stop the temporary workspace. If a service is already running, `panel` opens it and exits.
 
-For explicit interface/port control, start the workspace yourself:
+To control the interface yourself:
 
 ```sh
 home-ctl serve --interface 192.168.1.10
-# In another private terminal:
+# in another private terminal:
 home-ctl panel
 ```
 
-The launcher uses a private local access token in the URL fragment. The frontend removes the fragment immediately after connecting and uses an HttpOnly SameSite cookie. Do not copy launch URLs into agent chat. The launch information lives in `serve/panel.json` beside the selected inventory. The CLI peer commands use this file internally and never print its token.
-
-Starting `serve` does not install a service, open pairing, create a vault, unlock credentials, alter a firewall, or connect to a managed machine. Run `home-ctl setup` interactively to review and configure scoped firewall rules. Windows and Linux firewalls require an inbound rule for peer TCP and mDNS UDP 5353 on the selected private LAN. No router forwarding is needed.
+Starting `serve` does not install a service, open pairing, create a vault, unlock credentials, change a firewall or connect to managed machines. The launch link carries a private token in its fragment. Do not paste launch links into agent chat.
 
 ## Pair two devices
 
-Open the panel on both computers:
+1. Open the panel on both computers with `home-ctl panel`.
+2. On one device, choose **Devices → Start pairing**.
+3. On the other, enter the first device's LAN address ending in `:7448`, and the one-time code it shows.
+4. Compare the verification phrase on both devices and confirm it.
 
-```sh
-home-ctl panel
-```
+At first, a pairing grants sync only. Credentials move later, through the reviewed sync flow.
 
-On one device, choose **Devices → Start pairing**. On the other, enter the host's LAN address ending in `:7448` and the one-time code shown by the first device. If the host uses Docker, use the Docker host's LAN address and its published peer port, not the container IP. Compare the phrase and confirm on both devices. Discovery may fill the address automatically, but direct entry works across Docker, VLAN and Wi-Fi discovery boundaries. Only sync is granted initially; credentials are transferred later through the reviewed sync flow.
+Finding a device on the network does not trust it. Discovery can fill in the address, but the one-time code and the phrase are what authenticate the pairing. Each open pairing window allows one attempt. A wrong code closes it, and you generate a new one. Discovery uses mDNS (`_homectl._tcp.local`). If multicast is blocked by Wi-Fi isolation, VLAN boundaries or WSL networking, enter the address by hand. Manual entry uses the same checks. With Docker, use the Docker host's LAN address and its published peer port.
 
-The CLI alternative is `home-ctl pair` on both devices. It starts a temporary workspace if necessary, discovers peers, and guides code and phrase verification. Keep its terminal open until pairing is complete; press Ctrl+C to stop the temporary workspace.
+On the command line, `home-ctl pair` on both devices guides you through the same steps. Keep its terminal open until pairing finishes.
 
-Discovery uses mDNS/DNS-SD `_homectl._tcp.local`. Advertisement is temporary and contains a random instance identifier, protocol version and pairing capability, never the code, vault contents, host inventory or stable device identity. The selected interface is used. Discovery is unauthenticated: selecting an endpoint does not establish trust. Multicast may be blocked by Wi-Fi isolation, VLAN boundaries or WSL networking; manual IP pairing uses the same authentication.
+## Sync changes
 
-Pairing uses SRP-6a PAKE through the pinned `secure-remote-password` library, with one online attempt per open window. A wrong proof closes the attempt; generate a new code locally. The verification phrase binds the session and both device identities. This implementation uses SRP rather than the earlier SPAKE2 proposal; it does not implement custom PAKE arithmetic.
+On a new device, create a vault in **Access** first, with a password of your choice. Vault passwords stay on their own computer and can differ between devices.
 
-Subsequent messages use authenticated ephemeral X25519, HKDF-SHA256 and AES-256-GCM. Direction, peer IDs, request ID, challenge and ephemeral public keys are bound into the channel context. Challenges are short-lived and single-use; restart discards them. There is no relay or Internet rendezvous.
+Then unlock both vaults, open **Sync** for a paired device, and review the proposed changes. For each conflict, pick one:
 
-## First transfer and subsequent sync
+- **Use from this device** keeps the local version.
+- **Use from the other device** keeps the received version.
+- **Keep both** creates a new entry, with a unique machine name and SSH alias where needed.
 
-On the new device, go to **Access** and create an encrypted vault if none exists. The same view can generate a new SSH key and show only its public key. Choose its local password privately. This password can differ from the first computer's password; it is never transmitted to a peer.
+Credential conflicts show fingerprints only, never key or password values. Conflicting trusted host keys cannot both be kept. Verify the fingerprint and choose one.
 
-Unlock both local vaults, then choose **Sync** for a paired device. Inspect the proposed changes. For each conflict:
+When you apply, the other device gets an offer and reviews it before writing anything. Deletions are recorded, so an older device cannot bring a removed entry back. The app refuses to apply a review made from data that changed afterwards. You will need a new review.
 
-- **Use from this device** retains the local version.
-- **Use from the other device** retains the received version.
-- **Keep both** creates a new entry and a unique machine name/SSH alias when relevant.
+**What syncs:** SSH machines, access policy, Proxmox provider definitions, `homectl-*` credential entries with their attachments, and trusted SSH host keys.
 
-Selecting a version collapses the comparison into a retained entry. **Compare again** reopens both panes. Credential conflicts show only fingerprints, never key or password values. Conflicting trusted host keys cannot be kept as two trusted versions: verify and choose one.
+**What stays local:** database paths, agent endpoints, this computer's host definitions, the session TTL and active sessions. Entries outside the `homectl` namespace in your KeePass database are never transferred.
 
-Applying locally sends an offer to the other peer. That peer also reviews before writing. No device is a permanent primary. Revision vectors distinguish later edits from concurrent edits; deletion tombstones prevent an older peer from silently resurrecting removed entries. The UI detects changed local data after preview and requires a new review.
+Sync runs only when you start it. A service keeps the workspace available in the background, but unattended periodic sync is not enabled.
 
-Sync covers SSH machines, access policy, Proxmox provider definitions, `homectl-*` credential entries and their attachments, and relevant trusted SSH host keys. Public key files are reconstructed from credentials. Database paths, agent endpoints, local-host definitions, session TTL and active sessions stay local. No personal KeePass database entries outside the homectl namespace are transferred.
-
-Plaintext credential payloads exist transiently inside an unlocked backend and an authenticated encrypted peer message. They are stored at rest only in KDBX. `peers.json` stores trust keys, grants and revision metadata under private filesystem permissions; credential record values on disk contain fingerprints only. Lock clears unlocked vault references and pending secret-bearing previews. KDBX saves detect external edits (including CLI/KeePassXC changes), refuse stale writes and retain encrypted backups. Sync also saves inventory backups. Multi-file updates are sequential rather than a crash-atomic transaction; after an interrupted apply, review the retained backups and refresh before retrying.
-
-Trusted host keys are normalized into a managed `known_hosts` beside inventory. Relevant plain and hashed entries from the existing user store can be captured. OpenSSH uses the managed store for hosts with a managed key, preserving strict host checking. Importing does not weaken `StrictHostKeyChecking` or install keys on servers. Review imported access tiers and fingerprints. Existing connections can continue after local session lock.
-
-Sync is explicitly initiated and reviewed in this version. A service remains available in the background, but unattended periodic synchronization is not enabled.
+If an apply is interrupted, review the backups it kept and refresh before you retry. Several files are updated one after another, not in one atomic step. The database refuses stale writes, including changes made in KeePassXC, and keeps encrypted backups.
 
 ## Operate through a peer
 
-Under a peer's local **Permissions**, grant diagnostics and select the hosts it may operate. Grant operation on the homectl computer itself separately. On the requesting computer, inspect the peer and select a host, or choose the execution device in **Command**.
+On the computer that will be operated, grant diagnostics under **Permissions** and select the machines the peer may use. Grant operation on that computer separately. On the requesting computer, pick the execution device under **Command**.
 
-The execution peer applies its current host policy and grants. Inspection can execute immediately with an unlocked local session. A mutation creates an in-memory request visible under **Machines → Operations awaiting your approval** on the execution peer. Approve the exact command and effect locally, or reject it. Changed host policy or revoked grants invalidate the approval. Lock or restart does not silently authorize it; a restart loses pending requests. The requester can check the result.
+The executing peer applies its own machine policy. Inspection runs right away when that computer is unlocked. Changes wait under **Machines → Operations awaiting your approval** on the executing computer. Approve the exact command and its effect there, or reject it. Changing the policy or revoking a grant invalidates an approval. A restart drops pending requests.
 
-Removing trust stops future authenticated requests from that peer. It cannot revoke SSH keys already copied to it. Revoke/rotate those keys on the managed hosts, or enroll separate keys per device when independent revocation is needed.
+Removing a device's trust stops its future requests. It does not revoke SSH keys already installed on managed machines. Revoke or rotate those keys on the machines, or give each device its own key if you need to revoke them separately.
 
-## CLI equivalents
+## Run as a service
 
-```sh
-home-ctl peers --json
-home-ctl pair                         # guided pairing on both devices
-home-ctl pair join --address http://192.168.1.10:7448  # direct join; no serve prerequisite
-home-ctl pair confirm                 # advanced: confirm a pending phrase
-home-ctl pair poll                    # advanced: wait for the other confirmation
-home-ctl pair status                  # advanced: inspect local pairing state
-home-ctl pair cancel                  # advanced: cancel a pending invitation
-home-ctl sync preview PEER_ID --json
-home-ctl sync apply PREVIEW_ID --file choices.json
-home-ctl sync cancel PREVIEW_ID
-home-ctl peer PEER_ID --target nas --dry-run -- uname -s
-home-ctl peer PEER_ID --target nas -- uname -s
-```
-
-`choices.json` is an object keyed by conflict ID, with `local`, `remote` or `both` values; `{}` explicitly accepts a conflict-free reviewed preview. Codes are not accepted as command-line arguments. `--dry-run` never accesses credentials or sends peer requests. CLI and UI use the same local backend and policies.
-
-## Service mode
-
-Linux and systemd-enabled WSL:
+On Linux, and on WSL with systemd enabled:
 
 ```sh
 home-ctl service install --interface 192.168.1.10
@@ -102,14 +80,27 @@ home-ctl service stop
 home-ctl service uninstall
 ```
 
-The systemd user unit uses private permissions, `UMask=0077`, restart-on-failure and `NoNewPrivileges`. It starts with locked credentials and closed pairing. Running without login requires a separate, explicit administrator decision to enable user lingering. `uninstall` removes the service registration, not inventory, vaults or peer trust.
+The systemd user unit uses private permissions and restarts on failure. It starts with credentials locked and pairing closed. Running without a login needs a separate decision to enable user lingering. `uninstall` removes the service registration only. Your inventory, vaults and device trust stay.
 
-For native Windows installation and Log On account setup, see [Windows and WSL](windows.md).
+On native Windows, see [Windows and WSL](windows.md).
 
-## Interactive setup and automation
+## Unlock both vaults at once
 
-`home-ctl setup` in a terminal walks through missing dependencies, LAN selection and firewall consent, then runs doctor. Linux supports apt/dnf/pacman for dependencies and firewalld/UFW for firewall configuration. Existing rules are preserved; firewalld rules are added to both runtime and permanent configuration without reloading the whole firewall. UFW is never enabled or disabled. Unsupported firewalls are reported for manual configuration. The selected LAN is saved locally and reused by `pair` while that address is still assigned.
+With the workspace running, `home-ctl session unlock` unlocks SSH and the sync vault with one password prompt. `home-ctl session lock` locks both. Without a running workspace, unlock covers SSH only and tells you how to unlock sync.
 
-For agents, `home-ctl setup --json` is noninteractive. Use `--install-deps` and/or `--configure-firewall --interface <local-IP>` explicitly; privileged operations require existing administrator rights or noninteractive sudo. `--dry-run` never installs packages or changes firewall rules. Setup does not initialize/unlock a vault or pair devices. Successful rule installation does not prove multicast reaches another computer across the LAN.
+## Command reference
 
-With the local workspace running, `home-ctl session unlock` unlocks both the SSH session and the synchronization vault using one private password prompt. `home-ctl session lock` locks both. An already unlocked SSH session alone does not imply an unlocked sync vault. Without a running workspace, unlock remains SSH-only and reports how to unlock sync; no database password is retained for a future workspace process. On a new device, initialize its local vault privately first (or create it from Access), then use the same command. Vault passwords remain local and may differ between devices.
+```sh
+home-ctl peers --json
+home-ctl pair                                             # guided pairing on both devices
+home-ctl pair join --address http://192.168.1.10:7448     # join directly, no serve needed
+home-ctl sync preview PEER_ID --json
+home-ctl sync apply PREVIEW_ID --file choices.json
+home-ctl sync cancel PREVIEW_ID
+home-ctl peer PEER_ID --target nas --dry-run -- uname -s
+home-ctl peer PEER_ID --target nas -- uname -s
+```
+
+Advanced pairing steps (`pair confirm`, `pair poll`, `pair status`, `pair cancel`) are in `home-ctl pair --help`.
+
+`choices.json` maps each conflict ID to `local`, `remote` or `both`. An empty object `{}` accepts a preview with no conflicts. Pairing codes are never accepted as command-line arguments. `--dry-run` never reads credentials or sends peer requests. The CLI and the panel share one backend and the same policies.

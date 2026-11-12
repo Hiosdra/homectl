@@ -2,23 +2,22 @@
 
 # homectl
 
-**Your homelab, operated from your AI coding agent.**
+**Run your homelab from your AI coding agent. Your keys stay encrypted.**
 
-SSH into existing machines. Keep keys in KeePassXC. Unlock once for daily work.
+Named machines, encrypted SSH keys and one unlock a day for Codex and Claude Code.
 
 [![CI](https://github.com/Hiosdra/homectl/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Hiosdra/homectl/actions/workflows/ci.yml)
+![License: MIT](https://img.shields.io/badge/license-MIT-14151a)
 ![Runtime: Bun](https://img.shields.io/badge/runtime-Bun-14151a)
 ![Credentials: KeePassXC](https://img.shields.io/badge/credentials-KeePassXC-6cac4d)
 
-[Quick start](#quick-start) · [User guide](docs/user-guide.md) · [Architecture](docs/architecture.md)
+[Install](#install) · [Quick start](#quick-start) · [User guide](docs/user-guide.md) · [Windows and WSL](docs/windows.md) · [Sync](docs/peer-workspace.md)
 
 </div>
 
 ---
 
-homectl gives **Codex and Claude Code** a shared workflow for managing servers, NAS devices, printers and Proxmox VMs. A small CLI handles inventory, SSH and command review; three agent skills guide setup, enrollment and everyday operations.
-
-Each machine has a name, purpose, access tier and cautions. Your agent can use that context when you ask:
+homectl gives your agent a safe way to look after your servers, NAS devices, printers and Proxmox nodes. It knows what each machine is for, runs commands within the access you set, and never sees your private keys.
 
 > Check the printer's Klipper and Moonraker services before changing anything.
 
@@ -26,33 +25,40 @@ Each machine has a name, purpose, access tier and cautions. Your agent can use t
 
 > Prepare a Proxmox VM plan with 4 CPUs and 8 GB RAM for me to review.
 
-## A simpler daily routine
+## Why homectl
 
-Unlock your SSH keys **in a private terminal**, then work through your agent or the CLI:
+- **Machines with context.** Each machine has a name, a purpose, an access tier and cautions. Your agent reads them before it acts.
+- **Keys that stay encrypted.** SSH keys live in a dedicated KeePassXC database. Unlock once, and the default session lasts 24 hours.
+- **Review before anything changes.** Inspect first. Destructive commands need an exact plan and your confirmation.
+- **One setup on every computer.** Linux, macOS, Windows and WSL. Pair your devices and sync only what you choose, with conflicts you decide.
+
+## See it in action
 
 ```sh
-home-ctl session unlock
+home-ctl session unlock          # once a day, in a private terminal
 home-ctl hosts
 home-ctl inspect lab-printer
 home-ctl exec lab-printer -- uname -s
+home-ctl session lock            # when you are done
 ```
 
-The default session lasts **24 hours**. Choose another TTL or `until-reboot`; lock it whenever you finish. Routine SSH commands use the loaded keys without reopening KeePassXC. Creating keys and editing the database are separate private operations.
+Add `--json` to any command for scripts and agents.
 
-| What you need | What homectl provides |
+## Install
+
+You need OpenSSH and KeePassXC (its `keepassxc-cli` tool). Then choose your system:
+
+| System | Command |
 | --- | --- |
-| One way to reach your machines | Named inventory and SSH aliases using existing Unix accounts |
-| Credentials outside agent chat | A dedicated encrypted KeePassXC database and SSH agent |
-| Different access for different hosts | `observe`, `user`, `sudo-approved` and `full` tiers |
-| A chance to review changes | Dry runs and exact confirmation for destructive or opaque commands |
-| Proxmox VM setup | SSH-based provisioning from an existing cloud-init template |
-| Scripts as well as chat | Direct CLI commands and `--json` output |
+| macOS and Linux (Homebrew) | `brew tap Hiosdra/tap` then `brew install homectl` |
+| Debian, Ubuntu | `sudo apt-get install ./homectl_<version>_amd64.deb` |
+| Fedora, RHEL | `sudo dnf install ./homectl-<version>-1.x86_64.rpm` |
+| Arch Linux | `sudo pacman -U ./homectl-<version>-1-x86_64.pkg.tar.zst` |
+| Alpine Linux | `sudo apk add --allow-untrusted ./homectl_<version>_x86_64.apk` |
+| Windows | Unzip `homectl-<version>-windows-x64.zip` and put `home-ctl.exe` on your PATH |
+| Anything else | Download the archive for your system from [Releases](https://github.com/Hiosdra/homectl/releases/latest) |
 
-## Quick start
-
-Use **Linux/WSL or native Windows** with Bun 1.4.2+, OpenSSH and KeePassXC. Linux private prompts use Bash; Windows preparation is covered in [Windows and WSL](docs/windows.md). See [installation details](docs/user-guide.md#install) for package setup, and [manual macOS preparation](docs/user-guide.md#configuration-and-credential-storage) if needed.
-
-### 1. Install homectl
+> **Agent skills need the source checkout for now.** Packages and archives contain the `home-ctl` command (and the license), not the Codex and Claude Code skills. Those come from `home-ctl setup`, run in a checkout of this repository. Requires Bun 1.4.4 or newer:
 
 ```sh
 git clone https://github.com/Hiosdra/homectl.git
@@ -61,61 +67,52 @@ bun install --frozen-lockfile
 bun src/cli/main.ts setup
 ```
 
-Setup links `home-ctl` and the three skills for Codex and Claude Code. Add `~/.local/bin` to `PATH` if needed, and keep the checkout at a stable location. Preview setup with `--dry-run`.
+Keep the checkout at a stable path. `setup` links the command and the three skills, and sets up SSH aliases. Preview it first with `--dry-run`.
 
-### 2. Open the panel
+## Quick start
 
-```sh
-home-ctl panel
-```
+1. **Open the panel.** `home-ctl panel` opens a local workspace in your browser. Keep that terminal open while you use it.
+2. **Create a vault.** In **Access**, create an encrypted vault and choose its password. It stays on this computer.
+3. **Add a machine.** Create an SSH key named after the machine. Install its **public key** through your existing trusted access, and verify the host fingerprint through a trusted source. Then add the machine under **Machines**. homectl connects the key automatically.
+4. **Let your agent work.** Unlock in a private terminal with `home-ctl session unlock`, then ask your agent.
 
-The panel starts a temporary workspace when needed and opens it in your browser. Keep the terminal open while you use it; `Ctrl+C` stops that temporary workspace. If a background service is already running, the panel opens it and exits.
+For scripted setup and advanced host settings, use the [user guide](docs/user-guide.md).
 
-### 3. Create a vault and add a machine
-
-In **Access**, create an encrypted vault and choose its password. Then create an SSH key named after the machine you plan to add. Install the **public key** shown by homectl using your existing trusted access, and verify the host fingerprint through a trusted source. In **Machines**, choose **Add machine** and enter its address, existing SSH account, and a short description. Homectl connects the matching key automatically.
-
-Unlock the local vault from **Access** when you want to use SSH or sync credentials. Vaults and SSH sessions stay on their own computer; entering a password unlocks only that device.
-
-For a second computer, open its panel and pair from **Devices** with the one-time code and matching verification phrase. Then review changes from **Sync** before applying them. Remote operations require a separate grant and approval on the computer that runs them.
-
-The panel uses local HTML, CSS and JavaScript; it does not require React or a cloud account. For scripted setup and advanced host configuration, use the [CLI guide](docs/user-guide.md).
-
-Use `home-ctl service install --interface YOUR_LAN_IP` for persistent execution, then `home-ctl service start`. Native Windows requires a WinSW host and a configured user account. See the [workspace and sync guide](docs/peer-workspace.md) and [Windows/WSL setup](docs/windows.md).
-
-## Set the access you want
+## Choose how much each machine allows
 
 | Tier | Intended use |
 | --- | --- |
-| `observe` | Inspection through recognized read commands |
+| `observe` | Read-only inspection with recognized commands |
 | `user` | Work as the existing account, without privileged commands |
-| `sudo-approved` | Exact sudo commands you allow, such as service restarts |
+| `sudo-approved` | Exact sudo commands you allow, such as restarting a service |
 | `full` | Administration and Proxmox provisioning |
 
-A root SSH account requires `full`. These tiers guide command execution; actual privileges come from the account and system configuration. See [access and sudo setup](docs/user-guide.md#access-tiers).
+Tiers guide what the agent may run. Real privileges still come from your accounts and system configuration. See [access tiers](docs/user-guide.md#access-tiers).
 
-## Make the session fit your day
+## Sessions that fit your day
 
 ```sh
-home-ctl session configure --ttl 12h
-# Or use: home-ctl session configure --ttl until-reboot
-home-ctl session unlock
+home-ctl session configure --ttl 12h          # or: --ttl until-reboot
 home-ctl session status
 home-ctl session lock
 ```
 
-TTL is measured from session start. Using the CLI or repeating unlock keeps the existing expiry. Changing configuration locks the current session. Lock, expiry and cold reboot stop new authentication; established SSH connections may continue.
+The session lasts 24 hours from unlock by default. Unlocking again does not extend it. Locking stops new SSH logins; connections already open can finish.
 
 ## Provision a Proxmox VM
 
-Enroll a full-access Proxmox SSH host, configure its provider and prepare a dedicated VM key. Fill in [vm.example.json](examples/vm.example.json), then review and apply:
+homectl uses `pvesh` over SSH to clone a cloud-init template, configure and start the VM, wait for SSH, and enroll it. Review the plan first:
 
 ```sh
 home-ctl provision --file /path/vm.json --dry-run
 home-ctl provision --file /path/vm.json
 ```
 
-homectl uses `pvesh` over the same SSH session to clone, configure and start a VM, wait for SSH/cloud-init, and enroll it. Task journals support resuming the identical request. You need an existing cloud-init template and static network settings; see the [Proxmox walkthrough](docs/user-guide.md#proxmox-vm-provisioning-over-ssh).
+Start from [vm.example.json](examples/vm.example.json). The [walkthrough](docs/user-guide.md#proxmox-vm-provisioning-over-ssh) covers the template and network setup.
+
+## Sync your computers
+
+Pair two devices with a one-time code and a matching phrase. Then review the changes before anything is applied. Each device keeps its own vault password. Details are in the [sync guide](docs/peer-workspace.md).
 
 ## How it works
 
@@ -128,23 +125,21 @@ flowchart LR
     Keys --> CLI
 ```
 
-One machine runs your agent and homectl. Managed machines keep their existing accounts and need SSH access. Private keys stay encrypted in KDBX at rest and are loaded into a separate SSH agent for the session. Inventory contains references and host metadata.
+Your agent and homectl run on one machine. Managed machines keep their existing accounts. Keys are encrypted at rest and loaded into a separate SSH agent for the session. Inventory holds references and host details, never key material.
 
-## Current scope
+## Honest limits
 
-homectl is an early project for a homelab you control. **Human confirmation is a workflow safeguard.** It does not isolate the agent or remove privileges an account already has. Other processes running as your user can use an unlocked SSH agent. Read the [credential model](docs/user-guide.md#configuration-and-credential-storage) before choosing your access tiers and TTL.
+- **Confirmation is a safeguard, not a sandbox.** Your approval keeps changes deliberate. It does not isolate the agent or remove privileges an account already has.
+- **An unlocked session is open to your user account.** Other programs running as you can use the unlocked SSH agent. Lock when you finish.
+- **Early project.** VM image import, DHCP discovery and cross-node provisioning are not built yet. Read the [credential model](docs/user-guide.md#configuration-and-credential-storage) and [verification status](docs/user-guide.md#verification-status) before you choose access tiers.
 
-VM image import, automatic DHCP discovery and cross-node provisioning are outside the current scope. Doctor checks SSH connectivity; template readiness and real VM creation require separate verification.
+## More
 
-## Find your next step
+- [User guide](docs/user-guide.md): install details, access tiers, provisioning, troubleshooting
+- [Windows and WSL](docs/windows.md): PowerShell, CMD, Git Bash, services
+- [Sync and pairing](docs/peer-workspace.md): two computers, one reviewed sync
+- [Inventory example](examples/inventory.example.yaml) · [Architecture](docs/architecture.md)
+- Agent skills: [Operate](skills/homelab/SKILL.md) · [Set up](skills/homelab-setup/SKILL.md) · [Enroll](skills/homelab-enroll/SKILL.md)
+- Command help: `home-ctl --help`, or `home-ctl <command> --help`
 
-- **Command help:** `home-ctl --help` or `home-ctl session --help`
-- **Setup, troubleshooting and recovery:** [User guide](docs/user-guide.md)
-- **Configuration:** [Inventory example](examples/inventory.example.yaml)
-- **Under the hood:** [Architecture](docs/architecture.md) · [Primary sources](docs/research.md)
-- **Agent skills:** [Operate](skills/homelab/SKILL.md) · [Set up](skills/homelab-setup/SKILL.md) · [Enroll](skills/homelab-enroll/SKILL.md)
-- **Working on the project:** [Development commands](docs/user-guide.md#troubleshooting-and-development)
-
-### CLI output
-
-Commands print human-readable results by default: tool checks, tables, operation summaries and plain-text errors. Add `--json` for structured stdout/stderr intended for scripts and agents. Exit codes are unchanged. For example, use `home-ctl doctor` interactively and `home-ctl doctor --json` from automation.
+MIT License. See [LICENSE](LICENSE).
