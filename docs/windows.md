@@ -1,56 +1,77 @@
 # Windows, PowerShell, CMD, Git Bash and WSL
 
-Native Windows uses Bun, Windows OpenSSH and KeePassXC. PowerShell, CMD and Git Bash share `%USERPROFILE%\.config\homectl` and one native peer identity. WSL is a Linux installation with its own inventory, vault, session and peer identity.
+[← Back to the user guide](user-guide.md)
 
-## Native prerequisites
+On native Windows, PowerShell, CMD and Git Bash share one installation in `%USERPROFILE%\.config\homectl`. WSL is a Linux installation with its own inventory, vault and session.
 
-Install Bun 1.4.2+ and KeePassXC from their official distributions. Enable the Windows **OpenSSH Client** optional feature. Homectl selects `%SystemRoot%\System32\OpenSSH\ssh.exe` even when Git Bash puts Git's different SSH implementation first on PATH. KeePassXC CLI is discovered from PATH or its default `Program Files\KeePassXC` installation. PowerShell is used for private password entry and NTFS ACL management.
+## What you need
 
-From the checkout:
+- **Bun 1.4.4+** and **KeePassXC**, from their official installers.
+- The Windows **OpenSSH Client** optional feature. homectl uses `%SystemRoot%\System32\OpenSSH\ssh.exe`, even when Git Bash puts a different `ssh` first on PATH.
+- The **source checkout** for setup and agent skills. The release zip has `home-ctl.exe` only; see the [README](../README.md#install).
+
+## Install
+
+From the checkout, in PowerShell:
 
 ```powershell
 bun install --frozen-lockfile
 bun src/cli/main.ts setup
 ```
 
-`--install-deps` installs missing Windows OpenSSH Client through a UAC elevation prompt and KeePassXC through Microsoft winget. Install Microsoft App Installer if winget is unavailable. Existing dependencies are left in place; no vault is opened or initialized. Preview with `setup --install-deps --dry-run`. Bun is required to run this command. Plain `setup` in an interactive terminal asks before installing missing dependencies and configuring firewall rules. It saves the selected LAN for future `pair` commands. Windows firewall rules are limited to Bun, UDP 5353/TCP 7448, the selected subnet and the Private profile. No network profile is changed. `setup --json` never prompts or opens UAC; explicit `--install-deps` and `--configure-firewall --interface <IP>` require an already elevated terminal.
+- `setup --install-deps` installs a missing OpenSSH Client (it asks for admin rights) and KeePassXC (through winget). Preview with `--dry-run`.
+- Plain `setup` asks before it installs anything or changes firewall rules.
+- Firewall rules cover only Bun, UDP 5353 and TCP 7448, on the subnet you select and the Private profile. No network profile is changed.
 
-Setup produces three launchers under `%USERPROFILE%\.local\bin`:
+Setup creates three launchers in `%USERPROFILE%\.local\bin`:
 
-- `home-ctl.cmd` for CMD (and ordinary command resolution).
-- `home-ctl.ps1` for PowerShell.
-- `home-ctl` for Git Bash, using `cygpath` to locate the same Bun executable.
+- `home-ctl.cmd` for CMD
+- `home-ctl.ps1` for PowerShell
+- `home-ctl` for Git Bash
 
-Setup adds that directory to your Windows user PATH idempotently. Restart the entire terminal application (including Windows Terminal or VS Code) to load the updated environment. For immediate use in the current PowerShell, run `$env:Path = "$HOME\.local\bin;$env:Path"`. If PowerShell script execution is restricted, invoke `home-ctl.cmd`; homectl does not change execution policy. Skills are copied on Windows so setup does not require Developer Mode or elevated symlink rights. Existing different launchers and skills are not silently overwritten.
+It adds that folder to your user PATH. Restart your terminal app (Windows Terminal, VS Code) to pick it up. For the current PowerShell only, run `$env:Path = "$HOME\.local\bin;$env:Path"`. If PowerShell scripts are blocked, use `home-ctl.cmd`. homectl never changes your execution policy.
 
-Update the installed checkout with `home-ctl.cmd update` (or preview with `home-ctl.cmd update --dry-run`). It requires a configured upstream and preserves unrelated local changes, uses fast-forward only, installs the frozen dependencies and reruns setup. It preserves the per-user inventory and vault and does not restart running services. If your checkout predates this command, use `git pull --ff-only` once first.
+Skills are copied, so setup does not need Developer Mode or admin rights for symlinks. Existing launchers and skills that differ are never overwritten.
 
-Initialize or import credentials locally, then start the workspace:
+### Update
+
+```powershell
+home-ctl.cmd update --dry-run
+home-ctl.cmd update
+```
+
+The update needs a configured upstream. It fast-forwards only, keeps unrelated local changes, reinstalls the frozen dependencies and reruns setup. Your inventory and vault stay as they are, and running services are not restarted. If your checkout predates this command, run `git pull --ff-only` once first.
+
+## Start
 
 ```powershell
 home-ctl.cmd session init
 home-ctl.cmd panel
 ```
 
-`panel` starts a temporary workspace automatically and uses the LAN address selected during setup. Keep that terminal open while the panel is in use. To keep it running in the background, install the service below instead.
+`panel` starts a temporary workspace and uses the LAN address you picked during setup. Keep that terminal open while you use it. For background operation, install the service below.
 
-To reuse the existing Linux access, pair devices and sync from the workspace as described in [peer workspace](peer-workspace.md). You do not need to alter the servers when copying the same SSH keys. Both vaults must be unlocked locally for credential transfer; the destination vault has its own password.
+Enter passwords in a Windows console terminal. Private prompts run through PowerShell. In older mintty terminals, run the unlock step from PowerShell or CMD instead.
 
-Windows uses a dedicated Ed25519 agent on an inventory-specific named pipe, rather than the user's shared Windows SSH-agent service. Lock does not call `ssh-add -D` against the personal agent. TTL and explicit lock clear the dedicated process's keys; restart does not restore them. Files and directories use a private owner/SYSTEM NTFS DACL; homectl refuses symlinked private directories or paths owned by another account. New key attachment staging contains encrypted PKCS8, never an unencrypted private key. Existing unencrypted Ed25519 OpenSSH attachments inside KDBX remain readable.
+Windows keys live in a dedicated OpenSSH agent on a named pipe for this inventory, not in the shared Windows SSH agent. Locking clears keys from that agent only. Private files get an owner and SYSTEM-only NTFS ACL. homectl refuses symlinked private folders and paths owned by another account.
 
-Private credential prompts are invoked through PowerShell. Use a Windows console terminal for credential entry; legacy mintty environments without an interactive Windows console may require running the private unlock step from PowerShell/CMD. Subsequent CLI operations and the local panel use the same native configuration in all three shells.
+To pair devices and sync, see the [sync guide](peer-workspace.md).
 
-## Windows service
+## Run as a Windows service
 
-Bun alone is not a Windows Service Control Manager host. Homectl uses an official [WinSW](https://github.com/winsw/winsw) executable supplied by you; it never downloads and runs an unverified wrapper automatically.
+Bun alone cannot run as a Windows service. homectl uses [WinSW](https://github.com/winsw/winsw), which you supply. homectl never downloads and runs a wrapper on its own.
 
-From an elevated **private** terminal:
+From an **elevated, private** terminal:
 
 ```powershell
 home-ctl.cmd service install --interface 192.168.1.20 --wrapper C:\Tools\WinSW.exe
 ```
 
-The registration initially uses **Manual** startup. Before starting, open `services.msc`, select **homectl peer workspace**, and configure **Log On** with the same Windows user that owns your homectl files. Enter that account's password in the Windows service dialog, not in command arguments, XML, repository files or chat. Do not leave it running as SYSTEM; the CLI refuses to start/restart a SYSTEM service.
+The service starts with **Manual** startup. Before you start it:
+
+1. Open `services.msc` and select **homectl peer workspace**.
+2. Under **Log On**, choose the Windows user that owns your homectl files, and enter its password in the Windows dialog. Do not put the password in command arguments, XML, repository files or chat.
+3. Do not run it as SYSTEM. The CLI refuses to start or restart a SYSTEM service.
 
 ```powershell
 home-ctl.cmd service start
@@ -60,14 +81,17 @@ home-ctl.cmd service stop
 home-ctl.cmd service uninstall
 ```
 
-Choose automatic startup in the service manager if desired after account setup. The service starts with locked keys and pairing closed. `service uninstall` removes its host/configuration but preserves the vault, inventory and trust. Installing or removing a native service requires Windows administrator privileges; ordinary temporary `serve` does not.
+The service starts with keys locked and pairing closed. Set automatic startup in the service manager, if you want it, after the account is set up. `service uninstall` removes the service registration only. Your vault, inventory and device trust stay. Installing or removing the service needs Windows admin rights. A normal `serve` or `panel` does not.
 
 ## WSL
 
-Install the Linux prerequisites inside WSL and run Linux `setup`. Do not point Linux session sockets at the native Windows inventory. Pair the WSL installation as a separate peer when you want to synchronize it.
+Install the Linux prerequisites inside WSL, then run Linux `setup`. Keep WSL's inventory separate from the Windows one, and pair WSL as its own device when you want to sync.
 
-`service install` uses systemd **inside** the distribution. Ensure that distribution has systemd enabled. Starting the WSL distribution itself at Windows boot is a separate host setting; installing a systemd unit does not make that happen. NAT-based WSL networking can block LAN multicast and inbound pairing. Use supported mirrored networking where configured, or an explicit host networking arrangement and manual IP. Homectl does not modify `.wslconfig`, firewalls or port forwarding.
+- `service install` uses systemd **inside** the distribution, so enable systemd there first.
+- Starting the WSL distribution at Windows boot is a separate host setting. Installing the systemd unit does not do it.
+- NAT networking can block LAN multicast and inbound pairing. Use mirrored networking, or set up host networking and a manual IP.
+- homectl does not change `.wslconfig`, firewalls or port forwarding.
 
 ## Verification status
 
-The repository includes a Windows CI job for typechecking, lint, synthetic peer/agent tests and PowerShell/CMD/Git Bash CLI smoke. Linux local tests and Chromium UI tests do not prove Win32 named-pipe interoperability, Windows ACL enforcement, Windows service account setup or WSL networking on your computer. Run the Windows job and an actual two-computer LAN check before treating those paths as verified in your environment.
+The repository's Windows CI job runs typecheck, lint, a subset of the tests, and PowerShell, CMD and Git Bash smoke tests. It does not prove named-pipe behavior, ACL enforcement, service account setup or WSL networking on your computer. Before you rely on those, run the service setup and a two-computer LAN check yourself.

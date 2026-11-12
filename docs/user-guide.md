@@ -1,48 +1,53 @@
 # homectl user guide
 
-[← Back to the project](../README.md)
+[← Back to the README](../README.md)
 
-A small Bun CLI and three portable skills for operating existing homelab machines from Codex or Claude Code. One agent host runs the commands; managed machines keep their existing Unix accounts.
+homectl is a small CLI and three agent skills. Your agent operates your existing machines through their existing Unix accounts. All SSH keys live in one encrypted KeePassXC database.
 
-**KeePassXC is the only SSH credential backend.** A dedicated encrypted KDBX stores one Ed25519 key per host. Unlock privately once per configured TTL or agent-host reboot. Everyday commands use a dedicated OpenSSH agent without reopening the database. Proxmox provisioning uses the same SSH session and the node's `pvesh` command.
-
-Human confirmation in the agent conversation is the main workflow protection. Access tiers and approval digests help make scope explicit; they are not a security sandbox.
+**Human confirmation in the agent conversation is the main protection.** Access tiers and approval digests make scope explicit. They are not a security sandbox.
 
 ## Install
 
-Requirements: Bun 1.4.2+, OpenSSH, KeePassXC CLI and Bash on the agent host. Automatic key creation currently requires Linux `/dev/shm` mounted as tmpfs. On Arch/EndeavourOS, OpenSSH and KeePassXC are available from the official repositories:
+The [README](../README.md#install) covers packages, Homebrew and release archives. This guide covers the source checkout, which also installs the agent skills.
+
+You need Bun 1.4.4 or newer, OpenSSH, the KeePassXC CLI and Bash on the agent host. Automatic key creation currently needs Linux with `/dev/shm` mounted as tmpfs. On Arch or EndeavourOS:
 
 ```sh
 sudo pacman -S --needed openssh keepassxc
+```
+
+From the checkout:
+
+```sh
 bun install --frozen-lockfile
 bun src/cli/main.ts setup --dry-run
 bun src/cli/main.ts setup
 ```
 
-Keep this checkout at a stable path. Add `~/.local/bin` to PATH if needed. Setup creates an inventory if missing, generates SSH aliases, adds an SSH Include, and links the CLI plus skills into `~/.agents/skills` and `~/.claude/skills`. It preserves existing inventory and refuses conflicting launchers or skill directories.
+Setup creates an inventory if you have none, generates SSH aliases, adds an SSH Include, and links the CLI and skills into `~/.agents/skills` and `~/.claude/skills`. It keeps your inventory and refuses to overwrite conflicting launchers or skill folders. Keep the checkout at a stable path, and add `~/.local/bin` to your PATH if needed.
 
-Run these commands **yourself in a private terminal**:
+Then run these **yourself in a private terminal**:
 
 ```sh
 home-ctl session configure --ttl 24h
 home-ctl session init
 ```
 
-Choose a strong database password. Keep a secure encrypted backup. Existing configured users with a KDBX do not need to initialize again. There is no migration command or background credential-provider pairing.
+Choose a strong database password and keep an encrypted backup of the database. If you already have a configured database, you do not need to initialize again.
 
 ## Daily use
 
 ```sh
-home-ctl session unlock           # private terminal, password entered without echo
-home-ctl session status --json
-home-ctl hosts --json
-home-ctl inspect lab-printer --json
-home-ctl doctor lab-printer --json
-home-ctl exec lab-printer --json -- uname -s
+home-ctl session unlock           # private terminal; the password is not echoed
+home-ctl session status
+home-ctl hosts
+home-ctl inspect lab-printer
+home-ctl doctor lab-printer
+home-ctl exec lab-printer -- uname -s
 home-ctl session lock
 ```
 
-The default TTL is **24 hours**, measured from the start of the session. A repeated unlock does not extend it. Configure another duration or keep keys until the agent host restarts:
+The default session lasts **24 hours** from when it starts. Unlocking again does not extend it. To change that:
 
 ```sh
 home-ctl session configure --ttl 12h
@@ -50,106 +55,108 @@ home-ctl session configure --ttl until-reboot
 home-ctl session configure --ttl 24h --database /absolute/path/homelab.kdbx
 ```
 
-Configuration changes lock the current session. Durations accept `s`, `m`, `h`, `d` with a range of 1 second to 365 days. Unlock again privately afterwards. A cold reboot clears keys even with a long TTL. Suspend and restored VM snapshots are not cold reboots. Lock/expiry stops new authentication; an existing SSH connection can continue. The personal SSH agent is unaffected.
+Durations accept `s`, `m`, `h` and `d`, from 1 second to 365 days. Changing the configuration locks the session, so unlock again afterwards. A cold reboot clears the keys even with a long TTL. Suspend and restored VM snapshots are not cold reboots. Locking stops new logins, but an open SSH connection can continue. Your personal SSH agent is not affected.
 
-Commands that change configuration, keys, inventory or session lifecycle must run sequentially. Keep the database closed in the KeePassXC GUI while CLI commands edit it.
+Run commands that change configuration, keys, inventory or sessions one at a time. Keep the database closed in the KeePassXC app while the CLI edits it.
 
-## Add an existing SSH host
+## Add an existing machine
 
-1. Choose a name, existing SSH account and tier. Verify the SSH fingerprint through the machine's console or another trusted source before adding it to `known_hosts`. `ssh-keyscan` alone does not establish trust.
-2. Privately create the host key:
+1. **Verify the machine first.** Choose a name, an existing SSH account and an access tier. Check the SSH fingerprint through the machine's console or another trusted source. `ssh-keyscan` alone does not establish trust.
+2. **Create its key privately:**
 
    ```sh
    home-ctl key create lab-printer
-   home-ctl key inspect lab-printer --json
+   home-ctl key inspect lab-printer
    ```
 
-   `create` stores the private key as an `id_ed25519` attachment inside KDBX, loads it into the dedicated agent and writes only its public key to disk. It reuses a complete existing entry and refuses a conflicting public key. `inspect` returns public material and inventory references; it does not open KDBX.
-3. Install the **public key** through existing trusted access. For an existing account with password login, run this yourself in a private terminal, substituting the public-key path returned above:
+   `create` stores the private key inside the database, loads it into the dedicated agent, and writes only the public key to disk. It reuses a complete existing entry and refuses a conflicting public key. `inspect` shows public material and inventory references, without opening the database.
+
+   `key create` asks for the database password even when a session is active, because changing encrypted storage is a private administrative step. After a restart before enrollment, run `key create` again to load the prepared key.
+
+3. **Install the public key** through access you already have. Confirm the `authorized_keys` path and host scope first, and keep existing access in place:
 
    ```sh
    ssh-copy-id -i /home/operator/.config/homectl/public-keys/lab-printer.pub \
      -o StrictHostKeyChecking=yes pi@192.0.2.10
    ```
 
-   Confirm the existing `authorized_keys` path and host scope before changing it. Preserve previous access. For UGREEN UGOS Pro, first enable **Personal Folder** for the SSH account in **Control Panel → User**, then check home ownership/permissions. Do not remove immutable protection from `/home`. See [UGREEN's SSH guide](https://ai.ugreen.com/blogs/how-to/connect-nas-ssh-root-access). On Proxmox, root's key file may be a symlink to shared cluster storage; preserve the symlink and review access to affected nodes before appending a key.
-4. Copy [host.example.json](../examples/host.example.json) outside the repository. Replace address, account, description, cautions and tier. Copy the exact `auth` object from `key create`/`key inspect`; paths depend on your inventory location.
-5. Review and enroll:
+   Notes for specific systems:
+   - **UGREEN UGOS Pro:** first enable **Personal Folder** for the SSH account in **Control Panel → User**, then check home ownership and permissions. Do not remove immutable protection from `/home`. See [UGREEN's SSH guide](https://ai.ugreen.com/blogs/how-to/connect-nas-ssh-root-access).
+   - **Proxmox:** root's key file may be a symlink to shared cluster storage. Keep the symlink, and review access to the affected nodes before you append a key.
+
+4. **Describe the machine.** Copy [host.example.json](../examples/host.example.json) outside the repository. Set the address, account, description, cautions and tier, and copy the `auth` object from `key inspect`.
+5. **Review, then enroll:**
 
    ```sh
-   home-ctl enroll lab-printer --file /path/host.json --dry-run --json
+   home-ctl enroll lab-printer --file /path/host.json --dry-run
    home-ctl enroll lab-printer --file /path/host.json
-   home-ctl doctor lab-printer --json
+   home-ctl doctor lab-printer
    ```
 
-Enrollment verifies SSH and OS before saving a mode-0600 inventory. Failure preserves inventory but may refresh the generated SSH config. Mixed-case SSH usernames are supported. Enrollment does not obtain a password or alter existing accounts.
+   Enrollment checks SSH and the OS before it saves a mode-0600 inventory entry. It does not set passwords or change existing accounts.
 
-`key create` asks for the database password even when an SSH session is active: changing encrypted storage is a private administrative operation. After a restart before enrollment, rerun `key create` to load the prepared key. If other enrolled keys are also needed, lock and unlock to load the complete enrolled set.
-
-### Access tiers
+## Access tiers
 
 | Tier | Intended use |
 | --- | --- |
 | `observe` | Recognized inspection commands |
-| `user` | Existing account without privileged commands |
-| `sudo-approved` | Exact absolute executable/argument lists in `sudo_allow` |
-| `full` | Arbitrary commands, subject to workflow review |
+| `user` | Existing account, no privileged commands |
+| `sudo-approved` | Exact absolute commands listed in `sudo_allow` |
+| `full` | Arbitrary commands, subject to review |
 
-A root SSH account requires `full`. Root commands run directly. Other privileged accounts use `sudo -n`; passwords never enter agent chat. `enforcement: advisory` states intent. `enforcement: sudoers` declares administrator configuration, and does not prove broader group/sudo/polkit privileges were removed.
+A root account requires `full`. Root commands run directly. Other privileged accounts use `sudo -n`. Passwords never enter agent chat. `enforcement: advisory` only states intent. `enforcement: sudoers` declares administrator configuration, but it does not prove that broader group, sudo or polkit privileges were removed.
 
 ```sh
 home-ctl sudoers lab-printer
 home-ctl enroll lab-printer --file /path/host.json --configure-sudo
 ```
 
-Use `--configure-sudo` only when requested and existing noninteractive administrator access is available. It installs literal rules for `sudo-approved`, or `NOPASSWD: ALL` for a non-root `full` account. It refuses a different existing homectl policy. Initial password-based sudo setup belongs in the user's private terminal. Existing root accounts need no sudoers installation.
+Use `--configure-sudo` only when you ask for it and noninteractive administrator access exists. It installs literal rules for `sudo-approved`, or `NOPASSWD: ALL` for a non-root `full` account. It refuses a different existing homectl policy. Do the first password-based sudo setup in your own private terminal. Root accounts need no sudoers installation.
 
-### Review and confirmation
+## Review before changes
 
-Inspect before changing and verify afterwards. Read each host's cautions, especially printer activity and NAS storage. Destructive or opaque commands require an exact plan:
+Inspect before you change anything, and verify afterwards. Read each machine's cautions, especially for printers and NAS storage. Destructive or opaque commands need an exact plan:
 
 ```sh
 home-ctl exec lab-nas --dry-run --impact 'Delete /srv/example; its contents will be lost' \
   -- rm -rf /srv/example
 ```
 
-Show the exact host, arguments, targets and effects in chat. After the user confirms that operation, pass the returned digest using `--approval <digest>` with the unchanged host, argv and impact. A changed request invalidates approval. Do not invent approval or bypass policy errors with raw SSH. There is no `--yes` flag. `ssh <host> -- command...` is the same guarded transport, not an interactive-shell escape.
+Show the exact host, arguments, targets and effects to the user. After they confirm, run the command with the returned digest as `--approval <digest>`, using the same host, argv and impact. Any change invalidates the approval. There is no `--yes` flag. Do not bypass a policy error with raw SSH. `ssh <host> -- command...` uses the same guarded path and is not an interactive shell.
 
 ## Proxmox VM provisioning over SSH
 
-Enroll the existing Proxmox SSH account with `full` and verify it with doctor. Non-root accounts require noninteractive sudo for `pvesh`; root runs it directly. Add this secret-free provider to the inventory:
+Enroll the Proxmox SSH account with `full` and check it with `doctor`. Non-root accounts need noninteractive sudo for `pvesh`; root runs it directly. Add a provider to the inventory. It holds no secrets:
 
 ```yaml
 providers:
   lab-pve:
     type: proxmox
     host: lab-proxmox       # existing inventory machine name
-    node: pve              # actual Proxmox node name
+    node: pve               # actual Proxmox node name
 ```
 
-No separate API token is required. `pvesh --noproxy` accesses the selected node's local API through the managed SSH key. A prepared cloud-init template, its existing account, a cloud-init drive, static IPv4 settings and any needed noninteractive sudo bootstrap must already exist. Image/template import, DHCP discovery and cross-node provisioning are not implemented.
+No API token is needed. `pvesh --noproxy` reaches the node's local API through the managed SSH key. You need an existing cloud-init template with its account, a cloud-init drive, static IPv4 settings and any noninteractive sudo bootstrap. Image import, DHCP discovery and cross-node provisioning are not implemented.
 
-Privately prepare a separate key for the new VM:
+Prepare a separate key for the new VM:
 
 ```sh
 home-ctl key create slicer-test
-home-ctl key inspect slicer-test --json
+home-ctl key inspect slicer-test
 ```
 
-Copy [vm.example.json](../examples/vm.example.json) outside the repository. Replace its placeholder `public_key` with the exact inspected key, and specify provider, template, VMID, resources, network, user and tier. Optional software is limited to the documented `docker`/`bun` recipes for Debian/Ubuntu templates.
+Copy [vm.example.json](../examples/vm.example.json) outside the repository. Replace its placeholder `public_key` with the inspected key, and set the provider, template, VMID, resources, network, user and tier. Optional software is limited to the documented `docker` and `bun` recipes for Debian and Ubuntu templates.
 
 ```sh
-home-ctl provision --file /path/vm.json --dry-run --json
+home-ctl provision --file /path/vm.json --dry-run
 home-ctl provision --file /path/vm.json
 ```
 
-Review the plan with the user before applying. The CLI verifies the matching public key and that its private key can sign through the managed agent, then clones, configures/resizes, starts, waits for SSH/cloud-init, enrolls and installs only requested recipes. Establish VM SSH host-key trust through its console or another trusted source. A first run waiting for that trust can be resumed using the identical request.
+Review the plan before you apply it. homectl checks that the public key matches and that the private key can sign through the agent. Then it clones, configures and starts the VM, waits for SSH and cloud-init, enrolls it, and installs only the recipes you requested. Confirm the VM's SSH host key through its console or another trusted source. If a run waits for that trust, run the identical request again to resume.
 
-The provisioning journal records ownership and task progress. VMID/name conflicts, changed plans and uncertain task state require inspection. Do not delete a VM, erase its journal or recreate storage to force a retry. Failed operations retain state and do not perform destructive rollback. A public key prepared before a restart must be loaded again with private `key create` before applying.
+The provisioning journal records ownership and progress. Conflicts, changed plans and uncertain task states need inspection. Do not delete a VM, erase its journal or recreate storage to force a retry. Failed operations keep their state and do not roll back destructively. A public key prepared before a restart must be loaded again with `key create` before you apply.
 
 ## Configuration and credential storage
-
-The default paths are:
 
 | Path | Contents |
 | --- | --- |
@@ -160,30 +167,46 @@ The default paths are:
 | `~/.config/homectl/ssh_config` | Generated SSH aliases |
 | `~/.config/homectl/state/` | VM provisioning journals |
 
-Use `--inventory /absolute/path/inventory.yaml` for another inventory; socket and public-key paths follow that file's location. KDBX paths are absolute. [inventory.example.yaml](../examples/inventory.example.yaml) illustrates the complete schema. Keep real inventory, KDBX, backups and runtime files outside Git.
+Use `--inventory /absolute/path/inventory.yaml` for another inventory. Socket and public-key paths then follow that file's location. Database paths are absolute. The [inventory example](../examples/inventory.example.yaml) shows the full schema. Keep the real inventory, the database, backups and runtime files outside Git.
 
-Each KDBX entry has an unencrypted OpenSSH key attachment *inside the encrypted database*. Unlock exports it through private pipes into the dedicated agent. The supervisor retains neither the database password nor decrypted KDBX. SSH authenticates using signatures, `IdentityAgent`, a public `IdentityFile`, `IdentitiesOnly yes`, strict host-key checks, password login disabled and no agent forwarding.
+- **One key per host.** KeePassXC is the only SSH credential backend. Each entry holds an Ed25519 key as an OpenSSH attachment inside the encrypted database.
+- **Unlock loads the agent.** Unlock sends the keys through private pipes into a dedicated OpenSSH agent. The supervisor keeps neither the database password nor the decrypted database.
+- **Strict SSH settings.** Connections use signatures, a dedicated `IdentityAgent`, a public `IdentityFile`, `IdentitiesOnly yes`, strict host-key checks, password login disabled and no agent forwarding.
+- **Know the limits.** Processes running as your user can use an unlocked socket. Root, hypervisor access and VM snapshots can expose memory. Encrypted swap and snapshot protection are your host's responsibility. Clearing buffers is best effort, not guaranteed erasure.
+- **Keep secrets out of chat.** Initialization, key creation and unlock must never run through a password prompt the model can see. Do not put passwords or session values in shell startup files.
+- **Backups.** `key create` takes a mode-0600 encrypted backup before it edits the database. An incomplete entry is kept for manual repair and is never silently replaced. Setup never deletes existing keys, recovery passwords or old backups.
 
-Private initialization/key creation/unlock must never run through model-visible password entry. Do not put passwords or session values in shell startup files. Same-user processes can use an unlocked socket; root/hypervisor access and VM snapshots can expose memory. Temporary key generation uses a private tmpfs directory, removed after import; tmpfs can be swapped. Encrypted swap and snapshot protection are host responsibilities. Buffer clearing is best effort, not guaranteed erasure.
-
-Automatic `key create` currently requires Linux tmpfs. On macOS, initial key preparation and inventory configuration are manual: privately import an Ed25519 key as the entry's `id_ed25519` attachment, create its matching public file, and add the managed auth references and session configuration to inventory before private `session unlock` and `doctor`. Managed socket paths follow `<absolute-inventory-path>.session/agent.sock`. CLI private commands use Bash and the system KeePassXC/OpenSSH tools.
-
-Keep encrypted backups separate from the live database. Key creation takes a mode-0600 encrypted backup before editing. An incomplete entry is preserved for manual repair; it is never silently replaced. Existing keys, recovery passwords, vault data and old backups are not automatically deleted by project setup.
+**macOS:** key preparation and inventory setup are manual for now. Import an Ed25519 key privately as the entry's `id_ed25519` attachment, create the matching public file, and add the auth references and session settings to the inventory. Then run a private `session unlock` and `doctor`. Managed socket paths follow `<absolute-inventory-path>.session/agent.sock`.
 
 ## Troubleshooting and development
 
 ```sh
 home-ctl help
-home-ctl session status --json
-home-ctl doctor --json
-home-ctl doctor lab-proxmox --json
+home-ctl session status
+home-ctl doctor
+home-ctl doctor lab-proxmox
 ```
 
-Doctor checks tools; a named host adds a real managed-key SSH probe. A root account skips sudo checks. A non-root full account checks `sudo -n true`. Limited sudo checks never execute a service restart. Doctor does not open KDBX. On expiry, unlock privately. On host-key rejection, verify the fingerprint before editing known_hosts. On network/authentication errors, inspect address, account, installed public key and session status. Raw credential diagnostics are suppressed.
+- **Session expired:** unlock again privately.
+- **Host key rejected:** verify the fingerprint before you edit `known_hosts`.
+- **Network or login error:** check the address, the account, the installed public key and the session status.
 
-Exit codes: `0` success; `2` input/configuration; `3` policy/conflict; `4` exact confirmation required; `5` transport/setup; `6` remote command failed.
+`doctor` checks the tools. With a host name, it also runs a real SSH probe using the managed key. A root account skips sudo checks. A non-root full account checks `sudo -n true`. Limited sudo checks never restart a service. `doctor` does not open the database, and raw credential details are suppressed.
 
-Development commands:
+Exit codes: `0` success; `2` input or configuration; `3` policy or conflict; `4` exact confirmation required; `5` transport or setup; `6` remote command failed.
+
+### Verification status
+
+Verified:
+- Linux packages (deb, rpm, pacman, apk) install and run in clean containers (Debian 12, Fedora 41, Alpine 3.20, Arch). The release workflow checks `home-ctl help` and an unknown-command exit code in each.
+- CI runs typecheck, lint, the full test suite and browser UI tests on Linux. On Windows it runs typecheck, lint, a subset of the tests, and PowerShell, CMD and Git Bash smoke tests.
+
+Not verified yet:
+- The macOS runtime, including `brew install` on a Mac.
+- Two real devices that pair, sync, hand off and take over over your LAN.
+- Windows named pipes, ACL enforcement, service accounts and WSL networking on your own hardware.
+
+### Development
 
 ```sh
 bun run typecheck
@@ -191,4 +214,4 @@ bun run lint
 bun test
 ```
 
-The session integration tests require OpenSSH and KeePassXC CLI. They create synthetic encrypted databases, keys and dedicated sockets in owned temporary directories, then remove those fixtures. They verify signing, unlock/lock, absolute TTL, repeat unlock, isolation between agents, configuration changes and failure cleanup. They never use your personal database or SSH agent. Proxmox adapter tests run entirely without SSH, network access, node credentials or a Proxmox installation. They cover pvesh method/path mapping, argument quoting, cloud-init key encoding, task polling and timeout, response errors, and provisioning/resume through simulated process responses. GitHub Actions runs them as part of `bun test`. Other tests use fixtures, fake provisioning responses and local subprocesses. These checks do not prove deployment or real VM creation. See [architecture](architecture.md) and [primary sources](research.md). This repository does not deploy additional coding agents to managed hosts.
+The session tests need OpenSSH and the KeePassXC CLI. They create synthetic databases, keys and sockets in temporary directories, then remove them. They never touch your database or SSH agent. Proxmox adapter tests run without SSH, network access or a Proxmox install. See [architecture](architecture.md). homectl does not install coding agents on managed hosts.
