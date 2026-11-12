@@ -45,7 +45,7 @@ try {
   await run([process.execPath, "scripts/build-panel.ts"]);
   for (const t of selected) {
     const folder = `homectl-${version}-${t.name}`;
-    const binary = join(stage, folder, `homectl${t.exe}`);
+    const binary = join(stage, folder, `home-ctl${t.exe}`);
     await mkdir(join(stage, folder), { recursive: true });
     await run([
       process.execPath,

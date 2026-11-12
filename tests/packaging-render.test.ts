@@ -60,7 +60,7 @@ describe("Homebrew formula", () => {
     expect(text).toContain("class Homectl < Formula");
     expect(text).toContain(`version "${VERSION}"`);
     expect(text).toContain('license "MIT"');
-    expect(text).toContain('bin.install "homectl"');
+    expect(text).toContain('bin.install "home-ctl"');
   });
 
   test("the formula has one url per platform branch", () => {
@@ -90,9 +90,9 @@ describe("winget manifests", () => {
     expect(installer).toContain("InstallerType: zip");
     expect(installer).toContain("NestedInstallerType: portable");
     expect(installer).toContain(
-      `RelativeFilePath: homectl-${VERSION}-windows-x64\\homectl.exe`,
+      `RelativeFilePath: homectl-${VERSION}-windows-x64\\home-ctl.exe`,
     );
-    expect(installer).toContain("PortableCommandAlias: homectl");
+    expect(installer).toContain("PortableCommandAlias: home-ctl");
     const zip = archiveName(VERSION, "windows-x64", "zip");
     expect(installer).toContain(`InstallerUrl: ${releaseUrl(VERSION, zip)}`);
     expect(installer).toContain(

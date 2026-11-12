@@ -217,7 +217,7 @@ export function renderClients(
   options: { color: boolean },
 ): string {
   if (clients.length === 0)
-    return "No clients yet. Create one with: homectl control client add <id> --name NAME --scopes LIST --hosts LIST --token-file PATH";
+    return "No clients yet. Create one with: home-ctl control client add <id> --name NAME --scopes LIST --hosts LIST --token-file PATH";
   const ordered = [...clients].sort(
     (a, b) => Number(a.revoked) - Number(b.revoked) || a.id.localeCompare(b.id),
   );
@@ -329,7 +329,7 @@ export function renderOperationDetail(
     lines.push([
       "Takeover",
       op.takeover.possible
-        ? "possible now (operator action: homectl control handoff)"
+        ? "possible now (operator action: home-ctl control handoff)"
         : `${op.takeover.reason ?? "not possible"}${op.takeover.at ? ` (${localTime(op.takeover.at)})` : ""}`,
     ]);
   const note = replicaNote(op);
@@ -592,7 +592,7 @@ export function summarizeTool(
     client?: { id: string };
   };
   const run = (id: string) =>
-    `The local operator can run it: homectl control execute ${id} (or Execute in the panel → Approvals).`;
+    `The local operator can run it: home-ctl control execute ${id} (or Execute in the panel → Approvals).`;
   if (
     (tool === "homectl_plan" || tool === "homectl_proxmox_plan") &&
     v.operationId

@@ -61,9 +61,9 @@ jobs:
           mkdir -p smoke
           tar -xzf dist/homectl-*-linux-x64.tar.gz -C smoke
           folder="$(ls -d smoke/homectl-*-linux-x64)"
-          "${folder}/homectl" help
+          "${folder}/home-ctl" help
           status=0
-          "${folder}/homectl" __internal bogus || status=$?
+          "${folder}/home-ctl" __internal bogus || status=$?
           test "$status" -eq 2
 
       - uses: actions/upload-artifact@v4
@@ -90,6 +90,6 @@ jobs:
         # Named files only: dist/packaging is a folder and gh release create takes files.
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            dist/*.tar.gz dist/*.zip dist/*.deb dist/*.apk dist/SHA256SUMS \
+            dist/*.tar.gz dist/*.zip dist/*.deb dist/*.rpm dist/*.apk dist/*.pkg.tar.zst dist/SHA256SUMS \
             dist/packaging/homectl.rb dist/packaging/winget/*.yaml \
             --repo "$GITHUB_REPOSITORY" --title "homectl ${GITHUB_REF_NAME}" --generate-notes

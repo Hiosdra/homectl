@@ -32,7 +32,7 @@ export const run: Runner = async (spec: ProcessSpec) => {
   } catch {
     throw new HomectlError(
       5,
-      "Process could not start; run homectl doctor (details suppressed to protect credentials)",
+      "Process could not start; run home-ctl doctor (details suppressed to protect credentials)",
     );
   }
 };

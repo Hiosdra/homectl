@@ -40,7 +40,7 @@ export async function createKey(
   if (!available("keepassxc-cli"))
     throw new HomectlError(5, "Install KeePassXC first");
   if (!(await Bun.file(database).exists()))
-    throw new HomectlError(5, "Run homectl session init privately first");
+    throw new HomectlError(5, "Run home-ctl session init privately first");
   const password = await passwordPrompt();
   const entries = (
     await databaseCommand(database, password, ["ls", "--flatten"])

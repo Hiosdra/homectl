@@ -27,7 +27,7 @@ try {
   if (!(await sessionStatus(inventoryPath)).unlocked)
     throw new HomectlError(
       5,
-      "homectl SSH session is locked; run homectl session unlock privately",
+      "homectl SSH session is locked; run home-ctl session unlock privately",
     );
   const result = await run(spec);
   process.stdout.write(result.stdout);

@@ -1,5 +1,5 @@
 // Internal roles that homectl starts as child processes: the credential worker and
-// the session daemon. They run as `homectl __internal <role>`, so the same
+// the session daemon. They run as `home-ctl __internal <role>`, so the same
 // program works from a source checkout (`bun src/cli/main.ts`) and from a single
 // compiled executable (`bun build --compile`), where no .ts file exists on disk.
 import { resolve } from "node:path";

@@ -48,7 +48,7 @@ export async function interactivePair(
   if (!process.stdin.isTTY || !process.stdout.isTTY)
     throw new HomectlError(
       5,
-      "Run homectl pair yourself in a private interactive terminal",
+      "Run home-ctl pair yourself in a private interactive terminal",
     );
   let running: Awaited<ReturnType<typeof import("../serve").serve>> | undefined;
   let opened = false;
@@ -63,7 +63,7 @@ export async function interactivePair(
     if (Date.now() > deadline)
       throw new HomectlError(
         3,
-        "Pairing expired; run homectl pair on both devices again",
+        "Pairing expired; run home-ctl pair on both devices again",
       );
   };
   const deadline = Date.now() + 5 * 60_000;
@@ -135,7 +135,7 @@ export async function interactivePair(
     if (current.pair)
       throw new HomectlError(
         3,
-        "A pairing is already open; finish it or run homectl pair cancel first",
+        "A pairing is already open; finish it or run home-ctl pair cancel first",
       );
     let selected: Discovered | undefined;
     if (joinAddress) {
@@ -152,7 +152,7 @@ export async function interactivePair(
       if (!current.discovery.localId || current.discovery.error)
         throw new HomectlError(
           5,
-          "LAN discovery is unavailable. Use homectl pair join --address http://<device-LAN-IP>:7448 to connect directly; this starts the local pairing endpoint automatically.",
+          "LAN discovery is unavailable. Use home-ctl pair join --address http://<device-LAN-IP>:7448 to connect directly; this starts the local pairing endpoint automatically.",
         );
       const invitation = await localApi<State>(
         inventoryPath,
@@ -161,7 +161,7 @@ export async function interactivePair(
       );
       opened = true;
       console.log(
-        "Pairing mode enabled for five minutes. Run homectl pair on the other device.\nSearching the LAN… Discovery is untrusted until code and phrase verification.",
+        "Pairing mode enabled for five minutes. Run home-ctl pair on the other device.\nSearching the LAN… Discovery is untrusted until code and phrase verification.",
       );
       console.log(`This device's one-time code (private): ${invitation.pair?.code}
 If the other device asks for a code, enter this one there. Never share it in chat.`);
@@ -213,7 +213,7 @@ If the other device asks for a code, enter this one there. Never share it in cha
       if (!current.pair)
         throw new HomectlError(
           3,
-          "Pairing closed or failed; run homectl pair on both devices again",
+          "Pairing closed or failed; run home-ctl pair on both devices again",
         );
       if (current.pair.sas && current.pair.remote) break;
       await pause();
@@ -248,7 +248,7 @@ If the other device asks for a code, enter this one there. Never share it in cha
     );
     if (running) {
       console.log(
-        "This temporary workspace stays available for sync while this terminal is open. Open the panel with homectl panel; press Ctrl+C here when finished.",
+        "This temporary workspace stays available for sync while this terminal is open. Open the panel with home-ctl panel; press Ctrl+C here when finished.",
       );
       while (!abort.signal.aborted) await Bun.sleep(250);
     }

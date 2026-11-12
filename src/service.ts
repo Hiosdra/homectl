@@ -52,7 +52,7 @@ export function windowsServiceConfig(inventory: string, interfaceIP: string) {
     .join(" ");
   return `<service>\n<id>homectl</id><name>homectl peer workspace</name><description>Local homectl panel and peer sync</description>\n<executable>${xml(executable)}</executable><arguments>${xml(args)}</arguments>\n<startmode>Manual</startmode><log mode="roll"/><onfailure action="restart" delay="5 sec"/>\n</service>\n`;
 }
-// The `homectl service` command with its parsed flags.
+// The `home-ctl service` command with its parsed flags.
 export function serviceFromFlags(
   action: string | undefined,
   flags: ServiceOptions,
@@ -147,7 +147,7 @@ export async function service(action: string, options: ServiceOptions) {
         );
       return {
         installed: true,
-        next: "Before starting, set the service Log On account to your existing Windows user in services.msc. Enter the password there, never in CLI arguments or XML. The service is installed in Manual mode and must not run as SYSTEM. Then use homectl service start.",
+        next: "Before starting, set the service Log On account to your existing Windows user in services.msc. Enter the password there, never in CLI arguments or XML. The service is installed in Manual mode and must not run as SYSTEM. Then use home-ctl service start.",
       };
     }
     const r = await run({ argv: ["systemctl", "--user", "daemon-reload"] });
@@ -159,7 +159,7 @@ export async function service(action: string, options: ServiceOptions) {
     await run({ argv: ["systemctl", "--user", "enable", "homectl.service"] });
     return {
       installed: true,
-      next: "Run homectl service start. Starting without login requires explicit loginctl enable-linger configuration.",
+      next: "Run home-ctl service start. Starting without login requires explicit loginctl enable-linger configuration.",
     };
   }
   if (windows) {

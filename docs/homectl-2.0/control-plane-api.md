@@ -121,7 +121,7 @@ File: `control-plane/audit.jsonl`, one JSON object per line, append-only.
 - Events: `auth.rejected`, `request.accepted`, `request.rejected`, `client.created`, `client.revoked`, `operation.planned`, `operation.decided`, `operation.executing`, `operation.succeeded`, `operation.failed`, `operation.unknown`.
 - Event payloads contain ids, the fixed reason codes listed above, fingerprints and redacted argv. They never contain tokens, nonces, impact text, stdout or stderr.
 - Before every append the payload is checked for secret-like material; a match aborts the write (fail closed).
-- Verification (`homectl control audit verify`) recomputes the chain, then checks it against `control-plane/audit.anchor`. The anchor holds the latest `{seq, hash}` and is rewritten after every append. Verification fails when the journal is shorter than the anchor (tail truncation), diverges from it, or when the anchor is missing for a non-empty journal. Appends refuse in the same conditions. **Limit:** an attacker who can rewrite both files consistently is not detected; see inventory-and-plan R1.
+- Verification (`home-ctl control audit verify`) recomputes the chain, then checks it against `control-plane/audit.anchor`. The anchor holds the latest `{seq, hash}` and is rewritten after every append. Verification fails when the journal is shorter than the anchor (tail truncation), diverges from it, or when the anchor is missing for a non-empty journal. Appends refuse in the same conditions. **Limit:** an attacker who can rewrite both files consistently is not detected; see inventory-and-plan R1.
 - Corrupt journal: appends are refused until an operator repairs or moves the file.
 
 ## 8. Error mapping
@@ -140,7 +140,7 @@ Error messages are fixed strings in the engine. Exception text from lower layers
 
 ## 9. MCP surface (Streamable HTTP, JSON-RPC 2.0)
 
-- Endpoint: `POST http://127.0.0.1:<port>/mcp`. Default port 7449 (`homectl serve-mcp --port`). Bound to `127.0.0.1` by default. `serve-mcp --host <IPv4>` may bind one explicit unicast address, for example the NAS LAN address; wildcard, multicast and broadcast addresses are refused.
+- Endpoint: `POST http://127.0.0.1:<port>/mcp`. Default port 7449 (`home-ctl serve-mcp --port`). Bound to `127.0.0.1` by default. `serve-mcp --host <IPv4>` may bind one explicit unicast address, for example the NAS LAN address; wildcard, multicast and broadcast addresses are refused.
 - Protocol versions accepted in `initialize`: `2025-06-18`, `2025-03-26`. The server answers with the requested version if supported, otherwise `2025-06-18`.
 - Methods: `initialize`, `ping`, `tools/list`, `tools/call`. Notifications receive `202`. Batches are refused. `GET` returns `405`.
 - Every request needs `Authorization: Bearer <token>`. Missing or invalid tokens return `401` with `WWW-Authenticate: Bearer`. Revoked clients are refused.
@@ -164,14 +164,14 @@ There is no execute tool, no shell tool, and no tool that creates clients or rea
 These run in the homectl host's terminal. They do not go through MCP.
 
 ```sh
-homectl serve-mcp [--port 7449] [--inventory PATH]
-homectl control client add <id> --name "Codex PC" --scopes status:read,inspect:read,plan:create --hosts lab-printer --token-file PATH
-homectl control client list [--json]
-homectl control client revoke <id>
-homectl control ops [--state pending,approved] [--all]
-homectl control show <operation-id-or-prefix>
-homectl control execute <operation-id-or-prefix>
-homectl control audit verify
+home-ctl serve-mcp [--port 7449] [--inventory PATH]
+home-ctl control client add <id> --name "Codex PC" --scopes status:read,inspect:read,plan:create --hosts lab-printer --token-file PATH
+home-ctl control client list [--json]
+home-ctl control client revoke <id>
+home-ctl control ops [--state pending,approved] [--all]
+home-ctl control show <operation-id-or-prefix>
+home-ctl control execute <operation-id-or-prefix>
+home-ctl control audit verify
 ```
 
 - `client add` writes the token to `--token-file` with owner-only permissions and refuses to overwrite an existing file. The token is never printed. The destination directory must exist and the file must not exist; both are checked before any client is created. Hosts in `--hosts` must exist in the inventory; unknown names are refused with the list of valid names (exit 2). If the file cannot be written after creation, the new client is revoked. The human output prints a ready-to-paste MCP client snippet with a placeholder header, never the token.
@@ -188,20 +188,20 @@ homectl control audit verify
 1. Add two clients, one per agent, each with its own token file:
 
    ```sh
-   homectl control client add codex-pc --name "Codex PC" --scopes status:read,inspect:read,plan:create --hosts agent-host --token-file ~/.config/homectl/tokens/codex-pc.token
-   homectl control client add hermes-admin --name "Hermes Admin" --scopes status:read,inspect:read,approve:decide --hosts agent-host --token-file ~/.config/homectl/tokens/hermes-admin.token
+   home-ctl control client add codex-pc --name "Codex PC" --scopes status:read,inspect:read,plan:create --hosts agent-host --token-file ~/.config/homectl/tokens/codex-pc.token
+   home-ctl control client add hermes-admin --name "Hermes Admin" --scopes status:read,inspect:read,approve:decide --hosts agent-host --token-file ~/.config/homectl/tokens/hermes-admin.token
    ```
 
-2. Start the endpoint in a private terminal and leave it running: `homectl serve-mcp`.
+2. Start the endpoint in a private terminal and leave it running: `home-ctl serve-mcp`.
 3. Configure each MCP client with the URL `http://127.0.0.1:7449/mcp` and the header `Authorization: Bearer <contents of its token file>`. The snippet printed by `client add` shows the shape.
 4. The Codex client plans: `homectl_plan` with `host: "agent-host"` and `argv: ["hostname"]`. An inspection plan needs no approval.
-5. Run it: `homectl control execute <first 8 characters of the id>`, or open **Approvals** in the local panel and press Execute.
-6. For a change (for example `argv: ["systemctl", "restart", "nginx"]`), the Hermes client approves the exact fingerprint with `homectl_approve`; then run it with `homectl control execute`, or Execute in the panel.
-7. Check the trail: `homectl control audit verify` (or the Audit card in the panel).
+5. Run it: `home-ctl control execute <first 8 characters of the id>`, or open **Approvals** in the local panel and press Execute.
+6. For a change (for example `argv: ["systemctl", "restart", "nginx"]`), the Hermes client approves the exact fingerprint with `homectl_approve`; then run it with `home-ctl control execute`, or Execute in the panel.
+7. Check the trail: `home-ctl control audit verify` (or the Audit card in the panel).
 
 ## 13. Local panel: Approvals
 
-The local panel (`homectl serve`, `homectl panel`) has an **Approvals** view with three parts:
+The local panel (`home-ctl serve`, `home-ctl panel`) has an **Approvals** view with three parts:
 
 - **Operations**: Pending, Approved and History filters. Rows show state, host, classification, command, impact, issuer → approver, when, and a short fingerprint. Pending changes show "Waiting for approval by another client". Ready operations show **Execute**, which opens a confirmation with host, command, impact, fingerprint and approver. The result appears inline with exit code and collapsed stdout/stderr.
 - **Clients**: scopes and host grants as chips, status, and **Revoke** (with confirmation). Adding clients stays in a terminal; the panel shows the command to copy.
@@ -238,7 +238,7 @@ Local operator routes (panel gate: launch token, session cookie, loopback Host, 
 - `POST /api/control/peer` with `{ "target": "<device>", "suspend": true, "reason": "..." }`: suspends a paired device from this device's lease (`suspend: false` resumes it). The record is signed and replicated; the reason is short text with no secret material.
 - `POST /api/control/resolve` with `{ "operationId": "...", "owner": "<device>" }`: proposes a winner for an ownership conflict. Without `owner`, the named winner's pending resolution is accepted here.
 
-CLI: `homectl control sync` (falls back to the saved state when serve is not running), `homectl control handoff <id> --to <device>` and `--cancel`, `homectl control resolve <id> --owner <device>` (these need a running serve).
+CLI: `home-ctl control sync` (falls back to the saved state when serve is not running), `home-ctl control handoff <id> --to <device>` and `--cancel`, `home-ctl control resolve <id> --owner <device>` (these need a running serve).
 
 Audit events for ownership changes: `handoff.offered`, `handoff.cancelled`, `handoff.accepted`, `handoff.resolution-proposed`, `handoff.resolution-accepted`. Each carries the operation id, host and a fixed reason; device identifiers appear only in the reason text. See [replicated-quickstart.md](replicated-quickstart.md).
 
@@ -256,9 +256,9 @@ Optional per client. Static `hct_` tokens are unchanged. `control oidc set --iss
 
 Purpose: restore a lost device with its own identity, from encrypted control state, without relying on any other device still being alive.
 
-- `homectl control recovery key --out PATH` writes a random 256-bit key, owner-only, and prints only a key id. The key must not live inside the control state directory. Keep it outside every device, for example on a USB stick in a safe, or in a separate KDBX entry.
-- `homectl control recovery export --key PATH --out PATH` writes an AES-256-GCM bundle. It holds `device-key.json`, `replica.json`, `state.json`, `audit.jsonl` and `audit.anchor` (those that exist). The header is authenticated as AAD and carries only the key id.
-- `homectl control recovery restore --key PATH --bundle PATH` restores onto an empty control state directory. It refuses an existing device, a wrong key, a changed bundle, and any file name outside the list above. It writes through temp files and removes them again on failure.
+- `home-ctl control recovery key --out PATH` writes a random 256-bit key, owner-only, and prints only a key id. The key must not live inside the control state directory. Keep it outside every device, for example on a USB stick in a safe, or in a separate KDBX entry.
+- `home-ctl control recovery export --key PATH --out PATH` writes an AES-256-GCM bundle. It holds `device-key.json`, `replica.json`, `state.json`, `audit.jsonl` and `audit.anchor` (those that exist). The header is authenticated as AAD and carries only the key id.
+- `home-ctl control recovery restore --key PATH --bundle PATH` restores onto an empty control state directory. It refuses an existing device, a wrong key, a changed bundle, and any file name outside the list above. It writes through temp files and removes them again on failure.
 
 Limits:
 

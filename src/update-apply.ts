@@ -2,7 +2,7 @@
 // downloads the release archive, checks it against the published SHA256SUMS, unpacks it
 // beside the running release, and points the commands at the new one. The previous
 // release stays on disk, and each command file keeps a backup. A source checkout uses
-// `homectl update`. Other builds are told what to do instead.
+// `home-ctl update`. Other builds are told what to do instead.
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
@@ -106,9 +106,9 @@ export async function installRelease(
     if (unpacked.exitCode)
       throw new HomectlError(5, "The release archive could not be unpacked.");
     const built = join(staging, folder);
-    const exe = join(built, "homectl.exe");
+    const exe = join(built, "home-ctl.exe");
     if (!existsSync(exe))
-      throw new HomectlError(5, "The release archive has no homectl.exe.");
+      throw new HomectlError(5, "The release archive has no home-ctl.exe.");
     const started = await runner({ argv: [exe, "help"], timeoutMs: 60_000 });
     if (started.exitCode)
       throw new HomectlError(
@@ -154,7 +154,8 @@ async function download(
 }
 
 // Rewrites the command files that point at the old release. Only small files whose name
-// starts with homectl are read; each one is backed up before it changes.
+// starts with home-ctl or homectl (the name before the rename) are read; each one is backed
+// up before it changes.
 async function repointCommands(
   binDir: string,
   oldFolder: string,
@@ -169,7 +170,11 @@ async function repointCommands(
   const from = forms(oldFolder);
   const to = forms(newFolder);
   for (const name of await readdir(binDir)) {
-    if (!name.startsWith("homectl") || name.endsWith(".bak")) continue;
+    if (
+      !(name.startsWith("home-ctl") || name.startsWith("homectl")) ||
+      name.endsWith(".bak")
+    )
+      continue;
     const file = join(binDir, name);
     const info = await stat(file);
     if (!info.isFile() || info.size > SHIM_LIMIT) continue;

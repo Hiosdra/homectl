@@ -81,7 +81,7 @@ describe.skipIf(!windows)("Windows release install", () => {
     const work = await temp("homectl-release-");
     const folder = `homectl-${version}-windows-x64`;
     await mkdir(join(work, folder));
-    await writeFile(join(work, folder, "homectl.exe"), exeBody);
+    await writeFile(join(work, folder, "home-ctl.exe"), exeBody);
     const zip = join(work, `${folder}.zip`);
     const made = Bun.spawn([
       systemTar(),
@@ -114,15 +114,16 @@ describe.skipIf(!windows)("Windows release install", () => {
       "homectl-0.2.0-windows-x64",
     );
     await mkdir(oldFolder, { recursive: true });
-    await writeFile(join(oldFolder, "homectl.exe"), "old");
+    await writeFile(join(oldFolder, "home-ctl.exe"), "old");
     const bin = join(home, ".local", "bin");
     await mkdir(bin, { recursive: true });
-    const exe = join(oldFolder, "homectl.exe");
+    const exe = join(oldFolder, "home-ctl.exe");
+    // This release's command files (home-ctl), and the ones 0.2.0 left behind (homectl).
+    await writeFile(join(bin, "home-ctl.cmd"), `@echo off\n"${exe}" %*\n`);
     await writeFile(join(bin, "homectl.cmd"), `@echo off\n"${exe}" %*\n`);
-    await writeFile(
-      join(bin, "homectl"),
-      `#!/bin/sh\nexec "${exe.replaceAll("\\", "/")}" "$@"\n`,
-    );
+    const sh = `#!/bin/sh\nexec "${exe.replaceAll("\\", "/")}" "$@"\n`;
+    await writeFile(join(bin, "home-ctl"), sh);
+    await writeFile(join(bin, "homectl"), sh);
     return { root, home, oldFolder, bin, exe };
   }
 
@@ -158,17 +159,22 @@ describe.skipIf(!windows)("Windows release install", () => {
       "homectl",
       "9.9.9",
       release.folder,
-      "homectl.exe",
+      "home-ctl.exe",
     );
     expect(await readFile(newExe, "utf8")).toBe("new");
     expect(await readFile(installed.exe, "utf8")).toBe("old");
-    const cmd = await readFile(join(installed.bin, "homectl.cmd"), "utf8");
-    const sh = await readFile(join(installed.bin, "homectl"), "utf8");
+    const cmd = await readFile(join(installed.bin, "home-ctl.cmd"), "utf8");
+    const legacyCmd = await readFile(
+      join(installed.bin, "homectl.cmd"),
+      "utf8",
+    );
+    const sh = await readFile(join(installed.bin, "home-ctl"), "utf8");
     expect(cmd).toContain("9.9.9");
     expect(cmd).not.toContain("0.2.0");
+    expect(legacyCmd).toContain("9.9.9");
     expect(sh).toContain("9.9.9");
     expect(
-      existsSync(join(installed.bin, "homectl.cmd.before-update.bak")),
+      existsSync(join(installed.bin, "home-ctl.cmd.before-update.bak")),
     ).toBe(true);
   });
 
@@ -193,7 +199,7 @@ describe.skipIf(!windows)("Windows release install", () => {
       false,
     );
     expect(
-      await readFile(join(installed.bin, "homectl.cmd"), "utf8"),
+      await readFile(join(installed.bin, "home-ctl.cmd"), "utf8"),
     ).toContain("0.2.0");
   });
 

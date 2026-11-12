@@ -42,7 +42,7 @@ export function Devices() {
         <div className="mt-5">
           <Note>
             {sync.conflicts.length} control conflict{sync.conflicts.length === 1 ? "" : "s"}: resolve them from a
-            private terminal with homectl control resolve.
+            private terminal with home-ctl control resolve.
           </Note>
         </div>
       ) : null}

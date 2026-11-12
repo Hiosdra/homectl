@@ -651,7 +651,7 @@ describe("agent-facing text", () => {
     const text = plan.content[0]?.text ?? "";
     expect(text).toContain("no approval needed");
     expect(text).toContain(
-      `homectl control execute ${plan.structuredContent?.operationId}`,
+      `home-ctl control execute ${plan.structuredContent?.operationId}`,
     );
   });
 });
@@ -704,7 +704,7 @@ describe("actionable status and approval text", () => {
     });
     const text = approved.content[0]?.text ?? "";
     expect(text).toContain(
-      `homectl control execute ${plan.structuredContent?.operationId}`,
+      `home-ctl control execute ${plan.structuredContent?.operationId}`,
     );
     expect(text).toContain("Execute in the panel → Approvals");
   });

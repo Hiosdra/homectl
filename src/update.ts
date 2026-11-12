@@ -66,6 +66,18 @@ export async function update(dryRun = false, runner: Runner = run) {
       "Dependencies verified from the frozen lockfile",
       "Local installation refreshed",
     ],
-    next: "Restart running homectl serve processes to use the update. On Windows, restart your terminal application to load user PATH changes.",
+    next: "Restart running home-ctl serve processes to use the update. On Windows, restart your terminal application to load user PATH changes.",
   };
+}
+
+// `home-ctl update` takes only --dry-run and --json.
+export async function runUpdate(
+  positionals: string[],
+  commandArgs: string[],
+  inventory: unknown,
+  dryRun: boolean,
+) {
+  if (positionals.length !== 1 || commandArgs.length || inventory)
+    throw new HomectlError(2, "Usage: home-ctl update [--dry-run] [--json]");
+  return update(dryRun);
 }

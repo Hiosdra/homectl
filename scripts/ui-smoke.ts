@@ -277,7 +277,7 @@ try {
     page.getByRole("heading", { name: "Pair a computer" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Show code", exact: true }).click();
-  await expect(page.getByText(/^homectl pair --address /)).toBeVisible();
+  await expect(page.getByText(/^home-ctl pair --address /)).toBeVisible();
   expect(running.hub.pair?.code).toMatch(/^\d{4}-\d{4}$/);
   await expect(
     page.getByRole("button", { name: "Copy command" }),
@@ -711,7 +711,7 @@ try {
   await expect(page.getByText("Codex PC", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Add client", exact: true }).click();
   await expect(page.locator("#client-dialog")).toContainText(
-    "homectl control client add",
+    "home-ctl control client add",
   );
   await page
     .locator("#client-dialog")

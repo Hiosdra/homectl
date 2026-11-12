@@ -86,7 +86,7 @@ function StepCode() {
         <p>On the other computer, open Sync → Pair device, and enter this address and code:</p>
         <p className="font-mono text-[26px] tracking-[0.08em] text-foreground tabular-nums">{pairingAddress()}</p>
         <p className="font-mono text-[26px] tracking-[0.08em] text-foreground tabular-nums">{pair.code}</p>
-        <Pre>{`homectl pair --address ${pairingAddress()}`}</Pre>
+        <Pre>{`home-ctl pair --address ${pairingAddress()}`}</Pre>
         <div className="flex flex-wrap gap-2">
           <Action action="pair-copy-command" label="Copy command" />
           <Action action="pair-copy-code" label="Copy one-time code" />

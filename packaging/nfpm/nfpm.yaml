@@ -2,7 +2,7 @@
 # Placeholders are filled in per target by scripts/build-packages.ts (nfpm does not expand them):
 #   @VERSION@  the package version (package.json)
 #   @ARCH@     amd64 or arm64 (nfpm maps it to each packager name)
-#   @BINARY@   the compiled executable to install as /usr/bin/homectl
+#   @BINARY@   the compiled executable to install as /usr/bin/home-ctl
 # Run from the repository root, so the LICENSE path resolves.
 name: homectl
 arch: "@ARCH@"
@@ -19,15 +19,14 @@ homepage: "https://github.com/Hiosdra/homectl"
 license: "MIT"
 contents:
   - src: "@BINARY@"
-    dst: /usr/bin/homectl
+    dst: /usr/bin/home-ctl
     file_info:
       mode: 0755
   - src: LICENSE
     dst: /usr/share/licenses/homectl/LICENSE
     file_info:
       mode: 0644
-# rpm and archlinux are defined but not built yet: the command name collides with systemd on
-# Fedora and Arch (see scripts/build-packages.ts). deb and apk are built and tested.
+# Built by scripts/build-packages.ts: deb and rpm for glibc, archlinux (pacman) for Arch, apk for musl.
 overrides:
   # ssh is needed for machines; keepassxc-cli unlocks the vault. Package names differ per distribution.
   deb:

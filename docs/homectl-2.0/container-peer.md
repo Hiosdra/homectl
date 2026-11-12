@@ -57,7 +57,7 @@ Direct HTTP on a trusted LAN can be configured by binding `HOMECTL_PANEL_BIND` t
 ## Secrets
 
 - The KDBX database password is never in the environment, compose, image or argv.
-- `docker exec -it homectl homectl session unlock` prompts on a TTY, as on the desktop. Without a TTY it refuses.
+- `docker exec -it homectl home-ctl session unlock` prompts on a TTY, as on the desktop. Without a TTY it refuses.
 - The session expires with its TTL. A container restart clears the agent, so unlock again after each restart.
 - The KDBX file, device key and control state sit on `/data`. The volume is therefore sensitive at rest. Restrict the host directory to the container UID. This workspace does not replace runtime backups or the encrypted peer recovery design.
 
@@ -65,7 +65,7 @@ Direct HTTP on a trusted LAN can be configured by binding `HOMECTL_PANEL_BIND` t
 
 - While the NAS sleeps, the container is stopped. Desktop peers see this device as offline. Their operations wait for the lease.
 - On wake, `restart: unless-stopped` starts the container again after a host reboot. A container stopped by an operator (`docker stop`) stays stopped. Startup recovery runs on every start.
-- To stop an offline device blocking operations, suspend it on the desktop with `homectl control peer suspend DEVICE --reason TEXT`. Suspension is signed, replicated and audited, and the device rejoins the lease on its next successful sync.
+- To stop an offline device blocking operations, suspend it on the desktop with `home-ctl control peer suspend DEVICE --reason TEXT`. Suspension is signed, replicated and audited, and the device rejoins the lease on its next successful sync.
 
 ## Upgrade and rollback
 
@@ -120,9 +120,9 @@ Placeholders in this runbook: `192.0.2.20` is the NAS LAN address, `172.28.0.10`
 
 ### 5. Unlock the session (interactive only)
 
-- `docker exec -it homectl homectl session configure --database /data/vault/homelab.kdbx --ttl 8h`
-- `docker exec -it homectl homectl session unlock` prompts for the database password on the terminal. It refuses without a TTY.
-- A container restart clears the session. Unlock again after every restart, and check with `docker exec homectl homectl session status`.
+- `docker exec -it homectl home-ctl session configure --database /data/vault/homelab.kdbx --ttl 8h`
+- `docker exec -it homectl home-ctl session unlock` prompts for the database password on the terminal. It refuses without a TTY.
+- A container restart clears the session. Unlock again after every restart, and check with `docker exec homectl home-ctl session status`.
 
 ### 6. Pair with a desktop peer
 
@@ -133,14 +133,14 @@ Placeholders in this runbook: `192.0.2.20` is the NAS LAN address, `172.28.0.10`
 
 ### 7. Check sync and the audit chain
 
-- `docker exec homectl homectl peers` lists paired devices without secrets.
-- `docker exec homectl homectl control sync` shows per-device sync: last sync, lease, backoff, refusals and conflicts.
-- `docker exec homectl homectl control audit verify` checks the audit chain and its anchor.
+- `docker exec homectl home-ctl peers` lists paired devices without secrets.
+- `docker exec homectl home-ctl control sync` shows per-device sync: last sync, lease, backoff, refusals and conflicts.
+- `docker exec homectl home-ctl control audit verify` checks the audit chain and its anchor.
 
 ### 8. When the NAS sleeps
 
 - While the container is stopped, desktop peers see this device as offline and their operations wait for the lease.
-- To stop an offline device from blocking a desktop, suspend it there: `homectl control peer suspend <nas-device-name> --reason "NAS asleep"`. The suspension is signed, replicated and audited, and the device rejoins the lease on its next successful sync. Resume it with `homectl control peer resume <nas-device-name>`.
+- To stop an offline device from blocking a desktop, suspend it there: `home-ctl control peer suspend <nas-device-name> --reason "NAS asleep"`. The suspension is signed, replicated and audited, and the device rejoins the lease on its next successful sync. Resume it with `home-ctl control peer resume <nas-device-name>`.
 - On wake, `restart: unless-stopped` starts the container after a host reboot. Startup recovery runs on every start. Unlock the session again (step 5).
 
 ### 9. Upgrade and rollback

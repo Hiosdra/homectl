@@ -122,7 +122,7 @@ export async function loadInventory(path: string): Promise<Inventory> {
     return parseInventory(await readFile(path, "utf8"));
   } catch (e) {
     if (e instanceof HomectlError) throw e;
-    throw new HomectlError(2, "Cannot read inventory; run homectl setup");
+    throw new HomectlError(2, "Cannot read inventory; run home-ctl setup");
   }
 }
 export async function saveInventory(path: string, inventory: Inventory) {

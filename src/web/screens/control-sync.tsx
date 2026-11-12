@@ -196,7 +196,7 @@ function ConflictRow({
       </div>
       <div className="flex flex-wrap items-center gap-2.5 text-sm text-muted-foreground">
         Two devices claim this operation. Resolve it from a private terminal with{" "}
-        <code>homectl control resolve</code>.
+        <code>home-ctl control resolve</code>.
       </div>
     </div>
   );

@@ -136,7 +136,7 @@ export function SyncWait() {
           private terminal:
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2.5">
-          <code>homectl session unlock</code>
+          <code>home-ctl session unlock</code>
           <Action action="sync-copy-unlock" label="Copy command" />
         </div>
         <p id="sync-wait-status" role="status" className="mt-2 text-muted-foreground">

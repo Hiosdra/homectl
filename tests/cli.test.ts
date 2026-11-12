@@ -35,7 +35,7 @@ async function invoke(args: string[], env = cleanEnv()) {
 test("help works without inventory or credentials", async () => {
   const r = await invoke(["help"]);
   expect(r.code).toBe(0);
-  expect(r.stdout).toContain("homectl");
+  expect(r.stdout).toContain("home-ctl");
 });
 test("manual pairing join enters the guided flow without requiring serve", async () => {
   const r = await invoke([
@@ -48,7 +48,7 @@ test("manual pairing join enters the guided flow without requiring serve", async
   ]);
   expect(r.code).toBe(5);
   expect(r.stderr).toContain("private interactive terminal");
-  expect(r.stderr).not.toContain("Start homectl serve");
+  expect(r.stderr).not.toContain("Start home-ctl serve");
 });
 test("missing inventory exits 2", async () => {
   const r = await invoke(["hosts", "--inventory", "/nonexistent-homectl-test"]);

@@ -4,7 +4,7 @@ import { Disclosure } from "../disclosure";
 import { ui } from "../store";
 import { Muted, Section, Tag, type Tone } from "../shared";
 
-const EXPORT_COMMAND = "homectl control recovery export --key <path> --out <path>";
+const EXPORT_COMMAND = "home-ctl control recovery export --key <path> --out <path>";
 
 export function RecoveryCard() {
   const last = ui.control?.recovery?.lastExportAt;

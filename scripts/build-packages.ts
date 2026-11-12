@@ -17,13 +17,21 @@ const { version } = JSON.parse(
   await readFile(join(root, "package.json"), "utf8"),
 ) as { version: string };
 
-// glibc builds get deb. The musl builds get apk, for Alpine.
-// rpm and pacman are configured in packaging/nfpm/nfpm.yaml but not built: on Fedora and
-// Arch the systemd package already ships /usr/bin/homectl (systemd-homed), so a package
-// that installs the same path conflicts with it. The command name is an owner decision.
+// glibc builds get deb, rpm (Fedora) and pacman (Arch). The musl builds get apk, for Alpine.
+// The installed command is home-ctl. Fedora and Arch ship /usr/bin/homectl with systemd-homed,
+// so the older name collided with them; the smoke test checks that no repository package
+// provides /usr/bin/home-ctl.
 const plan = [
-  { target: "linux-x64", arch: "amd64", packagers: ["deb"] },
-  { target: "linux-arm64", arch: "arm64", packagers: ["deb"] },
+  {
+    target: "linux-x64",
+    arch: "amd64",
+    packagers: ["deb", "rpm", "archlinux"],
+  },
+  {
+    target: "linux-arm64",
+    arch: "arm64",
+    packagers: ["deb", "rpm", "archlinux"],
+  },
   { target: "linux-x64-musl", arch: "amd64", packagers: ["apk"] },
   { target: "linux-arm64-musl", arch: "arm64", packagers: ["apk"] },
 ];
@@ -80,7 +88,7 @@ try {
     const filled = templateText
       .replaceAll("@VERSION@", version)
       .replaceAll("@ARCH@", p.arch)
-      .replaceAll("@BINARY@", `${stage}/${folder}/homectl`);
+      .replaceAll("@BINARY@", `${stage}/${folder}/home-ctl`);
     await writeFile(join(root, config), filled);
 
     for (const packager of p.packagers) {

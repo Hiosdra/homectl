@@ -156,7 +156,7 @@ function wantsColor(input: ControlCliInput): boolean {
 }
 
 // No serve is running: execute from this process. The managed SSH config is
-// refreshed first, in the same order as `homectl exec`.
+// refreshed first, in the same order as `home-ctl exec`.
 async function executeHere(
   input: ControlCliInput,
   action: string,
@@ -255,7 +255,7 @@ export async function controlCommand(
     if (action === "add") return addClient(input, argument);
     if (action === "list") {
       if (input.positionals.length !== 2)
-        throw new HomectlError(2, "Usage: homectl control client list");
+        throw new HomectlError(2, "Usage: home-ctl control client list");
       const plane = await openPlane(input);
       const clients = await plane.listClients();
       return {
@@ -266,7 +266,7 @@ export async function controlCommand(
     }
     if (action === "revoke") {
       if (!argument || input.positionals.length !== 3)
-        throw new HomectlError(2, "Usage: homectl control client revoke <id>");
+        throw new HomectlError(2, "Usage: home-ctl control client revoke <id>");
       if (input.dryRun)
         return {
           value: { wouldRevoke: argument, credentialAccess: false },
@@ -305,7 +305,7 @@ export async function controlCommand(
     if (input.positionals.length !== 1)
       throw new HomectlError(
         2,
-        "Usage: homectl control ops [--state LIST] [--all]",
+        "Usage: home-ctl control ops [--state LIST] [--all]",
       );
     const plane = await openPlane(input);
     const operations = await plane.listOperations({
@@ -320,7 +320,7 @@ export async function controlCommand(
   }
   if (group === "show") {
     if (!action || input.positionals.length !== 2)
-      throw new HomectlError(2, "Usage: homectl control show <operation-id>");
+      throw new HomectlError(2, "Usage: home-ctl control show <operation-id>");
     const plane = await openPlane(input);
     const operationId = await plane.resolveOperation(action);
     const operation = await plane.showOperation(operationId);
@@ -334,7 +334,7 @@ export async function controlCommand(
     if (!action || input.positionals.length !== 2)
       throw new HomectlError(
         2,
-        "Usage: homectl control execute <operation-id>",
+        "Usage: home-ctl control execute <operation-id>",
       );
     if (input.dryRun)
       return {
@@ -369,7 +369,7 @@ export async function controlCommand(
   }
   if (group === "sync") {
     if (input.positionals.length !== 1)
-      throw new HomectlError(2, "Usage: homectl control sync");
+      throw new HomectlError(2, "Usage: home-ctl control sync");
     const live = await liveRequest<
       SyncView & { checkedAt?: string; running?: boolean }
     >(input, "/api/control/sync");
@@ -386,7 +386,7 @@ export async function controlCommand(
     if (!action || input.positionals.length !== 2)
       throw new HomectlError(
         2,
-        "Usage: homectl control handoff <operation-id> --to DEVICE  (or --cancel to withdraw an offer)",
+        "Usage: home-ctl control handoff <operation-id> --to DEVICE  (or --cancel to withdraw an offer)",
       );
     const to = input.values.to;
     const cancel = input.values.cancel === true;
@@ -413,7 +413,7 @@ export async function controlCommand(
       ...(to !== undefined ? { to } : {}),
       ...(cancel ? { cancel: true } : {}),
     });
-    if (!result) throw new HomectlError(5, "Open homectl panel first");
+    if (!result) throw new HomectlError(5, "Open home-ctl panel first");
     return {
       value: result,
       human: `${shortId(result.operationId)}: ${result.next}`,
@@ -428,7 +428,7 @@ export async function controlCommand(
     )
       throw new HomectlError(
         2,
-        "Usage: homectl control peer suspend DEVICE [--reason TEXT]  |  homectl control peer resume DEVICE",
+        "Usage: home-ctl control peer suspend DEVICE [--reason TEXT]  |  home-ctl control peer resume DEVICE",
       );
     const suspend = action === "suspend";
     if (input.dryRun)
@@ -451,7 +451,7 @@ export async function controlCommand(
           : {}),
       },
     );
-    if (!result) throw new HomectlError(5, "Open homectl panel first");
+    if (!result) throw new HomectlError(5, "Open home-ctl panel first");
     return {
       value: result,
       human: suspend
@@ -464,7 +464,7 @@ export async function controlCommand(
     if (!action || input.positionals.length !== 2)
       throw new HomectlError(
         2,
-        "Usage: homectl control resolve <operation-id> --owner DEVICE",
+        "Usage: home-ctl control resolve <operation-id> --owner DEVICE",
       );
     if (input.dryRun)
       return {
@@ -485,7 +485,7 @@ export async function controlCommand(
         ? { owner: input.values.owner }
         : {}),
     });
-    if (!result) throw new HomectlError(5, "Open homectl panel first");
+    if (!result) throw new HomectlError(5, "Open home-ctl panel first");
     return {
       value: result,
       human: `${shortId(result.operationId)}: ${result.next}`,
@@ -497,7 +497,7 @@ export async function controlCommand(
       if (!input.values.issuer || !input.values.audience)
         throw new HomectlError(
           2,
-          "Usage: homectl control oidc set --issuer URL --audience AUD [--jwks-url URL]",
+          "Usage: home-ctl control oidc set --issuer URL --audience AUD [--jwks-url URL]",
         );
       if (input.dryRun)
         return {
@@ -572,7 +572,7 @@ export async function controlCommand(
       if (!input.values.out)
         throw new HomectlError(
           2,
-          "Usage: homectl control recovery key --out PATH",
+          "Usage: home-ctl control recovery key --out PATH",
         );
       const made = await createRecoveryKey(stateDirectory, input.values.out);
       return {
@@ -585,7 +585,7 @@ export async function controlCommand(
       if (!input.values.key || !input.values.out)
         throw new HomectlError(
           2,
-          "Usage: homectl control recovery export --key PATH --out PATH",
+          "Usage: home-ctl control recovery export --key PATH --out PATH",
         );
       const bundle = await exportRecoveryBundle({
         stateDirectory,
@@ -602,7 +602,7 @@ export async function controlCommand(
       if (!input.values.key || !input.values.bundle)
         throw new HomectlError(
           2,
-          "Usage: homectl control recovery restore --key PATH --bundle PATH",
+          "Usage: home-ctl control recovery restore --key PATH --bundle PATH",
         );
       const restored = await restoreRecoveryBundle({
         stateDirectory,
@@ -617,12 +617,12 @@ export async function controlCommand(
     }
     throw new HomectlError(
       2,
-      "Usage: homectl control recovery key --out PATH | export --key PATH --out PATH | restore --key PATH --bundle PATH",
+      "Usage: home-ctl control recovery key --out PATH | export --key PATH --out PATH | restore --key PATH --bundle PATH",
     );
   }
   if (group === "audit" && action === "verify") {
     if (input.positionals.length !== 2)
-      throw new HomectlError(2, "Usage: homectl control audit verify");
+      throw new HomectlError(2, "Usage: home-ctl control audit verify");
     const plane = await openPlane(input);
     const check = await plane.verifyAudit();
     if (!check.ok)
@@ -686,7 +686,7 @@ async function addClient(
   if (!id || input.positionals.length !== 3)
     throw new HomectlError(
       2,
-      "Usage: homectl control client add <id> --name NAME --scopes LIST --hosts LIST [--token-file PATH] [--oidc-subject SUB | --oidc-client-id CID]",
+      "Usage: home-ctl control client add <id> --name NAME --scopes LIST --hosts LIST [--token-file PATH] [--oidc-subject SUB | --oidc-client-id CID]",
     );
   const oidcSubject = input.values["oidc-subject"];
   const oidcClientId = input.values["oidc-client-id"];

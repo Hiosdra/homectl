@@ -75,7 +75,7 @@ ${asset("linux-x64")}
   end
 
   def install
-    bin.install "homectl"
+    bin.install "home-ctl"
   end
 
   def caveats
@@ -85,7 +85,7 @@ ${asset("linux-x64")}
   end
 
   test do
-    assert_match "homectl", shell_output("#{bin}/homectl help")
+    assert_match "home-ctl", shell_output("#{bin}/home-ctl help")
   end
 end
 `;
@@ -97,7 +97,7 @@ export function wingetManifests(
 ): Record<string, string> {
   const id = `${publisher}.homectl`;
   const zip = archiveName(version, "windows-x64", "zip");
-  const nested = `homectl-${version}-windows-x64\\homectl.exe`;
+  const nested = `homectl-${version}-windows-x64\\home-ctl.exe`;
   const header = `PackageIdentifier: ${id}\nPackageVersion: ${version}\n`;
   const tail = "ManifestVersion: 1.6.0\n";
   return {
@@ -109,7 +109,7 @@ export function wingetManifests(
       `    NestedInstallerType: portable\n` +
       `    NestedInstallerFiles:\n` +
       `      - RelativeFilePath: ${nested}\n` +
-      `        PortableCommandAlias: homectl\n` +
+      `        PortableCommandAlias: home-ctl\n` +
       `    InstallerUrl: ${releaseUrl(version, zip)}\n` +
       `    InstallerSha256: ${sums.get(zip).toUpperCase()}\n` +
       `ManifestType: installer\n${tail}`,

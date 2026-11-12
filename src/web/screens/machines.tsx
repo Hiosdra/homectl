@@ -164,7 +164,7 @@ export function MachineForm() {
       </p>
       <form id="machine-form" key={ui.editing} className="grid gap-3">
         <div className="grid gap-1.5">
-          <HelpLabel htmlFor="machine-name" label="Name" help="The name you use in commands, for example homectl exec voron. Lowercase letters, numbers and dashes. It cannot be changed later." />
+          <HelpLabel htmlFor="machine-name" label="Name" help="The name you use in commands, for example home-ctl exec voron. Lowercase letters, numbers and dashes. It cannot be changed later." />
           <Input id="machine-name" name="name" pattern="[a-z][a-z0-9-]{0,62}" defaultValue={ui.editing} required readOnly={m !== undefined} />
         </div>
         <div className="grid gap-1.5">
@@ -230,7 +230,7 @@ export function MachineForm() {
               <HelpLabel
                 htmlFor="machine-enforcement"
                 label="Enforcement"
-                help="Advisory: homectl checks the admin rules itself. Sudoers file: the rules are also enforced on the machine by a sudoers file, which you create with homectl sudoers."
+                help="Advisory: homectl checks the admin rules itself. Sudoers file: the rules are also enforced on the machine by a sudoers file, which you create with home-ctl sudoers."
               />
               <Select
                 name="enforcement"
