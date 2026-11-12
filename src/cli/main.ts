@@ -75,6 +75,7 @@ async function panelInterface(inventoryPath: string, requested?: string) {
 export async function main(raw = process.argv.slice(2)): Promise<number> {
   // Internal roles that homectl starts for itself (src/cli/internal-roles.ts).
   if (raw[0] === "__internal") return runInternal(raw[1]);
+  await (await import("../skill-install")).refreshManagedSkills();
   const split = raw.indexOf("--");
   const cliArgs = split < 0 ? raw : raw.slice(0, split);
   const commandArgs = split < 0 ? [] : raw.slice(split + 1);

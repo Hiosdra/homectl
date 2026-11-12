@@ -126,3 +126,26 @@ export async function refreshSkills(home = homedir()): Promise<number> {
     return error.code;
   }
 }
+
+// Refreshes the copies that homectl installed earlier, when this release carries newer skills.
+// Only a folder with a manifest is touched, so a home without skills gets none. A copy edited
+// by hand is kept, and a failure is ignored: no command should fail over a skill copy.
+export async function refreshManagedCopies(home = homedir()) {
+  for (const platform of [".agents", ".claude"])
+    for (const skill of bundledSkills) {
+      const dest = join(home, platform, "skills", skill.name);
+      try {
+        if ((await readText(join(dest, skillManifest))) !== undefined)
+          await installSkillCopy(dest, await skillContents(skill));
+      } catch {
+        // Edited or unreadable: `home-ctl setup` reports it.
+      }
+    }
+}
+
+// Runs at the start of every command. A package-manager or Homebrew update replaces the
+// executable without running setup, so the first command after it refreshes the skills here.
+// A source checkout links its skills and needs nothing.
+export async function refreshManagedSkills(home = homedir()) {
+  if (bundled) await refreshManagedCopies(home);
+}
