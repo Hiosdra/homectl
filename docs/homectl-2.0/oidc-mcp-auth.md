@@ -45,10 +45,10 @@ If the endpoint is ever reached through a reverse proxy, the proxy must terminat
 
 ## Configuration (planned commands)
 
-- `homectl control oidc set --issuer URL --audience AUD [--jwks-url URL]`: writes the control-state config. No network access at set time.
-- `homectl control oidc show`: issuer host, audience, JWKS source and whether keys are cached. No secrets exist to show.
-- `homectl control client add ID ... --oidc-subject SUB` or `--oidc-client-id CID`: adds the mapping. Without `--token-file` the client is OIDC only (no static token); with it, the client has both routes.
-- `homectl control client list`: an OIDC column with the issuer host. The panel's Clients tab shows an "OIDC" badge with the issuer host.
+- `home-ctl control oidc set --issuer URL --audience AUD [--jwks-url URL]`: writes the control-state config. No network access at set time.
+- `home-ctl control oidc show`: issuer host, audience, JWKS source and whether keys are cached. No secrets exist to show.
+- `home-ctl control client add ID ... --oidc-subject SUB` or `--oidc-client-id CID`: adds the mapping. Without `--token-file` the client is OIDC only (no static token); with it, the client has both routes.
+- `home-ctl control client list`: an OIDC column with the issuer host. The panel's Clients tab shows an "OIDC" badge with the issuer host.
 
 ## Out of scope
 

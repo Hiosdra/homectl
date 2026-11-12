@@ -523,7 +523,7 @@ export class ControlPlane {
     } catch {
       throw new HomectlError(
         5,
-        "OIDC configuration is corrupt; run homectl control oidc clear and configure it again",
+        "OIDC configuration is corrupt; run home-ctl control oidc clear and configure it again",
       );
     }
   }
@@ -699,7 +699,7 @@ export class ControlPlane {
     if (!config)
       throw new HomectlError(
         2,
-        "Configure OIDC first: homectl control oidc set --issuer URL --audience AUD",
+        "Configure OIDC first: home-ctl control oidc set --issuer URL --audience AUD",
       );
     const input = raw as { claim?: unknown; value?: unknown };
     if (
@@ -1373,7 +1373,7 @@ export class ControlPlane {
       if (req.decision === "approve" && !op.plan.needsApproval)
         throw new HomectlError(
           3,
-          "Inspection plans need no approval; the local operator can run them with homectl control execute",
+          "Inspection plans need no approval; the local operator can run them with home-ctl control execute",
         );
       if (req.decision === "approve" && client.id === op.issuer)
         throw new HomectlError(
@@ -1527,7 +1527,7 @@ export class ControlPlane {
       if (remote === undefined)
         throw new HomectlError(
           5,
-          "The approver is registered on another device and its replicated authority is not available here. Run this through a running homectl serve, or sync first. Nothing was changed.",
+          "The approver is registered on another device and its replicated authority is not available here. Run this through a running home-ctl serve, or sync first. Nothing was changed.",
         );
       return remote;
     }
@@ -1604,7 +1604,7 @@ export class ControlPlane {
         if (remote?.runsOn)
           throw new HomectlError(
             3,
-            `Operation runs on ${remote.runsOn}; run homectl control execute there`,
+            `Operation runs on ${remote.runsOn}; run home-ctl control execute there`,
           );
         throw new HomectlError(2, "Unknown operation");
       }
@@ -1842,7 +1842,7 @@ export class ControlPlane {
       } catch {
         throw new HomectlError(
           5,
-          "Outcome recorded but the audit append failed; run homectl control audit verify",
+          "Outcome recorded but the audit append failed; run home-ctl control audit verify",
         );
       }
       return { operation: operationView(op, now), output };

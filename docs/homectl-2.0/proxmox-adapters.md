@@ -4,7 +4,7 @@ Status: implemented on this branch (catalogue, planning, MCP tool, tests). **Not
 
 ## Starting point (what exists, and what does not)
 
-- `src/provisioners/`: a QEMU cloud-init clone path that drives `pvesh` over the managed SSH key (`sudo -n pvesh` for non-root users). It is the provisioning path used by `homectl` setup, and it stays as it is.
+- `src/provisioners/`: a QEMU cloud-init clone path that drives `pvesh` over the managed SSH key (`sudo -n pvesh` for non-root users). It is the provisioning path used by `home-ctl` setup, and it stays as it is.
 - Not in place before this slice: typed guest lifecycle through the control plane, LXC create, and any `qm`/`pct` action reachable from MCP. `qm` and `pct` argv were refused by the control plane's screening (`CONTAINER_CONTROL`, and full-access hosts are refused outright).
 - LXC create and LXC lifecycle are **new in this slice**. They are not claimed as existing behaviour and are not verified on a real node.
 
@@ -74,7 +74,7 @@ Tier mapping: inspect and mutation both need `sudo -n` on a `full` host in this 
 - Catalogue and validation: `src/proxmox/catalogue.ts`. `buildProxmoxPlan` builds the exact argv and the friendly label; `catalogueClass` is the shape-only check the exec policy uses; `providerFacts` reads the provider entry.
 - Inventory facts: optional `vmid_range`, `protected_vmids`, `storages` and `templates` on a `providers` entry (schema and parser checked). Without `vmid_range`, inspection uses 100–999999999 and every change is refused. Without `storages` or `templates`, no storage or template is allowed for clone or create.
 - Planning: MCP tool `homectl_proxmox_plan` (op `proxmox-plan`, scope `plan:create`). The engine resolves the provider for the host, builds the argv, prefixes `sudo -n` unless the SSH user is `root`, and creates an ordinary plan through the shared `createPlan`. Fingerprint, approval, lease, fence and audit are unchanged.
-- Policy: a generic plan (`op: plan`, `homectl exec`) refuses every `qm` and `pct` argv. A catalogue plan is accepted only in one of the exact forms, and its `catalogue` flag is kept on the plan so execution and the fingerprint re-check apply the same rule.
+- Policy: a generic plan (`op: plan`, `home-ctl exec`) refuses every `qm` and `pct` argv. A catalogue plan is accepted only in one of the exact forms, and its `catalogue` flag is kept on the plan so execution and the fingerprint re-check apply the same rule.
 - Screening: the control plane refuses full-access hosts and `qm`/`pct` control in general. Catalogue plans are the one exception; shells, interpreters, runtime sockets and the other existing refusals still apply.
 - Labels: the friendly label is the operation's impact text, which the Approvals row already shows above the exact argv, so the panel is unchanged.
 - Found while testing: the re-check at execution rebuilt the plan without the catalogue flag and would have refused every catalogue operation as stale. It now rebuilds with the flag.

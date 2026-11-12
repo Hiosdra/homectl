@@ -26,7 +26,7 @@ import { normalizePublicKey } from "../session/public-key";
 import { doctor, paths } from "../setup";
 import { transportSpec } from "../transports";
 import { HomectlError, type Machine, type ProcessResult } from "../types";
-import { update } from "../update";
+import { runUpdate } from "../update";
 import { renderHelp } from "./help";
 import { formatError, formatHuman } from "./output";
 import { confirm } from "./prompts";
@@ -227,9 +227,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
     if ((v["install-deps"] || v["configure-firewall"]) && command !== "setup")
       throw new HomectlError(2, "--install-deps is only supported by setup");
     if (command === "update") {
-      if (positionals.length !== 1 || commandArgs.length || v.inventory)
-        throw new HomectlError(2, "Usage: homectl update [--dry-run] [--json]");
-      emit(await update(dryRun));
+      emit(await runUpdate(positionals, commandArgs, v.inventory, dryRun));
       return 0;
     }
     if (command === "setup") {
@@ -297,7 +295,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         if (!v.address)
           throw new HomectlError(
             2,
-            "Use homectl pair join --address http://<device-LAN-IP>:7448",
+            "Use home-ctl pair join --address http://<device-LAN-IP>:7448",
           );
         if (json)
           throw new HomectlError(
@@ -467,7 +465,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       if (!process.stdin.isTTY)
         throw new HomectlError(
           5,
-          "Run homectl panel yourself in a private terminal; the launch address contains a local access token",
+          "Run home-ctl panel yourself in a private terminal; the launch address contains a local access token",
         );
       let existing: { peerAddress?: string } | undefined;
       try {
@@ -511,7 +509,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         ),
       ) as { url: string; token: string };
       const url = `${launch.url}/#token=${encodeURIComponent(launch.token)}`;
-      console.log("Opening the local homectl panel.");
+      console.log("Opening the local home-ctl panel.");
       const child = Bun.spawn(
         windows
           ? ["rundll32.exe", "url.dll,FileProtocolHandler", url]
@@ -599,7 +597,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         emit({
           running: true,
           peers: existing.peerAddress,
-          next: "Workspace is already running. Use homectl panel to open it. To stop the temporary workspace, press Ctrl+C in the terminal running homectl pair/serve.",
+          next: "Workspace is already running. Use home-ctl panel to open it. To stop the temporary workspace, press Ctrl+C in the terminal running home-ctl pair/serve.",
         });
         return 0;
       }
@@ -615,7 +613,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       emit({
         panel: running.url,
         peers: running.address,
-        next: "Run homectl panel in your private terminal. New pairing is closed until opened in the panel.",
+        next: "Run home-ctl panel in your private terminal. New pairing is closed until opened in the panel.",
       });
       await new Promise<void>((done) => {
         const stop = () => void running.stop().finally(done);
@@ -628,7 +626,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       if (positionals.length > 1 || commandArgs.length)
         throw new HomectlError(
           2,
-          "Usage: homectl serve-mcp [--host 127.0.0.1] [--port 7449] [--inventory PATH]",
+          "Usage: home-ctl serve-mcp [--host 127.0.0.1] [--port 7449] [--inventory PATH]",
         );
       if (dryRun) {
         emit({
@@ -979,7 +977,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       });
       return 0;
     }
-    throw new HomectlError(2, "Unknown command; use homectl help");
+    throw new HomectlError(2, "Unknown command; use home-ctl help");
   } catch (e) {
     const error =
       e instanceof HomectlError

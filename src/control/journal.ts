@@ -167,7 +167,7 @@ export class AuditJournal {
     if (!check.ok)
       throw new HomectlError(
         5,
-        "Audit journal failed verification; run homectl control audit verify",
+        "Audit journal failed verification; run home-ctl control audit verify",
       );
     const last = entries.at(-1);
     const body: EntryBody = {

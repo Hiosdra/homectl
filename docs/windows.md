@@ -17,19 +17,19 @@ bun src/cli/main.ts setup
 
 Setup produces three launchers under `%USERPROFILE%\.local\bin`:
 
-- `homectl.cmd` for CMD (and ordinary command resolution).
-- `homectl.ps1` for PowerShell.
-- `homectl` for Git Bash, using `cygpath` to locate the same Bun executable.
+- `home-ctl.cmd` for CMD (and ordinary command resolution).
+- `home-ctl.ps1` for PowerShell.
+- `home-ctl` for Git Bash, using `cygpath` to locate the same Bun executable.
 
-Setup adds that directory to your Windows user PATH idempotently. Restart the entire terminal application (including Windows Terminal or VS Code) to load the updated environment. For immediate use in the current PowerShell, run `$env:Path = "$HOME\.local\bin;$env:Path"`. If PowerShell script execution is restricted, invoke `homectl.cmd`; homectl does not change execution policy. Skills are copied on Windows so setup does not require Developer Mode or elevated symlink rights. Existing different launchers and skills are not silently overwritten.
+Setup adds that directory to your Windows user PATH idempotently. Restart the entire terminal application (including Windows Terminal or VS Code) to load the updated environment. For immediate use in the current PowerShell, run `$env:Path = "$HOME\.local\bin;$env:Path"`. If PowerShell script execution is restricted, invoke `home-ctl.cmd`; homectl does not change execution policy. Skills are copied on Windows so setup does not require Developer Mode or elevated symlink rights. Existing different launchers and skills are not silently overwritten.
 
-Update the installed checkout with `homectl.cmd update` (or preview with `homectl.cmd update --dry-run`). It requires a configured upstream and preserves unrelated local changes, uses fast-forward only, installs the frozen dependencies and reruns setup. It preserves the per-user inventory and vault and does not restart running services. If your checkout predates this command, use `git pull --ff-only` once first.
+Update the installed checkout with `home-ctl.cmd update` (or preview with `home-ctl.cmd update --dry-run`). It requires a configured upstream and preserves unrelated local changes, uses fast-forward only, installs the frozen dependencies and reruns setup. It preserves the per-user inventory and vault and does not restart running services. If your checkout predates this command, use `git pull --ff-only` once first.
 
 Initialize or import credentials locally, then start the workspace:
 
 ```powershell
-homectl.cmd session init
-homectl.cmd panel
+home-ctl.cmd session init
+home-ctl.cmd panel
 ```
 
 `panel` starts a temporary workspace automatically and uses the LAN address selected during setup. Keep that terminal open while the panel is in use. To keep it running in the background, install the service below instead.
@@ -47,17 +47,17 @@ Bun alone is not a Windows Service Control Manager host. Homectl uses an officia
 From an elevated **private** terminal:
 
 ```powershell
-homectl.cmd service install --interface 192.168.1.20 --wrapper C:\Tools\WinSW.exe
+home-ctl.cmd service install --interface 192.168.1.20 --wrapper C:\Tools\WinSW.exe
 ```
 
 The registration initially uses **Manual** startup. Before starting, open `services.msc`, select **homectl peer workspace**, and configure **Log On** with the same Windows user that owns your homectl files. Enter that account's password in the Windows service dialog, not in command arguments, XML, repository files or chat. Do not leave it running as SYSTEM; the CLI refuses to start/restart a SYSTEM service.
 
 ```powershell
-homectl.cmd service start
-homectl.cmd service status
-homectl.cmd service logs
-homectl.cmd service stop
-homectl.cmd service uninstall
+home-ctl.cmd service start
+home-ctl.cmd service status
+home-ctl.cmd service logs
+home-ctl.cmd service stop
+home-ctl.cmd service uninstall
 ```
 
 Choose automatic startup in the service manager if desired after account setup. The service starts with locked keys and pairing closed. `service uninstall` removes its host/configuration but preserves the vault, inventory and trust. Installing or removing a native service requires Windows administrator privileges; ordinary temporary `serve` does not.

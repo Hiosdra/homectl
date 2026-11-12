@@ -41,7 +41,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
           if (($userPath -split ';') -notcontains "$HOME\.local\bin") { throw 'Setup did not persist user PATH' }
-          & "$HOME\.local\bin\homectl.cmd" help
+          & "$HOME\.local\bin\home-ctl.cmd" help
 
       - name: CMD CLI smoke
         shell: cmd

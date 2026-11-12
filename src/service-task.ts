@@ -1,4 +1,4 @@
-// Windows alternative to the WinSW service: a scheduled task that runs `homectl serve` for
+// Windows alternative to the WinSW service: a scheduled task that runs `home-ctl serve` for
 // the signed-in user at logon. It needs no service account password and no SYSTEM account.
 // A dry run only builds the commands. A real install or removal changes the machine, so the
 // CLI runs it only when the person passes --task without --dry-run.
@@ -82,12 +82,12 @@ export async function serviceTask(action: string, options: TaskOptions) {
     if (r.exitCode)
       throw new HomectlError(
         5,
-        "The scheduled task could not be created. If it already exists, remove it with homectl service uninstall --task first.",
+        "The scheduled task could not be created. If it already exists, remove it with home-ctl service uninstall --task first.",
       );
     return {
       installed: true,
       task: TASK_NAME,
-      next: "It starts at your next sign-in. Start it now with homectl service start --task.",
+      next: "It starts at your next sign-in. Start it now with home-ctl service start --task.",
     };
   }
   if (action === "uninstall") {
@@ -112,7 +112,7 @@ export async function serviceTask(action: string, options: TaskOptions) {
     if (r.exitCode)
       throw new HomectlError(
         5,
-        `The task could not be ${action === "start" ? "started" : "stopped"}. Install it first with homectl service install --task.`,
+        `The task could not be ${action === "start" ? "started" : "stopped"}. Install it first with home-ctl service install --task.`,
       );
     return { action, task: TASK_NAME, ok: true };
   }

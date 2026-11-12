@@ -120,7 +120,7 @@ async function verifyAudit(controlDir: string): Promise<void> {
   }
   throw new HomectlError(
     5,
-    `Audit journal failed startup verification (${error}); nothing was changed. Restore the control-plane directory from backup or run homectl control audit verify.`,
+    `Audit journal failed startup verification (${error}); nothing was changed. Restore the control-plane directory from backup or run home-ctl control audit verify.`,
   );
 }
 

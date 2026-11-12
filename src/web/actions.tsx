@@ -128,7 +128,7 @@ export async function handleAction(action: string | undefined, id: string) {
       await refresh();
       return;
     case "pair-copy-command":
-      await copyText(`homectl pair --address ${pairingAddress()}`);
+      await copyText(`home-ctl pair --address ${pairingAddress()}`);
       report(
         "Command copied. Paste it on the other computer, then enter the one-time code.",
         "notice",
@@ -144,7 +144,7 @@ export async function handleAction(action: string | undefined, id: string) {
       );
       return;
     case "sync-copy-unlock":
-      await copyText("homectl session unlock");
+      await copyText("home-ctl session unlock");
       report("Unlock command copied. Run it on the device named above.", "notice");
       return;
     case "pair-confirm":

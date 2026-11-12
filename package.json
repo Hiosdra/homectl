@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "homectl": "src/cli/main.ts"
+    "home-ctl": "src/cli/main.ts"
   },
   "engines": {
     "bun": ">=1.4.4"

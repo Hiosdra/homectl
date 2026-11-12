@@ -32,6 +32,6 @@ export async function initDatabase(inv: Inventory, inventoryPath: string) {
   return {
     database,
     created: true,
-    next: "Run homectl key create <host> in your private terminal",
+    next: "Run home-ctl key create <host> in your private terminal",
   };
 }

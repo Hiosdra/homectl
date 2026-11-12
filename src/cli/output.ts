@@ -104,7 +104,7 @@ export function formatHuman(
               : [scalar(peer), "", ""],
           ),
         )
-      : "No paired devices. Run homectl pair on both computers.";
+      : "No paired devices. Run home-ctl pair on both computers.";
   if (!record(value)) return tree(value);
   if (command === "doctor" && Array.isArray(value.checks)) {
     const { checks: entries, ok, note, ...rest } = value;

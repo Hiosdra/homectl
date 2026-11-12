@@ -12,7 +12,7 @@ const globalOptions: Section = {
 };
 const pages: Record<string, Page> = {
   "": {
-    usage: "homectl <command> [options]",
+    usage: "home-ctl <command> [options]",
     intro: "Manage your homelab through KeePassXC and SSH.",
     sections: [
       {
@@ -102,15 +102,15 @@ const pages: Record<string, Page> = {
       {
         title: "Examples",
         rows: [
-          ["homectl session --help", "Session actions and TTL options."],
-          ["homectl exec --help", "Command execution and confirmation."],
-          ["homectl doctor voron", "Check a configured host."],
+          ["home-ctl session --help", "Session actions and TTL options."],
+          ["home-ctl exec --help", "Command execution and confirmation."],
+          ["home-ctl doctor voron", "Check a configured host."],
         ],
       },
     ],
   },
   session: {
-    usage: "homectl session <action> [options]",
+    usage: "home-ctl session <action> [options]",
     intro: "Unlock privately once per TTL or agent-host reboot.",
     sections: [
       {
@@ -141,15 +141,15 @@ const pages: Record<string, Page> = {
         title: "Examples",
         rows: [
           [
-            "homectl session configure --ttl 24h",
+            "home-ctl session configure --ttl 24h",
             "Set a daily unlock interval.",
           ],
           [
-            "homectl session configure --ttl until-reboot",
+            "home-ctl session configure --ttl until-reboot",
             "Keep keys until lock or cold reboot.",
           ],
-          ["homectl session unlock", "Run yourself in a private terminal."],
-          ["homectl session status --json", "Inspect the current session."],
+          ["home-ctl session unlock", "Run yourself in a private terminal."],
+          ["home-ctl session status --json", "Inspect the current session."],
         ],
       },
       {
@@ -165,7 +165,7 @@ const pages: Record<string, Page> = {
     ],
   },
   key: {
-    usage: "homectl key <create|inspect> <name> [options]",
+    usage: "home-ctl key <create|inspect> <name> [options]",
     sections: [
       {
         title: "Actions",
@@ -197,7 +197,7 @@ const pages: Record<string, Page> = {
     ],
   },
   exec: {
-    usage: "homectl exec <host> [options] -- <command> [args...]",
+    usage: "home-ctl exec <host> [options] -- <command> [args...]",
     intro:
       "Put homectl options before --; arguments after it belong to the remote command.",
     sections: [
@@ -218,8 +218,8 @@ const pages: Record<string, Page> = {
       {
         title: "Examples",
         rows: [
-          ["homectl exec voron -- uname -s", "Inspect the host OS."],
-          ["homectl exec voron --dry-run -- uptime", "Preview the command."],
+          ["home-ctl exec voron -- uname -s", "Inspect the host OS."],
+          ["home-ctl exec voron --dry-run -- uptime", "Preview the command."],
         ],
       },
       {
@@ -235,7 +235,7 @@ const pages: Record<string, Page> = {
     ],
   },
   enroll: {
-    usage: "homectl enroll <host> --file PATH [options]",
+    usage: "home-ctl enroll <host> --file PATH [options]",
     sections: [
       {
         title: "Enrollment",
@@ -258,7 +258,7 @@ const pages: Record<string, Page> = {
     ],
   },
   provision: {
-    usage: "homectl provision --file PATH [options]",
+    usage: "home-ctl provision --file PATH [options]",
     sections: [
       {
         title: "Provisioning",
@@ -284,28 +284,28 @@ const pages: Record<string, Page> = {
 for (const [name, usage, description] of [
   [
     "update",
-    "homectl update [--dry-run] [--json]",
+    "home-ctl update [--dry-run] [--json]",
     "Fast-forward the current branch from its configured upstream, install the frozen dependencies and refresh setup. Git refuses overlapping local changes or divergent history; no automatic stash or reset; never restarts services.",
   ],
   [
     "setup",
-    "homectl setup [--json] [--dry-run] [--install-deps] [--configure-firewall --interface IP]",
+    "home-ctl setup [--json] [--dry-run] [--install-deps] [--configure-firewall --interface IP]",
     "Interactive setup guides dependency installation, LAN selection and scoped firewall configuration with confirmation. Installs per-user CLI, skills and SSH configuration. --json never prompts: use --install-deps and --configure-firewall --interface IP explicitly from an administrator terminal. --dry-run previews without changing files or firewall rules. Existing configuration is preserved. Uses the standard per-user directory; --inventory is not supported.",
   ],
   [
     "doctor",
-    "homectl doctor [host] [options]",
+    "home-ctl doctor [host] [options]",
     "Check local tools. A named host adds a real managed-key SSH probe. Never opens KDBX or restarts services.",
   ],
-  ["hosts", "homectl hosts [options]", "List machines from inventory."],
+  ["hosts", "home-ctl hosts [options]", "List machines from inventory."],
   [
     "inspect",
-    "homectl inspect <host> [options]",
+    "home-ctl inspect <host> [options]",
     "Show the host's purpose, cautions, account and access tier.",
   ],
   [
     "sudoers",
-    "homectl sudoers <host> [options]",
+    "home-ctl sudoers <host> [options]",
     "Print literal sudoers rules without installing them.",
   ],
 ]) {
@@ -326,7 +326,7 @@ for (const [name, usage, description] of [
   };
 }
 pages.serve = {
-  usage: "homectl serve [--interface LAN-IP] [--port 7447] [--peer-port 7448]",
+  usage: "home-ctl serve [--interface LAN-IP] [--port 7447] [--peer-port 7448]",
   intro:
     "Panel binds only localhost. Pairing is opened explicitly. LAN channel requires an explicit interface IP.",
   sections: [
@@ -366,7 +366,7 @@ pages.serve = {
   ],
 };
 pages.service = {
-  usage: "homectl service <install|start|stop|restart|status|logs|uninstall>",
+  usage: "home-ctl service <install|start|stop|restart|status|logs|uninstall>",
   intro:
     "Linux/WSL use a systemd user service. Windows uses an official WinSW host with an explicitly configured user account. On Windows, --task uses a scheduled task that starts at your sign-in instead, with no service account and no password; install it with --dry-run first to see the command.",
   sections: [
@@ -381,21 +381,21 @@ pages.service = {
   ],
 };
 pages.panel = {
-  usage: "homectl panel [--interface LAN-IP] [--inventory PATH]",
+  usage: "home-ctl panel [--interface LAN-IP] [--inventory PATH]",
   intro:
     "Run yourself in a private terminal. Opens the panel and starts a temporary workspace if needed; keep this terminal open until you finish. The private launch token is never emitted as JSON.",
   sections: [globalOptions],
 };
 pages.peers = {
-  usage: "homectl peers [--json]",
+  usage: "home-ctl peers [--json]",
   intro:
     "List paired peers from the running local serve instance, without secrets.",
   sections: [globalOptions],
 };
 pages.pair = {
-  usage: "homectl pair [--address http://DEVICE-LAN-IP:7448]",
+  usage: "home-ctl pair [--address http://DEVICE-LAN-IP:7448]",
   intro:
-    "Use homectl pair on both devices for guided LAN discovery. If discovery is blocked (for example by Docker, Wi-Fi isolation or VLANs), open pairing in one device's UI and run homectl pair --address http://<device-LAN-IP>:7448 on the other. It starts the local pairing endpoint, asks for the code privately and guides phrase verification; no separate serve command is needed. If Windows asks, allow homectl on private networks. Keep the terminal open until pairing and sync are finished. Codes and phrases are private, never argv. Advanced subcommands remain available.",
+    "Use home-ctl pair on both devices for guided LAN discovery. If discovery is blocked (for example by Docker, Wi-Fi isolation or VLANs), open pairing in one device's UI and run home-ctl pair --address http://<device-LAN-IP>:7448 on the other. It starts the local pairing endpoint, asks for the code privately and guides phrase verification; no separate serve command is needed. If Windows asks, allow homectl on private networks. Keep the terminal open until pairing and sync are finished. Codes and phrases are private, never argv. Advanced subcommands remain available.",
   sections: [
     {
       title: "Pairing",
@@ -411,7 +411,7 @@ pages.pair = {
   ],
 };
 pages.sync = {
-  usage: "homectl sync <preview|apply|cancel> <peer-or-preview-id>",
+  usage: "home-ctl sync <preview|apply|cancel> <peer-or-preview-id>",
   intro:
     "Preview before applying. Choose local, remote or both for each conflict ID in a choices JSON object.",
   sections: [
@@ -428,16 +428,16 @@ pages.sync = {
   ],
 };
 pages.peer = {
-  usage: "homectl peer <peer-id> --target <host> -- <argv...>",
+  usage: "home-ctl peer <peer-id> --target <host> -- <argv...>",
   intro:
     "Uses the peer's grants and host policy. Mutations wait for local approval on the execution peer.",
   sections: [globalOptions],
 };
 pages["serve-mcp"] = {
   usage:
-    "homectl serve-mcp [--host 127.0.0.1] [--port 7449] [--inventory PATH]",
+    "home-ctl serve-mcp [--host 127.0.0.1] [--port 7449] [--inventory PATH]",
   intro:
-    "Starts the MCP endpoint on 127.0.0.1 by default. Each client authenticates with its own token and receives only its granted scopes and hosts. Clients can inspect, plan and approve. They cannot execute, open shells or read secrets; the local operator runs approved operations with homectl control execute.",
+    "Starts the MCP endpoint on 127.0.0.1 by default. Each client authenticates with its own token and receives only its granted scopes and hosts. Clients can inspect, plan and approve. They cannot execute, open shells or read secrets; the local operator runs approved operations with home-ctl control execute.",
   sections: [
     {
       title: "Options",
@@ -454,7 +454,7 @@ pages["serve-mcp"] = {
 };
 pages.control = {
   usage:
-    "homectl control <client|ops|show|execute|handoff|sync|audit> [options]",
+    "home-ctl control <client|ops|show|execute|handoff|sync|audit> [options]",
   intro:
     "Local operator actions for the control plane. Run them in your private terminal; they are not available through MCP.",
   sections: [
@@ -498,7 +498,7 @@ pages.control = {
         ],
         [
           "handoff ID --to DEVICE",
-          "On the owner: offer the operation to DEVICE. The owner will not run it until DEVICE accepts, the offer is cancelled, or it expires after five minutes (or when the plan ends). Needs an open workspace; run homectl panel to start one.",
+          "On the owner: offer the operation to DEVICE. The owner will not run it until DEVICE accepts, the offer is cancelled, or it expires after five minutes (or when the plan ends). Needs an open workspace; run home-ctl panel to start one.",
         ],
         [
           "handoff ID",
@@ -510,7 +510,7 @@ pages.control = {
         ],
         [
           "peer suspend DEVICE [--reason TEXT]  |  peer resume DEVICE",
-          "Take a paired device out of this device's lease, so operations here do not wait for it, or put it back. Operations here may run without that device confirming the latest state: use it only when the device is offline or will stay offline. Signed, replicated and audited. Needs an open workspace; run homectl panel to start one.",
+          "Take a paired device out of this device's lease, so operations here do not wait for it, or put it back. Operations here may run without that device confirming the latest state: use it only when the device is offline or will stay offline. Signed, replicated and audited. Needs an open workspace; run home-ctl panel to start one.",
         ],
         [
           "resolve ID --owner DEVICE",
@@ -558,7 +558,7 @@ pages.control = {
 };
 pages.ssh = {
   ...(pages.exec as Page),
-  usage: "homectl ssh <host> [options] -- <command> [args...]",
+  usage: "home-ctl ssh <host> [options] -- <command> [args...]",
 };
 
 function wrap(text: string, width: number): string[] {
@@ -583,7 +583,7 @@ export function renderHelp(
   const width = Math.max(40, Math.min(options.width ?? 80, 100));
   const heading = (text: string) =>
     options.color ? `\x1b[1;36m${text}\x1b[0m` : text;
-  const lines = [heading("homectl"), ""];
+  const lines = [heading("home-ctl"), ""];
   if (page.intro) lines.push(...wrap(page.intro, width), "");
   lines.push(
     heading("Usage"),
@@ -613,7 +613,7 @@ export function renderHelp(
       }
     }
   }
-  lines.push("", "More help: homectl <command> --help");
+  lines.push("", "More help: home-ctl <command> --help");
   if (!topic)
     lines.push(
       "Exit codes: 0 success, 2 input, 3 policy, 4 confirmation,",

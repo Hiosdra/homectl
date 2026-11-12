@@ -16,7 +16,7 @@ export function unameValue(stdout: string) {
 
 export function probeFailureMessage(result?: ProcessResult) {
   if (!result)
-    return "Could not start the connectivity probe. Check that the required local client is installed, then run homectl doctor again. No credentials or raw diagnostics are shown.";
+    return "Could not start the connectivity probe. Check that the required local client is installed, then run home-ctl doctor again. No credentials or raw diagnostics are shown.";
 
   const output = stripAnsi(`${result.stderr}\n${result.stdout}`).toLowerCase();
 
@@ -26,7 +26,7 @@ export function probeFailureMessage(result?: ProcessResult) {
     return "The SSH account has no home directory. On UGREEN UGOS Pro, enable Personal Folder in Control Panel > User; do not remove immutable protection from /home. Have the administrator verify home ownership and permissions before installing the public key.";
 
   if (/homectl ssh session (?:is locked|expired)/.test(output))
-    return "The homectl SSH session is locked or expired. Run `homectl session unlock` in your private terminal, then retry.";
+    return "The homectl SSH session is locked or expired. Run `home-ctl session unlock` in your private terminal, then retry.";
 
   if (
     /remote host identification has changed|host key verification failed|offending .* key/.test(

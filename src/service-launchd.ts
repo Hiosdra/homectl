@@ -1,4 +1,4 @@
-// macOS background service: a user LaunchAgent that runs `homectl serve` at login and
+// macOS background service: a user LaunchAgent that runs `home-ctl serve` at login and
 // restarts it after a failure. Only a user agent is installed; no root is needed.
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -105,7 +105,7 @@ export async function launchdService(action: string, options: LaunchdOptions) {
     await protect(paths.plist);
     return {
       installed: true,
-      next: "Run homectl service start to start it now. It starts at every login after that.",
+      next: "Run home-ctl service start to start it now. It starts at every login after that.",
     };
   }
   if (action === "start") {

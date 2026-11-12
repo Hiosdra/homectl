@@ -14,7 +14,7 @@ export async function localApi<T = unknown>(
   } catch {
     throw new HomectlError(
       5,
-      "No homectl workspace is open. Run homectl panel in a private terminal; it starts one if needed.",
+      "No homectl workspace is open. Run home-ctl panel in a private terminal; it starts one if needed.",
     );
   }
   const url = new URL(info.url);

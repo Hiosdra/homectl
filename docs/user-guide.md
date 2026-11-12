@@ -24,8 +24,8 @@ Keep this checkout at a stable path. Add `~/.local/bin` to PATH if needed. Setup
 Run these commands **yourself in a private terminal**:
 
 ```sh
-homectl session configure --ttl 24h
-homectl session init
+home-ctl session configure --ttl 24h
+home-ctl session init
 ```
 
 Choose a strong database password. Keep a secure encrypted backup. Existing configured users with a KDBX do not need to initialize again. There is no migration command or background credential-provider pairing.
@@ -33,21 +33,21 @@ Choose a strong database password. Keep a secure encrypted backup. Existing conf
 ## Daily use
 
 ```sh
-homectl session unlock           # private terminal, password entered without echo
-homectl session status --json
-homectl hosts --json
-homectl inspect lab-printer --json
-homectl doctor lab-printer --json
-homectl exec lab-printer --json -- uname -s
-homectl session lock
+home-ctl session unlock           # private terminal, password entered without echo
+home-ctl session status --json
+home-ctl hosts --json
+home-ctl inspect lab-printer --json
+home-ctl doctor lab-printer --json
+home-ctl exec lab-printer --json -- uname -s
+home-ctl session lock
 ```
 
 The default TTL is **24 hours**, measured from the start of the session. A repeated unlock does not extend it. Configure another duration or keep keys until the agent host restarts:
 
 ```sh
-homectl session configure --ttl 12h
-homectl session configure --ttl until-reboot
-homectl session configure --ttl 24h --database /absolute/path/homelab.kdbx
+home-ctl session configure --ttl 12h
+home-ctl session configure --ttl until-reboot
+home-ctl session configure --ttl 24h --database /absolute/path/homelab.kdbx
 ```
 
 Configuration changes lock the current session. Durations accept `s`, `m`, `h`, `d` with a range of 1 second to 365 days. Unlock again privately afterwards. A cold reboot clears keys even with a long TTL. Suspend and restored VM snapshots are not cold reboots. Lock/expiry stops new authentication; an existing SSH connection can continue. The personal SSH agent is unaffected.
@@ -60,8 +60,8 @@ Commands that change configuration, keys, inventory or session lifecycle must ru
 2. Privately create the host key:
 
    ```sh
-   homectl key create lab-printer
-   homectl key inspect lab-printer --json
+   home-ctl key create lab-printer
+   home-ctl key inspect lab-printer --json
    ```
 
    `create` stores the private key as an `id_ed25519` attachment inside KDBX, loads it into the dedicated agent and writes only its public key to disk. It reuses a complete existing entry and refuses a conflicting public key. `inspect` returns public material and inventory references; it does not open KDBX.
@@ -77,9 +77,9 @@ Commands that change configuration, keys, inventory or session lifecycle must ru
 5. Review and enroll:
 
    ```sh
-   homectl enroll lab-printer --file /path/host.json --dry-run --json
-   homectl enroll lab-printer --file /path/host.json
-   homectl doctor lab-printer --json
+   home-ctl enroll lab-printer --file /path/host.json --dry-run --json
+   home-ctl enroll lab-printer --file /path/host.json
+   home-ctl doctor lab-printer --json
    ```
 
 Enrollment verifies SSH and OS before saving a mode-0600 inventory. Failure preserves inventory but may refresh the generated SSH config. Mixed-case SSH usernames are supported. Enrollment does not obtain a password or alter existing accounts.
@@ -98,8 +98,8 @@ Enrollment verifies SSH and OS before saving a mode-0600 inventory. Failure pres
 A root SSH account requires `full`. Root commands run directly. Other privileged accounts use `sudo -n`; passwords never enter agent chat. `enforcement: advisory` states intent. `enforcement: sudoers` declares administrator configuration, and does not prove broader group/sudo/polkit privileges were removed.
 
 ```sh
-homectl sudoers lab-printer
-homectl enroll lab-printer --file /path/host.json --configure-sudo
+home-ctl sudoers lab-printer
+home-ctl enroll lab-printer --file /path/host.json --configure-sudo
 ```
 
 Use `--configure-sudo` only when requested and existing noninteractive administrator access is available. It installs literal rules for `sudo-approved`, or `NOPASSWD: ALL` for a non-root `full` account. It refuses a different existing homectl policy. Initial password-based sudo setup belongs in the user's private terminal. Existing root accounts need no sudoers installation.
@@ -109,7 +109,7 @@ Use `--configure-sudo` only when requested and existing noninteractive administr
 Inspect before changing and verify afterwards. Read each host's cautions, especially printer activity and NAS storage. Destructive or opaque commands require an exact plan:
 
 ```sh
-homectl exec lab-nas --dry-run --impact 'Delete /srv/example; its contents will be lost' \
+home-ctl exec lab-nas --dry-run --impact 'Delete /srv/example; its contents will be lost' \
   -- rm -rf /srv/example
 ```
 
@@ -132,15 +132,15 @@ No separate API token is required. `pvesh --noproxy` accesses the selected node'
 Privately prepare a separate key for the new VM:
 
 ```sh
-homectl key create slicer-test
-homectl key inspect slicer-test --json
+home-ctl key create slicer-test
+home-ctl key inspect slicer-test --json
 ```
 
 Copy [vm.example.json](../examples/vm.example.json) outside the repository. Replace its placeholder `public_key` with the exact inspected key, and specify provider, template, VMID, resources, network, user and tier. Optional software is limited to the documented `docker`/`bun` recipes for Debian/Ubuntu templates.
 
 ```sh
-homectl provision --file /path/vm.json --dry-run --json
-homectl provision --file /path/vm.json
+home-ctl provision --file /path/vm.json --dry-run --json
+home-ctl provision --file /path/vm.json
 ```
 
 Review the plan with the user before applying. The CLI verifies the matching public key and that its private key can sign through the managed agent, then clones, configures/resizes, starts, waits for SSH/cloud-init, enrolls and installs only requested recipes. Establish VM SSH host-key trust through its console or another trusted source. A first run waiting for that trust can be resumed using the identical request.
@@ -173,10 +173,10 @@ Keep encrypted backups separate from the live database. Key creation takes a mod
 ## Troubleshooting and development
 
 ```sh
-homectl help
-homectl session status --json
-homectl doctor --json
-homectl doctor lab-proxmox --json
+home-ctl help
+home-ctl session status --json
+home-ctl doctor --json
+home-ctl doctor lab-proxmox --json
 ```
 
 Doctor checks tools; a named host adds a real managed-key SSH probe. A root account skips sudo checks. A non-root full account checks `sudo -n true`. Limited sudo checks never execute a service restart. Doctor does not open KDBX. On expiry, unlock privately. On host-key rejection, verify the fingerprint before editing known_hosts. On network/authentication errors, inspect address, account, installed public key and session status. Raw credential diagnostics are suppressed.

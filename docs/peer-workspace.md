@@ -5,7 +5,7 @@ Run the current checkout with Bun 1.4.2 or newer. The browser UI is English, dar
 ## Start temporarily
 
 ```sh
-homectl panel
+home-ctl panel
 ```
 
 This opens the panel and starts a temporary workspace when needed. Homectl reuses the LAN address saved by setup, chooses the only available private address, or asks when there are several. With no LAN address it stays on this computer only. The panel itself remains bound to `127.0.0.1:7447`; the peer channel uses the selected interface on port 7448. Keep the terminal open while using the panel. Ctrl+C stops only the temporary workspace started by this command. If a service or workspace is already running, `panel` opens it and exits.
@@ -13,26 +13,26 @@ This opens the panel and starts a temporary workspace when needed. Homectl reuse
 For explicit interface/port control, start the workspace yourself:
 
 ```sh
-homectl serve --interface 192.168.1.10
+home-ctl serve --interface 192.168.1.10
 # In another private terminal:
-homectl panel
+home-ctl panel
 ```
 
 The launcher uses a private local access token in the URL fragment. The frontend removes the fragment immediately after connecting and uses an HttpOnly SameSite cookie. Do not copy launch URLs into agent chat. The launch information lives in `serve/panel.json` beside the selected inventory. The CLI peer commands use this file internally and never print its token.
 
-Starting `serve` does not install a service, open pairing, create a vault, unlock credentials, alter a firewall, or connect to a managed machine. Run `homectl setup` interactively to review and configure scoped firewall rules. Windows and Linux firewalls require an inbound rule for peer TCP and mDNS UDP 5353 on the selected private LAN. No router forwarding is needed.
+Starting `serve` does not install a service, open pairing, create a vault, unlock credentials, alter a firewall, or connect to a managed machine. Run `home-ctl setup` interactively to review and configure scoped firewall rules. Windows and Linux firewalls require an inbound rule for peer TCP and mDNS UDP 5353 on the selected private LAN. No router forwarding is needed.
 
 ## Pair two devices
 
 Open the panel on both computers:
 
 ```sh
-homectl panel
+home-ctl panel
 ```
 
 On one device, choose **Devices → Start pairing**. On the other, enter the host's LAN address ending in `:7448` and the one-time code shown by the first device. If the host uses Docker, use the Docker host's LAN address and its published peer port, not the container IP. Compare the phrase and confirm on both devices. Discovery may fill the address automatically, but direct entry works across Docker, VLAN and Wi-Fi discovery boundaries. Only sync is granted initially; credentials are transferred later through the reviewed sync flow.
 
-The CLI alternative is `homectl pair` on both devices. It starts a temporary workspace if necessary, discovers peers, and guides code and phrase verification. Keep its terminal open until pairing is complete; press Ctrl+C to stop the temporary workspace.
+The CLI alternative is `home-ctl pair` on both devices. It starts a temporary workspace if necessary, discovers peers, and guides code and phrase verification. Keep its terminal open until pairing is complete; press Ctrl+C to stop the temporary workspace.
 
 Discovery uses mDNS/DNS-SD `_homectl._tcp.local`. Advertisement is temporary and contains a random instance identifier, protocol version and pairing capability, never the code, vault contents, host inventory or stable device identity. The selected interface is used. Discovery is unauthenticated: selecting an endpoint does not establish trust. Multicast may be blocked by Wi-Fi isolation, VLAN boundaries or WSL networking; manual IP pairing uses the same authentication.
 
@@ -73,18 +73,18 @@ Removing trust stops future authenticated requests from that peer. It cannot rev
 ## CLI equivalents
 
 ```sh
-homectl peers --json
-homectl pair                         # guided pairing on both devices
-homectl pair join --address http://192.168.1.10:7448  # direct join; no serve prerequisite
-homectl pair confirm                 # advanced: confirm a pending phrase
-homectl pair poll                    # advanced: wait for the other confirmation
-homectl pair status                  # advanced: inspect local pairing state
-homectl pair cancel                  # advanced: cancel a pending invitation
-homectl sync preview PEER_ID --json
-homectl sync apply PREVIEW_ID --file choices.json
-homectl sync cancel PREVIEW_ID
-homectl peer PEER_ID --target nas --dry-run -- uname -s
-homectl peer PEER_ID --target nas -- uname -s
+home-ctl peers --json
+home-ctl pair                         # guided pairing on both devices
+home-ctl pair join --address http://192.168.1.10:7448  # direct join; no serve prerequisite
+home-ctl pair confirm                 # advanced: confirm a pending phrase
+home-ctl pair poll                    # advanced: wait for the other confirmation
+home-ctl pair status                  # advanced: inspect local pairing state
+home-ctl pair cancel                  # advanced: cancel a pending invitation
+home-ctl sync preview PEER_ID --json
+home-ctl sync apply PREVIEW_ID --file choices.json
+home-ctl sync cancel PREVIEW_ID
+home-ctl peer PEER_ID --target nas --dry-run -- uname -s
+home-ctl peer PEER_ID --target nas -- uname -s
 ```
 
 `choices.json` is an object keyed by conflict ID, with `local`, `remote` or `both` values; `{}` explicitly accepts a conflict-free reviewed preview. Codes are not accepted as command-line arguments. `--dry-run` never accesses credentials or sends peer requests. CLI and UI use the same local backend and policies.
@@ -94,12 +94,12 @@ homectl peer PEER_ID --target nas -- uname -s
 Linux and systemd-enabled WSL:
 
 ```sh
-homectl service install --interface 192.168.1.10
-homectl service start
-homectl service status
-homectl service logs
-homectl service stop
-homectl service uninstall
+home-ctl service install --interface 192.168.1.10
+home-ctl service start
+home-ctl service status
+home-ctl service logs
+home-ctl service stop
+home-ctl service uninstall
 ```
 
 The systemd user unit uses private permissions, `UMask=0077`, restart-on-failure and `NoNewPrivileges`. It starts with locked credentials and closed pairing. Running without login requires a separate, explicit administrator decision to enable user lingering. `uninstall` removes the service registration, not inventory, vaults or peer trust.
@@ -108,8 +108,8 @@ For native Windows installation and Log On account setup, see [Windows and WSL](
 
 ## Interactive setup and automation
 
-`homectl setup` in a terminal walks through missing dependencies, LAN selection and firewall consent, then runs doctor. Linux supports apt/dnf/pacman for dependencies and firewalld/UFW for firewall configuration. Existing rules are preserved; firewalld rules are added to both runtime and permanent configuration without reloading the whole firewall. UFW is never enabled or disabled. Unsupported firewalls are reported for manual configuration. The selected LAN is saved locally and reused by `pair` while that address is still assigned.
+`home-ctl setup` in a terminal walks through missing dependencies, LAN selection and firewall consent, then runs doctor. Linux supports apt/dnf/pacman for dependencies and firewalld/UFW for firewall configuration. Existing rules are preserved; firewalld rules are added to both runtime and permanent configuration without reloading the whole firewall. UFW is never enabled or disabled. Unsupported firewalls are reported for manual configuration. The selected LAN is saved locally and reused by `pair` while that address is still assigned.
 
-For agents, `homectl setup --json` is noninteractive. Use `--install-deps` and/or `--configure-firewall --interface <local-IP>` explicitly; privileged operations require existing administrator rights or noninteractive sudo. `--dry-run` never installs packages or changes firewall rules. Setup does not initialize/unlock a vault or pair devices. Successful rule installation does not prove multicast reaches another computer across the LAN.
+For agents, `home-ctl setup --json` is noninteractive. Use `--install-deps` and/or `--configure-firewall --interface <local-IP>` explicitly; privileged operations require existing administrator rights or noninteractive sudo. `--dry-run` never installs packages or changes firewall rules. Setup does not initialize/unlock a vault or pair devices. Successful rule installation does not prove multicast reaches another computer across the LAN.
 
-With the local workspace running, `homectl session unlock` unlocks both the SSH session and the synchronization vault using one private password prompt. `homectl session lock` locks both. An already unlocked SSH session alone does not imply an unlocked sync vault. Without a running workspace, unlock remains SSH-only and reports how to unlock sync; no database password is retained for a future workspace process. On a new device, initialize its local vault privately first (or create it from Access), then use the same command. Vault passwords remain local and may differ between devices.
+With the local workspace running, `home-ctl session unlock` unlocks both the SSH session and the synchronization vault using one private password prompt. `home-ctl session lock` locks both. An already unlocked SSH session alone does not imply an unlocked sync vault. Without a running workspace, unlock remains SSH-only and reports how to unlock sync; no database password is retained for a future workspace process. On a new device, initialize its local vault privately first (or create it from Access), then use the same command. Vault passwords remain local and may differ between devices.

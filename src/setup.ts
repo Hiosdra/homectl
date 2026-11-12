@@ -129,15 +129,15 @@ export async function setup(home = homedir(), dryRun = false) {
     list.map((v) => `'${v.replaceAll("'", "''")}'`).join(" ");
   const launchers: Record<string, string> = windows
     ? {
-        "homectl.cmd": `@echo off\r\n${winQuote(launch)} %*\r\n`,
-        "homectl.ps1": `& ${psQuote(launch)} @args\nexit $LASTEXITCODE\n`,
-        homectl: `#!/bin/sh\nexec "$(cygpath -u ${quote(launch[0] ?? "")})" ${launch
+        "home-ctl.cmd": `@echo off\r\n${winQuote(launch)} %*\r\n`,
+        "home-ctl.ps1": `& ${psQuote(launch)} @args\nexit $LASTEXITCODE\n`,
+        "home-ctl": `#!/bin/sh\nexec "$(cygpath -u ${quote(launch[0] ?? "")})" ${launch
           .slice(1)
           .map((v) => quote(v.replaceAll("\\", "/")))
           .join(" ")} "$@"\n`,
       }
     : {
-        homectl: `#!/bin/sh\nexec ${launch.map(quote).join(" ")} "$@"\n`,
+        "home-ctl": `#!/bin/sh\nexec ${launch.map(quote).join(" ")} "$@"\n`,
       };
   if (windows && /[%!\r\n]/.test(launch.join(" ")))
     throw new HomectlError(
@@ -189,8 +189,8 @@ if(-not $found){[Environment]::SetEnvironmentVariable('Path',($bin+';'+$old),'Us
     actions,
     inventory: p.inventory,
     next: windows
-      ? "CLI added to user PATH. Restart your terminal application to load it, then run homectl.cmd doctor. Keep this checkout in a stable location."
-      : "Run homectl doctor; ensure ~/.local/bin is on PATH. Keep this checkout in a stable location.",
+      ? "CLI added to user PATH. Restart your terminal application to load it, then run home-ctl.cmd doctor. Keep this checkout in a stable location."
+      : "Run home-ctl doctor; ensure ~/.local/bin is on PATH. Keep this checkout in a stable location.",
   };
 }
 export async function doctor(

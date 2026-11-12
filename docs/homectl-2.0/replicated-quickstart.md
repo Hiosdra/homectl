@@ -7,8 +7,8 @@ Replicated mode lets paired devices share one control plane. Each device keeps i
 ## 1. Prerequisites
 
 - Each device has homectl installed, its own inventory, and its own control state directory.
-- The devices are paired (`homectl pair` on both, or the panel's pairing window). Pairing exchanges a per-device signing key. A device paired before signing keys existed has no key: pair it again. Until then it is **excluded from the lease** (section 5).
-- Each device needs a running workspace. `homectl panel` starts one automatically and uses the saved LAN interface; keep that terminal open. For a background workspace, install and start the service.
+- The devices are paired (`home-ctl pair` on both, or the panel's pairing window). Pairing exchanges a per-device signing key. A device paired before signing keys existed has no key: pair it again. Until then it is **excluded from the lease** (section 5).
+- Each device needs a running workspace. `home-ctl panel` starts one automatically and uses the saved LAN interface; keep that terminal open. For a background workspace, install and start the service.
 
 Use placeholders for addresses in your own notes. Never paste tokens, pairing codes or key material into chat or logs.
 
@@ -17,7 +17,7 @@ Use placeholders for addresses in your own notes. Never paste tokens, pairing co
 On each device, open the panel in a private terminal:
 
 ```sh
-homectl panel
+home-ctl panel
 ```
 
 - `--no-discovery` turns off multicast discovery only. Control sync with devices that are already paired keeps running. Use it on networks where multicast is blocked; pair by IP address instead.
@@ -30,7 +30,7 @@ Control sync runs inside `serve` every 15 seconds. There is no manual round butt
 Clients are device-local. Create each one on the device where its agent runs:
 
 ```sh
-homectl control client add codex-pc --name "Codex PC" \
+home-ctl control client add codex-pc --name "Codex PC" \
   --scopes status:read,inspect:read,plan:create --hosts agent-host \
   --token-file <private-path>
 ```
@@ -42,7 +42,7 @@ Give an approver `approve:decide` on the device where that approver's client liv
 1. An agent on device A calls `homectl_plan`. A is the owner of the new operation.
 2. An approver on device B calls `homectl_approve`. B replies "Approval forwarded to owner A; it applies after the next sync". B shows the approval as "forwarded, awaiting confirmation" until A's state reflects it.
 3. After the next sync, A applies the approval. B shows "approved by <client> (via <device>)".
-4. The operator runs it on A: `homectl control execute <id>`, or Execute in A's Approvals view. On B the row reads "Runs on A" and has no Execute button.
+4. The operator runs it on A: `home-ctl control execute <id>`, or Execute in A's Approvals view. On B the row reads "Runs on A" and has no Execute button.
 
 Inspection plans need no approval. Changes always do.
 
@@ -51,29 +51,29 @@ Inspection plans need no approval. Changes always do.
 Rules, in the order they apply:
 
 - **Owner.** The planning device owns an operation. Only the owner runs it, and only the owner enforces single use.
-- **Lease.** The owner runs an operation only while it has completed a sync, within the last 120 seconds, with every paired device that has a signing key. A device paired without a signing key is **excluded from the lease**: it cannot sign or verify records, so it never counts as synced and never blocks execution. The Sync view and `homectl control sync` show it as "excluded from lease: re-pair required". Expired lease: execution is refused with "Owner lease expired; waiting for sync with <device>". With no signing peers there is no lease.
-  - **Suspend a device from the lease.** A device that is offline and will stay offline blocks execution on its peers. Take it out of this device's lease with `homectl control peer suspend <device> [--reason TEXT]`, or "Suspend from lease" in the Sync view. Operations on this device may then run without that device confirming the latest state; use it only when the device is offline or will stay offline. The suspension is signed, replicated (other devices show it as "suspended by <device> at <time>") and audited as `peer.suspended`. The device rejoins the lease automatically on its next successful sync (audited as `peer.resumed`, reason `synced`), or with `homectl control peer resume <device>` or "Resume" in the Sync view. A suspended device cannot run operations this device owns, and a handoff to it is refused until it is resumed. When it comes back it must sync before it runs anything, because its own lease with its peers still applies.
-- **Offered handoff (owner-initiated, two signatures).** The owner offers an operation to a named device: `homectl control handoff <id> --to <device>`, or "Hand off…" in the panel. From the moment the offer exists, the owner refuses to run that operation ("Handoff offered to <device>"). The receiver accepts with `homectl control handoff <id>` (no `--to`) on its own device, or "Accept handoff" in its panel. The accept starts the new epoch: the operation goes back to needs-approval on the receiver, as after a takeover. The receiver must have the host in its inventory.
-- **Cancel.** While an offer is open the owner may withdraw it: `homectl control handoff <id> --cancel`, or "Cancel offer". A cancel wins only over an offer nobody has accepted. After it, the owner may run the operation again. A late accept for a cancelled offer is rejected.
-- **Expiry.** An offer expires at the earlier of five minutes after it is made and the plan or approval expiry (a fixed value; there is no setting for it yet). The panel and `homectl control ops` show "offer expires in N min", then "offer expired". After expiry the owner treats the offer as cancelled: the fence no longer refuses execution, and the next offer cancels the expired one first. An accept signed after the expiry is rejected everywhere, and the receiver refuses to accept an expired offer.
+- **Lease.** The owner runs an operation only while it has completed a sync, within the last 120 seconds, with every paired device that has a signing key. A device paired without a signing key is **excluded from the lease**: it cannot sign or verify records, so it never counts as synced and never blocks execution. The Sync view and `home-ctl control sync` show it as "excluded from lease: re-pair required". Expired lease: execution is refused with "Owner lease expired; waiting for sync with <device>". With no signing peers there is no lease.
+  - **Suspend a device from the lease.** A device that is offline and will stay offline blocks execution on its peers. Take it out of this device's lease with `home-ctl control peer suspend <device> [--reason TEXT]`, or "Suspend from lease" in the Sync view. Operations on this device may then run without that device confirming the latest state; use it only when the device is offline or will stay offline. The suspension is signed, replicated (other devices show it as "suspended by <device> at <time>") and audited as `peer.suspended`. The device rejoins the lease automatically on its next successful sync (audited as `peer.resumed`, reason `synced`), or with `home-ctl control peer resume <device>` or "Resume" in the Sync view. A suspended device cannot run operations this device owns, and a handoff to it is refused until it is resumed. When it comes back it must sync before it runs anything, because its own lease with its peers still applies.
+- **Offered handoff (owner-initiated, two signatures).** The owner offers an operation to a named device: `home-ctl control handoff <id> --to <device>`, or "Hand off…" in the panel. From the moment the offer exists, the owner refuses to run that operation ("Handoff offered to <device>"). The receiver accepts with `home-ctl control handoff <id>` (no `--to`) on its own device, or "Accept handoff" in its panel. The accept starts the new epoch: the operation goes back to needs-approval on the receiver, as after a takeover. The receiver must have the host in its inventory.
+- **Cancel.** While an offer is open the owner may withdraw it: `home-ctl control handoff <id> --cancel`, or "Cancel offer". A cancel wins only over an offer nobody has accepted. After it, the owner may run the operation again. A late accept for a cancelled offer is rejected.
+- **Expiry.** An offer expires at the earlier of five minutes after it is made and the plan or approval expiry (a fixed value; there is no setting for it yet). The panel and `home-ctl control ops` show "offer expires in N min", then "offer expired". After expiry the owner treats the offer as cancelled: the fence no longer refuses execution, and the next offer cancels the expired one first. An accept signed after the expiry is rejected everywhere, and the receiver refuses to accept an expired offer.
 - **Takeover (unreachable owner).** If the owner is unreachable, another device may take over with the same command on its own device. The takeover window opens 180 seconds after the owner's last contact (120 s lease plus 60 s skew). Before that, takeover is refused with the time it becomes possible.
 - **Needs the host.** Whoever takes over or accepts must have the same host in its own inventory. Otherwise the change is refused and the message says to add the host.
 - **After any change of owner.** The operation needs a fresh approval on the new owner. The old owner is refused if it returns: its lease is stale until it syncs, and after that it sees the new owner.
 - **Conflict.** Two different takeovers at the same epoch leave the operation with no owner. Nobody can run it until it is resolved (next rule).
-- **Resolution.** A device involved in the conflict proposes a winner: `homectl control resolve <id> --owner <device>`, or "Resolve…" in the Sync view. The proposal applies only when the named winner agrees by running the same command on its own device ("Accept resolution" in its panel). The winner must be online for that. If the winner proposes itself, it agrees at once. A second, different resolution at the same epoch is again a conflict, and stays visible.
+- **Resolution.** A device involved in the conflict proposes a winner: `home-ctl control resolve <id> --owner <device>`, or "Resolve…" in the Sync view. The proposal applies only when the named winner agrees by running the same command on its own device ("Accept resolution" in its panel). The winner must be online for that. If the winner proposes itself, it agrees at once. A second, different resolution at the same epoch is again a conflict, and stays visible.
 
-Race to know about: an accept that the receiver signed before it saw the owner's cancel can still take effect on the receiver, while the owner rejects it. Both devices then hold the operation until someone looks at it. Each side still needs a fresh approval to run it, and the audit journal records both the offer and the cancel. Treat a cancel that races an accept as an incident to check with `homectl control show` on both devices.
+Race to know about: an accept that the receiver signed before it saw the owner's cancel can still take effect on the receiver, while the owner rejects it. Both devices then hold the operation until someone looks at it. Each side still needs a fresh approval to run it, and the audit journal records both the offer and the cancel. Treat a cancel that races an accept as an incident to check with `home-ctl control show` on both devices.
 
 ## 6. What the CLI does without `serve`
 
-`homectl control ops`, `show` and `sync` read the last saved state and say so. `homectl control sync` prints "serve not running — showing last saved state; backoff unknown". For `handoff`, `resolve` and their `--cancel` form, open the workspace with `homectl panel` first.
+`home-ctl control ops`, `show` and `sync` read the last saved state and say so. `home-ctl control sync` prints "serve not running — showing last saved state; backoff unknown". For `handoff`, `resolve` and their `--cancel` form, open the workspace with `home-ctl panel` first.
 
-`homectl control execute` without `serve` still applies the lease fence against the saved state. If a signing peer has not been synced recently, the command is refused, as it would be inside `serve`.
+`home-ctl control execute` without `serve` still applies the lease fence against the saved state. If a signing peer has not been synced recently, the command is refused, as it would be inside `serve`.
 
 ## 7. Checking health
 
-- `homectl control sync` (or Sync > Control sync in the panel): per device, the last successful sync, whether the lease holds, the backoff and retry time, refusals and exclusions, control conflicts and pending resolutions.
-- `homectl control ops` and `show`: the owner (Runs on), any open offer, any forwarded approval, and any takeover availability.
+- `home-ctl control sync` (or Sync > Control sync in the panel): per device, the last successful sync, whether the lease holds, the backoff and retry time, refusals and exclusions, control conflicts and pending resolutions.
+- `home-ctl control ops` and `show`: the owner (Runs on), any open offer, any forwarded approval, and any takeover availability.
 - Devices in the panel: each peer's signing fingerprint. Compare it with the other device's own fingerprint through a trusted channel.
 
 ## 8. Troubleshooting: "why can't I execute?"
@@ -97,7 +97,7 @@ Race to know about: an accept that the receiver signed before it saw the owner's
 | A device is offline and I can't execute | Its lease with you is still required. | Suspend it from the lease (`control peer suspend <device>`), then execute. It rejoins the lease when it syncs again. |
 | "offer expired" | The offer was not accepted within five minutes, or the plan ended first. | Nothing to do: the owner may run again. Offer again if you still want to hand it off. |
 | "<device> is suspended from this device's lease" (handoff) | The device is suspended here. | Resume it first (`control peer resume <device>`), then offer. |
-| Workspace not open (handoff, resolve) | Those commands need the running workspace. | Run `homectl panel` on the device you are using. |
+| Workspace not open (handoff, resolve) | Those commands need the running workspace. | Run `home-ctl panel` on the device you are using. |
 
 ## 9. Security notes
 

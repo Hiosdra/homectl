@@ -164,4 +164,4 @@ export function ClientDialog() {
 }
 
 const COMMAND =
-  'homectl control client add codex-pc --name "Codex PC" --scopes status:read,inspect:read,plan:create --hosts <host> --token-file <path>';
+  'home-ctl control client add codex-pc --name "Codex PC" --scopes status:read,inspect:read,plan:create --hosts <host> --token-file <path>';

@@ -86,7 +86,7 @@ Recommendation: A. It matches "public metadata only" and keeps token material on
 2. Add the state-aware merge for `control-op`, with the lattice and receive-time owner checks.
 3. Add signed handoff and approval records; device signing keys beyond the pairwise secret are required (open question 1).
 4. Add replica audit events and per-origin checkpoints.
-5. Surface conflicts (handoff, duplicate approval, `needs-operator`) in the Sync preview and `homectl sync`/`control` output.
+5. Surface conflicts (handoff, duplicate approval, `needs-operator`) in the Sync preview and `home-ctl sync`/`control` output.
 6. Simulated multi-peer tests: two and three in-process peers, partitions, duplicate approvals, owner offline, rewritten replica.
 
 ## 6. Open questions
@@ -139,8 +139,8 @@ Status of stage (c): done and tested. The lease and takeover window, per-origin 
 Implemented on the same branch:
 
 - Local admin route. `serve` exposes `GET /api/control/sync` and `POST /api/control/handoff` behind the existing panel gate: the launch token in `serve/panel.json` exchanged for a session cookie, a loopback Host check, and a same-origin check on POST. Neither route is reachable from the peer channel or MCP. The CLI reads the token file itself and never prints it. `serve` removes `panel.json` on stop, so a stale token is not left behind.
-- `homectl control sync`: per-device last sync, lease, backoff, refusals, conflicts and blocked logs. Without a running `serve` it shows the last saved replica and says "serve not running — showing last saved state; backoff unknown".
-- `homectl control handoff OP --to DEVICE`: needs a running `serve`. A handoff is signed by the device that takes over (`replicate.ts`), so `--to` must name the device running the command; otherwise the command refuses and says where to run it. The receiving device must have the host in its inventory, and the takeover window must be open.
+- `home-ctl control sync`: per-device last sync, lease, backoff, refusals, conflicts and blocked logs. Without a running `serve` it shows the last saved replica and says "serve not running — showing last saved state; backoff unknown".
+- `home-ctl control handoff OP --to DEVICE`: needs a running `serve`. A handoff is signed by the device that takes over (`replicate.ts`), so `--to` must name the device running the command; otherwise the command refuses and says where to run it. The receiving device must have the host in its inventory, and the takeover window must be open.
 - Without a running `serve`, the CLI applies the same fence as the engine, reading the saved replica. A paired owner whose lease has lapsed therefore cannot execute from the CLI either. This is a deliberate change: before stage (d) the CLI executed without any fence.
 - Operations held by another device show "Runs on <device>" in the CLI, the MCP status, and the panel. They are never executed from a non-owner. Takeover shows its earliest time, or the reason it is unavailable (no recent contact, host not enrolled here, conflict).
 - Forwarded approvals are tracked until the owner's replicated state reflects them: "approval forwarded to <owner>, awaiting confirmation", then "approved by <client> (via <device>)". Rejections are confirmed the same way. No new protocol was needed.

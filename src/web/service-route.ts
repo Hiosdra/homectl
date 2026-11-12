@@ -55,10 +55,10 @@ export async function handleServiceRoute(
       .then((result) => {
         const code = (result as { exitCode?: number }).exitCode;
         if (code)
-          console.error(`homectl service restart refused (exit ${code})`);
+          console.error(`home-ctl service restart refused (exit ${code})`);
       })
       .catch((error: unknown) =>
-        console.error("homectl service restart failed", error),
+        console.error("home-ctl service restart failed", error),
       );
   }, 200);
   return json(200, { text: "Restarting the service." });
