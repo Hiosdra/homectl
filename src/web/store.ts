@@ -2,7 +2,12 @@
 // after a change; nothing here renders JSX.
 import type { ReactNode } from "react";
 import type { ControlBucket } from "./format";
-import { type AppliedChange, appliedChanges, autoApplies } from "./format";
+import {
+  type AppliedChange,
+  appliedChanges,
+  autoApplies,
+  partialCandidates,
+} from "./format";
 import type {
   ControlExecution,
   ControlOverview,
@@ -246,12 +251,6 @@ export function armSyncWait(next: Preview) {
   ui.conflictChoice = {};
 }
 
-// The changes that do not conflict: they apply without a choice.
-export function cleanChanges(p: Preview): string[] {
-  const conflicting = new Set(p.conflicts.map((c) => c.id));
-  return p.changes.filter((id) => !conflicting.has(id));
-}
-
 export async function updateSyncPreview(peerId: string) {
   const old = ui.preview;
   const next = await api<Preview>("/api/sync/start", { id: peerId });
@@ -269,13 +268,14 @@ export async function updateSyncPreview(peerId: string) {
     announce(
       `Synced ${next.changes.length} change${next.changes.length === 1 ? "" : "s"}.`,
     );
-  } else if (cleanChanges(next).length > 0 && !next.blocker) {
-    // Clean changes apply on their own; the conflicts stay for a choice.
-    const items = cleanChanges(next);
+  } else if (partialCandidates(next).length > 0 && !next.blocker) {
+    // Routine machine and provider changes apply on their own. Host keys, credentials,
+    // removals and conflicts stay on screen for a choice.
+    const items = partialCandidates(next);
     await api("/api/sync/apply", { id: next.id, choices: {}, partial: true });
     const remaining = await api<Preview>("/api/sync/start", { id: peerId });
-    // Report only what is no longer different. The merge can keep the local version of a
-    // clean change; that change is still listed here, so it was not applied.
+    // Report only what is no longer different. A change the server holds back (a machine whose
+    // key is not here yet) is still listed here, so it was not applied.
     const done = items.filter((id) => !remaining.changes.includes(id));
     ui.applied = done.length
       ? { items: appliedChanges(next, done), at: Date.now() }

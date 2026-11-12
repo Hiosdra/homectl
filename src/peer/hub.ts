@@ -656,8 +656,8 @@ export class Hub {
         3,
         "Local data changed since preview; refresh before applying",
       );
-    const result = merge(local, p.records, this.state.id, choices);
-    // A partial apply writes the clean changes only; unresolved conflicts keep the local value.
+    const result = merge(local, p.records, this.state.id, choices, partial);
+    // A partial apply writes the routine clean changes only; the rest and any conflict keep the local value.
     if (result.conflicts.length && !partial)
       throw new HomectlError(4, "Resolve every conflict before applying");
     await this.applyRecords(result.records, p.remoteVaultUnlocked);

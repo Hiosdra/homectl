@@ -166,11 +166,30 @@ export function offerExpiry(op: ControlOp) {
 
 // ---- React store: every change to the shared state goes through render() ----
 
-// Clean machine and provider changes apply on their own. Host keys and credentials are trust
-// decisions: any of them keeps the preview on screen for a person to confirm.
+// Machine and provider entries that are not removals apply on their own. Host keys and
+// credentials are trust decisions, and a removal is a decision too: each keeps the preview on
+// screen for a person to compare. The server applies the same rule (routineChange).
+export function isRoutineEntry(
+  entry: NonNullable<Preview["entries"]>[number],
+): boolean {
+  return /^(machine|provider):/.test(entry.id) && entry.remote.value !== null;
+}
+
 export function autoApplies(preview: Preview): boolean {
   const entries = preview.entries;
   if (!entries || preview.blocker || preview.conflicts.length > 0) return false;
   if (preview.changes.length === 0) return false;
-  return entries.every((entry) => /^(machine|provider):/.test(entry.id));
+  return entries.every(isRoutineEntry);
+}
+
+// The changes a partial apply may take: clean routine changes. The server still holds back a
+// machine whose key is not on this device yet, so the panel only reports what is no longer different.
+export function partialCandidates(preview: Preview): string[] {
+  const conflicting = new Set(preview.conflicts.map((c) => c.id));
+  const routine = new Set(
+    (preview.entries ?? []).filter(isRoutineEntry).map((entry) => entry.id),
+  );
+  return preview.changes.filter(
+    (id) => !conflicting.has(id) && routine.has(id),
+  );
 }

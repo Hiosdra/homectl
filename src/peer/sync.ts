@@ -100,16 +100,38 @@ export function validateRecords(input: unknown): Record<string, Version> {
   }
   return input as Record<string, Version>;
 }
+// The changes a partial apply takes on its own: machines and providers that are not removed.
+// Host keys, credentials and removals wait for a person to compare them. A machine that uses a
+// key waits as well while that key is not on this device, because the machine cannot be written
+// before its key.
+export function routineChange(
+  id: string,
+  remote: Version,
+  local: Record<string, Version>,
+): boolean {
+  if (!/^(machine|provider):/.test(id) || remote.value === null) return false;
+  const auth = (remote.value as { auth?: { entry?: unknown } } | undefined)
+    ?.auth;
+  if (!auth) return true;
+  const key =
+    typeof auth.entry === "string"
+      ? local[`credential:${auth.entry}`]
+      : undefined;
+  return key !== undefined && key.value !== null;
+}
+
 export function merge(
   local: Record<string, Version>,
   incoming: Record<string, Version>,
   device: string,
   choices: Record<string, Choice> = {},
+  partial = false,
 ) {
   const records = structuredClone(local);
   const conflicts: Conflict[] = [];
   const copies: string[] = [];
   for (const [id, remote] of Object.entries(validateRecords(incoming))) {
+    if (partial && !routineChange(id, remote, local)) continue;
     const current = records[id];
     if (!current) {
       records[id] = structuredClone(remote);
