@@ -164,17 +164,16 @@ export async function handleAction(action: string | undefined, id: string) {
         });
       await refresh();
       return;
-    case "service-restart":
-    case "service-stop": {
-      const verb = action === "service-stop" ? "stop" : "restart";
+    case "service-restart": {
+      // The panel cannot start a stopped service, so it offers a restart only.
       if (
         !(await confirm(
-          `${verb === "stop" ? "Stop" : "Restart"} the background service?`,
+          "Restart the background service?",
           "Sync and requests run only while the service is running. Restarting briefly interrupts this panel.",
         ))
       )
         return;
-      const outcome = await api<{ text: string }>("/api/service", { action: verb });
+      const outcome = await api<{ text: string }>("/api/service", { action: "restart" });
       report(outcome.text, "notice");
       return;
     }

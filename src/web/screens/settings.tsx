@@ -223,7 +223,6 @@ function ServiceCard() {
       </dl>
       <div className="mt-4 flex flex-wrap justify-end gap-2">
         <Action action="service-restart" label="Restart" kind="secondary" />
-        <Action action="service-stop" label="Stop" kind="quiet-danger" />
       </div>
     </Section>
   );

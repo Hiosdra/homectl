@@ -45,27 +45,21 @@ export async function handleServiceRoute(
   if (request.headers.get("Origin") !== url.origin)
     return json(403, { error: "Open the local panel directly" });
   const body = (await request.json().catch(() => ({}))) as { action?: unknown };
-  if (body.action !== "restart" && body.action !== "stop")
+  // Only a restart: the panel cannot start a stopped service, so it never offers a stop.
+  if (body.action !== "restart")
     return json(400, { error: "Unknown service action" });
-  // A restart or stop ends the process that is answering, so the answer goes out first and the
+  // A restart ends the process that is answering, so the answer goes out first and the
   // change follows. A refused change is written to the log; the status line shows the result.
   setTimeout(() => {
-    service(body.action as "restart" | "stop", { inventory: inventoryPath })
+    service("restart", { inventory: inventoryPath })
       .then((result) => {
         const code = (result as { exitCode?: number }).exitCode;
         if (code)
-          console.error(
-            `homectl service ${body.action} refused (exit ${code})`,
-          );
+          console.error(`homectl service restart refused (exit ${code})`);
       })
       .catch((error: unknown) =>
-        console.error(`homectl service ${body.action} failed`, error),
+        console.error("homectl service restart failed", error),
       );
   }, 200);
-  return json(200, {
-    text:
-      body.action === "stop"
-        ? "Stopping the service."
-        : "Restarting the service.",
-  });
+  return json(200, { text: "Restarting the service." });
 }
