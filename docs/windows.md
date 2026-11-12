@@ -8,11 +8,17 @@ On native Windows, PowerShell, CMD and Git Bash share one installation in `%USER
 
 - **Bun 1.4.4+** and **KeePassXC**, from their official installers.
 - The Windows **OpenSSH Client** optional feature. homectl uses `%SystemRoot%\System32\OpenSSH\ssh.exe`, even when Git Bash puts a different `ssh` first on PATH.
-- The **source checkout** for setup and agent skills. The release zip has `home-ctl.exe` only; see the [README](../README.md#install).
+- The release zip from the [README](../README.md#install), or a source checkout. Setup works from either. The skills are built into `home-ctl.exe`.
 
 ## Install
 
-From the checkout, in PowerShell:
+From the release zip, in PowerShell:
+
+```powershell
+home-ctl.exe setup
+```
+
+From a source checkout (Bun 1.4.4+), in PowerShell:
 
 ```powershell
 bun install --frozen-lockfile
@@ -40,7 +46,7 @@ home-ctl.cmd update --dry-run
 home-ctl.cmd update
 ```
 
-The update needs a configured upstream. It fast-forwards only, keeps unrelated local changes, reinstalls the frozen dependencies and reruns setup. Your inventory and vault stay as they are, and running services are not restarted. If your checkout predates this command, run `git pull --ff-only` once first.
+For a source checkout, the update needs a configured upstream. It fast-forwards only, keeps unrelated local changes, reinstalls the frozen dependencies and reruns setup. Your inventory and vault stay as they are, and running services are not restarted. If your checkout predates this command, run `git pull --ff-only` once first.
 
 ## Start
 
