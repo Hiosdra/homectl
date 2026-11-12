@@ -33,6 +33,7 @@ import {
   transportKey,
 } from "./crypto";
 import { collectHostKeys, validateHostKeys } from "./hostkeys";
+import { safeVersion, validatePermissions } from "./hub-helpers";
 import {
   createPair,
   identity,
@@ -606,7 +607,7 @@ export class Hub {
           remote: safeVersion(id, records[id] as Version),
         })),
       conflicts: result.conflicts.map((c) => ({
-        id: c.id,
+        ...c,
         local: safeVersion(c.id, c.local),
         remote: safeVersion(c.id, c.remote),
       })),
@@ -645,7 +646,7 @@ export class Hub {
       vaultUnlocked: (value as { vaultUnlocked: boolean }).vaultUnlocked,
     };
   }
-  async commit(id: string, choices: Record<string, Choice>) {
+  async commit(id: string, choices: Record<string, Choice>, partial = false) {
     const p = this.pending.get(id);
     if (!p || p.expiresAt < Date.now())
       throw new HomectlError(3, "Sync preview expired; refresh it");
@@ -655,18 +656,27 @@ export class Hub {
         3,
         "Local data changed since preview; refresh before applying",
       );
-    const result = merge(local, p.records, this.state.id, choices);
-    if (result.conflicts.length)
+    const result = merge(local, p.records, this.state.id, choices, partial);
+    // A partial apply writes the routine clean changes only; the rest and any conflict keep the local value.
+    if (result.conflicts.length && !partial)
       throw new HomectlError(4, "Resolve every conflict before applying");
     await this.applyRecords(result.records, p.remoteVaultUnlocked);
     this.pending.delete(id);
-    return { applied: true, copies: result.copies };
+    return {
+      applied: true,
+      copies: result.copies,
+      conflicts: result.conflicts.length,
+    };
   }
-  async syncCommit(id: string, choices: Record<string, Choice>) {
+  async syncCommit(
+    id: string,
+    choices: Record<string, Choice>,
+    partial = false,
+  ) {
     const p = this.pending.get(id);
     if (!p) throw new HomectlError(2, "Unknown sync preview");
     const peerId = p.peerId;
-    const result = await this.serial(() => this.commit(id, choices));
+    const result = await this.serial(() => this.commit(id, choices, partial));
     // The remote peer also gets a local review; accepting a pair does not let
     // another machine silently overwrite this one's inventory or credentials.
     const snapshot = await this.serial(async () => ({
@@ -1005,27 +1015,4 @@ export class Hub {
       note: "Previously copied SSH keys remain valid until rotated on the hosts",
     };
   }
-}
-export function validatePermissions(p: Permissions) {
-  if (
-    !p ||
-    typeof p.sync !== "boolean" ||
-    typeof p.diagnostics !== "boolean" ||
-    typeof p.administer !== "boolean" ||
-    !Array.isArray(p.operations) ||
-    p.operations.length > 256 ||
-    p.operations.some((h) => !/^[a-z][a-z0-9-]{0,62}$/.test(h))
-  )
-    throw new HomectlError(2, "Invalid peer permissions");
-}
-function safeVersion(id: string, v: Version) {
-  return id.startsWith("credential:")
-    ? {
-        clock: v.clock,
-        value:
-          v.value === null
-            ? null
-            : { secret: true, fingerprint: hash(v.value) },
-      }
-    : v;
 }

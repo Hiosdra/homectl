@@ -87,6 +87,23 @@ export async function createRecoveryKey(
   return { keyId: recoveryKeyId(key), path: resolve(outPath) };
 }
 
+// Written after each successful export. The panel's Vault card reads it to show
+// how long ago the recovery key was last used for a backup.
+const RECOVERY_EXPORT_RECORD = "recovery-export.json";
+
+export async function lastRecoveryExport(
+  directory: string,
+): Promise<string | undefined> {
+  try {
+    const record = JSON.parse(
+      await readFile(join(directory, RECOVERY_EXPORT_RECORD), "utf8"),
+    ) as { at?: unknown };
+    return typeof record.at === "string" ? record.at : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function exportRecoveryBundle(options: {
   stateDirectory: string;
   keyPath: string;
@@ -116,11 +133,12 @@ export async function exportRecoveryBundle(options: {
       "This state directory has no device key; there is nothing to recover",
     );
   const keyId = recoveryKeyId(key);
+  const createdAt = (options.clock?.() ?? new Date()).toISOString();
   const aad = JSON.stringify({
     version: RECOVERY_BUNDLE_VERSION,
     alg: "aes-256-gcm",
     keyId,
-    createdAt: (options.clock?.() ?? new Date()).toISOString(),
+    createdAt,
   });
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: 16 });
@@ -150,6 +168,12 @@ export async function exportRecoveryBundle(options: {
     throw new HomectlError(5, "Bundle file cannot be written");
   }
   await protect(options.outPath);
+  // The bundle is already written; if the record cannot be saved the badge stays stale.
+  await writeFile(
+    join(options.stateDirectory, RECOVERY_EXPORT_RECORD),
+    `${JSON.stringify({ at: createdAt })}\n`,
+    { mode: 0o600 },
+  ).catch(() => undefined);
   return {
     keyId,
     files: Object.keys(files),

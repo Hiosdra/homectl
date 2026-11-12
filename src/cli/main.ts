@@ -119,6 +119,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         target: { type: "string" },
         json: { type: "boolean" },
         "dry-run": { type: "boolean" },
+        task: { type: "boolean" },
         "install-deps": { type: "boolean" },
         "configure-firewall": { type: "boolean" },
         inventory: { type: "string" },
@@ -195,10 +196,10 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           2,
           "Remote panel options apply only to serve --container",
         );
-      if (remotePanelArgs.some((value) => value === undefined || value === ""))
+      if ((["panel-interface", "panel-origin"] as const).some((key) => !v[key]))
         throw new HomectlError(
           2,
-          "Remote panel needs --panel-interface, --panel-origin and --panel-token-file",
+          "Remote panel needs --panel-interface and --panel-origin; --panel-token-file is optional",
         );
     }
     const p = paths();
@@ -443,10 +444,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
     }
     if (command === "service") {
       emit(
-        await (await import("../service")).service(host ?? "status", {
+        await (await import("../service")).serviceFromFlags(host, {
+          ...v,
           inventory: inventoryPath,
-          interface: v.interface,
-          wrapper: v.wrapper,
           dryRun,
         }),
       );

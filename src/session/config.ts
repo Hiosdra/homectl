@@ -14,6 +14,17 @@ export function ttlSeconds(ttl: string): number | null {
   return seconds;
 }
 
+// Idle lock: how long the panel may sit unused. Same syntax as ttl, minimum one minute.
+export function idleSeconds(idle: string): number {
+  const seconds = idle === "until-reboot" ? null : ttlSeconds(idle);
+  if (seconds === null || seconds < 60)
+    throw new HomectlError(
+      2,
+      "Idle time must be a duration of at least 1m, such as 2h",
+    );
+  return seconds;
+}
+
 export function sessionPaths(inventoryPath: string) {
   const hash = createHash("sha256")
     .update(resolve(inventoryPath))

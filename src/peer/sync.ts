@@ -3,7 +3,13 @@ import { HomectlError } from "../types";
 import { digest } from "./crypto";
 import type { PeerState, Version } from "./store";
 export type Choice = "local" | "remote" | "both";
-export type Conflict = { id: string; local: Version; remote: Version };
+export type Conflict = {
+  id: string;
+  local: Version;
+  remote: Version;
+  // The later change, pre-selected for the user. The user still decides.
+  suggested: "local" | "remote";
+};
 function stable(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
@@ -56,7 +62,7 @@ export function capture(
     const prior = state.records[id];
     const clock = { ...prior?.clock };
     clock[state.id] = (clock[state.id] ?? 0) + 1;
-    state.records[id] = { value, clock };
+    state.records[id] = { value, clock, at: Date.now() };
     state.observed[id] = fingerprint;
   }
 }
@@ -83,6 +89,7 @@ export function validateRecords(input: unknown): Record<string, Version> {
       typeof v.clock !== "object" ||
       Array.isArray(v.clock) ||
       !("value" in v) ||
+      (v.at !== undefined && (!Number.isSafeInteger(v.at) || v.at < 0)) ||
       Object.keys(v.clock).length > 128 ||
       Object.entries(v.clock).some(
         ([p, n]) =>
@@ -93,16 +100,38 @@ export function validateRecords(input: unknown): Record<string, Version> {
   }
   return input as Record<string, Version>;
 }
+// The changes a partial apply takes on its own: machines and providers that are not removed.
+// Host keys, credentials and removals wait for a person to compare them. A machine that uses a
+// key waits as well while that key is not on this device, because the machine cannot be written
+// before its key.
+export function routineChange(
+  id: string,
+  remote: Version,
+  local: Record<string, Version>,
+): boolean {
+  if (!/^(machine|provider):/.test(id) || remote.value === null) return false;
+  const auth = (remote.value as { auth?: { entry?: unknown } } | undefined)
+    ?.auth;
+  if (!auth) return true;
+  const key =
+    typeof auth.entry === "string"
+      ? local[`credential:${auth.entry}`]
+      : undefined;
+  return key !== undefined && key.value !== null;
+}
+
 export function merge(
   local: Record<string, Version>,
   incoming: Record<string, Version>,
   device: string,
   choices: Record<string, Choice> = {},
+  partial = false,
 ) {
   const records = structuredClone(local);
   const conflicts: Conflict[] = [];
   const copies: string[] = [];
   for (const [id, remote] of Object.entries(validateRecords(incoming))) {
+    if (partial && !routineChange(id, remote, local)) continue;
     const current = records[id];
     if (!current) {
       records[id] = structuredClone(remote);
@@ -120,7 +149,12 @@ export function merge(
     }
     const choice = choices[id];
     if (!choice || !["local", "remote", "both"].includes(choice)) {
-      conflicts.push({ id, local: current, remote });
+      conflicts.push({
+        id,
+        local: current,
+        remote,
+        suggested: (remote.at ?? 0) > (current.at ?? 0) ? "remote" : "local",
+      });
       continue;
     }
     const clock = joined(current.clock, remote.clock);
@@ -147,4 +181,16 @@ export function merge(
     }
   }
   return { records, conflicts, copies };
+}
+
+// The numbers a pending comparison shows: entries that differ and the conflicts merge finds.
+export function previewCounts(
+  local: Record<string, Version>,
+  records: Record<string, Version>,
+  device: string,
+) {
+  const changes = Object.keys(records).filter(
+    (id) => hash(local[id] ?? null) !== hash(records[id]),
+  ).length;
+  return { changes, conflicts: merge(local, records, device).conflicts.length };
 }

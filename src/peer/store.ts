@@ -21,7 +21,12 @@ export type Peer = {
   // Base64 SPKI of the peer's device signing key (ADR-0002).
   signingKey?: string;
 };
-export type Version = { clock: Record<string, number>; value: unknown | null };
+// `at` is the wall-clock time of the last change, used to pick the later change by default.
+export type Version = {
+  clock: Record<string, number>;
+  value: unknown | null;
+  at?: number;
+};
 export type PeerState = {
   version: 1;
   id: string;

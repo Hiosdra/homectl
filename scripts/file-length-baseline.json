@@ -1,0 +1,20 @@
+{
+  "scripts/ui-smoke.ts": 777,
+  "src/cli/help.ts": 623,
+  "src/cli/main.ts": 1010,
+  "src/control/cli.ts": 810,
+  "src/control/engine.ts": 1856,
+  "src/control/present.ts": 664,
+  "src/control/replicate.ts": 604,
+  "src/control/replicator.ts": 1384,
+  "src/peer/hub.ts": 1018,
+  "src/serve.ts": 1019,
+  "src/session/index.ts": 516,
+  "tests/container-serve.test.ts": 504,
+  "tests/control-cli.test.ts": 655,
+  "tests/control-engine.test.ts": 1244,
+  "tests/control-handoff.test.ts": 520,
+  "tests/control-mcp.test.ts": 711,
+  "tests/core.test.ts": 716,
+  "tests/proxmox-catalogue.test.ts": 599
+}

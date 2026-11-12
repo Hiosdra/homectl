@@ -15,6 +15,7 @@ export type ContainerServeOptions = {
   peerPort: number;
   panelInterface?: string;
   panelOrigin?: string;
+  // Optional access code. The vault password unlocks the panel without it.
   panelTokenFile?: string;
 };
 
@@ -43,19 +44,17 @@ async function readPanelToken(path: string): Promise<string> {
 export async function serveContainer(
   options: ContainerServeOptions,
 ): Promise<number> {
-  const panelArguments = [
-    options.panelInterface,
-    options.panelOrigin,
-    options.panelTokenFile,
-  ];
-  const hasPanelOptions = panelArguments.some((value) => value !== undefined);
+  const panelArguments = [options.panelInterface, options.panelOrigin];
+  const hasPanelOptions =
+    panelArguments.some((value) => value !== undefined) ||
+    options.panelTokenFile !== undefined;
   if (
     hasPanelOptions &&
     panelArguments.some((value) => value === undefined || value === "")
   )
     throw new HomectlError(
       2,
-      "Remote panel needs an explicit interface, origin and token file",
+      "Remote panel needs an explicit interface and origin",
     );
   const panelToken = options.panelTokenFile
     ? await readPanelToken(options.panelTokenFile)
@@ -86,13 +85,14 @@ export async function serveContainer(
     interface: options.interface,
     port: options.port,
     peerPort: options.peerPort,
-    panel: panelToken
-      ? {
-          interface: options.panelInterface as string,
-          origin: options.panelOrigin as string,
-          accessToken: panelToken,
-        }
-      : undefined,
+    panel:
+      options.panelInterface !== undefined
+        ? {
+            interface: options.panelInterface,
+            origin: options.panelOrigin as string,
+            accessToken: panelToken,
+          }
+        : undefined,
     // Multicast discovery does not cross the container bridge; pair manually.
     discover: false,
     controlSync: true,
