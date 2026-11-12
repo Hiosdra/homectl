@@ -21,8 +21,7 @@ import {
 } from "./platform";
 import { run } from "./process";
 import { sessionConfig } from "./session/config";
-import { installSkillCopy } from "./skill-install";
-import { bundledSkills, skillContents } from "./skills-bundle";
+import { installBundledSkills } from "./skill-install";
 import {
   HomectlError,
   type Inventory,
@@ -117,19 +116,14 @@ export async function setup(home = homedir(), dryRun = false) {
   await writeSSHConfig(p.ssh, inventory.machines);
   // A compiled executable carries the skills and copies them, because it has no skill folder
   // to link. A checkout links its skills/ folders, so edits there take effect at once.
-  for (const platform of [".agents", ".claude"]) {
-    const dest = join(home, platform, "skills");
-    await mkdir(dest, { recursive: true, mode: 0o700 });
-    if (bundled)
-      for (const skill of bundledSkills)
-        await installSkillCopy(
-          join(dest, skill.name),
-          await skillContents(skill),
-        );
-    else
+  if (bundled) await installBundledSkills(home);
+  else
+    for (const platform of [".agents", ".claude"]) {
+      const dest = join(home, platform, "skills");
+      await mkdir(dest, { recursive: true, mode: 0o700 });
       for (const skill of ["homelab", "homelab-setup", "homelab-enroll"])
         await link(join(repoRoot, "skills", skill), join(dest, skill));
-  }
+    }
   await mkdir(p.bin, { recursive: true, mode: 0o700 });
   // A compiled executable is its own entry point; a checkout runs the script.
   const launch = selfCommand();

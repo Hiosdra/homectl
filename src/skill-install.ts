@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { bundled } from "./internal";
+import { bundledSkills, skillContents } from "./skills-bundle";
 import { HomectlError } from "./types";
 
 // A skill folder that setup copied from the executable holds this file: the SHA-256 of each
@@ -86,4 +89,63 @@ export async function installSkillCopy(
     `${JSON.stringify(next, null, 2)}\n`,
     "utf8",
   );
+}
+
+// Copies every bundled skill into the Codex and Claude Code skill folders under home.
+export async function installBundledSkills(home: string) {
+  for (const platform of [".agents", ".claude"]) {
+    const dest = join(home, platform, "skills");
+    await mkdir(dest, { recursive: true, mode: 0o700 });
+    for (const skill of bundledSkills)
+      await installSkillCopy(
+        join(dest, skill.name),
+        await skillContents(skill),
+      );
+  }
+}
+
+// The internal role `home-ctl __internal refresh-skills`. An update runs it in the new release
+// so that the skills come from that release. It prints one JSON line and returns the exit code.
+export async function refreshSkills(home = homedir()): Promise<number> {
+  if (!bundled) {
+    console.error(
+      JSON.stringify({
+        error: "Only a release executable carries skills to copy.",
+        code: 2,
+      }),
+    );
+    return 2;
+  }
+  try {
+    await installBundledSkills(home);
+    console.log(JSON.stringify({ skills: "refreshed" }));
+    return 0;
+  } catch (error) {
+    if (!(error instanceof HomectlError)) throw error;
+    console.error(JSON.stringify({ error: error.message, code: error.code }));
+    return error.code;
+  }
+}
+
+// Refreshes the copies that homectl installed earlier, when this release carries newer skills.
+// Only a folder with a manifest is touched, so a home without skills gets none. A copy edited
+// by hand is kept, and a failure is ignored: no command should fail over a skill copy.
+export async function refreshManagedCopies(home = homedir()) {
+  for (const platform of [".agents", ".claude"])
+    for (const skill of bundledSkills) {
+      const dest = join(home, platform, "skills", skill.name);
+      try {
+        if ((await readText(join(dest, skillManifest))) !== undefined)
+          await installSkillCopy(dest, await skillContents(skill));
+      } catch {
+        // Edited or unreadable: `home-ctl setup` reports it.
+      }
+    }
+}
+
+// Runs at the start of every command. A package-manager or Homebrew update replaces the
+// executable without running setup, so the first command after it refreshes the skills here.
+// A source checkout links its skills and needs nothing.
+export async function refreshManagedSkills(home = homedir()) {
+  if (bundled) await refreshManagedCopies(home);
 }

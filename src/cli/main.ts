@@ -28,6 +28,7 @@ import { transportSpec } from "../transports";
 import { HomectlError, type Machine, type ProcessResult } from "../types";
 import { runUpdate } from "../update";
 import { renderHelp } from "./help";
+import { runInternal } from "./internal-roles";
 import { formatError, formatHuman } from "./output";
 import { confirm } from "./prompts";
 export const help = renderHelp();
@@ -72,20 +73,9 @@ async function panelInterface(inventoryPath: string, requested?: string) {
 }
 
 export async function main(raw = process.argv.slice(2)): Promise<number> {
-  // Internal roles that homectl starts for itself (src/internal.ts). Nothing else
-  // is parsed. The module runs on import; the daemon keeps the process alive.
-  if (raw[0] === "__internal") {
-    // The worker reports its own status in process.exitCode, so keep it.
-    if (raw[1] === "worker") {
-      await import("../credentials/worker");
-      return Number(process.exitCode ?? 0);
-    }
-    if (raw[1] === "session-daemon") {
-      await import("../session/daemon");
-      return 0;
-    }
-    return 2;
-  }
+  // Internal roles that homectl starts for itself (src/cli/internal-roles.ts).
+  if (raw[0] === "__internal") return runInternal(raw[1]);
+  await (await import("../skill-install")).refreshManagedSkills();
   const split = raw.indexOf("--");
   const cliArgs = split < 0 ? raw : raw.slice(0, split);
   const commandArgs = split < 0 ? [] : raw.slice(split + 1);

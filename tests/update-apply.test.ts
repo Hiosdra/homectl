@@ -178,6 +178,67 @@ describe.skipIf(!windows)("Windows release install", () => {
     ).toBe(true);
   });
 
+  // Records every command the install runs; the refresh is answered with the given exit code.
+  const refreshing =
+    (exitCode: number, calls: string[][]) =>
+    async (spec: { argv: string[] }) => {
+      calls.push(spec.argv);
+      if (spec.argv.includes("refresh-skills"))
+        return { stdout: "", stderr: "", exitCode };
+      return runner(spec);
+    };
+
+  test("the new release copies its own skills after installing", async () => {
+    const release = await fakeRelease("9.9.6", "new");
+    const installed = await installedRelease();
+    const calls: string[][] = [];
+    const result = await installRelease("v9.9.6", {
+      platform: "win32",
+      arch: "x64",
+      execPath: installed.exe,
+      home: installed.home,
+      fetcher: fetcherFor(release),
+      runner: refreshing(0, calls),
+    });
+    const newExe = join(
+      installed.root,
+      "share",
+      "homectl",
+      "9.9.6",
+      release.folder,
+      "home-ctl.exe",
+    );
+    expect(calls).toContainEqual([newExe, "__internal", "refresh-skills"]);
+    expect(result.next).not.toContain("not refreshed");
+  });
+
+  test("a failed skill refresh is reported, and the update stays in place", async () => {
+    const release = await fakeRelease("9.9.5", "new");
+    const installed = await installedRelease();
+    const result = await installRelease("v9.9.5", {
+      platform: "win32",
+      arch: "x64",
+      execPath: installed.exe,
+      home: installed.home,
+      fetcher: fetcherFor(release),
+      runner: refreshing(3, []),
+    });
+    expect(result.updated).toBe(true);
+    expect(result.next).toContain("were not refreshed");
+    expect(
+      existsSync(
+        join(
+          installed.root,
+          "share",
+          "homectl",
+          "9.9.5",
+          release.folder,
+          "home-ctl.exe",
+        ),
+      ),
+    ).toBe(true);
+  });
+
   test("a checksum mismatch installs nothing", async () => {
     const release = await fakeRelease("9.9.8", "new");
     const installed = await installedRelease();
