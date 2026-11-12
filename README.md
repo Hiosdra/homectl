@@ -58,7 +58,15 @@ You need OpenSSH and KeePassXC (its `keepassxc-cli` tool). Then choose your syst
 | Windows | Unzip `homectl-<version>-windows-x64.zip` and put `home-ctl.exe` on your PATH |
 | Anything else | Download the archive for your system from [Releases](https://github.com/Hiosdra/homectl/releases/latest) |
 
-> **Agent skills need the source checkout for now.** Packages and archives contain the `home-ctl` command (and the license), not the Codex and Claude Code skills. Those come from `home-ctl setup`, run in a checkout of this repository. Requires Bun 1.4.4 or newer:
+Then run setup once. It links the `home-ctl` command, installs the Codex and Claude Code skills, and sets up SSH aliases:
+
+```sh
+home-ctl setup
+```
+
+Preview it first with `home-ctl setup --dry-run`. The skills are built into the executable, so no source checkout is needed.
+
+Working on homectl itself? Run it from a checkout instead. It needs Bun 1.4.4 or newer:
 
 ```sh
 git clone https://github.com/Hiosdra/homectl.git
@@ -66,8 +74,6 @@ cd homectl
 bun install --frozen-lockfile
 bun src/cli/main.ts setup
 ```
-
-Keep the checkout at a stable path. `setup` links the command and the three skills, and sets up SSH aliases. Preview it first with `--dry-run`.
 
 ## Quick start
 

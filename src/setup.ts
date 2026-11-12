@@ -21,6 +21,8 @@ import {
 } from "./platform";
 import { run } from "./process";
 import { sessionConfig } from "./session/config";
+import { installSkillCopy } from "./skill-install";
+import { bundledSkills, skillContents } from "./skills-bundle";
 import {
   HomectlError,
   type Inventory,
@@ -102,7 +104,9 @@ export async function setup(home = homedir(), dryRun = false) {
     `Add Include to ${join(home, ".ssh", "config")}`,
     `Link CLI in ${p.bin}`,
     ...(updateWindowsPath ? ["Add CLI directory to Windows user PATH"] : []),
-    `Link 3 skills in ~/.agents/skills and ~/.claude/skills`,
+    bundled
+      ? "Install 3 skills from this executable into ~/.agents/skills and ~/.claude/skills"
+      : "Link 3 skills in ~/.agents/skills and ~/.claude/skills",
   ];
   if (dryRun) return { actions };
   await privateDirectory(p.base);
@@ -111,14 +115,21 @@ export async function setup(home = homedir(), dryRun = false) {
     p.inventory,
   );
   await writeSSHConfig(p.ssh, inventory.machines);
-  // Skills are documents in the checkout. A compiled executable has none to link.
-  if (!bundled)
-    for (const platform of [".agents", ".claude"]) {
-      const dest = join(home, platform, "skills");
-      await mkdir(dest, { recursive: true, mode: 0o700 });
+  // A compiled executable carries the skills and copies them, because it has no skill folder
+  // to link. A checkout links its skills/ folders, so edits there take effect at once.
+  for (const platform of [".agents", ".claude"]) {
+    const dest = join(home, platform, "skills");
+    await mkdir(dest, { recursive: true, mode: 0o700 });
+    if (bundled)
+      for (const skill of bundledSkills)
+        await installSkillCopy(
+          join(dest, skill.name),
+          await skillContents(skill),
+        );
+    else
       for (const skill of ["homelab", "homelab-setup", "homelab-enroll"])
         await link(join(repoRoot, "skills", skill), join(dest, skill));
-    }
+  }
   await mkdir(p.bin, { recursive: true, mode: 0o700 });
   // A compiled executable is its own entry point; a checkout runs the script.
   const launch = selfCommand();
@@ -188,9 +199,15 @@ if(-not $found){[Environment]::SetEnvironmentVariable('Path',($bin+';'+$old),'Us
   return {
     actions,
     inventory: p.inventory,
-    next: windows
-      ? "CLI added to user PATH. Restart your terminal application to load it, then run home-ctl.cmd doctor. Keep this checkout in a stable location."
-      : "Run home-ctl doctor; ensure ~/.local/bin is on PATH. Keep this checkout in a stable location.",
+    next: `${
+      windows
+        ? "CLI added to user PATH. Restart your terminal application to load it, then run home-ctl.cmd doctor."
+        : "Run home-ctl doctor; ensure ~/.local/bin is on PATH."
+    } ${
+      bundled
+        ? "Keep the home-ctl executable in place."
+        : "Keep this checkout in a stable location."
+    }`,
   };
 }
 export async function doctor(
@@ -206,7 +223,8 @@ export async function doctor(
   const usesKeepass = selected.some((m) => m?.auth?.type === "keepassxc");
   const required = new Set([
     "ssh",
-    "bun",
+    // A compiled executable runs without Bun; a checkout needs it.
+    ...(bundled ? [] : ["bun"]),
     ...(usesKeepass
       ? [...(windows ? [] : ["ssh-agent"]), "ssh-add", "keepassxc-cli"]
       : []),

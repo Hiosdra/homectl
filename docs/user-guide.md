@@ -8,23 +8,24 @@ homectl is a small CLI and three agent skills. Your agent operates your existing
 
 ## Install
 
-The [README](../README.md#install) covers packages, Homebrew and release archives. This guide covers the source checkout, which also installs the agent skills.
+The [README](../README.md#install) covers packages, Homebrew and release archives. Whichever you use, `home-ctl setup` does the rest.
 
-You need Bun 1.4.4 or newer, OpenSSH, the KeePassXC CLI and Bash on the agent host. Automatic key creation currently needs Linux with `/dev/shm` mounted as tmpfs. On Arch or EndeavourOS:
+You need OpenSSH and the KeePassXC CLI on the agent host, and Bash for private prompts. Automatic key creation currently needs Linux with `/dev/shm` mounted as tmpfs. On Arch or EndeavourOS:
 
 ```sh
 sudo pacman -S --needed openssh keepassxc
 ```
 
-From the checkout:
-
 ```sh
-bun install --frozen-lockfile
-bun src/cli/main.ts setup --dry-run
-bun src/cli/main.ts setup
+home-ctl setup --dry-run
+home-ctl setup
 ```
 
-Setup creates an inventory if you have none, generates SSH aliases, adds an SSH Include, and links the CLI and skills into `~/.agents/skills` and `~/.claude/skills`. It keeps your inventory and refuses to overwrite conflicting launchers or skill folders. Keep the checkout at a stable path, and add `~/.local/bin` to your PATH if needed.
+Setup creates an inventory if you have none, generates SSH aliases, adds an SSH Include, and creates a `home-ctl` launcher in `~/.local/bin`. It copies the three skills into `~/.agents/skills` and `~/.claude/skills`. It keeps your inventory and refuses to overwrite launchers or skill folders it did not create.
+
+After you update homectl, run `home-ctl setup` again to refresh the skills. A skill you edited by hand is left alone, and setup reports the conflict. Add `~/.local/bin` to your PATH if needed.
+
+**Running from a source checkout?** It needs Bun 1.4.4 or newer. Clone the repository, then run `bun install --frozen-lockfile` and `bun src/cli/main.ts setup`. Setup then links the skills from `skills/` instead of copying them, so edits to the repository take effect at once. Keep the checkout at a stable path.
 
 Then run these **yourself in a private terminal**:
 
