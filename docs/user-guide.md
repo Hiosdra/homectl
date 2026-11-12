@@ -23,7 +23,7 @@ home-ctl setup
 
 Setup creates an inventory if you have none, generates SSH aliases, adds an SSH Include, and creates a `home-ctl` launcher in `~/.local/bin`. It copies the three skills into `~/.agents/skills` and `~/.claude/skills`. It keeps your inventory and refuses to overwrite launchers or skill folders it did not create.
 
-After you update homectl, run `home-ctl setup` again to refresh the skills. A skill you edited by hand is left alone, and setup reports the conflict. Add `~/.local/bin` to your PATH if needed.
+Updating a Windows release from the panel installs the new release and refreshes its skills. After a package-manager or Homebrew update, run `home-ctl setup` once to refresh the skills. A skill you edited by hand is left alone, and setup reports the conflict. Add `~/.local/bin` to your PATH if needed.
 
 **Running from a source checkout?** It needs Bun 1.4.4 or newer. Clone the repository, then run `bun install --frozen-lockfile` and `bun src/cli/main.ts setup`. Setup then links the skills from `skills/` instead of copying them, so edits to the repository take effect at once. Keep the checkout at a stable path.
 

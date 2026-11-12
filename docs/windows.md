@@ -41,6 +41,10 @@ Skills are copied, so setup does not need Developer Mode or admin rights for sym
 
 ### Update
 
+From the release zip, the panel's **Update** installs the newer release and refreshes its skills.
+
+From a source checkout:
+
 ```powershell
 home-ctl.cmd update --dry-run
 home-ctl.cmd update

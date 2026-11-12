@@ -11,7 +11,12 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installSkillCopy, skillManifest } from "../src/skill-install";
+import {
+  installBundledSkills,
+  installSkillCopy,
+  refreshSkills,
+  skillManifest,
+} from "../src/skill-install";
 import { bundledSkills, skillContents } from "../src/skills-bundle";
 
 const skillsDir = join(import.meta.dir, "..", "skills");
@@ -126,3 +131,40 @@ test.skipIf(windows)(
     });
   },
 );
+
+test("setup copies every bundled skill into both skill folders", async () => {
+  await withTemp(async (home) => {
+    await installBundledSkills(home);
+    for (const platform of [".agents", ".claude"])
+      for (const skill of bundledSkills) {
+        const expected = (await skillContents(skill))["SKILL.md"] ?? "";
+        expect(
+          await readFile(
+            join(home, platform, "skills", skill.name, "SKILL.md"),
+            "utf8",
+          ),
+        ).toBe(expected);
+      }
+  });
+});
+
+test("an update refreshes a copy from an older release that nobody edited", async () => {
+  await withTemp(async (home) => {
+    const dest = join(home, ".agents", "skills", "homelab");
+    await installSkillCopy(dest, { "SKILL.md": "older release\n" });
+    await installBundledSkills(home);
+    const skill = bundledSkills.find((item) => item.name === "homelab");
+    if (skill === undefined)
+      throw new Error("the homelab skill is not bundled");
+    expect(await readFile(join(dest, "SKILL.md"), "utf8")).toBe(
+      (await skillContents(skill))["SKILL.md"] ?? "",
+    );
+  });
+});
+
+test("the refresh role refuses to run outside a release executable", async () => {
+  await withTemp(async (home) => {
+    expect(await refreshSkills(home)).toBe(2);
+    expect(existsSync(join(home, ".agents"))).toBe(false);
+  });
+});

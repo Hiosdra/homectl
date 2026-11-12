@@ -1,7 +1,7 @@
 {
   "scripts/ui-smoke.ts": 777,
   "src/cli/help.ts": 623,
-  "src/cli/main.ts": 1008,
+  "src/cli/main.ts": 997,
   "src/control/cli.ts": 810,
   "src/control/engine.ts": 1856,
   "src/control/present.ts": 664,

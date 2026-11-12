@@ -125,10 +125,20 @@ export async function installRelease(
     await mkdir(join(root, version), { recursive: true });
     await cp(built, target, { recursive: true });
     await repointCommands(join(home, ".local", "bin"), currentFolder, target);
+    // The new release carries its own skills, so it copies them now. A failure does not undo
+    // the update; the note says what to run.
+    const skills = await runner({
+      argv: [join(target, "home-ctl.exe"), "__internal", "refresh-skills"],
+      timeoutMs: 60_000,
+    });
     return {
       updated: true,
       version,
-      next: `Restart homectl to run ${version}. The previous release stays in ${currentFolder}.`,
+      next: `Restart homectl to run ${version}. The previous release stays in ${currentFolder}.${
+        skills.exitCode
+          ? " Its skills were not refreshed; run home-ctl setup to see why."
+          : ""
+      }`,
     };
   } finally {
     await rm(staging, { recursive: true, force: true });
