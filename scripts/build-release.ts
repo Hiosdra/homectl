@@ -4,7 +4,7 @@
 //   bun scripts/build-release.ts            all targets
 //   bun scripts/build-release.ts linux-x64  one target (for local checks)
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
 const dist = join(root, "dist");
@@ -58,7 +58,15 @@ try {
     ]);
     if (t.exe === "") {
       const archive = join(dist, `${folder}.tar.gz`);
-      await run(["tar", "-czf", archive, "-C", stage, folder]);
+      // Relative paths: GNU tar reads a drive letter such as C: as a remote host.
+      await run([
+        "tar",
+        "-czf",
+        relative(root, archive),
+        "-C",
+        relative(root, stage),
+        folder,
+      ]);
       archives.push(archive);
     } else {
       const archive = join(dist, `${folder}.zip`);

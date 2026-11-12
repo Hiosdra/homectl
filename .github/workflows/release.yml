@@ -42,6 +42,20 @@ jobs:
 
       - run: bun scripts/build-release.ts
 
+      # nfpm is pinned and its archive is checked against the official checksum before use.
+      - name: Install nfpm 2.49.0
+        run: |
+          curl -sSfL -o nfpm.tar.gz https://github.com/goreleaser/nfpm/releases/download/v2.49.0/nfpm_2.49.0_Linux_x86_64.tar.gz
+          echo "2afaa5ffb5e3493402e31e7c67a5a1fb42133e3f66fc315ca0051934125561c7  nfpm.tar.gz" | sha256sum -c -
+          tar -xzf nfpm.tar.gz nfpm
+          sudo install -m 0755 nfpm /usr/local/bin/nfpm
+          nfpm --version
+
+      - run: bun scripts/build-packages.ts
+      - run: bun scripts/render-packaging.ts
+      - name: Install the Linux packages in clean containers
+        run: sh scripts/smoke-packages.sh dist
+
       - name: Smoke-test the linux-x64 executable
         run: |
           mkdir -p smoke
@@ -73,4 +87,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         # No checkout in this job, so gh needs the repository named explicitly.
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "homectl ${GITHUB_REF_NAME}" --generate-notes
+        # Named files only: dist/packaging is a folder and gh release create takes files.
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/*.tar.gz dist/*.zip dist/*.deb dist/*.apk dist/SHA256SUMS \
+            dist/packaging/homectl.rb dist/packaging/winget/*.yaml \
+            --repo "$GITHUB_REPOSITORY" --title "homectl ${GITHUB_REF_NAME}" --generate-notes
