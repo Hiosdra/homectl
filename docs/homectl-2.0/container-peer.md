@@ -1,6 +1,6 @@
 # Containerized peer on the NAS (slice 6, homelab #5 item 5)
 
-Status: implemented. A `homectl-peer:pr6` image ran on Ugreen on 2026-11-10 and reported `healthy`, and the peer port answered from the LAN (record: homelab log 2026-11-11). An earlier draft dated this run to 2026-11-07; no record of that run exists, so the date was removed. The authenticated remote panel and the prebuilt-image Compose Project example are still being validated separately. Addresses and paths in the examples remain placeholders.
+Status: implemented. A `homectl-peer:pr6` image ran on Ugreen on 2026-11-10 and reported `healthy`, and the peer port answered from the LAN (record: homelab log 2026-11-11). An earlier draft dated this run to 2026-11-07. A local image tagged `pr6-ui-20261107` exists, but no record shows a run of it on Ugreen, so that date was removed. The authenticated remote panel and the prebuilt-image Compose Project example are still being validated separately. Addresses and paths in the examples remain placeholders.
 
 Goal: homectl runs as an always-on peer in a container on the NAS. It pairs with the desktop peers, runs control sync, restarts cleanly, and holds no broad privilege.
 
