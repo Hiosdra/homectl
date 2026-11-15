@@ -340,7 +340,14 @@ describe("Proxmox guest plans through the control plane", () => {
     ).toBe(true);
     for (const argv of [
       ["pct", "restore", "9006", "local-test:vzdump-lxc-9006.tar.zst"],
-      ["sudo", "-n", "pct", "restore", "9006", "local-test:vzdump-lxc-9006.tar.zst"],
+      [
+        "sudo",
+        "-n",
+        "pct",
+        "restore",
+        "9006",
+        "local-test:vzdump-lxc-9006.tar.zst",
+      ],
     ]) {
       expect(
         await refusedWith(

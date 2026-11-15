@@ -9,7 +9,11 @@ import { fingerprint } from "../src/control/canonical";
 import { loadOrCreateDeviceKey, signBytes } from "../src/control/device-key";
 import { ControlPlane } from "../src/control/engine";
 import type { ClientIdentity } from "../src/control/types";
-import { HomectlError, type ProcessResult, type ProcessSpec } from "../src/types";
+import {
+  HomectlError,
+  type ProcessResult,
+  type ProcessSpec,
+} from "../src/types";
 
 const INVENTORY = `version: 1
 machines:
