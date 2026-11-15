@@ -129,7 +129,7 @@ async function planOn(d: Device, host: string): Promise<string> {
   const created = await d.plane.createClient({
     id: "codex-pc",
     name: "codex-pc",
-    scopes: ["plan:create"],
+    scopes: ["plan:create", "proxmox:lxc:restore"],
     hosts: [host],
   });
   const client = await d.plane.authenticate(created.token);
@@ -170,6 +170,9 @@ describe("a lost peer is rebuilt from its recovery bundle", () => {
     const originalId = B.id;
     const opsBefore = Object.keys(B.rep.replica.ops).sort();
     expect(opsBefore).toContain(operationId);
+    expect(B.rep.replica.clients["codex-pc"]?.scopes).toContain(
+      "proxmox:lxc:restore",
+    );
 
     // The recovery key is written once and kept outside the device's state directory.
     const keyPath = join(B.root, "owner-recovery.key");
@@ -197,6 +200,9 @@ describe("a lost peer is rebuilt from its recovery bundle", () => {
     const B2: Device = { ...rebuilt, runs: B.runs };
     expect(B2.id).toBe(originalId);
     expect(Object.keys(B2.rep.replica.ops).sort()).toEqual(opsBefore);
+    expect(B2.rep.replica.clients["codex-pc"]?.scopes).toContain(
+      "proxmox:lxc:restore",
+    );
 
     await round([A, B2, C]);
     expect(B2.rep.ownerOf(operationId)).toBe(A.id);
@@ -205,6 +211,9 @@ describe("a lost peer is rebuilt from its recovery bundle", () => {
     expect(Object.keys(B2.rep.status().blocked)).toEqual([]);
     expect(Object.keys(C.rep.replica.ops).sort()).toEqual(
       Object.keys(B2.rep.replica.ops).sort(),
+    );
+    expect(C.rep.replica.clients["codex-pc"]?.scopes).toContain(
+      "proxmox:lxc:restore",
     );
   });
 

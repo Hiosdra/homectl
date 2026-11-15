@@ -9,7 +9,12 @@ import {
   apiRequestFor,
   runProxmoxApi,
 } from "../src/proxmox/api";
-import type { ProxmoxFacts, ProxmoxInput } from "../src/proxmox/catalogue";
+import {
+  buildProxmoxPlan,
+  catalogueClass,
+  type ProxmoxFacts,
+  type ProxmoxInput,
+} from "../src/proxmox/catalogue";
 import { HomectlError, type ProcessSpec } from "../src/types";
 
 setDefaultTimeout(60_000);
@@ -30,6 +35,24 @@ const PEM =
 const UPID = "UPID:pve-test:0001:0002:0003:qmstart:9003:ops@pve!homectl:";
 
 describe("request mapping: each catalogue action becomes one exact API call", () => {
+  test("restore cannot build an argv plan or an API request", () => {
+    const restore: ProxmoxInput = {
+      kind: "lxc",
+      action: "restore",
+      vmid: 9006,
+      storage: "local-test",
+    };
+    expect(() => buildProxmoxPlan(restore, facts)).toThrow(
+      "Safe LXC restore is disabled",
+    );
+    expect(catalogueClass(["pct", "restore", "9006", "/backup.tar"])).toBe(
+      undefined,
+    );
+    expect(() => apiRequestFor(restore, facts)).toThrow(
+      "Proxmox API refuses LXC restore",
+    );
+  });
+
   test("reads are GET and inspect only", () => {
     expect(apiRequestFor({ kind: "qemu", action: "list" }, facts)).toEqual({
       method: "GET",

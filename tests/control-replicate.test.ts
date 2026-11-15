@@ -279,6 +279,22 @@ describe("client registrations", () => {
     expect(applyClient(replica, impostor, devices)).toBe("rejected");
   });
 
+  test("the separate LXC restore grant is preserved in signed peer metadata", async () => {
+    const { b, devices } = await fleet();
+    const replica = emptyReplica();
+    expect(
+      applyClient(
+        replica,
+        client(b, { scopes: ["plan:create", "proxmox:lxc:restore"] }),
+        devices,
+      ),
+    ).toBe("applied");
+    expect(replica.clients["codex-pc"]?.scopes).toEqual([
+      "plan:create",
+      "proxmox:lxc:restore",
+    ]);
+  });
+
   test("revocation propagates and never reverts", async () => {
     const { b, devices } = await fleet();
     const replica = emptyReplica();

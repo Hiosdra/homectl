@@ -33,6 +33,13 @@ test("request union accepts each typed operation", () => {
       impact: "read kernel name",
       idempotencyKey: "req-1",
     },
+    {
+      op: "proxmox-plan",
+      host: "pve-host",
+      kind: "lxc",
+      action: "restore",
+      vmid: 9006,
+    },
     { op: "validate", operationId: id, fingerprint: digest },
     {
       op: "approve",
@@ -51,6 +58,13 @@ test("request union rejects unknown operations and smuggled fields", () => {
   const invalid: unknown[] = [
     { op: "shell", argv: ["sh", "-c", "id"] },
     { op: "exec", host: "lab-printer", argv: ["uname"] },
+    {
+      op: "proxmox-plan",
+      host: "pve-host",
+      kind: "lxc",
+      action: "unknown-restore-mode",
+      vmid: 9006,
+    },
     { op: "execute", operationId: id, argv: ["rm", "-rf", "/"] },
     { op: "inspect", host: "Bad Host" },
     { op: "plan", host: "lab-printer", argv: [] },
@@ -95,6 +109,12 @@ test("client identity requires explicit scopes from the enumeration", () => {
     hosts: ["lab-printer"],
   };
   expect(schemas.clientIdentity(base)).toBe(true);
+  expect(
+    schemas.clientIdentity({
+      ...base,
+      scopes: ["plan:create", "proxmox:lxc:restore"],
+    }),
+  ).toBe(true);
   expect(schemas.clientIdentity({ ...base, scopes: [] })).toBe(false);
   expect(schemas.clientIdentity({ ...base, scopes: ["exec:run"] })).toBe(false);
   expect(

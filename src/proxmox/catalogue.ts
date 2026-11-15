@@ -15,7 +15,8 @@ export type ProxmoxAction =
   | "shutdown"
   | "clone"
   | "create"
-  | "destroy";
+  | "destroy"
+  | "restore";
 
 // Facts about one Proxmox node, taken from the inventory provider entry.
 export interface ProxmoxFacts {
@@ -63,6 +64,7 @@ const CHANGE_ACTIONS: ProxmoxAction[] = [
   "clone",
   "create",
   "destroy",
+  "restore",
 ];
 const NAME = /^[a-z][a-z0-9-]{0,62}$/;
 const STORAGE = /^[a-zA-Z0-9_-]{1,32}$/;
@@ -128,6 +130,11 @@ export function buildProxmoxPlan(
   facts: ProxmoxFacts,
 ): ProxmoxPlan {
   const { kind, action } = input;
+  if (action === "restore")
+    throw new HomectlError(
+      3,
+      "Safe LXC restore is disabled pending a verified immutable sanitized archive workflow",
+    );
   const cmd = kind === "qemu" ? "qm" : "pct";
   const type = kind === "qemu" ? "VM" : "CT";
   const suffix = input.name ? ` (${input.name})` : "";

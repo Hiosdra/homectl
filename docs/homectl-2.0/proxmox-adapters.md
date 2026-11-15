@@ -33,6 +33,7 @@ Argv shown after the optional `sudo -n` prefix (added when the SSH user is not `
 | clone | qemu | `qm clone TEMPLATE_VMID VMID --name NAME --full 1 [--storage STORAGE]` | mutation |
 | create | lxc | `pct create VMID STORAGE:vztmpl/TEMPLATE --hostname NAME --unprivileged 1 --memory MB --cores N --rootfs STORAGE:GB --net0 name=eth0,bridge=BRIDGE,ip=(dhcp or CIDR,gw=GW)` | mutation |
 | destroy | qemu / lxc | `qm destroy VMID --purge` / `pct destroy VMID --purge` | destructive |
+| restore | lxc | **Disabled**; would require `proxmox:lxc:restore` and a sanitized, immutable archive artifact | refused |
 
 Patterns: VMID is an integer in the provider's range. NAME is `^[a-z][a-z0-9-]{0,62}$`. TEMPLATE (LXC) is `^[A-Za-z0-9._+-]{1,128}\.tar\.(gz|xz|zst)$` and must be in `templates`. STORAGE must be in `storages`. BRIDGE is `^vmbr[0-9]{1,3}$`. Memory is 128–1048576 MB, cores 1–256, root disk 1–65536 GB. Static addresses are IPv4 with a CIDR of 1–32 and an IPv4 gateway. Clone never uses the template VMID as the target. `--unprivileged 1` is always set for LXC create: a privileged container is not in the catalogue.
 
@@ -68,6 +69,7 @@ Tier mapping: inspect and mutation both need `sudo -n` on a `full` host in this 
 - The existing QEMU cloud-init provisioner is unchanged.
 - No VM console or snapshot actions, no LXC templates download.
 - The API-token transport (section 14) is implemented and tested with a fake HTTP layer. It has **not** been run against a real node.
+- The `proxmox:lxc:restore` scope is a separate opt-in grant. Even with it, restore remains refused by both transports; no archive artifact or sanitizer is implemented by this change.
 
 ## Implementation
 

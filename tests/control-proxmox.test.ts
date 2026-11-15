@@ -136,6 +136,45 @@ async function refusedWith(
 }
 
 describe("Proxmox guest plans through the control plane", () => {
+  test("restore needs its own client scope and remains refused after authorization", async () => {
+    const f = await fixture();
+    const request = {
+      op: "proxmox-plan" as const,
+      host: "pve-host",
+      kind: "lxc" as const,
+      action: "restore" as const,
+      vmid: 9006,
+    };
+
+    expect(
+      await refusalMessage(
+        f.plane.request({ kind: "client", client: f.codex }, request),
+      ),
+    ).toBe("Client lacks the scope for this operation");
+
+    const granted = await f.plane.createClient({
+      id: "restore-client",
+      name: "Restore client",
+      scopes: ["plan:create", "proxmox:lxc:restore", "status:read"],
+      hosts: ["pve-host"],
+    });
+    const identity = (await f.plane.authenticate(
+      granted.token as string,
+    )) as ClientIdentity;
+    expect(
+      await refusalMessage(
+        f.plane.request({ kind: "client", client: identity }, request),
+      ),
+    ).toContain("Safe LXC restore is disabled");
+    const status = (await f.plane.request(
+      { kind: "client", client: identity },
+      { op: "status" },
+    )) as { operations: unknown[] };
+    expect(status.operations).toHaveLength(0);
+    expect(f.runs).toHaveLength(0);
+    expect((await f.plane.verifyAudit()).ok).toBe(true);
+  });
+
   test("inspection runs without approval and returns the recorded qm output", async () => {
     const f = await fixture();
     const op = await proxmoxPlan(f, { kind: "qemu", action: "list" });

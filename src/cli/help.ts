@@ -472,7 +472,7 @@ pages.control = {
         ],
         [
           "--scopes LIST",
-          "Comma-separated: status:read, inspect:read, plan:create, approve:decide.",
+          "Comma-separated: status:read, inspect:read, plan:create, approve:decide, proxmox:lxc:restore. Restore remains disabled until its archive safety path is implemented.",
         ],
         ["--hosts LIST", "Comma-separated inventory host names to grant."],
         [
