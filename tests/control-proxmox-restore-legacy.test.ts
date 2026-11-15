@@ -16,6 +16,9 @@ import {
 } from "../src/types";
 
 const INVENTORY = `version: 1
+session:
+  ttl: 1h
+  database: /tmp/homectl-synthetic/vault.kdbx
 machines:
   pve-host:
     description: Synthetic Proxmox host
