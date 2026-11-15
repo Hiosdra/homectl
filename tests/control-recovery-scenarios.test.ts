@@ -166,6 +166,12 @@ describe("a lost peer is rebuilt from its recovery bundle", () => {
       C: d.C as Device,
     }));
     const operationId = await planOn(A, "agent-host");
+    await A.plane.createClient({
+      id: "plan-only-client",
+      name: "Plan-only client",
+      scopes: ["plan:create"],
+      hosts: ["agent-host"],
+    });
     await round([A, B, C]);
     const originalId = B.id;
     const opsBefore = Object.keys(B.rep.replica.ops).sort();
@@ -173,6 +179,9 @@ describe("a lost peer is rebuilt from its recovery bundle", () => {
     expect(B.rep.replica.clients["codex-pc"]?.scopes).toContain(
       "proxmox:lxc:restore",
     );
+    expect(B.rep.replica.clients["plan-only-client"]?.scopes).toEqual([
+      "plan:create",
+    ]);
 
     // The recovery key is written once and kept outside the device's state directory.
     const keyPath = join(B.root, "owner-recovery.key");
@@ -203,6 +212,9 @@ describe("a lost peer is rebuilt from its recovery bundle", () => {
     expect(B2.rep.replica.clients["codex-pc"]?.scopes).toContain(
       "proxmox:lxc:restore",
     );
+    expect(B2.rep.replica.clients["plan-only-client"]?.scopes).toEqual([
+      "plan:create",
+    ]);
 
     await round([A, B2, C]);
     expect(B2.rep.ownerOf(operationId)).toBe(A.id);
@@ -215,6 +227,9 @@ describe("a lost peer is rebuilt from its recovery bundle", () => {
     expect(C.rep.replica.clients["codex-pc"]?.scopes).toContain(
       "proxmox:lxc:restore",
     );
+    expect(C.rep.replica.clients["plan-only-client"]?.scopes).toEqual([
+      "plan:create",
+    ]);
   });
 
   test("a bundle opened with another key is refused, and the empty state directory stays empty", async () => {

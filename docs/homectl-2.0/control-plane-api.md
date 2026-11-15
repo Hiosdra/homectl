@@ -12,7 +12,7 @@ Status: **implemented in this branch, not deployed.** Tests show local behavior 
 | Local operator | The private CLI on the homectl host (OS account). | `execute` an approved operation; manage clients; verify the audit journal. |
 
 - **Scopes** (closed set): `status:read`, `inspect:read`, `plan:create`, `approve:decide`, `proxmox:lxc:restore`.
-- The restore scope is opt-in and is never assigned by default. Upgrade every peer before registering it: older versions reject an unknown scope in replicated client metadata.
+- The restore scope is opt-in and is never assigned by default. Upgrade every peer before granting it: older peers can retain the signed client metadata, but their closed client-identity schema does not recognize the new scope and will reject that identity when used.
 - **Host grants**: explicit list of inventory host names per client. No wildcards.
 - **Separation rules**: each client has its own id, token, scopes and grants. Tokens are never shared. A client cannot approve a plan it issued (`approver != issuer` for `decision: "approve"`). The issuer may still `reject` its own plan to cancel it.
 - **Reserved client ids**: `local-operator` and `control-plane` (used for the local operator and system events in the audit journal).
