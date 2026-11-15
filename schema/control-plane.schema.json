@@ -36,7 +36,13 @@
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
     },
     "scope": {
-      "enum": ["status:read", "inspect:read", "plan:create", "approve:decide"]
+      "enum": [
+        "status:read",
+        "inspect:read",
+        "plan:create",
+        "approve:decide",
+        "proxmox:lxc:restore"
+      ]
     },
     "operationKind": {
       "enum": [
@@ -376,7 +382,8 @@
                 "shutdown",
                 "clone",
                 "create",
-                "destroy"
+                "destroy",
+                "restore"
               ]
             },
             "vmid": { "type": "integer" },
@@ -773,7 +780,8 @@
             "shutdown",
             "clone",
             "create",
-            "destroy"
+            "destroy",
+            "restore"
           ]
         },
         "vmid": {

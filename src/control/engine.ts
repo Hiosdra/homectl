@@ -25,6 +25,7 @@ import {
   type Machine,
   type Runner,
 } from "../types";
+import { requireScope } from "./authorization";
 import { fingerprint, isoTime } from "./canonical";
 import {
   ClientRegistry,
@@ -83,7 +84,6 @@ import {
   type OperationRequest,
   type OperationState,
   type OperationView,
-  type Scope,
   TERMINAL_STATES,
 } from "./types";
 
@@ -149,11 +149,6 @@ export interface ExecuteResult {
   operation: OperationView;
   // Returned only to the private local operator; never persisted.
   output?: { stdout: string; stderr: string };
-}
-
-function requireScope(client: ClientIdentity, scope: Scope): void {
-  if (!hasScope(client, scope))
-    throw new HomectlError(3, "Client lacks the scope for this operation");
 }
 
 function requireHost(client: ClientIdentity, host: string): void {
@@ -1163,6 +1158,7 @@ export class ControlPlane {
     req: Extract<OperationRequest, { op: "proxmox-plan" }>,
   ) {
     requireScope(client, "plan:create");
+    if (req.action === "restore") requireScope(client, "proxmox:lxc:restore");
     requireHost(client, req.host);
     const inventory = await loadInventory(this.options.inventoryPath);
     const machine = machineOf(inventory, req.host);

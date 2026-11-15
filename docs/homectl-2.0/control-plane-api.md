@@ -11,7 +11,8 @@ Status: **implemented in this branch, not deployed.** Tests show local behavior 
 | Client (for example "Codex PC", "Hermes Admin") | `Authorization: Bearer <token>` on the MCP endpoint. One token per client id. | Only operations covered by its scopes and host grants. |
 | Local operator | The private CLI on the homectl host (OS account). | `execute` an approved operation; manage clients; verify the audit journal. |
 
-- **Scopes** (closed set): `status:read`, `inspect:read`, `plan:create`, `approve:decide`.
+- **Scopes** (closed set): `status:read`, `inspect:read`, `plan:create`, `approve:decide`, `proxmox:lxc:restore`.
+- The restore scope is opt-in and is never assigned by default. Upgrade every peer before registering it: older versions reject an unknown scope in replicated client metadata.
 - **Host grants**: explicit list of inventory host names per client. No wildcards.
 - **Separation rules**: each client has its own id, token, scopes and grants. Tokens are never shared. A client cannot approve a plan it issued (`approver != issuer` for `decision: "approve"`). The issuer may still `reject` its own plan to cancel it.
 - **Reserved client ids**: `local-operator` and `control-plane` (used for the local operator and system events in the audit journal).
@@ -250,7 +251,7 @@ Optional per client. Static `hct_` tokens are unchanged. `control oidc set --iss
 
 ## 15. Proxmox guest actions (slice 5)
 
-`op: "proxmox-plan"` (MCP tool `homectl_proxmox_plan`, scope `plan:create`) takes typed fields: `host`, `kind` (`qemu` or `lxc`), `action` (list, status, config, start, stop, reboot, shutdown, clone, create, destroy), and the optional `vmid`, `template`, `name`, `storage`, `memory_mb`, `cores`, `disk_gb`, `bridge`, `address`, `cidr`, `gateway`, `timeout_s`. There is no argv and no node field. The node, VMID range, storages and templates come from the inventory provider for the host. The result is an ordinary plan. A change (start, stop, reboot, shutdown, clone, create, destroy) is refused unless the provider sets `vmid_range`. Destroy needs `name` and refuses any VMID in the provider's `protected_vmids`. The generic `plan` op refuses `qm` and `pct` argv. Design and capability review: [proxmox-adapters.md](proxmox-adapters.md).
+`op: "proxmox-plan"` (MCP tool `homectl_proxmox_plan`, base scope `plan:create`) takes typed fields: `host`, `kind` (`qemu` or `lxc`), `action` (list, status, config, start, stop, reboot, shutdown, clone, create, destroy, or restore), and the optional `vmid`, `template`, `name`, `storage`, `memory_mb`, `cores`, `disk_gb`, `bridge`, `address`, `cidr`, `gateway`, `timeout_s`. Restore additionally requires `proxmox:lxc:restore`; the request is accepted by the schema but is refused before an operation is created until immutable sanitized-archive verification is implemented. There is no free-form argv or node field. The node, VMID range, storages and templates come from the inventory provider for the host. Changes require an explicit `vmid_range`; destroy also needs `name` and refuses any VMID in `protected_vmids`. The generic `plan` op refuses `qm` and `pct` argv. Design and current restore gate: [proxmox-adapters.md](proxmox-adapters.md).
 
 ## 13. Owner recovery key
 

@@ -9,6 +9,7 @@ export const SCOPES = [
   "inspect:read",
   "plan:create",
   "approve:decide",
+  "proxmox:lxc:restore",
 ] as const;
 export type Scope = (typeof SCOPES)[number];
 
@@ -34,7 +35,8 @@ export type ProxmoxActionName =
   | "shutdown"
   | "clone"
   | "create"
-  | "destroy";
+  | "destroy"
+  | "restore";
 
 export const OPERATION_STATES = [
   "pending",

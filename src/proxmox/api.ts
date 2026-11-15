@@ -61,6 +61,11 @@ export function apiRequestFor(
   input: ProxmoxInput,
   facts: ProxmoxFacts,
 ): ApiRequest {
+  if (input.action === "restore")
+    throw new HomectlError(
+      3,
+      "Proxmox API refuses LXC restore until an immutable sanitized archive policy can be verified",
+    );
   const plan = buildProxmoxPlan(input, facts);
   const argv = plan.argv;
   const node = encodeURIComponent(facts.node);
