@@ -55,8 +55,9 @@ function flagValue(argv: string[], flag: string): string {
   return value;
 }
 
-// Maps one validated catalogue plan to an API request. Validation is the
-// existing buildProxmoxPlan, so the same refusals apply on both transports.
+// Maps one validated catalogue plan to an API request. Restore is refused
+// before request construction; enabled actions use buildProxmoxPlan so the
+// same catalogue refusals apply on both transports.
 export function apiRequestFor(
   input: ProxmoxInput,
   facts: ProxmoxFacts,

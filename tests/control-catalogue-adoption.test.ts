@@ -2,6 +2,7 @@ import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 
 setDefaultTimeout(60_000);
 
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -165,6 +166,40 @@ describe("catalogue plans handed to another device", () => {
         (o) => o.operationId === planned.operationId,
       ),
     ).toBe(false);
+  });
+
+  test("a receiving device refuses to adopt a replicated LXC restore plan", async () => {
+    const b = await device(inventory());
+    let code: number | undefined;
+    let message = "";
+    try {
+      await b.adoptOperation({
+        operationId: randomUUID(),
+        host: "pve-host",
+        argv: [
+          "sudo",
+          "-n",
+          "pct",
+          "restore",
+          "9006",
+          "local-test:vzdump-lxc-9006.tar.zst",
+        ],
+        impact: "Restore LXC 9006",
+        issuer: "codex-pc",
+        catalogueInput: {
+          kind: "lxc",
+          action: "restore",
+          vmid: 9006,
+          storage: "local-test",
+        },
+      });
+    } catch (error) {
+      code = error instanceof HomectlError ? error.code : undefined;
+      message = error instanceof Error ? error.message : "";
+    }
+    expect(code).toBe(3);
+    expect(message).toContain("takeover refused");
+    expect(await b.listOperations({ all: true })).toHaveLength(0);
   });
 
   test("a device that describes the machine differently refuses rather than adopting another plan", async () => {
