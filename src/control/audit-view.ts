@@ -46,6 +46,11 @@ export type AuditHistoryPage = {
   limit: number;
 };
 
+type AuditHistoryRecord = {
+  row: AuditHistoryRow;
+  creationSequence: number;
+};
+
 const terminalState: Record<string, AuditStatus> = {
   "operation.succeeded": "succeeded",
   "operation.failed": "failed",
@@ -114,19 +119,21 @@ function baseRow(
 function rowsFromJournal(
   entries: AuditEntry[],
   names: Record<string, string>,
-): AuditHistoryRow[] {
-  const operations = new Map<string, AuditHistoryRow>();
+): AuditHistoryRecord[] {
+  const operations = new Map<string, AuditHistoryRecord>();
   const startedAt = new Map<string, number>();
-  const attempts: AuditHistoryRow[] = [];
+  const attempts: AuditHistoryRecord[] = [];
   for (const entry of entries) {
     const event = entry.event;
     if (event.event === "request.rejected") {
       const prior = event.operationId
-        ? operations.get(event.operationId)
+        ? operations.get(event.operationId)?.row
         : undefined;
-      const needsApproval = /approval|required|approved/i.test(
-        event.reason ?? "",
-      );
+      const policyDecision =
+        event.policyDecision ??
+        (/approval|required|approved/i.test(event.reason ?? "")
+          ? "needs-approval"
+          : "refused");
       const row = baseRow(
         `attempt-${entry.seq}`,
         entry.seq,
@@ -138,22 +145,27 @@ function rowsFromJournal(
           ...(prior?.classification
             ? { classification: prior.classification }
             : {}),
-          policyDecision: needsApproval ? "needs-approval" : "refused",
+          policyDecision,
         },
         names,
       );
-      row.status = needsApproval ? "approval-required" : "refused";
+      row.status =
+        policyDecision === "needs-approval" ? "approval-required" : "refused";
       if (!row.operation && prior?.operation) row.operation = prior.operation;
-      attempts.push(row);
+      attempts.push({ row, creationSequence: entry.seq });
       continue;
     }
     if (!operationEvents.has(event.event)) continue;
     const id = event.operationId ?? `entry-${entry.seq}`;
-    let row = operations.get(id);
-    if (!row) {
-      row = baseRow(id, entry.seq, entry.at, event, names);
-      operations.set(id, row);
+    let record = operations.get(id);
+    if (!record) {
+      record = {
+        row: baseRow(id, entry.seq, entry.at, event, names),
+        creationSequence: entry.seq,
+      };
+      operations.set(id, record);
     }
+    const row = record.row;
     row.sequence = entry.seq;
     if (event.event === "operation.planned") {
       row.at = entry.at;
@@ -173,7 +185,7 @@ function rowsFromJournal(
         row.approverName = clientName(event.client, names);
       }
       row.policyDecision = policyOf(event);
-      row.status = event.decision === "approve" ? "approved" : "failed";
+      row.status = event.decision === "approve" ? "approved" : "refused";
       row.reason = event.decision === "reject" ? "rejected" : row.reason;
       continue;
     }
@@ -236,7 +248,7 @@ function rowsFromJournal(
     }
   }
   return [...operations.values(), ...attempts].sort(
-    (a, b) => b.sequence - a.sequence,
+    (a, b) => b.creationSequence - a.creationSequence,
   );
 }
 
@@ -247,37 +259,39 @@ export function auditHistory(
 ): AuditHistoryPage {
   const limit = Math.max(1, Math.min(100, Math.trunc(filters.limit ?? 50)));
   const query = filters.text?.trim().toLocaleLowerCase();
-  const rows = rowsFromJournal(entries, names).filter((row) => {
-    if (filters.host && row.host !== filters.host) return false;
-    if (filters.status && row.status !== filters.status) return false;
-    if (filters.cursor !== undefined && row.sequence >= filters.cursor)
-      return false;
-    if (!query) return true;
-    return [
-      row.operationId,
-      row.operation,
-      row.host,
-      row.requester,
-      row.requesterName,
-      row.approver,
-      row.approverName,
-      row.policyDecision,
-      row.status,
-      row.reason,
-      row.classification,
-      ...(row.argv ?? []),
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLocaleLowerCase()
-      .includes(query);
-  });
+  const rows = rowsFromJournal(entries, names).filter(
+    ({ row, creationSequence }) => {
+      if (filters.host && row.host !== filters.host) return false;
+      if (filters.status && row.status !== filters.status) return false;
+      if (filters.cursor !== undefined && creationSequence >= filters.cursor)
+        return false;
+      if (!query) return true;
+      return [
+        row.operationId,
+        row.operation,
+        row.host,
+        row.requester,
+        row.requesterName,
+        row.approver,
+        row.approverName,
+        row.policyDecision,
+        row.status,
+        row.reason,
+        row.classification,
+        ...(row.argv ?? []),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLocaleLowerCase()
+        .includes(query);
+    },
+  );
   const page = rows.slice(0, limit);
   return {
-    entries: page,
+    entries: page.map(({ row }) => row),
     limit,
     ...(rows.length > limit && page.length
-      ? { nextCursor: page.at(-1)?.sequence }
+      ? { nextCursor: page.at(-1)?.creationSequence }
       : {}),
   };
 }
