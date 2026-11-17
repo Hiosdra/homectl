@@ -12,15 +12,24 @@ afterEach(async () => {
 async function panel(
   options: {
     access?: string;
+    session?: boolean;
     operationRunner?: Parameters<typeof serve>[0]["operationRunner"];
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "homectl-panel-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const inventory = join(root, "inventory.yaml");
+  const configPath = `${inventory}.ssh_config`;
+  const session = options.session
+    ? `session:
+  ttl: 24h
+  database: ${JSON.stringify(join(root, "vault.kdbx"))}
+`
+    : "";
   await writeFile(
     inventory,
     `version: 1
+${session}
 machines:
   agent-host:
     description: Synthetic local device
@@ -30,7 +39,7 @@ machines:
   );
   const running = await serve({
     inventoryPath: inventory,
-    configPath: `${inventory}.ssh_config`,
+    configPath,
     port: 0,
     peerPort: 0,
     discover: false,
@@ -59,7 +68,7 @@ machines:
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-  return { running, call, cookie };
+  return { running, call, cookie, configPath };
 }
 
 test("the panel control API requires the local session cookie", async () => {
@@ -255,3 +264,76 @@ test("saved command API keeps unknown hosts unavailable and enforces policy with
   });
   expect(removed.status).toBe(200);
 }, 30_000);
+
+test("API refuses redacted saved argv and does not rewrite SSH config before approval", async () => {
+  const { call, configPath } = await panel();
+  await writeFile(configPath, "preserve this file");
+  const saved = await call("POST", "/api/commands/save", {
+    command: {
+      name: "Redacted",
+      hosts: ["agent-host"],
+      argv: ["tool", "NAME=[REDACTED]"],
+    },
+  });
+  expect(saved.status).toBe(400);
+
+  const refused = await call("POST", "/api/exec", {
+    host: "agent-host",
+    argv: ["rm", "fixture"],
+  });
+  expect(refused.status).toBe(409);
+  expect(await readFile(configPath, "utf8")).toBe("preserve this file");
+});
+
+test("API exec is serialized with machine saves", async () => {
+  let signalRunnerStarted!: () => void;
+  let releaseRunner!: () => void;
+  const runnerStarted = new Promise<void>((resolve) => {
+    signalRunnerStarted = resolve;
+  });
+  const runnerGate = new Promise<void>((resolve) => {
+    releaseRunner = resolve;
+  });
+  const { call } = await panel({
+    access: "full",
+    session: true,
+    operationRunner: async () => {
+      signalRunnerStarted();
+      await runnerGate;
+      return { exitCode: 0, stdout: "done", stderr: "" };
+    },
+  });
+  const execution = call("POST", "/api/exec", {
+    host: "agent-host",
+    argv: ["hostname"],
+  });
+  await runnerStarted;
+  let saveResolved = false;
+  const saving = call("POST", "/api/machine/save", {
+    name: "new-host",
+    machine: {
+      description: "Synthetic SSH host",
+      transport: "ssh",
+      access: "user",
+      ssh_alias: "new-host",
+      address: "192.0.2.1",
+      user: "test",
+      port: 22,
+    },
+  }).then((result) => {
+    saveResolved = true;
+    return result;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(saveResolved).toBe(false);
+  } finally {
+    releaseRunner();
+  }
+  const [executionResponse, saveResponse] = await Promise.all([
+    execution,
+    saving,
+  ]);
+  expect(executionResponse.status).toBe(200);
+  expect(saveResponse.status).toBe(200);
+});

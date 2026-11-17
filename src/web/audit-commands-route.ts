@@ -5,7 +5,7 @@ import {
 } from "../control/audit-view";
 import type { ControlPlane } from "../control/engine";
 import { loadInventory } from "../inventory";
-import { execute, writeSSHConfig } from "../operations";
+import { executeWithSSHConfig } from "../operations";
 import type { Hub } from "../peer/hub";
 import { availableCommandHosts, expandSavedCommand } from "../saved-commands";
 import { HomectlError, type Runner } from "../types";
@@ -111,34 +111,35 @@ export async function auditCommandsRoute(
       }),
     );
   if (url.pathname === "/api/exec") {
-    const inventory = await loadInventory(inventoryPath);
-    const host = String(value.host ?? "");
-    const machine = inventory.machines[host];
-    if (
-      !machine ||
-      !Array.isArray(value.argv) ||
-      value.argv.some((arg) => typeof arg !== "string") ||
-      !value.argv.length
-    )
-      throw new HomectlError(2, "Select a machine and command arguments");
-    if (value.dryRun !== true)
-      await writeSSHConfig(configPath, inventory.machines);
     return response(
-      await execute(host, machine, value.argv as string[], {
-        configPath,
-        dryRun: value.dryRun === true,
-        approval:
-          typeof value.approval === "string" ? value.approval : undefined,
-        impact: typeof value.impact === "string" ? value.impact : undefined,
-        runner: options.operationRunner,
-        audit: {
-          inventoryPath,
-          requester: "local-operator",
-          deviceName: hub.state.name,
-          ...(typeof value.approval === "string"
-            ? { approver: "local-operator" }
-            : {}),
-        },
+      await hub.serial(async () => {
+        const inventory = await loadInventory(inventoryPath);
+        const host = String(value.host ?? "");
+        const machine = inventory.machines[host];
+        if (
+          !machine ||
+          !Array.isArray(value.argv) ||
+          value.argv.some((arg) => typeof arg !== "string") ||
+          !value.argv.length
+        )
+          throw new HomectlError(2, "Select a machine and command arguments");
+        return executeWithSSHConfig(host, machine, value.argv as string[], {
+          configPath,
+          machines: inventory.machines,
+          dryRun: value.dryRun === true,
+          approval:
+            typeof value.approval === "string" ? value.approval : undefined,
+          impact: typeof value.impact === "string" ? value.impact : undefined,
+          runner: options.operationRunner,
+          audit: {
+            inventoryPath,
+            requester: "local-operator",
+            deviceName: hub.state.name,
+            ...(typeof value.approval === "string"
+              ? { approver: "local-operator" }
+              : {}),
+          },
+        });
       }),
     );
   }
@@ -170,10 +171,10 @@ export async function auditCommandsRoute(
     parameters as Record<string, string>,
   );
   const dryRun = value.dryRun === true;
-  if (!dryRun) await writeSSHConfig(configPath, inventory.machines);
   return response(
-    await execute(host, machine, argv, {
+    await executeWithSSHConfig(host, machine, argv, {
       configPath,
+      machines: inventory.machines,
       dryRun,
       requireApproval: true,
       approval: typeof value.approval === "string" ? value.approval : undefined,

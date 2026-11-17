@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
-import { execute, writeSSHConfig } from "../operations";
+import { executeWithSSHConfig } from "../operations";
 import {
   availableCommandHosts,
   expandSavedCommand,
@@ -108,10 +108,9 @@ export async function runCommands(options: {
       parameters[name] = item.slice(equalAt + 1);
     }
     const argv = expandSavedCommand(saved, host, parameters);
-    if (!options.dryRun)
-      await writeSSHConfig(options.configPath, options.inventory.machines);
-    const result = await execute(host, machine, argv, {
+    const result = await executeWithSSHConfig(host, machine, argv, {
       configPath: options.configPath,
+      machines: options.inventory.machines,
       dryRun: options.dryRun,
       approval: options.approval,
       requireApproval: true,
