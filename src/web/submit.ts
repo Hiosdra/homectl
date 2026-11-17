@@ -14,6 +14,18 @@ import {
 } from "./store";
 import type { Preview } from "./types";
 
+export function parseSavedCommandArgv(value: string): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("Arguments must be a valid JSON array of strings.");
+  }
+  if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string"))
+    throw new Error("Arguments must be a valid JSON array of strings.");
+  return parsed;
+}
+
 export function handleSubmit(form: HTMLFormElement) {
   const values = new FormData(form);
   void task(async () => {
@@ -82,9 +94,7 @@ export function handleSubmit(form: HTMLFormElement) {
         .split(/[\n,]/)
         .map((host) => host.trim())
         .filter(Boolean);
-      const argv = String(values.get("argv") ?? "")
-        .split(/\r?\n/)
-        .filter((arg) => arg.length > 0);
+      const argv = parseSavedCommandArgv(String(values.get("argv") ?? ""));
       const parameters = String(values.get("parameters") ?? "")
         .split(/\r?\n/)
         .map((line) => line.trim())

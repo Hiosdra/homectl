@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { appendLocalAudit } from "../control/journal";
-import { redactArgv } from "../control/redact";
+import { normalizeAuditArgv } from "../control/redact";
 import { loadInventory } from "../inventory";
 import { execute } from "../operations";
 import { planExecution } from "../policies";
@@ -34,19 +34,26 @@ export async function peerCommand(hub: Hub, peer: Peer, payload: unknown) {
   try {
     plan = planExecution(v.host, machine, v.argv, v.impact);
   } catch (error) {
-    if (!v.dryRun)
-      await appendLocalAudit(hub.inventoryPath, {
-        event: "command.refused",
-        op: "execute",
-        operationId: randomUUID(),
-        client: "local-operator",
-        device: peer.id,
-        deviceName: peer.name,
-        host: v.host,
-        argv: redactArgv(v.argv),
-        policyDecision: "refused",
-        reason: "policy-refused",
-      });
+    if (!v.dryRun) {
+      try {
+        await appendLocalAudit(hub.inventoryPath, {
+          event: "command.refused",
+          op: "execute",
+          operationId: randomUUID(),
+          client: "local-operator",
+          device: peer.id,
+          deviceName: peer.name,
+          host: v.host,
+          argv: normalizeAuditArgv(v.argv),
+          policyDecision: "refused",
+          reason: "policy-refused",
+        });
+      } catch {
+        console.warn(
+          "Could not record the refused peer command in the audit journal.",
+        );
+      }
+    }
     throw error;
   }
   if (plan.classification !== "inspect" && !v.dryRun) {
@@ -63,7 +70,7 @@ export async function peerCommand(hub: Hub, peer: Peer, payload: unknown) {
       device: peer.id,
       deviceName: peer.name,
       host: v.host,
-      argv: redactArgv(v.argv),
+      argv: normalizeAuditArgv(v.argv),
       classification: plan.classification,
       policyDecision: "needs-approval",
       reason: "peer-approval-required",

@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AUDIT_NORMALIZATION_MARKERS } from "../src/control/redact";
 import { serve } from "../src/serve";
 
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -265,17 +266,26 @@ test("saved command API keeps unknown hosts unavailable and enforces policy with
   expect(removed.status).toBe(200);
 }, 30_000);
 
-test("API refuses redacted saved argv and does not rewrite SSH config before approval", async () => {
+test("API refuses every audit normalization marker and does not rewrite SSH config before approval", async () => {
   const { call, configPath } = await panel();
   await writeFile(configPath, "preserve this file");
-  const saved = await call("POST", "/api/commands/save", {
-    command: {
-      name: "Redacted",
-      hosts: ["agent-host"],
-      argv: ["tool", "NAME=[REDACTED]"],
-    },
-  });
-  expect(saved.status).toBe(400);
+  const markers = [
+    AUDIT_NORMALIZATION_MARKERS.emptyArgument,
+    AUDIT_NORMALIZATION_MARKERS.truncatedArgument,
+    `${AUDIT_NORMALIZATION_MARKERS.truncatedArgumentsPrefix}2${AUDIT_NORMALIZATION_MARKERS.truncatedArgumentsSuffix}`,
+    AUDIT_NORMALIZATION_MARKERS.noArguments,
+    AUDIT_NORMALIZATION_MARKERS.redacted,
+  ];
+  for (const [index, marker] of markers.entries()) {
+    const saved = await call("POST", "/api/commands/save", {
+      command: {
+        name: `Redacted ${index}`,
+        hosts: ["agent-host"],
+        argv: ["tool", marker],
+      },
+    });
+    expect(saved.status).toBe(400);
+  }
 
   const refused = await call("POST", "/api/exec", {
     host: "agent-host",
@@ -283,6 +293,28 @@ test("API refuses redacted saved argv and does not rewrite SSH config before app
   });
   expect(refused.status).toBe(409);
   expect(await readFile(configPath, "utf8")).toBe("preserve this file");
+});
+
+test("invalid saved commands are surfaced by the commands API", async () => {
+  const { call, running } = await panel();
+  await writeFile(
+    running.hub.savedCommands.path,
+    JSON.stringify({
+      version: 1,
+      commands: { broken: { id: "broken", name: "x".repeat(81) } },
+    }),
+  );
+  const response = await call("GET", "/api/commands");
+  const result = (await response.json()) as {
+    commands: { id: string; status?: string; reason?: string }[];
+  };
+  expect(result.commands).toEqual([
+    expect.objectContaining({
+      id: "broken",
+      status: "invalid",
+      reason: expect.any(String),
+    }),
+  ]);
 });
 
 test("API exec is serialized with machine saves", async () => {
@@ -306,6 +338,68 @@ test("API exec is serialized with machine saves", async () => {
   const execution = call("POST", "/api/exec", {
     host: "agent-host",
     argv: ["hostname"],
+  });
+  await runnerStarted;
+  let saveResolved = false;
+  const saving = call("POST", "/api/machine/save", {
+    name: "new-host",
+    machine: {
+      description: "Synthetic SSH host",
+      transport: "ssh",
+      access: "user",
+      ssh_alias: "new-host",
+      address: "192.0.2.1",
+      user: "test",
+      port: 22,
+    },
+  }).then((result) => {
+    saveResolved = true;
+    return result;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(saveResolved).toBe(false);
+  } finally {
+    releaseRunner();
+  }
+  const [executionResponse, saveResponse] = await Promise.all([
+    execution,
+    saving,
+  ]);
+  expect(executionResponse.status).toBe(200);
+  expect(saveResponse.status).toBe(200);
+});
+
+test("saved-command runs are serialized with machine saves", async () => {
+  let signalRunnerStarted!: () => void;
+  let releaseRunner!: () => void;
+  const runnerStarted = new Promise<void>((resolve) => {
+    signalRunnerStarted = resolve;
+  });
+  const runnerGate = new Promise<void>((resolve) => {
+    releaseRunner = resolve;
+  });
+  const { call } = await panel({
+    session: true,
+    operationRunner: async () => {
+      signalRunnerStarted();
+      await runnerGate;
+      return { exitCode: 0, stdout: "done", stderr: "" };
+    },
+  });
+  const saved = await call("POST", "/api/commands/save", {
+    command: {
+      name: "Hostname",
+      hosts: ["agent-host"],
+      argv: ["hostname"],
+    },
+  });
+  const { command } = (await saved.json()) as { command: { id: string } };
+  const execution = call("POST", "/api/commands/run", {
+    id: command.id,
+    host: "agent-host",
+    parameters: {},
+    dryRun: false,
   });
   await runnerStarted;
   let saveResolved = false;

@@ -12,12 +12,12 @@ import { dirname, join } from "node:path";
 import { type DeviceKey, loadOrCreateDeviceKey } from "../control/device-key";
 import { controlStateDirectory } from "../control/engine";
 import { appendLocalAudit } from "../control/journal";
-import { redactArgv } from "../control/redact";
+import { normalizeAuditArgv } from "../control/redact";
 import { loadInventory, parseInventory, saveInventory } from "../inventory";
 import { execute, writeSSHConfig } from "../operations";
 import { privateDirectory, protect } from "../platform";
 import { planExecution } from "../policies";
-import { SavedCommandStore, savedCommandsFromRecords } from "../saved-commands";
+import { SavedCommandStore } from "../saved-commands";
 import {
   lockSession,
   sessionConfig,
@@ -56,7 +56,19 @@ import {
   saveState,
   type Version,
 } from "./store";
-import { type Choice, capture, hash, merge, validateRecords } from "./sync";
+import {
+  type Choice,
+  capture,
+  filterSnapshotRecords,
+  hash,
+  merge,
+  PEER_FEATURES,
+  readSyncOffer,
+  readSyncSnapshot,
+  sanitizeSyncRecords,
+  syncSnapshotEnvelope,
+  syncSnapshotResponse,
+} from "./sync";
 import { type Credential, credentialPublicKey, Vault } from "./vault";
 export function peerAddress(value: string): string {
   const url = new URL(value);
@@ -123,6 +135,8 @@ type Pending = {
   records: Record<string, Version>;
   local: Record<string, Version>;
   remoteVaultUnlocked?: boolean;
+  peerFeatures: string[];
+  issues: { id: string; reason: string }[];
   expiresAt: number;
 };
 export class Hub {
@@ -490,7 +504,7 @@ export class Hub {
       key.fill(0);
     }
   }
-  async snapshot(forWire = true) {
+  async snapshot(forWire = true, features: readonly string[] = PEER_FEATURES) {
     const inv = await loadInventory(this.inventoryPath);
     const values: Record<string, unknown> = {};
     for (const [name, m] of Object.entries(inv.machines))
@@ -502,7 +516,11 @@ export class Hub {
         };
     for (const [name, p] of Object.entries(inv.providers ?? {}))
       values[`provider:${name}`] = { name, ...p };
-    for (const command of await this.savedCommands.list())
+    const savedCommands = await this.savedCommands.listWithIssues();
+    const invalidSavedCommandIds = new Set(
+      savedCommands.invalid.map((item) => `saved-command:${item.id}`),
+    );
+    for (const command of savedCommands.commands)
       values[`saved-command:${command.id}`] = command;
     const prefixes = ["machine:", "provider:", "saved-command:"];
     if (this.vault.unlocked) {
@@ -522,21 +540,22 @@ export class Hub {
       }
     }
     prefixes.push("hostkey:");
-    capture(this.state, values, prefixes);
+    capture(this.state, values, prefixes, invalidSavedCommandIds);
     await this.save();
-    return Object.fromEntries(
-      Object.entries(this.state.records).filter(
-        ([id]) =>
-          !forWire || !id.startsWith("credential:") || this.vault.unlocked,
-      ),
-    );
+    return filterSnapshotRecords(this.state.records, {
+      forWire,
+      vaultUnlocked: this.vault.unlocked,
+      features,
+      invalidSavedCommandIds,
+    });
   }
   async preview(
     peerId: string,
     incoming: unknown,
     remoteVaultUnlocked?: boolean,
+    supportedFeatures: string[] = [],
   ) {
-    const records = validateRecords(incoming);
+    const { records, issues } = sanitizeSyncRecords(incoming);
     if (
       Object.keys(records).some((k) => k.startsWith("credential:")) &&
       !this.vault.unlocked
@@ -596,6 +615,8 @@ export class Hub {
       records: structuredClone(records),
       local,
       remoteVaultUnlocked,
+      peerFeatures: supportedFeatures,
+      issues,
       expiresAt: Date.now() + 300_000,
     });
     return {
@@ -620,27 +641,23 @@ export class Hub {
         local: safeVersion(c.id, c.local),
         remote: safeVersion(c.id, c.remote),
       })),
+      issues,
     };
   }
   async beginSync(peerId: string) {
-    const remote = await this.peerRequest(peerId, "snapshot", { version: 2 });
-    const envelope =
-      remote && typeof remote === "object" && !Array.isArray(remote)
-        ? (remote as Record<string, unknown>)
-        : {};
-    if ("version" in envelope) {
-      if (envelope.version !== 2 || typeof envelope.vaultUnlocked !== "boolean")
-        throw new HomectlError(2, "Invalid sync snapshot metadata");
-      return this.serial(() =>
-        this.preview(
-          peerId,
-          envelope.records,
-          envelope.vaultUnlocked as boolean,
-        ),
-      );
-    }
-    // Version 1 peers return records directly and do not expose vault state.
-    return this.serial(() => this.preview(peerId, remote));
+    const remote = await this.peerRequest(peerId, "snapshot", {
+      version: 2,
+      features: PEER_FEATURES,
+    });
+    const snapshot = readSyncSnapshot(remote);
+    return this.serial(() =>
+      this.preview(
+        peerId,
+        snapshot.records,
+        snapshot.vaultUnlocked,
+        snapshot.features,
+      ),
+    );
   }
   async syncReadiness(peerId: string) {
     const value = await this.peerRequest(peerId, "sync-readiness", {});
@@ -688,10 +705,12 @@ export class Hub {
     const result = await this.serial(() => this.commit(id, choices, partial));
     // The remote peer also gets a local review; accepting a pair does not let
     // another machine silently overwrite this one's inventory or credentials.
-    const snapshot = await this.serial(async () => ({
-      records: await this.snapshot(),
-      vaultUnlocked: this.vault.unlocked,
-    }));
+    const snapshot = await this.serial(async () =>
+      syncSnapshotEnvelope(
+        await this.snapshot(true, p.peerFeatures),
+        this.vault.unlocked,
+      ),
+    );
     const remote = await this.peerRequest(peerId, "offer", {
       ...snapshot,
       version: 2,
@@ -720,7 +739,6 @@ export class Hub {
       }
     const machines: Record<string, Machine> = {};
     const providers: NonNullable<Inventory["providers"]> = {};
-    savedCommandsFromRecords(records);
     for (const [id, r] of Object.entries(records)) {
       if (r.value === null) continue;
       if (id.startsWith("machine:")) {
@@ -798,6 +816,7 @@ export class Hub {
         .map(([id, r]) => [id, String(r.value)]),
     );
     validateHostKeys(trusted, machines);
+    await this.savedCommands.replaceFromRecords(records);
     if (this.vault.unlocked) await this.vault.apply(credentials);
     await privateDirectory(join(dirname(this.inventoryPath), "public-keys"));
     for (const m of Object.values(machines))
@@ -823,7 +842,6 @@ export class Hub {
     await lockSession(this.inventoryPath);
     await saveInventory(this.inventoryPath, next);
     await writeSSHConfig(this.configPath, next.machines);
-    await this.savedCommands.replaceFromRecords(records);
     this.state.records = records;
     for (const [key, v] of Object.entries(records))
       if (!key.startsWith("credential:") || this.vault.unlocked)
@@ -851,20 +869,16 @@ export class Hub {
           ? (payload as Record<string, unknown>)
           : {};
       if (action === "snapshot") {
-        const records = await this.snapshot();
-        return input.version === 2
-          ? { version: 2, vaultUnlocked: this.vault.unlocked, records }
-          : records;
+        return syncSnapshotResponse(input, this.vault.unlocked, (features) =>
+          this.snapshot(true, features),
+        );
       }
-      if (
-        input.version !== undefined &&
-        (input.version !== 2 || typeof input.vaultUnlocked !== "boolean")
-      )
-        throw new HomectlError(2, "Invalid sync offer metadata");
+      const offer = readSyncOffer(input);
       return this.preview(
         peer.id,
-        input.records,
-        input.version === 2 ? (input.vaultUnlocked as boolean) : undefined,
+        offer.records,
+        offer.vaultUnlocked,
+        offer.features,
       );
     }
     if (action === "status") {
@@ -915,7 +929,7 @@ export class Hub {
         client: "local-operator",
         ...(peer ? { device: peer.id, deviceName: peer.name } : {}),
         host: o.host,
-        argv: redactArgv(o.argv),
+        argv: normalizeAuditArgv(o.argv),
         policyDecision: "refused",
         reason: "peer-operation-rejected",
       });

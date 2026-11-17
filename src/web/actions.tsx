@@ -2,7 +2,7 @@
 // is one user request; the state and the server calls are the same as before the move
 // to coss ui.
 import { ExecutionDetails } from "./screens/execution";
-import { containsRedactionMarker } from "../control/redact";
+import { savedCommandDraftFromAuditRow } from "./screens/audit";
 import {
   announce,
   api,
@@ -118,9 +118,12 @@ export async function handleAction(action: string | undefined, id: string) {
       navigate("commands");
       return;
     case "saved-command-edit": {
-      const { commands } = await api<{ commands: import("./types").SavedCommand[] }>("/api/commands");
+      const { commands } = await api<{
+        commands: import("./types").SavedCommandListItem[];
+      }>("/api/commands");
       const command = commands.find((item) => item.id === id);
-      if (!command) throw new Error("Saved command no longer exists. Refresh the list.");
+      if (!command || "status" in command)
+        throw new Error("Saved command is invalid or no longer exists. Review the list.");
       ui.savedCommandDraft = command;
       ui.savedCommandRun = undefined;
       navigate("commands");
@@ -162,14 +165,7 @@ export async function handleAction(action: string | undefined, id: string) {
     }
     case "audit-save-command": {
       const row = ui.auditPage?.entries.find((entry) => entry.id === id);
-      if (!row?.host || !row.argv?.length || containsRedactionMarker(row.argv))
-        throw new Error("This entry has no saveable command. Redacted arguments cannot be restored.");
-      ui.savedCommandDraft = {
-        name: `${row.host} ${row.argv[0]}`.slice(0, 80),
-        hosts: [row.host],
-        argv: row.argv,
-        parameters: [],
-      };
+      ui.savedCommandDraft = savedCommandDraftFromAuditRow(row);
       ui.savedCommandRun = undefined;
       navigate("commands");
       return;

@@ -25,12 +25,15 @@ export async function auditCommandsRoute(
   const { control, hub, inventoryPath, configPath } = options;
   if (req.method === "GET" && url.pathname === "/api/commands") {
     const inventory = await loadInventory(inventoryPath);
-    const commands = await hub.savedCommands.list();
+    const { commands, invalid } = await hub.savedCommands.listWithIssues();
     return response({
-      commands: commands.map((command) => ({
-        ...command,
-        ...availableCommandHosts(command, Object.keys(inventory.machines)),
-      })),
+      commands: [
+        ...commands.map((command) => ({
+          ...command,
+          ...availableCommandHosts(command, Object.keys(inventory.machines)),
+        })),
+        ...invalid,
+      ],
     });
   }
   if (req.method === "GET" && url.pathname === "/api/audit") {
@@ -144,50 +147,55 @@ export async function auditCommandsRoute(
     );
   }
   if (url.pathname !== "/api/commands/run") return undefined;
-  const command = await hub.savedCommands.resolve(
-    typeof value.id === "string" ? value.id : "",
-  );
-  const inventory = await loadInventory(inventoryPath);
-  const host =
-    typeof value.host === "string"
-      ? value.host
-      : command.hosts.length === 1
-        ? command.hosts[0]
-        : undefined;
-  if (!host) throw new HomectlError(2, "Select one saved-command host");
-  const machine = inventory.machines[host];
-  if (!machine)
-    throw new HomectlError(3, `Host ${host} is unavailable on this device`);
-  const parameters = value.parameters ?? {};
-  if (
-    typeof parameters !== "object" ||
-    Array.isArray(parameters) ||
-    Object.values(parameters).some((item) => typeof item !== "string")
-  )
-    throw new HomectlError(2, "Enter text values for the declared parameters");
-  const argv = expandSavedCommand(
-    command,
-    host,
-    parameters as Record<string, string>,
-  );
-  const dryRun = value.dryRun === true;
   return response(
-    await executeWithSSHConfig(host, machine, argv, {
-      configPath,
-      machines: inventory.machines,
-      dryRun,
-      requireApproval: true,
-      approval: typeof value.approval === "string" ? value.approval : undefined,
-      impact: command.description || `Run saved command: ${command.name}`,
-      runner: options.operationRunner,
-      audit: {
-        inventoryPath,
-        requester: "local-operator",
-        deviceName: hub.state.name,
-        ...(typeof value.approval === "string"
-          ? { approver: "local-operator" }
-          : {}),
-      },
+    await hub.serial(async () => {
+      const command = await hub.savedCommands.resolve(
+        typeof value.id === "string" ? value.id : "",
+      );
+      const inventory = await loadInventory(inventoryPath);
+      const host =
+        typeof value.host === "string"
+          ? value.host
+          : command.hosts.length === 1
+            ? command.hosts[0]
+            : undefined;
+      if (!host) throw new HomectlError(2, "Select one saved-command host");
+      const machine = inventory.machines[host];
+      if (!machine)
+        throw new HomectlError(3, `Host ${host} is unavailable on this device`);
+      const parameters = value.parameters ?? {};
+      if (
+        typeof parameters !== "object" ||
+        Array.isArray(parameters) ||
+        Object.values(parameters).some((item) => typeof item !== "string")
+      )
+        throw new HomectlError(
+          2,
+          "Enter text values for the declared parameters",
+        );
+      const argv = expandSavedCommand(
+        command,
+        host,
+        parameters as Record<string, string>,
+      );
+      return executeWithSSHConfig(host, machine, argv, {
+        configPath,
+        machines: inventory.machines,
+        dryRun: value.dryRun === true,
+        requireApproval: true,
+        approval:
+          typeof value.approval === "string" ? value.approval : undefined,
+        impact: command.description || `Run saved command: ${command.name}`,
+        runner: options.operationRunner,
+        audit: {
+          inventoryPath,
+          requester: "local-operator",
+          deviceName: hub.state.name,
+          ...(typeof value.approval === "string"
+            ? { approver: "local-operator" }
+            : {}),
+        },
+      });
     }),
   );
 }

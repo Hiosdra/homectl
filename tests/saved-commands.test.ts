@@ -128,19 +128,28 @@ describe("saved command storage", () => {
       const path = join(dir, "saved-commands.json");
       const store = new SavedCommandStore(path);
       const valid = await store.save(template);
+      const invalid = { ...valid, id: "broken", name: "x".repeat(81) };
       await writeFile(
         path,
         JSON.stringify({
           version: 1,
           commands: {
             [valid.id]: valid,
-            broken: { ...valid, id: "broken", name: "x".repeat(81) },
+            broken: invalid,
           },
         }),
       );
       expect((await store.list()).map((command) => command.id)).toEqual([
         valid.id,
       ]);
+      expect(await store.listWithIssues()).toMatchObject({
+        invalid: [{ id: "broken", status: "invalid" }],
+      });
+      await store.save({ ...template, name: "A second valid command" });
+      const disk = JSON.parse(await readFile(path, "utf8")) as {
+        commands: Record<string, unknown>;
+      };
+      expect(disk.commands.broken).toEqual(invalid);
       expect(warning).toHaveBeenCalled();
     } finally {
       warning.mockRestore();

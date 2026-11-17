@@ -1,18 +1,12 @@
 import { useEffect, useState } from "react";
-import { api, render, report, ui } from "../store";
-import type { SavedCommand } from "../types";
+import { api, report, ui } from "../store";
+import type { SavedCommand, SavedCommandListItem } from "../types";
 import { Action, ListRow, Note, PageHeading, Section, Tag } from "../shared";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { Output } from "./output";
-
-function parametersText(command: SavedCommand) {
-  return command.parameters
-    .map((parameter) => `${parameter.name}${parameter.description ? ` | ${parameter.description}` : ""}`)
-    .join("\n");
-}
 
 function CommandEditor() {
   const draft = ui.savedCommandDraft;
@@ -31,9 +25,9 @@ function CommandEditor() {
           <Note>Comma separated host names. A host missing from this device remains unavailable until its inventory includes it.</Note>
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="saved-argv">Arguments (one per line)</Label>
-          <Textarea id="saved-argv" name="argv" defaultValue={draft.argv.join("\n")} required />
-          <Note>Each line is one argv item. Homectl never treats these lines as shell input.</Note>
+          <Label htmlFor="saved-argv">Arguments (JSON array)</Label>
+          <Textarea id="saved-argv" name="argv" defaultValue={JSON.stringify(draft.argv, null, 2)} required />
+          <Note>Each array item is one argv value. Newlines inside an item are preserved; values are never shell input.</Note>
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="saved-parameters">Declared parameters (one per line)</Label>
@@ -86,16 +80,23 @@ function RunCommand({ command }: { command: SavedCommand }) {
 }
 
 export function CommandsScreen() {
-  const [commands, setCommands] = useState<SavedCommand[]>([]);
+  const [commands, setCommands] = useState<SavedCommandListItem[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     setLoading(true);
-    void api<{ commands: SavedCommand[] }>("/api/commands")
+    void api<{ commands: SavedCommandListItem[] }>("/api/commands")
       .then((result) => setCommands(result.commands))
       .catch((error) => report(String(error)))
       .finally(() => setLoading(false));
   }, [ui.savedCommandVersion]);
-  const selected = commands.find((command) => command.id === ui.savedCommandRun);
+  const validCommands = commands.filter(
+    (command): command is SavedCommand => !("status" in command),
+  );
+  const invalidCommands = commands.filter(
+    (command): command is Extract<SavedCommandListItem, { status: "invalid" }> =>
+      "status" in command,
+  );
+  const selected = validCommands.find((command) => command.id === ui.savedCommandRun);
   return (
     <>
       <PageHeading
@@ -108,7 +109,7 @@ export function CommandsScreen() {
       <Section title="Your command templates" className={ui.savedCommandDraft || selected ? "mt-5" : ""}>
         {loading ? <p role="status" className="text-sm text-muted-foreground">Loading saved commands…</p> : null}
         {!loading && !commands.length ? <p className="text-sm text-muted-foreground">No saved commands yet. Save one from an audit entry or create a template here.</p> : null}
-        {commands.map((command) => (
+        {validCommands.map((command) => (
           <ListRow key={command.id} actions={
             <div className="flex flex-wrap gap-2">
               <Action action="saved-command-run" id={command.id} label="Run" />
@@ -122,6 +123,15 @@ export function CommandsScreen() {
               {command.description ? <p className="mt-1 text-sm text-muted-foreground">{command.description}</p> : null}
               {command.unavailable.length ? <p className="mt-1 text-xs text-warning">Missing hosts: {command.unavailable.join(", ")}</p> : null}
               <p className="mt-1 text-xs text-muted-foreground">ID {command.id}</p>
+            </div>
+          </ListRow>
+        ))}
+        {invalidCommands.map((command) => (
+          <ListRow key={command.id} actions={<Tag tone="warning">invalid — needs attention</Tag>}>
+            <div className="min-w-0">
+              <strong>Invalid saved command</strong>
+              <p className="mt-1 break-all text-sm text-muted-foreground">ID {command.id}</p>
+              <p className="mt-1 text-xs text-warning">{command.reason}</p>
             </div>
           </ListRow>
         ))}

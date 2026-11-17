@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { savedCommandsFromRecordsWithIssues } from "../saved-commands";
 import { HomectlError } from "../types";
 import { digest } from "./crypto";
 import type { PeerState, Version } from "./store";
@@ -10,6 +11,102 @@ export type Conflict = {
   // The later change, pre-selected for the user. The user still decides.
   suggested: "local" | "remote";
 };
+export type PeerRecordIssue = { id: string; reason: string };
+export const PEER_FEATURES = ["saved-commands"] as const;
+
+export function peerFeatures(input: unknown): string[] {
+  if (input === undefined) return [];
+  if (
+    !Array.isArray(input) ||
+    input.length > 32 ||
+    input.some((feature) => typeof feature !== "string")
+  )
+    throw new HomectlError(2, "Invalid peer feature metadata");
+  return input.filter((feature): feature is string =>
+    (PEER_FEATURES as readonly string[]).includes(feature),
+  );
+}
+
+export type SyncSnapshot = {
+  records: unknown;
+  vaultUnlocked?: boolean;
+  features: string[];
+};
+
+export function readSyncSnapshot(remote: unknown): SyncSnapshot {
+  const envelope =
+    remote && typeof remote === "object" && !Array.isArray(remote)
+      ? (remote as Record<string, unknown>)
+      : {};
+  if (!("version" in envelope)) return { records: remote, features: [] };
+  if (envelope.version !== 2 || typeof envelope.vaultUnlocked !== "boolean")
+    throw new HomectlError(2, "Invalid sync snapshot metadata");
+  return {
+    records: envelope.records,
+    vaultUnlocked: envelope.vaultUnlocked,
+    features: peerFeatures(envelope.features),
+  };
+}
+
+export function readSyncOffer(input: Record<string, unknown>): SyncSnapshot {
+  if (
+    input.version !== undefined &&
+    (input.version !== 2 || typeof input.vaultUnlocked !== "boolean")
+  )
+    throw new HomectlError(2, "Invalid sync offer metadata");
+  return {
+    records: input.records,
+    ...(input.version === 2
+      ? { vaultUnlocked: input.vaultUnlocked as boolean }
+      : {}),
+    features: peerFeatures(input.features),
+  };
+}
+
+export function syncSnapshotEnvelope(
+  records: Record<string, Version>,
+  vaultUnlocked: boolean,
+) {
+  return { version: 2, vaultUnlocked, features: PEER_FEATURES, records };
+}
+
+export function syncSnapshotResponse(
+  input: Record<string, unknown>,
+  vaultUnlocked: boolean,
+  snapshot: (features: readonly string[]) => Promise<Record<string, Version>>,
+) {
+  return (async () => {
+    const features = peerFeatures(input.features);
+    const records = await snapshot(features);
+    return input.version === 2
+      ? syncSnapshotEnvelope(records, vaultUnlocked)
+      : records;
+  })();
+}
+
+export function filterSnapshotRecords(
+  records: Record<string, Version>,
+  options: {
+    forWire: boolean;
+    vaultUnlocked: boolean;
+    features: readonly string[];
+    invalidSavedCommandIds: ReadonlySet<string>;
+  },
+) {
+  return Object.fromEntries(
+    Object.entries(records).filter(
+      ([id]) =>
+        (!options.forWire ||
+          !id.startsWith("credential:") ||
+          options.vaultUnlocked) &&
+        (!options.forWire ||
+          !id.startsWith("saved-command:") ||
+          options.features.includes("saved-commands")) &&
+        !options.invalidSavedCommandIds.has(id),
+    ),
+  );
+}
+
 function stable(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
@@ -45,6 +142,7 @@ export function capture(
   state: PeerState,
   entries: Record<string, unknown>,
   prefixes: string[],
+  excluded: ReadonlySet<string> = new Set(),
 ) {
   const ids = new Set([
     ...Object.keys(entries),
@@ -53,6 +151,7 @@ export function capture(
     ),
   ]);
   for (const id of ids) {
+    if (excluded.has(id)) continue;
     const value = entries[id] ?? null;
     const fingerprint = hash(value);
     if (state.observed[id] === fingerprint) {
@@ -66,7 +165,10 @@ export function capture(
     state.observed[id] = fingerprint;
   }
 }
-export function validateRecords(input: unknown): Record<string, Version> {
+export function validateRecordsWithIssues(input: unknown): {
+  records: Record<string, Version>;
+  issues: PeerRecordIssue[];
+} {
   if (
     !input ||
     typeof input !== "object" ||
@@ -74,16 +176,26 @@ export function validateRecords(input: unknown): Record<string, Version> {
     Object.keys(input).length > 4096
   )
     throw new HomectlError(2, "Invalid peer records");
-  for (const [id, record] of Object.entries(input)) {
+  const records: Record<string, Version> = {};
+  const issues: PeerRecordIssue[] = [];
+  for (const [id, recordValue] of Object.entries(input)) {
+    const savedCommand = id.startsWith("saved-command:");
+    const issue = (reason: string) => issues.push({ id, reason });
     if (
       !/^(machine|provider|credential|hostkey|saved-command):[A-Za-z0-9+/=_-]{1,128}$/.test(
         id,
       ) ||
-      !record ||
-      typeof record !== "object"
-    )
+      !recordValue ||
+      typeof recordValue !== "object" ||
+      Array.isArray(recordValue)
+    ) {
+      if (savedCommand) {
+        issue("Invalid saved-command record key or revision");
+        continue;
+      }
       throw new HomectlError(2, "Invalid peer record");
-    const v = record as Version;
+    }
+    const v = recordValue as Version;
     if (
       !v.clock ||
       typeof v.clock !== "object" ||
@@ -95,10 +207,36 @@ export function validateRecords(input: unknown): Record<string, Version> {
         ([p, n]) =>
           !/^[a-f0-9-]{36}$/.test(p) || !Number.isSafeInteger(n) || n < 1,
       )
-    )
+    ) {
+      if (savedCommand) {
+        issue("Invalid saved-command record revision");
+        continue;
+      }
       throw new HomectlError(2, "Invalid peer revision");
+    }
+    records[id] = v;
   }
-  return input as Record<string, Version>;
+  return { records, issues };
+}
+
+export function validateRecords(input: unknown): Record<string, Version> {
+  return validateRecordsWithIssues(input).records;
+}
+
+export function sanitizeSyncRecords(input: unknown) {
+  const validated = validateRecordsWithIssues(input);
+  const parsedCommands = savedCommandsFromRecordsWithIssues(validated.records);
+  const invalidCommandIds = new Set(
+    parsedCommands.issues.map((issue) => issue.id),
+  );
+  return {
+    records: Object.fromEntries(
+      Object.entries(validated.records).filter(
+        ([id]) => !invalidCommandIds.has(id),
+      ),
+    ),
+    issues: [...validated.issues, ...parsedCommands.issues],
+  };
 }
 // The changes a partial apply takes on its own: machines and providers that are not removed.
 // Host keys, credentials and removals wait for a person to compare them. A machine that uses a

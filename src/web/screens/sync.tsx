@@ -285,6 +285,16 @@ export function SyncCompare({ p }: { p: Preview }) {
         <p className="text-sm text-muted-foreground">
           {p.conflicts.length} conflict{p.conflicts.length === 1 ? "" : "s"} to resolve · {ui.applied?.items.length ?? 0} change{(ui.applied?.items.length ?? 0) === 1 ? "" : "s"} applied automatically
         </p>
+        {p.issues?.length ? (
+          <section role="status" className="grid gap-2 rounded-lg border border-warning/40 p-4 text-sm">
+            <strong>Some saved-command records were skipped</strong>
+            {p.issues.map((issue) => (
+              <p key={`${issue.id}:${issue.reason}`} className="break-words text-muted-foreground">
+                {issue.id}: {issue.reason}
+              </p>
+            ))}
+          </section>
+        ) : null}
         {p.conflicts.map((c, i) => (
           <ConflictCard key={c.id + i} p={p} index={i} conflict={c} />
         ))}

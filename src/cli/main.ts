@@ -137,8 +137,6 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
     });
     json = v.json ?? false;
     const [command, host, keyName] = positionals;
-    if (command === "setup" && v["configure-firewall"] && !v.interface)
-      throw new HomectlError(2, "Pass --interface with --configure-firewall");
     if (
       (v.ttl || v.database) &&
       (command !== "session" || host !== "configure")

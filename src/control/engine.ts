@@ -25,6 +25,7 @@ import {
   type Machine,
   type Runner,
 } from "../types";
+import { AuditEntriesCache } from "./audit-cache";
 import { requireScope } from "./authorization";
 import { fingerprint, isoTime } from "./canonical";
 import {
@@ -441,6 +442,7 @@ export class ControlPlane {
   // One audit entry per token, and one per window for identical refusals.
   private readonly oidcAuditSeen = new TokenAuditCache();
   private readonly rejectionLimiter = new RejectionLimiter();
+  private readonly auditCache = new AuditEntriesCache();
   private readonly clock: () => number;
   private readonly runner: Runner;
 
@@ -1059,7 +1061,7 @@ export class ControlPlane {
 
   // Replicated-control events from the replicator (identifiers and fixed reasons only).
   async auditEntries() {
-    return this.journal.read();
+    return this.auditCache.read(this.journal);
   }
 
   async recordReplicated(event: AuditEvent): Promise<void> {

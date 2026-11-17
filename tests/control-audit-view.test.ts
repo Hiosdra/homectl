@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { auditHistory } from "../src/control/audit-view";
+import { AUDIT_NORMALIZATION_MARKERS } from "../src/control/redact";
 import type { AuditEntry, AuditEvent } from "../src/control/types";
 import { canSaveAuditRow } from "../src/web/screens/audit";
 
@@ -93,8 +94,16 @@ test("audit history reports explicit refusals and only infers legacy rejections"
 });
 
 test("audit save button excludes redaction markers anywhere in argv", () => {
-  expect(
-    canSaveAuditRow({ host: "example", argv: ["tool", "NAME=[REDACTED]"] }),
-  ).toBe(false);
+  const markers = [
+    AUDIT_NORMALIZATION_MARKERS.emptyArgument,
+    AUDIT_NORMALIZATION_MARKERS.truncatedArgument,
+    `${AUDIT_NORMALIZATION_MARKERS.truncatedArgumentsPrefix}2${AUDIT_NORMALIZATION_MARKERS.truncatedArgumentsSuffix}`,
+    AUDIT_NORMALIZATION_MARKERS.noArguments,
+    AUDIT_NORMALIZATION_MARKERS.redacted,
+  ];
+  for (const marker of markers)
+    expect(canSaveAuditRow({ host: "example", argv: ["tool", marker] })).toBe(
+      false,
+    );
   expect(canSaveAuditRow({ host: "example", argv: ["hostname"] })).toBe(true);
 });

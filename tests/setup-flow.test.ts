@@ -2,7 +2,30 @@ import { expect, test } from "bun:test";
 import { access, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setupFlow } from "../src/setup-flow";
+import { selectLanInterface, setupFlow } from "../src/setup-flow";
+
+test("interactive LAN selection auto-selects one address and prompts for several", async () => {
+  let prompts = 0;
+  expect(
+    await selectLanInterface(undefined, ["192.0.2.10"], async () => {
+      prompts++;
+      return "1";
+    }),
+  ).toBe("192.0.2.10");
+  expect(prompts).toBe(0);
+  expect(
+    await selectLanInterface(
+      undefined,
+      ["192.0.2.10", "198.51.100.20"],
+      async (prompt) => {
+        prompts++;
+        expect(prompt).toBe("Interface number: ");
+        return "2";
+      },
+    ),
+  ).toBe("198.51.100.20");
+  expect(prompts).toBe(1);
+});
 
 test("JSON setup dry-run never prompts or creates installation files", async () => {
   const home = await mkdtemp(join(tmpdir(), "homectl-setup-flow-"));

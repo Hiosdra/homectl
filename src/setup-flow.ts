@@ -8,6 +8,25 @@ import { lanAddresses } from "./peer/interactive";
 import { available, protect, windows } from "./platform";
 import { doctor, paths, setup } from "./setup";
 import { HomectlError } from "./types";
+
+export async function selectLanInterface(
+  interfaceIP: string | undefined,
+  addresses: string[],
+  ask: (prompt: string) => Promise<string>,
+): Promise<string | undefined> {
+  if (interfaceIP || addresses.length === 0) return interfaceIP;
+  if (addresses.length === 1) return addresses[0];
+  console.log("Choose the LAN used for pairing (Enter to skip):");
+  addresses.forEach((address, index) => {
+    console.log(`${index + 1}. ${address}`);
+  });
+  const choice = await ask("Interface number: ");
+  if (!choice) return undefined;
+  if (!/^\d+$/.test(choice) || !addresses[Number(choice) - 1])
+    throw new HomectlError(2, "Invalid interface number");
+  return addresses[Number(choice) - 1];
+}
+
 export async function setupFlow(options: {
   home: string;
   json: boolean;
@@ -20,10 +39,10 @@ export async function setupFlow(options: {
     !options.json &&
     !options.dryRun &&
     Boolean(process.stdin.isTTY && process.stdout.isTTY);
-  if (options.configureFirewall && !options.interface)
+  if (options.configureFirewall && !options.interface && !interactive)
     throw new HomectlError(
       2,
-      "Firewall configuration requires --interface <local-LAN-IP>",
+      "Noninteractive firewall configuration requires --interface <local-LAN-IP>",
     );
   const ask = async (prompt: string) => {
     const input = createInterface({
@@ -61,22 +80,7 @@ export async function setupFlow(options: {
   let ip = options.interface;
   let firewall: unknown;
   let configure = options.configureFirewall;
-  if (interactive) {
-    const addresses = lanAddresses();
-    if (!ip && addresses.length === 1) ip = addresses[0];
-    else if (!ip && addresses.length > 1) {
-      console.log("Choose the LAN used for pairing (Enter to skip):");
-      addresses.forEach((address, i) => {
-        console.log(`${i + 1}. ${address}`);
-      });
-      const choice = await ask("Interface number: ");
-      if (choice) {
-        if (!/^\d+$/.test(choice) || !addresses[Number(choice) - 1])
-          throw new HomectlError(2, "Invalid interface number");
-        ip = addresses[Number(choice) - 1];
-      }
-    }
-  }
+  if (interactive) ip = await selectLanInterface(ip, lanAddresses(), ask);
   if (ip) {
     const plan = await firewallPlan(ip);
     if (interactive && !configure && plan.backend !== "unsupported") {

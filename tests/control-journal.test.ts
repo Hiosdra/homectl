@@ -121,7 +121,7 @@ describe("audit journal hash chain", () => {
     const journal = new AuditJournal(path, join(dir, "audit.anchor"));
     try {
       await expect(
-        journal.append({ event: "command.started", argv: [] }),
+        journal.append({ event: "invalid-event" } as unknown as AuditEvent),
       ).rejects.toThrow("schema validation failed");
       expect(await journal.read()).toEqual([]);
     } finally {
@@ -288,16 +288,48 @@ describe("audit journal hash chain", () => {
     }
   });
 
-  test("schema-invalid audit events are rejected before writing", async () => {
+  test("argv normalization keeps audit events within schema bounds", async () => {
     const { dir, path } = await workspace();
     const journal = new AuditJournal(path, join(dir, "audit.anchor"));
     try {
-      for (const argv of [[], [""], Array(65).fill("arg")])
-        await expect(
-          journal.append({ event: "command.started", argv }),
-        ).rejects.toMatchObject({ code: 5 });
-      expect(await journal.read()).toEqual([]);
-      await journal.append({ event: "client.created", client: "codex-pc" });
+      const noArguments = await journal.append({
+        event: "command.started",
+        argv: [],
+      });
+      const emptyArgument = await journal.append({
+        event: "command.started",
+        argv: [""],
+      });
+      const manyArguments = await journal.append({
+        event: "command.started",
+        argv: Array(65).fill("arg"),
+      });
+      expect(noArguments.event.argv).toEqual(["[no arguments]"]);
+      expect(emptyArgument.event.argv).toEqual(["[empty argument]"]);
+      expect(manyArguments.event.argv).toHaveLength(64);
+      expect(manyArguments.event.argv?.at(-1)).toBe("[truncated 2 arguments]");
+      await expect(
+        journal.append({ event: "invalid-event" } as unknown as AuditEvent),
+      ).rejects.toMatchObject({ code: 5 });
+      expect(await journal.read()).toHaveLength(3);
+      expect((await journal.verify()).ok).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("long OIDC reasons and device names are normalized before schema validation", async () => {
+    const { dir, path } = await workspace();
+    const journal = new AuditJournal(path, join(dir, "audit.anchor"));
+    try {
+      const entry = await journal.append({
+        event: "auth.oidc",
+        client: "oidc-issuer",
+        reason: `Issuer host ${"x".repeat(180)}`,
+        deviceName: "d".repeat(130),
+      });
+      expect(entry.event.reason).toHaveLength(120);
+      expect(entry.event.deviceName).toHaveLength(100);
       expect((await journal.verify()).ok).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });

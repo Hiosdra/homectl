@@ -10,8 +10,24 @@ import { Label } from "../ui/label";
 
 export function canSaveAuditRow(
   row: Pick<AuditHistoryRow, "host" | "argv">,
-): boolean {
+): row is Pick<AuditHistoryRow, "host" | "argv"> & {
+  host: string;
+  argv: string[];
+} {
   return Boolean(row.host && row.argv?.length && !containsRedactionMarker(row.argv));
+}
+
+export function savedCommandDraftFromAuditRow(
+  row: Pick<AuditHistoryRow, "host" | "argv"> | undefined,
+) {
+  if (!row || !canSaveAuditRow(row))
+    throw new Error("This entry has no saveable command. Redacted arguments cannot be restored.");
+  return {
+    name: `${row.host} ${row.argv[0]}`.slice(0, 80),
+    hosts: [row.host],
+    argv: row.argv,
+    parameters: [],
+  };
 }
 
 function AuditCard({ row }: { row: AuditHistoryRow }) {

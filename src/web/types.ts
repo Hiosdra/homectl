@@ -65,6 +65,7 @@ export type Preview = {
   localName: string;
   remoteName: string;
   blocker?: { type: "remote_vault_locked" };
+  issues?: { id: string; reason: string }[];
   changes: string[];
   entries?: {
     id: string;
@@ -206,6 +207,12 @@ export type SavedCommand = {
   available: string[];
   unavailable: string[];
 };
+export type InvalidSavedCommand = {
+  id: string;
+  status: "invalid";
+  reason: string;
+};
+export type SavedCommandListItem = SavedCommand | InvalidSavedCommand;
 export type AuditHistoryRow = {
   id: string;
   sequence: number;

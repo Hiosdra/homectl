@@ -8,42 +8,44 @@ import {
   redactArgv,
 } from "./control/redact";
 import { atomicReplace, protect } from "./platform";
+import {
+  SAVED_COMMAND_VERSION,
+  type SavedCommand,
+  type SavedCommandIssue,
+  type SavedCommandParameter,
+  type SavedCommandRecordIssue,
+} from "./saved-command-types";
 import { HomectlError } from "./types";
 
-export const SAVED_COMMAND_VERSION = 1 as const;
+export {
+  SAVED_COMMAND_VERSION,
+  type SavedCommand,
+  type SavedCommandInput,
+  type SavedCommandIssue,
+  type SavedCommandParameter,
+  type SavedCommandRecordIssue,
+} from "./saved-command-types";
+
 const HOST = /^[a-z][a-z0-9-]{0,62}$/;
 const PARAMETER = /^[a-z][a-z0-9_-]{0,31}$/;
 const ID = /^[a-zA-Z0-9_-]{1,64}$/;
 
-export type SavedCommandParameter = {
-  name: string;
-  description?: string;
-};
-
 // A saved command stores only a template. It never stores approvals or defaults
 // for parameters; every invocation expands to a fresh argv and uses exec policy.
-export type SavedCommand = {
-  schemaVersion: typeof SAVED_COMMAND_VERSION;
-  id: string;
-  name: string;
-  hosts: string[];
-  argv: string[];
-  parameters: SavedCommandParameter[];
-  description?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type SavedCommandInput = Omit<
-  SavedCommand,
-  "schemaVersion" | "id" | "createdAt" | "updatedAt" | "parameters"
-> & { parameters?: SavedCommandParameter[] };
 type SavedCommandFields = Omit<
   SavedCommand,
   "schemaVersion" | "id" | "createdAt" | "updatedAt"
 >;
 
-type DiskState = { version: 1; commands: Record<string, SavedCommand> };
+type InvalidSavedCommandRecord = {
+  value: unknown;
+  reason: string;
+};
+type DiskState = {
+  version: 1;
+  commands: Record<string, SavedCommand>;
+  invalid: Record<string, InvalidSavedCommandRecord>;
+};
 
 function record(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -220,20 +222,34 @@ export function expandSavedCommand(
   return argv;
 }
 
-export function savedCommandsFromRecords(
+export function savedCommandsFromRecordsWithIssues(
   records: Record<string, { value: unknown | null }>,
-): SavedCommand[] {
+): { commands: SavedCommand[]; issues: SavedCommandRecordIssue[] } {
   const commands: SavedCommand[] = [];
+  const issues: SavedCommandRecordIssue[] = [];
   for (const [key, version] of Object.entries(records)) {
-    if (!key.startsWith("saved-command:") || version.value === null) continue;
+    if (!key.startsWith("saved-command:")) continue;
+    if (!record(version) || !("value" in version)) {
+      issues.push({ id: key, reason: "Invalid saved-command record" });
+      continue;
+    }
+    if (version.value === null) continue;
     const id = key.slice("saved-command:".length);
-    const command = validateStored(
-      id.startsWith("copy-") && record(version.value)
-        ? { ...version.value, id }
-        : version.value,
-      id,
-    );
-    commands.push(command);
+    try {
+      const command = validateStored(
+        id.startsWith("copy-") && record(version.value)
+          ? { ...version.value, id }
+          : version.value,
+        id,
+      );
+      commands.push(command);
+    } catch (error) {
+      issues.push({
+        id: key,
+        reason:
+          error instanceof Error ? error.message : "Invalid saved command",
+      });
+    }
   }
   const usedNames = new Set(
     commands
@@ -254,9 +270,18 @@ export function savedCommandsFromRecords(
     command.name = candidate;
     usedNames.add(candidate.toLocaleLowerCase());
   }
-  return commands.sort(
-    (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
-  );
+  return {
+    commands: commands.sort(
+      (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+    ),
+    issues,
+  };
+}
+
+export function savedCommandsFromRecords(
+  records: Record<string, { value: unknown | null }>,
+): SavedCommand[] {
+  return savedCommandsFromRecordsWithIssues(records).commands;
 }
 
 export function availableCommandHosts(
@@ -294,26 +319,32 @@ export class SavedCommandStore {
       text = await readFile(this.path, "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT")
-        return { version: 1, commands: {} };
+        return { version: 1, commands: {}, invalid: {} };
       throw new HomectlError(5, "Saved commands cannot be read");
     }
     try {
       const state = JSON.parse(text) as DiskState;
       if (state.version !== 1 || !record(state.commands)) throw new Error();
       const commands: Record<string, SavedCommand> = {};
+      const invalid: Record<string, InvalidSavedCommandRecord> = {};
       let invalidRecords = 0;
       for (const [id, command] of Object.entries(state.commands)) {
         try {
           commands[id] = validateStored(command, id);
-        } catch {
+        } catch (error) {
           invalidRecords++;
+          invalid[id] = {
+            value: command,
+            reason:
+              error instanceof Error ? error.message : "Invalid saved command",
+          };
         }
       }
       if (invalidRecords)
         console.warn(
           `Skipped ${invalidRecords} invalid saved command record${invalidRecords === 1 ? "" : "s"}.`,
         );
-      return { version: 1, commands };
+      return { version: 1, commands, invalid };
     } catch {
       throw new HomectlError(
         5,
@@ -324,16 +355,40 @@ export class SavedCommandStore {
 
   private async write(state: DiskState): Promise<void> {
     const temp = `${this.path}.${randomUUID()}.tmp`;
-    await writeFile(temp, JSON.stringify(state), { mode: 0o600, flag: "wx" });
+    const commands = Object.fromEntries([
+      ...Object.entries(state.commands),
+      ...Object.entries(state.invalid).map(([id, entry]) => [id, entry.value]),
+    ]);
+    await writeFile(
+      temp,
+      JSON.stringify({ version: state.version, commands }),
+      { mode: 0o600, flag: "wx" },
+    );
     await protect(temp);
     await atomicReplace(temp, this.path);
   }
 
   async list(): Promise<SavedCommand[]> {
+    return (await this.listWithIssues()).commands;
+  }
+
+  async listWithIssues(): Promise<{
+    commands: SavedCommand[];
+    invalid: SavedCommandIssue[];
+  }> {
     const state = await this.read();
-    return Object.values(state.commands).sort(
-      (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
-    );
+    return {
+      commands: Object.values(state.commands).sort(
+        (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+      ),
+      invalid: Object.entries(state.invalid)
+        .map(([id, entry]) => ({
+          id,
+          status: "invalid" as const,
+          reason: entry.reason,
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    };
   }
 
   async resolve(idOrName: string): Promise<SavedCommand> {
@@ -414,13 +469,22 @@ export class SavedCommandStore {
   async replaceFromRecords(
     records: Record<string, { value: unknown | null }>,
   ): Promise<SavedCommand[]> {
-    const commands = savedCommandsFromRecords(records);
+    const parsed = savedCommandsFromRecordsWithIssues(records);
     return this.withLock(async () => {
+      const current = await this.read();
+      const issueIds = new Set(parsed.issues.map((issue) => issue.id));
+      const commands = [
+        ...parsed.commands,
+        ...Object.entries(current.commands)
+          .filter(([id]) => issueIds.has(`saved-command:${id}`))
+          .map(([, command]) => command),
+      ];
       const state: DiskState = {
         version: 1,
         commands: Object.fromEntries(
           commands.map((command) => [command.id, command]),
         ),
+        invalid: current.invalid,
       };
       await this.write(state);
       return commands;

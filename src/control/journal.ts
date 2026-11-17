@@ -4,7 +4,7 @@ import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
 import { canonicalJson, sha256 } from "./canonical";
 import { controlStateDirectory } from "./paths";
-import { containsSecretMaterial } from "./redact";
+import { containsSecretMaterial, normalizeAuditArgv } from "./redact";
 import { schemas } from "./schema";
 import { ControlStore } from "./store";
 import type { AuditEntry, AuditEvent } from "./types";
@@ -30,6 +30,17 @@ export interface AuditAnchor {
 }
 
 type EntryBody = Omit<AuditEntry, "hash">;
+
+function normalizeAuditEvent(event: AuditEvent): AuditEvent {
+  const normalized = { ...event };
+  if (typeof normalized.argv !== "undefined" && Array.isArray(normalized.argv))
+    normalized.argv = normalizeAuditArgv(normalized.argv);
+  if (typeof normalized.reason === "string")
+    normalized.reason = normalized.reason.slice(0, 120);
+  if (typeof normalized.deviceName === "string")
+    normalized.deviceName = normalized.deviceName.slice(0, 100);
+  return normalized;
+}
 
 function chainHash(body: EntryBody): string {
   return sha256(canonicalJson(body));
@@ -158,13 +169,14 @@ export class AuditJournal {
   }
 
   async append(event: AuditEvent): Promise<AuditEntry> {
-    if (!schemas.auditEvent(event))
+    const normalizedEvent = normalizeAuditEvent(event);
+    if (!schemas.auditEvent(normalizedEvent))
       throw new HomectlError(
         5,
         "Audit event refused: schema validation failed",
       );
     // Fail closed: never write a payload that looks like secret material.
-    if (containsSecretMaterial(JSON.stringify(event)))
+    if (containsSecretMaterial(JSON.stringify(normalizedEvent)))
       throw new HomectlError(
         5,
         "Audit event refused: secret-like material detected",
@@ -182,7 +194,7 @@ export class AuditJournal {
       seq: (last?.seq ?? 0) + 1,
       at: new Date(this.clock()).toISOString(),
       prev: last?.hash ?? GENESIS,
-      event,
+      event: normalizedEvent,
     };
     const entry: AuditEntry = { ...body, hash: chainHash(body) };
     await appendFile(this.path, `${JSON.stringify(entry)}\n`, { mode: 0o600 });

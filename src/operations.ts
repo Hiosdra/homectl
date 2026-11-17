@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { appendLocalAudit } from "./control/journal";
-import { redactArgv } from "./control/redact";
+import { normalizeAuditArgv } from "./control/redact";
 import { credentialSpec } from "./credentials";
 import { probeFailureMessage } from "./diagnostics";
 import { internalCommand } from "./internal";
@@ -36,22 +36,6 @@ type ExecuteOptions = {
     operationId?: string;
   };
 };
-
-function normalizeAuditArgv(argv: string[]): string[] {
-  const redacted = redactArgv(argv).map((arg) => {
-    if (!arg) return "[empty argument]";
-    const marker = "...[truncated]";
-    return arg.length > 4096
-      ? `${arg.slice(0, 4096 - marker.length)}${marker}`
-      : arg;
-  });
-  if (!redacted.length) return ["[no arguments]"];
-  if (redacted.length <= 64) return redacted;
-  return [
-    ...redacted.slice(0, 63),
-    `[truncated ${redacted.length - 63} arguments]`,
-  ];
-}
 
 export function execute(
   host: string,
