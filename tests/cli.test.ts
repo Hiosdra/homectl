@@ -38,6 +38,21 @@ test("help works without inventory or credentials", async () => {
   expect(r.code).toBe(0);
   expect(r.stdout).toContain("home-ctl");
 });
+test("known commands without dedicated help pages fall back to global help", async () => {
+  for (const command of [
+    "setup",
+    "update",
+    "hosts",
+    "inspect",
+    "doctor",
+    "sudoers",
+  ]) {
+    const result = await invoke([command, "--help"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("home-ctl <command>");
+    expect(result.stderr).not.toContain("Unknown command");
+  }
+});
 test("manual pairing join enters the guided flow without requiring serve", async () => {
   const r = await invoke([
     "pair",
@@ -310,6 +325,76 @@ test("all SSH addresses regenerate from current inventory before diagnostics", a
 test("unknown flags cannot silently change CLI behavior", async () => {
   const r = await invoke(["hosts", "--yes", "--inventory", await fixture()]);
   expect(r.code).toBe(2);
+});
+test("sync apply requires an explicit reviewed choices file", async () => {
+  const result = await invoke([
+    "sync",
+    "apply",
+    "synthetic-preview",
+    "--inventory",
+    await fixture(),
+    "--json",
+  ]);
+  expect(result.code).toBe(4);
+  expect(result.stderr).toContain(
+    "Review the preview, then provide explicit choices with --file PATH",
+  );
+});
+
+test("parameterized command previews and JSON errors expose only template argv", async () => {
+  const path = await fixture();
+  const templatePath = join(tmpdir(), `saved-param-${randomUUID()}.json`);
+  const secretValue = "private-value-that-must-not-be-echoed";
+  const template = {
+    name: "Remove named target",
+    hosts: ["example"],
+    argv: ["rm", "{{target}}"],
+    parameters: [{ name: "target" }],
+    description: "Remove {{target}}",
+  };
+  try {
+    await writeFile(templatePath, JSON.stringify(template));
+    const saved = await invoke([
+      "commands",
+      "save",
+      "--file",
+      templatePath,
+      "--inventory",
+      path,
+      "--json",
+    ]);
+    expect(saved.code).toBe(0);
+    const id = JSON.parse(saved.stdout).command.id as string;
+    const runArgs = [
+      "commands",
+      "run",
+      id,
+      "--target",
+      "example",
+      "--inventory",
+      path,
+      "--json",
+      "--",
+      `target=${secretValue}`,
+    ];
+    const preview = await invoke([
+      ...runArgs.slice(0, -2),
+      "--dry-run",
+      ...runArgs.slice(-2),
+    ]);
+    expect(preview.code).toBe(0);
+    const previewPlan = JSON.parse(preview.stdout).plan;
+    expect(previewPlan.argv).toEqual(template.argv);
+    expect(preview.stdout).not.toContain(secretValue);
+
+    const refused = await invoke(runArgs);
+    expect(refused.code).toBe(4);
+    const error = JSON.parse(refused.stderr);
+    expect(error.details.argv).toEqual(template.argv);
+    expect(refused.stderr).not.toContain(secretValue);
+  } finally {
+    await rm(templatePath, { force: true });
+  }
 });
 
 test("peer and pairing dry runs never contact serve or read launch tokens", async () => {

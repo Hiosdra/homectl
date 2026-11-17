@@ -13,15 +13,31 @@ export async function selectLanInterface(
   interfaceIP: string | undefined,
   addresses: string[],
   ask: (prompt: string) => Promise<string>,
+  required = false,
 ): Promise<string | undefined> {
-  if (interfaceIP || addresses.length === 0) return interfaceIP;
+  if (interfaceIP) return interfaceIP;
+  if (addresses.length === 0) {
+    if (required)
+      throw new HomectlError(
+        2,
+        "Choose a LAN interface before configuring the firewall; pass --interface <local-LAN-IP> or select an interface when prompted",
+      );
+    return undefined;
+  }
   if (addresses.length === 1) return addresses[0];
   console.log("Choose the LAN used for pairing (Enter to skip):");
   addresses.forEach((address, index) => {
     console.log(`${index + 1}. ${address}`);
   });
   const choice = await ask("Interface number: ");
-  if (!choice) return undefined;
+  if (!choice) {
+    if (required)
+      throw new HomectlError(
+        2,
+        "Choose a LAN interface before configuring the firewall; pass --interface <local-LAN-IP> or select an interface when prompted",
+      );
+    return undefined;
+  }
   if (!/^\d+$/.test(choice) || !addresses[Number(choice) - 1])
     throw new HomectlError(2, "Invalid interface number");
   return addresses[Number(choice) - 1];
@@ -34,27 +50,41 @@ export async function setupFlow(options: {
   installDeps: boolean;
   configureFirewall: boolean;
   interface?: string;
+  interactive?: boolean;
+  addresses?: string[];
+  ask?: (prompt: string) => Promise<string>;
 }) {
   const interactive =
-    !options.json &&
-    !options.dryRun &&
-    Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    options.interactive ??
+    (!options.json &&
+      !options.dryRun &&
+      Boolean(process.stdin.isTTY && process.stdout.isTTY));
   if (options.configureFirewall && !options.interface && !interactive)
     throw new HomectlError(
       2,
       "Noninteractive firewall configuration requires --interface <local-LAN-IP>",
     );
-  const ask = async (prompt: string) => {
-    const input = createInterface({
-      input: process.stdin,
-      output: process.stdout,
+  const ask =
+    options.ask ??
+    (async (prompt: string) => {
+      const input = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      try {
+        return (await input.question(prompt)).trim();
+      } finally {
+        input.close();
+      }
     });
-    try {
-      return (await input.question(prompt)).trim();
-    } finally {
-      input.close();
-    }
-  };
+  let ip = options.interface;
+  if (interactive)
+    ip = await selectLanInterface(
+      ip,
+      options.addresses ?? lanAddresses(),
+      ask,
+      options.configureFirewall,
+    );
   let install = options.installDeps;
   const missing = ["ssh", "keepassxc-cli"].filter((name) => !available(name));
   if (interactive && missing.length && !install) {
@@ -77,10 +107,8 @@ export async function setupFlow(options: {
       : await installLinuxDependencies(options.dryRun, interactive)
     : { missing };
   const result = await setup(options.home, options.dryRun);
-  let ip = options.interface;
   let firewall: unknown;
   let configure = options.configureFirewall;
-  if (interactive) ip = await selectLanInterface(ip, lanAddresses(), ask);
   if (ip) {
     const plan = await firewallPlan(ip);
     if (interactive && !configure && plan.backend !== "unsupported") {

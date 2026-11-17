@@ -117,7 +117,7 @@ function baseRow(
 }
 
 function rowsFromJournal(
-  entries: AuditEntry[],
+  entries: readonly AuditEntry[],
   names: Record<string, string>,
 ): AuditHistoryRecord[] {
   const operations = new Map<string, AuditHistoryRecord>();
@@ -253,7 +253,7 @@ function rowsFromJournal(
 }
 
 export function auditHistory(
-  entries: AuditEntry[],
+  entries: readonly AuditEntry[],
   names: Record<string, string> = {},
   filters: AuditHistoryFilters = {},
 ): AuditHistoryPage {

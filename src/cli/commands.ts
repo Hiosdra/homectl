@@ -113,6 +113,12 @@ export async function runCommands(options: {
       machines: options.inventory.machines,
       dryRun: options.dryRun,
       approval: options.approval,
+      approvalContext: "cli",
+      displayArgv: saved.argv,
+      displayImpact:
+        options.impact ||
+        saved.description ||
+        `Run saved command: ${saved.name}`,
       requireApproval: true,
       impact:
         options.impact ||

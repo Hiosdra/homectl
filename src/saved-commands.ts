@@ -8,6 +8,7 @@ import {
   redactArgv,
 } from "./control/redact";
 import { atomicReplace, protect } from "./platform";
+import { parseSavedCommandsFromRecordsWithIssues } from "./saved-command-records";
 import {
   SAVED_COMMAND_VERSION,
   type SavedCommand,
@@ -53,6 +54,14 @@ function record(value: unknown): value is Record<string, unknown> {
 
 function fail(message: string): never {
   throw new HomectlError(2, message);
+}
+
+function stableCommandMap(commands: Record<string, unknown>): string {
+  return JSON.stringify(
+    Object.keys(commands)
+      .sort()
+      .map((id) => [id, commands[id]]),
+  );
 }
 
 function timestamp(value: unknown): value is string {
@@ -225,57 +234,7 @@ export function expandSavedCommand(
 export function savedCommandsFromRecordsWithIssues(
   records: Record<string, { value: unknown | null }>,
 ): { commands: SavedCommand[]; issues: SavedCommandRecordIssue[] } {
-  const commands: SavedCommand[] = [];
-  const issues: SavedCommandRecordIssue[] = [];
-  for (const [key, version] of Object.entries(records)) {
-    if (!key.startsWith("saved-command:")) continue;
-    if (!record(version) || !("value" in version)) {
-      issues.push({ id: key, reason: "Invalid saved-command record" });
-      continue;
-    }
-    if (version.value === null) continue;
-    const id = key.slice("saved-command:".length);
-    try {
-      const command = validateStored(
-        id.startsWith("copy-") && record(version.value)
-          ? { ...version.value, id }
-          : version.value,
-        id,
-      );
-      commands.push(command);
-    } catch (error) {
-      issues.push({
-        id: key,
-        reason:
-          error instanceof Error ? error.message : "Invalid saved command",
-      });
-    }
-  }
-  const usedNames = new Set(
-    commands
-      .filter((command) => !command.id.startsWith("copy-"))
-      .map((command) => command.name.toLocaleLowerCase()),
-  );
-  for (const command of commands.filter((item) =>
-    item.id.startsWith("copy-"),
-  )) {
-    const baseName = command.name.replace(/ \(copy(?: \d+)?\)$/, "");
-    let suffixNumber = 1;
-    let candidate: string;
-    do {
-      const suffix = suffixNumber === 1 ? " (copy)" : ` (copy ${suffixNumber})`;
-      candidate = `${baseName.slice(0, 80 - suffix.length).trimEnd()}${suffix}`;
-      suffixNumber++;
-    } while (usedNames.has(candidate.toLocaleLowerCase()));
-    command.name = candidate;
-    usedNames.add(candidate.toLocaleLowerCase());
-  }
-  return {
-    commands: commands.sort(
-      (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
-    ),
-    issues,
-  };
+  return parseSavedCommandsFromRecordsWithIssues(records, validateStored);
 }
 
 export function savedCommandsFromRecords(
@@ -356,8 +315,10 @@ export class SavedCommandStore {
   private async write(state: DiskState): Promise<void> {
     const temp = `${this.path}.${randomUUID()}.tmp`;
     const commands = Object.fromEntries([
+      ...Object.entries(state.invalid)
+        .filter(([id]) => !Object.hasOwn(state.commands, id))
+        .map(([id, entry]) => [id, entry.value]),
       ...Object.entries(state.commands),
-      ...Object.entries(state.invalid).map(([id, entry]) => [id, entry.value]),
     ]);
     await writeFile(
       temp,
@@ -468,10 +429,29 @@ export class SavedCommandStore {
 
   async replaceFromRecords(
     records: Record<string, { value: unknown | null }>,
+    expectedSavedCommands?: Record<string, { value: unknown | null }>,
   ): Promise<SavedCommand[]> {
     const parsed = savedCommandsFromRecordsWithIssues(records);
     return this.withLock(async () => {
       const current = await this.read();
+      if (expectedSavedCommands) {
+        const expected = Object.fromEntries(
+          Object.entries(expectedSavedCommands)
+            .filter(
+              ([id, version]) =>
+                id.startsWith("saved-command:") && version.value !== null,
+            )
+            .map(([id, version]) => {
+              const commandId = id.slice("saved-command:".length);
+              return [commandId, validateStored(version.value, commandId)];
+            }),
+        );
+        if (stableCommandMap(current.commands) !== stableCommandMap(expected))
+          throw new HomectlError(
+            3,
+            "Saved commands changed since the sync preview; refresh before applying",
+          );
+      }
       const issueIds = new Set(parsed.issues.map((issue) => issue.id));
       const commands = [
         ...parsed.commands,

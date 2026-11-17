@@ -23,6 +23,7 @@ import {
   denyReadyRequest,
   editMachine,
   openRequest,
+  verifySavedCommandEditor,
 } from "./ui-smoke-steps";
 
 const root = await mkdtemp(join(tmpdir(), "hcui-"));
@@ -203,8 +204,8 @@ try {
   expect(page.url()).not.toContain("token");
   const out = process.env.UI_REVIEW_DIR ?? join(root, "review");
   await (await import("node:fs/promises")).mkdir(out, { recursive: true });
-  await page.screenshot({ path: join(out, "desktop.png"), fullPage: true });
   await captureScreens(page, browser, panelOrigin, out);
+  await verifySavedCommandEditor(page, running.hub.savedCommands);
   await page.getByRole("link", { name: /^Vault/ }).click();
   await expect(
     page.getByRole("heading", { name: "Machines", exact: true }),

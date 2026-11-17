@@ -3,11 +3,11 @@ import type { AuditJournal } from "./journal";
 import type { AuditEntry } from "./types";
 
 export class AuditEntriesCache {
-  private cached?: { signature: string; entries: AuditEntry[] };
+  private cached?: { signature: string; entries: readonly AuditEntry[] };
 
   async read(
     journal: Pick<AuditJournal, "path" | "read">,
-  ): Promise<AuditEntry[]> {
+  ): Promise<readonly AuditEntry[]> {
     let signature = "missing";
     try {
       const metadata = await stat(journal.path);
@@ -15,10 +15,16 @@ export class AuditEntriesCache {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    if (this.cached?.signature === signature)
-      return structuredClone(this.cached.entries);
+    if (this.cached?.signature === signature) return this.cached.entries;
     const entries = await journal.read();
-    this.cached = { signature, entries: structuredClone(entries) };
-    return entries;
+    const cachedEntries = structuredClone(entries);
+    for (const entry of cachedEntries) {
+      if (entry.event.argv) Object.freeze(entry.event.argv);
+      Object.freeze(entry.event);
+      Object.freeze(entry);
+    }
+    Object.freeze(cachedEntries);
+    this.cached = { signature, entries: cachedEntries };
+    return cachedEntries;
   }
 }

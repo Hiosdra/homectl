@@ -8,7 +8,7 @@ const SECRET_PATTERNS: RegExp[] = [
 ];
 
 const SECRET_PLACEHOLDER_ASSIGNMENT =
-  /\b(?:password|passwd|pass|token|secret|api[_-]?key|authorization)\b\s*[=:]\s*\{\{[a-z][a-z0-9_-]{0,31}\}\}(?=["'\s,}\]]|$)/gi;
+  /\b(?:password|passwd|pass|token|secret|api[_-]?key|authorization)\b\s*[=:]\s*(?:\{\{[a-z][a-z0-9_-]{0,31}\}\}|\[REDACTED\])(?=["'\s,}\]]|$)/gi;
 
 const SECRET_NAME =
   /(?:password|passwd|token|secret|api[_-]?key|authorization)/i;

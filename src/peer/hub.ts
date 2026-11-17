@@ -686,7 +686,7 @@ export class Hub {
     // A partial apply writes the routine clean changes only; the rest and any conflict keep the local value.
     if (result.conflicts.length && !partial)
       throw new HomectlError(4, "Resolve every conflict before applying");
-    await this.applyRecords(result.records, p.remoteVaultUnlocked);
+    await this.applyRecords(result.records, p.remoteVaultUnlocked, p.local);
     this.pending.delete(id);
     return {
       applied: true,
@@ -720,6 +720,7 @@ export class Hub {
   async applyRecords(
     records: Record<string, Version>,
     remoteVaultUnlocked?: boolean,
+    expectedSavedCommands?: Record<string, { value: unknown | null }>,
   ) {
     const inv = await loadInventory(this.inventoryPath);
     const credentials: Record<string, Credential> = {};
@@ -816,7 +817,7 @@ export class Hub {
         .map(([id, r]) => [id, String(r.value)]),
     );
     validateHostKeys(trusted, machines);
-    await this.savedCommands.replaceFromRecords(records);
+    await this.savedCommands.replaceFromRecords(records, expectedSavedCommands);
     if (this.vault.unlocked) await this.vault.apply(credentials);
     await privateDirectory(join(dirname(this.inventoryPath), "public-keys"));
     for (const m of Object.values(machines))
@@ -964,6 +965,7 @@ export class Hub {
       o.result = await execute(o.host, machine, o.argv, {
         configPath: this.configPath,
         approval: o.approval,
+        approvalContext: "peer",
         impact: o.impact,
         audit: {
           inventoryPath: this.inventoryPath,

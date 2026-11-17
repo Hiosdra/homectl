@@ -61,3 +61,33 @@ test("noninteractive firewall configuration requires an explicit LAN", async () 
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("interactive firewall setup refuses an empty or skipped LAN choice before setup", async () => {
+  for (const [addresses, answer] of [
+    [[], "1"],
+    [["192.0.2.10", "198.51.100.20"], ""],
+  ] as const) {
+    const home = await mkdtemp(
+      join(tmpdir(), "homectl-setup-firewall-prompt-"),
+    );
+    try {
+      await expect(
+        setupFlow({
+          home,
+          json: false,
+          dryRun: false,
+          installDeps: false,
+          configureFirewall: true,
+          interactive: true,
+          addresses: [...addresses],
+          ask: async () => answer,
+        }),
+      ).rejects.toThrow(
+        "Choose a LAN interface before configuring the firewall",
+      );
+      expect(await readdir(home)).toEqual([]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  }
+});

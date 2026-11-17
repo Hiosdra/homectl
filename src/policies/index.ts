@@ -284,11 +284,19 @@ export function planExecution(
     approval: hash({ host, machine, argv, impact: affected }),
   };
 }
-export function checkApproval(plan: ExecutionPlan, approval?: string) {
+export function checkApproval(
+  plan: ExecutionPlan,
+  approval?: string,
+  context: "cli" | "panel" | "peer" = "cli",
+) {
   if (plan.needsApproval && approval !== plan.approval)
     throw new HomectlError(
       4,
-      "Review the exact host, command and impact, then re-run with --approval <digest>",
+      context === "panel"
+        ? "Review the command template and impact, then use Request approval and Accept in the panel"
+        : context === "peer"
+          ? "Peer approval digest mismatch; request a fresh review from the peer"
+          : "Review the exact host, command and impact, then re-run with --approval <digest>",
       {
         host: plan.host,
         argv: plan.argv,

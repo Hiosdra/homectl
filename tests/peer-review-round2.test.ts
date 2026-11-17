@@ -204,7 +204,11 @@ test("peer approval queueing normalizes argv and keeps policy errors on audit fa
   };
   const queuedResult = await peerCommand(queued.server.hub, peer, {
     host: "example",
-    argv: ["rm", ...Array.from({ length: 70 }, (_, index) => `item-${index}`)],
+    argv: [
+      "rm",
+      "--token={{tok}}",
+      ...Array.from({ length: 69 }, (_, index) => `item-${index}`),
+    ],
   });
   expect(queuedResult).toMatchObject({ pending: true });
   const audit = (
@@ -212,9 +216,24 @@ test("peer approval queueing normalizes argv and keeps policy errors on audit fa
   )
     .trim()
     .split("\n")
-    .map((line) => JSON.parse(line) as { event: { argv: string[] } });
+    .map(
+      (line) =>
+        JSON.parse(line) as { event: { event: string; argv: string[] } },
+    );
   expect(audit[0]?.event.argv).toHaveLength(64);
+  expect(audit[0]?.event.argv[1]).toBe("--token=[REDACTED]");
   expect(audit[0]?.event.argv.at(-1)).toBe("[truncated 8 arguments]");
+  await queued.server.hub.decideOperation(
+    (queuedResult as { id: string }).id,
+    false,
+  );
+  const rejectedAudit = await readFile(
+    join(queued.root, "control-plane", "audit.jsonl"),
+    "utf8",
+  );
+  expect(rejectedAudit).toContain('"event":"command.refused"');
+  expect(rejectedAudit).toContain("--token=[REDACTED]");
+  expect(rejectedAudit).not.toContain("{{tok}}");
 
   const refused = await fixture("Execution device");
   await saveInventory(refused.path, {
@@ -243,6 +262,49 @@ test("peer approval queueing normalizes argv and keeps policy errors on audit fa
   } finally {
     warning.mockRestore();
   }
+});
+
+test("peer policy refusals can journal redacted token placeholders", async () => {
+  const current = await fixture("Execution device");
+  await saveInventory(current.path, {
+    version: 1,
+    session: { ttl: "24h", database: join(current.root, "vault.kdbx") },
+    machines: {
+      example: {
+        description: "Synthetic",
+        transport: "local",
+        access: "observe",
+      },
+    },
+  });
+  const peer: Peer = {
+    id: randomUUID(),
+    name: "Remote device",
+    platform: "test",
+    address: "127.0.0.1",
+    key: "",
+    permissions: {
+      sync: true,
+      diagnostics: false,
+      administer: true,
+      operations: ["example"],
+    },
+    pairedAt: Date.now(),
+  };
+
+  await expect(
+    peerCommand(current.server.hub, peer, {
+      host: "example",
+      argv: ["rm", "--token={{tok}}"],
+    }),
+  ).rejects.toThrow("observe tier");
+  const journal = await readFile(
+    join(current.root, "control-plane", "audit.jsonl"),
+    "utf8",
+  );
+  expect(journal).toContain('"event":"command.refused"');
+  expect(journal).toContain("--token=[REDACTED]");
+  expect(journal).not.toContain("{{tok}}");
 });
 
 test("failed saved-command acquisition leaves peer apply state and files untouched", async () => {

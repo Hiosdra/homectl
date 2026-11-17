@@ -30,6 +30,7 @@ import { runCommands } from "./commands";
 import { helpTopics, renderHelp } from "./help";
 import { hostCommand } from "./host-commands";
 import { runInternal } from "./internal-roles";
+import { knownCommands } from "./known-commands";
 import { formatError, formatHuman, normalizeCliError } from "./output";
 import { confirm } from "./prompts";
 export const help = renderHelp();
@@ -212,13 +213,13 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       );
     if (!command || v.help || command === "help") {
       const topic = command === "help" ? host : command;
-      if (topic && !helpTopics.includes(topic))
+      if (topic && !knownCommands.has(topic))
         throw new HomectlError(
           2,
           `Unknown command: ${topic}; use home-ctl help`,
         );
       emit(
-        renderHelp(topic, {
+        renderHelp(topic && helpTopics.includes(topic) ? topic : "", {
           width: process.stdout.columns,
           color: Boolean(
             process.stdout.isTTY &&
@@ -406,7 +407,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         if (!keyName)
           throw new HomectlError(
             2,
-            "Use sync preview <peer-id>, apply <preview-id> [--file choices.json], or cancel <preview-id>",
+            "Use sync preview <peer-id>, apply <preview-id> --file choices.json, or cancel <preview-id>",
           );
         if (host === "preview") {
           emit(
@@ -415,9 +416,12 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           return 0;
         }
         if (host === "apply") {
-          const choices = v.file
-            ? JSON.parse(await readFile(resolve(v.file), "utf8"))
-            : {};
+          if (!v.file)
+            throw new HomectlError(
+              4,
+              "Review the preview, then provide explicit choices with --file PATH",
+            );
+          const choices = JSON.parse(await readFile(resolve(v.file), "utf8"));
           emit(
             await localApi(inventoryPath, "/api/sync/apply", {
               id: keyName,

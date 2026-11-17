@@ -132,6 +132,7 @@ export async function auditCommandsRoute(
           dryRun: value.dryRun === true,
           approval:
             typeof value.approval === "string" ? value.approval : undefined,
+          approvalContext: "panel",
           impact: typeof value.impact === "string" ? value.impact : undefined,
           runner: options.operationRunner,
           audit: {
@@ -185,7 +186,11 @@ export async function auditCommandsRoute(
         requireApproval: true,
         approval:
           typeof value.approval === "string" ? value.approval : undefined,
+        approvalContext: "panel",
         impact: command.description || `Run saved command: ${command.name}`,
+        displayArgv: command.argv,
+        displayImpact:
+          command.description || `Run saved command: ${command.name}`,
         runner: options.operationRunner,
         audit: {
           inventoryPath,

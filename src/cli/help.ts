@@ -414,16 +414,17 @@ pages.pair = {
   ],
 };
 pages.sync = {
-  usage: "home-ctl sync <preview|apply|cancel> <peer-or-preview-id>",
+  usage:
+    "home-ctl sync <preview|apply|cancel> <peer-or-preview-id> [--file choices.json]",
   intro:
-    "Preview before applying. Choose local, remote or both for each conflict ID in a choices JSON object.",
+    "Review the preview before applying. An explicit choices JSON file is required, even when it contains {} and there are no conflicts. Choose local, remote or both for each conflict ID.",
   sections: [
     {
       title: "Apply",
       rows: [
         [
           "--file PATH",
-          "Reviewed choices object. Use {} when no conflicts exist.",
+          "Required reviewed choices object. Use {} when no conflicts exist.",
         ],
       ],
     },
@@ -560,7 +561,6 @@ pages.ssh = {
   usage: "home-ctl ssh <host> [options] -- <command> [args...]",
 };
 export const helpTopics = Object.keys(pages);
-
 function wrap(text: string, width: number): string[] {
   const lines: string[] = [];
   let line = "";

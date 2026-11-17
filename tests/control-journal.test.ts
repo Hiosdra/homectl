@@ -86,6 +86,8 @@ describe("argv redaction and secret detection", () => {
     expect(containsSecretMaterial('"--password={{pw}}"')).toBe(false);
     expect(containsSecretMaterial('"PASSWORD={{pw}}"')).toBe(false);
     expect(containsSecretMaterial('"PASSWORD={{pw}}suffix"')).toBe(true);
+    expect(containsSecretMaterial('"--password=[REDACTED]"')).toBe(false);
+    expect(containsSecretMaterial('"--token=[REDACTED]"')).toBe(false);
     expect(containsRedactionMarker(["NAME=[REDACTED]"])).toBe(true);
   });
 });

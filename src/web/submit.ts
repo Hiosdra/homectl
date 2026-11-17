@@ -27,10 +27,11 @@ export function parseSavedCommandArgv(value: string): string[] {
 }
 
 export function handleSubmit(form: HTMLFormElement) {
+  const formId = form.getAttribute("id");
   const values = new FormData(form);
   void task(async () => {
     let successMessage = "Changes saved.";
-    if (form.id === "permissions-form" && ui.permissionPeer) {
+    if (formId === "permissions-form" && ui.permissionPeer) {
       const id = ui.permissionPeer;
       const permissions = {
         sync: values.has("sync"),
@@ -52,7 +53,7 @@ export function handleSubmit(form: HTMLFormElement) {
       });
       ui.permissionPeer = undefined;
     }
-    if (form.id === "command-form" && ui.commandHost) {
+    if (formId === "command-form" && ui.commandHost) {
       const host = ui.commandHost;
       const id = String(values.get("peer"));
       const program = String(values.get("program") ?? "").trim();
@@ -89,7 +90,7 @@ export function handleSubmit(form: HTMLFormElement) {
       render();
       return;
     }
-    if (form.id === "saved-command-form") {
+    if (formId === "saved-command-form") {
       const hosts = String(values.get("hosts") ?? "")
         .split(/[\n,]/)
         .map((host) => host.trim())
@@ -123,7 +124,7 @@ export function handleSubmit(form: HTMLFormElement) {
       successMessage =
         "Saved command updated. Each run still uses this device's current policy.";
     }
-    if (form.id === "saved-command-run-form") {
+    if (formId === "saved-command-run-form") {
       const id = String(values.get("id"));
       const host = String(values.get("host"));
       const parameters = Object.fromEntries(
@@ -140,6 +141,8 @@ export function handleSubmit(form: HTMLFormElement) {
           classification: string;
           approval: string;
           needsApproval: boolean;
+          argv: string[];
+          impact: string;
         };
       }>("/api/commands/run", { ...payload, dryRun: true });
       ui.result = preview;
@@ -147,7 +150,7 @@ export function handleSubmit(form: HTMLFormElement) {
       if (
         !(await confirm(
           `Run saved command on ${host}?`,
-          `${preview.plan.classification}${preview.plan.needsApproval ? " · approval required" : ""}. Homectl rechecks the local policy before execution.`,
+          `${displayArgv(preview.plan.argv)} · ${preview.plan.classification} · ${preview.plan.impact}${preview.plan.needsApproval ? " · approval required" : ""}. Homectl rechecks the local policy before execution.`,
         ))
       )
         return;
@@ -160,7 +163,7 @@ export function handleSubmit(form: HTMLFormElement) {
       render();
       return;
     }
-    if (form.id === "audit-filter-form") {
+    if (formId === "audit-filter-form") {
       ui.auditFilters = {
         host: String(values.get("host") ?? ""),
         status: String(values.get("status") ?? ""),
@@ -170,7 +173,7 @@ export function handleSubmit(form: HTMLFormElement) {
       await loadAudit(true);
       return;
     }
-    if (form.id === "key-form") {
+    if (formId === "key-form") {
       const password = String(values.get("password"));
       element<HTMLInputElement>("key-password").value = "";
       ui.result = await api("/api/key/create", {
@@ -178,14 +181,14 @@ export function handleSubmit(form: HTMLFormElement) {
         password,
       });
     }
-    if (form.id === "pair-form") {
+    if (formId === "pair-form") {
       const code = String(values.get("code"));
       element<HTMLInputElement>("pair-code").value = "";
       await api("/api/pair/join", { address: values.get("address"), code });
       successMessage =
         "Pairing request sent. Compare the verification phrase on both devices.";
     }
-    if (form.id === "unlock-form") {
+    if (formId === "unlock-form") {
       const password = String(values.get("password"));
       element<HTMLInputElement>("password").value = "";
       const create = values.get("create") === "true";
@@ -200,7 +203,7 @@ export function handleSubmit(form: HTMLFormElement) {
         ? "Vault created and unlocked on this device."
         : "Vault unlocked. Credential sync is ready on this device.";
     }
-    if (form.id === "settings-form") {
+    if (formId === "settings-form") {
       const session = ui.state.inventory.session;
       await api("/api/settings", {
         name: values.get("name"),
@@ -208,14 +211,14 @@ export function handleSubmit(form: HTMLFormElement) {
         idle: session?.idle ?? "2h",
       });
     }
-    if (form.id === "session-form") {
+    if (formId === "session-form") {
       await api("/api/settings", {
         name: ui.state.device.name,
         ttl: String(values.get("ttl")),
         idle: String(values.get("idle")),
       });
     }
-    if (form.id === "machine-form") {
+    if (formId === "machine-form") {
       const name = String(values.get("name"));
       // Keep what the form does not show (the key reference, sockets) from the saved machine.
       const current = ui.state.inventory.machines[name];
@@ -260,7 +263,7 @@ export function handleSubmit(form: HTMLFormElement) {
       await api("/api/machine/save", { name, machine });
       ui.editing = undefined;
     }
-    if (form.id === "sync-form" && ui.preview) {
+    if (formId === "sync-form" && ui.preview) {
       if (!(await applySync(ui.preview, values))) return;
     }
     await refresh();

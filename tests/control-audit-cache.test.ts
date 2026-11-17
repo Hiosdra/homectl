@@ -22,14 +22,25 @@ test("audit entry cache reuses size and mtime and refreshes after a write", asyn
           at: new Date(0).toISOString(),
           prev: "0".repeat(64),
           hash: "1".repeat(64),
-          event: { event: "client.created", client: "cache-test" },
+          event: {
+            event: "client.created",
+            client: "cache-test",
+            argv: ["command"],
+          },
         },
       ];
     },
   };
   try {
-    expect((await cache.read(journal)).map((entry) => entry.seq)).toEqual([1]);
-    expect((await cache.read(journal)).map((entry) => entry.seq)).toEqual([1]);
+    const first = await cache.read(journal);
+    const cached = await cache.read(journal);
+    expect(first.map((entry) => entry.seq)).toEqual([1]);
+    expect(cached.map((entry) => entry.seq)).toEqual([1]);
+    expect(cached).toBe(first);
+    expect(Object.isFrozen(cached)).toBe(true);
+    expect(Object.isFrozen(cached[0])).toBe(true);
+    expect(Object.isFrozen(cached[0]?.event)).toBe(true);
+    expect(Object.isFrozen(cached[0]?.event.argv)).toBe(true);
     expect(reads).toBe(1);
     await writeFile(path, "two entries");
     expect((await cache.read(journal)).map((entry) => entry.seq)).toEqual([2]);

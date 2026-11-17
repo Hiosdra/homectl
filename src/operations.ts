@@ -21,7 +21,10 @@ type ExecuteOptions = {
   configPath: string;
   dryRun?: boolean;
   approval?: string;
+  approvalContext?: "cli" | "panel" | "peer";
   impact?: string;
+  displayArgv?: string[];
+  displayImpact?: string;
   requireApproval?: boolean;
   runner?: Runner;
   catalogue?: boolean;
@@ -101,7 +104,7 @@ export async function execute(
           ? { deviceName: options.audit.requesterName }
           : {}),
       host,
-      argv: normalizeAuditArgv(argv),
+      argv: normalizeAuditArgv(options.displayArgv ?? argv),
       ...(details.classification
         ? { classification: details.classification }
         : {}),
@@ -145,6 +148,8 @@ export async function execute(
       });
     throw error;
   }
+  if (options.displayArgv) plan.argv = [...options.displayArgv];
+  if (options.displayImpact) plan.impact = options.displayImpact;
   if (
     options.requireApproval &&
     (plan.classification !== "inspect" || innerCommand(argv).sudo)
@@ -152,7 +157,7 @@ export async function execute(
     plan.needsApproval = true;
   if (options.dryRun) return { plan };
   try {
-    checkApproval(plan, options.approval);
+    checkApproval(plan, options.approval, options.approvalContext);
   } catch (error) {
     await audit(
       error instanceof HomectlError && error.code === 4
@@ -193,10 +198,17 @@ export async function execute(
     transportSpec(machine, argv, options.configPath),
     workerArgv,
   );
-  await audit("command.started", {
-    classification: plan.classification,
-    policyDecision: plan.needsApproval ? "needs-approval" : "allowed",
-  });
+  try {
+    await audit("command.started", {
+      classification: plan.classification,
+      policyDecision: plan.needsApproval ? "needs-approval" : "allowed",
+    });
+  } catch {
+    throw new HomectlError(
+      5,
+      "Command was not run because its redacted start-audit event could not be saved",
+    );
+  }
   let result: Awaited<ReturnType<Runner>>;
   try {
     result = await (options.runner ?? run)(spec);

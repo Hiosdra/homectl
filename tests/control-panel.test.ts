@@ -227,9 +227,16 @@ test("saved command API keeps unknown hosts unavailable and enforces policy with
     dryRun: true,
   });
   const preview = (await previewResponse.json()) as {
-    plan: { approval: string; needsApproval: boolean };
+    plan: {
+      approval: string;
+      needsApproval: boolean;
+      argv: string[];
+      impact: string;
+    };
   };
   expect(preview.plan.needsApproval).toBe(true);
+  expect(preview.plan.argv).toEqual(["echo", "--token", "{{token}}"]);
+  expect(JSON.stringify(preview)).not.toContain(values.token);
   const noApproval = await call("POST", "/api/commands/run", {
     id: savedBody.command.id,
     host: "agent-host",
@@ -237,6 +244,11 @@ test("saved command API keeps unknown hosts unavailable and enforces policy with
     dryRun: false,
   });
   expect(noApproval.status).toBe(409);
+  const approvalError = await noApproval.json();
+  expect(JSON.stringify(approvalError)).not.toContain(values.token);
+  expect((approvalError as { error: string }).error).toContain(
+    "Request approval and Accept in the panel",
+  );
   expect(runs).toBe(0);
   const executed = await call("POST", "/api/commands/run", {
     id: savedBody.command.id,
@@ -246,6 +258,13 @@ test("saved command API keeps unknown hosts unavailable and enforces policy with
     approval: preview.plan.approval,
   });
   expect(executed.status).toBe(200);
+  const execution = await executed.json();
+  expect(JSON.stringify(execution)).not.toContain(values.token);
+  expect((execution as { plan: { argv: string[] } }).plan.argv).toEqual([
+    "echo",
+    "--token",
+    "{{token}}",
+  ]);
   expect(runs).toBe(1);
 
   const audit = await call(

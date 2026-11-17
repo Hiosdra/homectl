@@ -157,6 +157,32 @@ describe("saved command storage", () => {
     }
   });
 
+  test("a valid synced record replaces a stale invalid record with the same id", async () => {
+    const dir = await directory();
+    try {
+      const path = join(dir, "saved-commands.json");
+      const store = new SavedCommandStore(path);
+      const valid = await store.save(template);
+      const invalid = { ...valid, name: "x".repeat(81) };
+      await writeFile(
+        path,
+        JSON.stringify({ version: 1, commands: { [valid.id]: invalid } }),
+      );
+
+      await store.replaceFromRecords({
+        [`saved-command:${valid.id}`]: { value: valid },
+      });
+
+      expect(await store.list()).toEqual([valid]);
+      expect((await store.listWithIssues()).invalid).toEqual([]);
+      expect(
+        JSON.parse(await readFile(path, "utf8")).commands[valid.id],
+      ).toEqual(valid);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("allows password placeholders but refuses redaction markers", async () => {
     const dir = await directory();
     try {
@@ -195,6 +221,36 @@ describe("saved command storage", () => {
       expect(
         (await new SavedCommandStore(path).list()).map((item) => item.name),
       ).toEqual(["First", "Second"]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("sync replacement refuses a concurrent saved-command change", async () => {
+    const dir = await directory();
+    try {
+      const store = new SavedCommandStore(join(dir, "saved-commands.json"));
+      const base = await store.save(template);
+      const baseRecords = {
+        [`saved-command:${base.id}`]: { value: base },
+      };
+      const incoming = {
+        ...base,
+        name: "Synced replacement",
+        updatedAt: new Date(Date.now() + 1000).toISOString(),
+      };
+      await store.save({ ...template, name: "Concurrent local save" });
+
+      await expect(
+        store.replaceFromRecords(
+          { [`saved-command:${base.id}`]: { value: incoming } },
+          baseRecords,
+        ),
+      ).rejects.toThrow("Saved commands changed since the sync preview");
+      expect((await store.list()).map((command) => command.name)).toEqual([
+        "Concurrent local save",
+        template.name,
+      ]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

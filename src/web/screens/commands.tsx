@@ -104,7 +104,7 @@ export function CommandsScreen() {
         description="Local command templates that sync through the reviewed peer comparison. Templates never carry access grants, approvals or saved parameter values."
         actions={<Action action="saved-command-new" label="New command" />}
       />
-      <CommandEditor />
+      <CommandEditor key={ui.savedCommandDraft?.id ?? "new"} />
       {selected ? <div className="mt-5"><RunCommand command={selected} /></div> : null}
       <Section title="Your command templates" className={ui.savedCommandDraft || selected ? "mt-5" : ""}>
         {loading ? <p role="status" className="text-sm text-muted-foreground">Loading saved commands…</p> : null}
