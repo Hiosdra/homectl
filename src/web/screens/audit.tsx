@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { containsRedactionMarker } from "../../control/redact";
 import { formatMs, localStamp } from "../format";
 import { loadAudit, report, ui } from "../store";
 import type { AuditHistoryRow } from "../types";
@@ -7,10 +8,14 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 
+export function canSaveAuditRow(
+  row: Pick<AuditHistoryRow, "host" | "argv">,
+): boolean {
+  return Boolean(row.host && row.argv?.length && !containsRedactionMarker(row.argv));
+}
+
 function AuditCard({ row }: { row: AuditHistoryRow }) {
-  const canSave = Boolean(
-    row.host && row.argv?.length && !row.argv.includes("[REDACTED]"),
-  );
+  const canSave = canSaveAuditRow(row);
   return (
     <article className="grid gap-3 rounded-lg border border-border bg-background p-4" data-audit-entry={row.id}>
       <header className="flex flex-wrap items-start justify-between gap-2">

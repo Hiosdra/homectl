@@ -1,16 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { containsSecretMaterial, redactArgv } from "./control/redact";
-import { atomicReplace, privateDirectory, protect } from "./platform";
+import { ensurePrivateDirectoryOnce, withFileLock } from "./control/file-lock";
+import {
+  containsRedactionMarker,
+  containsSecretMaterial,
+  redactArgv,
+} from "./control/redact";
+import { atomicReplace, protect } from "./platform";
 import { HomectlError } from "./types";
 
 export const SAVED_COMMAND_VERSION = 1 as const;
 const HOST = /^[a-z][a-z0-9-]{0,62}$/;
 const PARAMETER = /^[a-z][a-z0-9_-]{0,31}$/;
 const ID = /^[a-zA-Z0-9_-]{1,64}$/;
-const LOCK_WAIT_MS = 10_000;
-const LOCK_STALE_MS = 30_000;
 
 export type SavedCommandParameter = {
   name: string;
@@ -82,6 +85,8 @@ function validateFields(input: unknown): SavedCommandFields {
   )
     fail("Command argv must contain 1 to 64 non-empty arguments");
   const argv = input.argv as string[];
+  if (containsRedactionMarker(argv))
+    fail("Redacted arguments cannot be saved as a command");
   if (
     (input.parameters !== undefined &&
       (!Array.isArray(input.parameters) || input.parameters.length > 32)) ||
@@ -228,9 +233,26 @@ export function savedCommandsFromRecords(
         : version.value,
       id,
     );
-    if (id.startsWith("copy-") && !command.name.endsWith(" (copy)"))
-      command.name = `${command.name} (copy)`;
     commands.push(command);
+  }
+  const usedNames = new Set(
+    commands
+      .filter((command) => !command.id.startsWith("copy-"))
+      .map((command) => command.name.toLocaleLowerCase()),
+  );
+  for (const command of commands.filter((item) =>
+    item.id.startsWith("copy-"),
+  )) {
+    const baseName = command.name.replace(/ \(copy(?: \d+)?\)$/, "");
+    let suffixNumber = 1;
+    let candidate: string;
+    do {
+      const suffix = suffixNumber === 1 ? " (copy)" : ` (copy ${suffixNumber})`;
+      candidate = `${baseName.slice(0, 80 - suffix.length).trimEnd()}${suffix}`;
+      suffixNumber++;
+    } while (usedNames.has(candidate.toLocaleLowerCase()));
+    command.name = candidate;
+    usedNames.add(candidate.toLocaleLowerCase());
   }
   return commands.sort(
     (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
@@ -262,35 +284,8 @@ export class SavedCommandStore {
   }
 
   private async withLock<T>(fn: () => Promise<T>): Promise<T> {
-    await privateDirectory(dirname(this.path));
-    const deadline = Date.now() + LOCK_WAIT_MS;
-    for (;;) {
-      try {
-        await writeFile(this.lockPath, `${process.pid}\n`, {
-          flag: "wx",
-          mode: 0o600,
-        });
-        break;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST")
-          throw new HomectlError(5, "Saved commands cannot be locked");
-        try {
-          const info = await stat(this.lockPath);
-          if (Date.now() - info.mtimeMs > LOCK_STALE_MS)
-            await unlink(this.lockPath).catch(() => undefined);
-        } catch {
-          /* Lock disappeared while checking; retry. */
-        }
-        if (Date.now() > deadline)
-          throw new HomectlError(5, "Saved commands are busy; retry");
-        await Bun.sleep(25);
-      }
-    }
-    try {
-      return await fn();
-    } finally {
-      await unlink(this.lockPath).catch(() => undefined);
-    }
+    await ensurePrivateDirectoryOnce(dirname(this.path));
+    return withFileLock(this.lockPath, "Saved commands", fn);
   }
 
   private async read(): Promise<DiskState> {
@@ -306,11 +301,20 @@ export class SavedCommandStore {
       const state = JSON.parse(text) as DiskState;
       if (state.version !== 1 || !record(state.commands)) throw new Error();
       const commands: Record<string, SavedCommand> = {};
-      for (const [id, command] of Object.entries(state.commands))
-        commands[id] = validateStored(command, id);
+      let invalidRecords = 0;
+      for (const [id, command] of Object.entries(state.commands)) {
+        try {
+          commands[id] = validateStored(command, id);
+        } catch {
+          invalidRecords++;
+        }
+      }
+      if (invalidRecords)
+        console.warn(
+          `Skipped ${invalidRecords} invalid saved command record${invalidRecords === 1 ? "" : "s"}.`,
+        );
       return { version: 1, commands };
-    } catch (error) {
-      if (error instanceof HomectlError) throw error;
+    } catch {
       throw new HomectlError(
         5,
         "Saved command file is corrupt; preserve it and investigate",

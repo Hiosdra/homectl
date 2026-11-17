@@ -2,6 +2,7 @@
 // is one user request; the state and the server calls are the same as before the move
 // to coss ui.
 import { ExecutionDetails } from "./screens/execution";
+import { containsRedactionMarker } from "../control/redact";
 import {
   announce,
   api,
@@ -159,7 +160,7 @@ export async function handleAction(action: string | undefined, id: string) {
     }
     case "audit-save-command": {
       const row = ui.auditPage?.entries.find((entry) => entry.id === id);
-      if (!row?.host || !row.argv?.length || row.argv.includes("[REDACTED]"))
+      if (!row?.host || !row.argv?.length || containsRedactionMarker(row.argv))
         throw new Error("This entry has no saveable command. Redacted arguments cannot be restored.");
       ui.savedCommandDraft = {
         name: `${row.host} ${row.argv[0]}`.slice(0, 80),

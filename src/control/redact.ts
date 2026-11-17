@@ -7,11 +7,19 @@ const SECRET_PATTERNS: RegExp[] = [
   /\bhct_[A-Za-z0-9_-]{16,}/,
 ];
 
+const SECRET_PLACEHOLDER_ASSIGNMENT =
+  /\b(?:password|passwd|pass|token|secret|api[_-]?key|authorization)\b\s*[=:]\s*\{\{[a-z][a-z0-9_-]{0,31}\}\}(?=["'\s,}\]]|$)/gi;
+
 const SECRET_NAME =
   /(?:password|passwd|token|secret|api[_-]?key|authorization)/i;
 
 export function containsSecretMaterial(text: string): boolean {
-  return SECRET_PATTERNS.some((pattern) => pattern.test(text));
+  const withoutPlaceholders = text.replace(SECRET_PLACEHOLDER_ASSIGNMENT, " ");
+  return SECRET_PATTERNS.some((pattern) => pattern.test(withoutPlaceholders));
+}
+
+export function containsRedactionMarker(argv: string[]): boolean {
+  return argv.some((arg) => arg.includes("[REDACTED]"));
 }
 
 // Redacts values that follow secret-looking option names, in both

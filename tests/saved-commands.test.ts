@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { describe, expect, spyOn, test } from "bun:test";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { auditHistory } from "../src/control/audit-view";
@@ -92,6 +92,104 @@ describe("saved command storage", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("keeps synced copy names within the limit and deduplicates them", async () => {
+    const dir = await directory();
+    try {
+      const store = new SavedCommandStore(join(dir, "saved-commands.json"));
+      const original = await store.save({ ...template, name: "n".repeat(80) });
+      const copies = savedCommandsFromRecords({
+        [`saved-command:copy-${original.id}`]: { value: original },
+        [`saved-command:copy-${original.id}-2`]: { value: original },
+      });
+      expect(copies).toHaveLength(2);
+      expect(copies.every((command) => command.name.length <= 80)).toBe(true);
+      expect(
+        new Set(copies.map((command) => command.name.toLowerCase())).size,
+      ).toBe(2);
+      await store.replaceFromRecords(
+        Object.fromEntries(
+          copies.map((command) => [
+            `saved-command:${command.id}`,
+            { value: command },
+          ]),
+        ),
+      );
+      expect(await store.list()).toHaveLength(2);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("skips and reports one invalid stored record without hiding valid ones", async () => {
+    const dir = await directory();
+    const warning = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const path = join(dir, "saved-commands.json");
+      const store = new SavedCommandStore(path);
+      const valid = await store.save(template);
+      await writeFile(
+        path,
+        JSON.stringify({
+          version: 1,
+          commands: {
+            [valid.id]: valid,
+            broken: { ...valid, id: "broken", name: "x".repeat(81) },
+          },
+        }),
+      );
+      expect((await store.list()).map((command) => command.id)).toEqual([
+        valid.id,
+      ]);
+      expect(warning).toHaveBeenCalled();
+    } finally {
+      warning.mockRestore();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("allows password placeholders but refuses redaction markers", async () => {
+    const dir = await directory();
+    try {
+      const store = new SavedCommandStore(join(dir, "saved-commands.json"));
+      for (const argv of [
+        ["tool", "--password={{pw}}"],
+        ["tool", "PASSWORD={{pw}}"],
+      ])
+        await store.save({
+          ...template,
+          name: `Placeholder ${argv[1]}`,
+          argv,
+          parameters: [{ name: "pw" }],
+        });
+      await expect(
+        store.save({
+          ...template,
+          name: "Redacted assignment",
+          argv: ["tool", "NAME=[REDACTED]"],
+          parameters: [],
+        }),
+      ).rejects.toThrow(/redacted/i);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("serializes saves from separate store instances", async () => {
+    const dir = await directory();
+    try {
+      const path = join(dir, "saved-commands.json");
+      await Promise.all([
+        new SavedCommandStore(path).save({ ...template, name: "First" }),
+        new SavedCommandStore(path).save({ ...template, name: "Second" }),
+      ]);
+      expect(
+        (await new SavedCommandStore(path).list()).map((item) => item.name),
+      ).toEqual(["First", "Second"]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 test("saved mutation cannot bypass approval and local audit excludes output and secrets", async () => {
@@ -167,6 +265,80 @@ test("saved mutation cannot bypass approval and local audit excludes output and 
     ]);
     expect(history.entries[0]?.approver).toBe("local-operator");
     expect(history.entries[0]?.argv).toContain("[REDACTED]");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("command audit events normalize invalid argv before journaling", async () => {
+  const dir = await directory();
+  try {
+    const inventoryPath = join(dir, "inventory.yaml");
+    const options = {
+      configPath: join(dir, "ssh_config"),
+      audit: { inventoryPath },
+    };
+    for (const argv of [[], [""], ["hostname", ...Array(64).fill("x")]])
+      await expect(
+        execute("example", machine, argv, options),
+      ).rejects.toThrow();
+    const journal = new AuditJournal(
+      join(dir, "control-plane", "audit.jsonl"),
+      join(dir, "control-plane", "audit.anchor"),
+    );
+    const entries = await journal.read();
+    expect((await journal.verify()).ok).toBe(true);
+    expect(entries).toHaveLength(3);
+    for (const entry of entries) {
+      expect(entry.event.argv?.length).toBeGreaterThanOrEqual(1);
+      expect(entry.event.argv?.length).toBeLessThanOrEqual(64);
+      expect(entry.event.argv?.every((item) => item.length > 0)).toBe(true);
+    }
+    expect(entries.at(-1)?.event.argv?.at(-1)).toContain("truncated");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("audit-write failures do not replace command results or runner errors", async () => {
+  const dir = await directory();
+  const controlDirectory = join(dir, "control-plane");
+  try {
+    const audit = { inventoryPath: join(dir, "inventory.yaml") };
+    const outcome = await execute("example", machine, ["hostname"], {
+      configPath: join(dir, "ssh_config"),
+      audit,
+      runner: async () => {
+        await rm(controlDirectory, { recursive: true, force: true });
+        await writeFile(controlDirectory, "not a directory");
+        return { exitCode: 0, stdout: "ran once", stderr: "" };
+      },
+    });
+    expect(outcome).toMatchObject({
+      result: { exitCode: 0, stdout: "ran once" },
+      auditWarning: expect.stringContaining("audit"),
+    });
+
+    await rm(controlDirectory, { force: true });
+    await mkdir(controlDirectory, { recursive: true });
+    const runnerError = new Error("runner failure");
+    const warning = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(
+        execute("example", machine, ["hostname"], {
+          configPath: join(dir, "ssh_config"),
+          audit,
+          runner: async () => {
+            await rm(controlDirectory, { recursive: true, force: true });
+            await writeFile(controlDirectory, "not a directory");
+            throw runnerError;
+          },
+        }),
+      ).rejects.toBe(runnerError);
+      expect(warning).toHaveBeenCalled();
+    } finally {
+      warning.mockRestore();
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

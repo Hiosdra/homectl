@@ -3,8 +3,18 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonicalJson, fingerprint } from "../src/control/canonical";
-import { AuditJournal, GENESIS, verifyChain } from "../src/control/journal";
-import { containsSecretMaterial, redactArgv } from "../src/control/redact";
+import {
+  AuditJournal,
+  appendLocalAudit,
+  GENESIS,
+  verifyChain,
+} from "../src/control/journal";
+import {
+  containsRedactionMarker,
+  containsSecretMaterial,
+  redactArgv,
+} from "../src/control/redact";
+import { ControlStore } from "../src/control/store";
 import type { AuditEvent } from "../src/control/types";
 import { HomectlError } from "../src/types";
 
@@ -73,6 +83,10 @@ describe("argv redaction and secret detection", () => {
       expect(containsSecretMaterial(text)).toBe(true);
     for (const text of ["uname -s", "docker ps --format json", "status:read"])
       expect(containsSecretMaterial(text)).toBe(false);
+    expect(containsSecretMaterial('"--password={{pw}}"')).toBe(false);
+    expect(containsSecretMaterial('"PASSWORD={{pw}}"')).toBe(false);
+    expect(containsSecretMaterial('"PASSWORD={{pw}}suffix"')).toBe(true);
+    expect(containsRedactionMarker(["NAME=[REDACTED]"])).toBe(true);
   });
 });
 
@@ -101,6 +115,19 @@ describe("audit journal hash chain", () => {
     for (const event of events) await journal.append({ ...event });
     return { dir, path, journal };
   }
+
+  test("rejects schema-invalid events before they can poison the chain", async () => {
+    const { dir, path } = await workspace();
+    const journal = new AuditJournal(path, join(dir, "audit.anchor"));
+    try {
+      await expect(
+        journal.append({ event: "command.started", argv: [] }),
+      ).rejects.toThrow("schema validation failed");
+      expect(await journal.read()).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 
   test("appends link each entry to its predecessor and verify cleanly", async () => {
     const { dir, journal } = await filled();
@@ -256,6 +283,40 @@ describe("audit journal hash chain", () => {
         }),
       ).rejects.toMatchObject({ code: 5 });
       expect(await readFile(path, "utf8")).toBe(before);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("schema-invalid audit events are rejected before writing", async () => {
+    const { dir, path } = await workspace();
+    const journal = new AuditJournal(path, join(dir, "audit.anchor"));
+    try {
+      for (const argv of [[], [""], Array(65).fill("arg")])
+        await expect(
+          journal.append({ event: "command.started", argv }),
+        ).rejects.toMatchObject({ code: 5 });
+      expect(await journal.read()).toEqual([]);
+      await journal.append({ event: "client.created", client: "codex-pc" });
+      expect((await journal.verify()).ok).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("local audit appends use the control store journal and anchor paths", async () => {
+    const { dir } = await workspace();
+    try {
+      const inventoryPath = join(dir, "inventory.yaml");
+      const store = new ControlStore(join(dir, "control-plane"));
+      await appendLocalAudit(inventoryPath, {
+        event: "client.created",
+        client: "codex-pc",
+      });
+      expect(
+        JSON.parse(await readFile(store.auditPath, "utf8")),
+      ).toHaveProperty("event.event", "client.created");
+      expect(JSON.parse(await readFile(store.anchorPath, "utf8")).seq).toBe(1);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
