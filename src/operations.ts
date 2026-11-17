@@ -16,28 +16,77 @@ import {
   type Runner,
 } from "./types";
 export const workerArgv = internalCommand("worker");
+
+type ExecuteOptions = {
+  configPath: string;
+  dryRun?: boolean;
+  approval?: string;
+  impact?: string;
+  requireApproval?: boolean;
+  runner?: Runner;
+  catalogue?: boolean;
+  beforeRun?: () => Promise<void>;
+  audit?: {
+    inventoryPath: string;
+    requester?: string;
+    requesterName?: string;
+    device?: string;
+    deviceName?: string;
+    approver?: string;
+    operationId?: string;
+  };
+};
+
+function normalizeAuditArgv(argv: string[]): string[] {
+  const redacted = redactArgv(argv).map((arg) => {
+    if (!arg) return "[empty argument]";
+    const marker = "...[truncated]";
+    return arg.length > 4096
+      ? `${arg.slice(0, 4096 - marker.length)}${marker}`
+      : arg;
+  });
+  if (!redacted.length) return ["[no arguments]"];
+  if (redacted.length <= 64) return redacted;
+  return [
+    ...redacted.slice(0, 63),
+    `[truncated ${redacted.length - 63} arguments]`,
+  ];
+}
+
+export function execute(
+  host: string,
+  machine: Machine,
+  argv: string[],
+  options: ExecuteOptions & { dryRun: true },
+): Promise<{ plan: ExecutionPlan }>;
+export function execute(
+  host: string,
+  machine: Machine,
+  argv: string[],
+  options: ExecuteOptions & { dryRun?: false },
+): Promise<{
+  plan: ExecutionPlan;
+  result: Awaited<ReturnType<Runner>>;
+  auditWarning?: string;
+}>;
+export function execute(
+  host: string,
+  machine: Machine,
+  argv: string[],
+  options: ExecuteOptions,
+): Promise<
+  | { plan: ExecutionPlan }
+  | {
+      plan: ExecutionPlan;
+      result: Awaited<ReturnType<Runner>>;
+      auditWarning?: string;
+    }
+>;
 export async function execute(
   host: string,
   machine: Machine,
   argv: string[],
-  options: {
-    configPath: string;
-    dryRun?: boolean;
-    approval?: string;
-    impact?: string;
-    requireApproval?: boolean;
-    runner?: Runner;
-    catalogue?: boolean;
-    audit?: {
-      inventoryPath: string;
-      requester?: string;
-      requesterName?: string;
-      device?: string;
-      deviceName?: string;
-      approver?: string;
-      operationId?: string;
-    };
-  },
+  options: ExecuteOptions,
 ) {
   const operationId = options.audit?.operationId ?? randomUUID();
   const audit = async (
@@ -68,7 +117,7 @@ export async function execute(
           ? { deviceName: options.audit.requesterName }
           : {}),
       host,
-      argv: redactArgv(argv),
+      argv: normalizeAuditArgv(argv),
       ...(details.classification
         ? { classification: details.classification }
         : {}),
@@ -84,6 +133,20 @@ export async function execute(
         ? { approver: options.audit.approver }
         : {}),
     });
+  };
+  const auditAfterExecution = async (
+    event: "command.succeeded" | "command.failed" | "command.unknown",
+    details: Parameters<typeof audit>[1],
+  ) => {
+    try {
+      await audit(event, details);
+      return undefined;
+    } catch {
+      const warning =
+        "The command ran, but its audit event could not be saved.";
+      console.warn(warning);
+      return warning;
+    }
   };
   let plan: ExecutionPlan;
   try {
@@ -140,6 +203,7 @@ export async function execute(
       "Run homectl as a non-root existing user for non-full local tiers",
     );
   }
+  await options.beforeRun?.();
   const spec = credentialSpec(
     machine.auth,
     transportSpec(machine, argv, options.configPath),
@@ -153,7 +217,7 @@ export async function execute(
   try {
     result = await (options.runner ?? run)(spec);
   } catch (error) {
-    await audit("command.unknown", {
+    await auditAfterExecution("command.unknown", {
       classification: plan.classification,
       policyDecision: plan.needsApproval ? "needs-approval" : "allowed",
       reason: "execution-outcome-unknown",
@@ -166,17 +230,20 @@ export async function execute(
     result.exitCode <= 255
       ? result.exitCode
       : undefined;
-  await audit(exitCode === 0 ? "command.succeeded" : "command.failed", {
-    classification: plan.classification,
-    policyDecision: plan.needsApproval ? "needs-approval" : "allowed",
-    ...(exitCode === undefined ? {} : { exitCode }),
-  });
+  const auditWarning = await auditAfterExecution(
+    exitCode === 0 ? "command.succeeded" : "command.failed",
+    {
+      classification: plan.classification,
+      policyDecision: plan.needsApproval ? "needs-approval" : "allowed",
+      ...(exitCode === undefined ? {} : { exitCode }),
+    },
+  );
   if (
     machine.auth?.type === "keepassxc" &&
     /homectl SSH session is locked/.test(result.stderr)
   )
     throw new HomectlError(5, probeFailureMessage(result));
-  return { plan, result };
+  return { plan, result, ...(auditWarning ? { auditWarning } : {}) };
 }
 export async function writeSSHConfig(
   path: string,
@@ -188,4 +255,19 @@ export async function writeSSHConfig(
     sshConfig(machines, join(dirname(path), "known_hosts")),
     { mode: 0o600 },
   );
+}
+
+export function executeWithSSHConfig(
+  host: string,
+  machine: Machine,
+  argv: string[],
+  options: Omit<ExecuteOptions, "beforeRun"> & {
+    machines: Record<string, Machine>;
+  },
+) {
+  const { machines, ...executionOptions } = options;
+  return execute(host, machine, argv, {
+    ...executionOptions,
+    beforeRun: () => writeSSHConfig(options.configPath, machines),
+  });
 }

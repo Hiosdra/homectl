@@ -1,6 +1,6 @@
 import { hostname } from "node:os";
 import { resolveHost } from "../inventory";
-import { execute, writeSSHConfig } from "../operations";
+import { executeWithSSHConfig, writeSSHConfig } from "../operations";
 import { doctor } from "../setup";
 import { HomectlError, type Inventory } from "../types";
 
@@ -39,14 +39,13 @@ export async function hostCommand(
   }
   if (command === "exec" || command === "ssh") {
     if (!host) throw new HomectlError(2, "Specify host");
-    if (!options.dryRun)
-      await writeSSHConfig(options.configPath, options.inventory.machines);
-    const result = await execute(
+    const result = await executeWithSSHConfig(
       host,
       resolveHost(options.inventory, host),
       options.commandArgs,
       {
         configPath: options.configPath,
+        machines: options.inventory.machines,
         dryRun: options.dryRun,
         approval: options.approval,
         impact: options.impact,

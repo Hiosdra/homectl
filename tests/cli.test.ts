@@ -89,12 +89,15 @@ test("observe mutation exits 3", async () => {
   expect(r.code).toBe(3);
 });
 test("destruction exits 4 before any process executes", async () => {
+  const path = await fixture();
+  const configPath = `${path}.ssh_config`;
+  await writeFile(configPath, "preserve this file");
   const r = await invoke([
     "exec",
     "example",
     "--json",
     "--inventory",
-    await fixture(),
+    path,
     "--",
     "rm",
     "/nonexistent-homectl-target",
@@ -104,6 +107,7 @@ test("destruction exits 4 before any process executes", async () => {
     "rm",
     "/nonexistent-homectl-target",
   ]);
+  expect(await readFile(configPath, "utf8")).toBe("preserve this file");
 });
 test("dry-run returns concrete effects and digest without files", async () => {
   const path = await fixture();

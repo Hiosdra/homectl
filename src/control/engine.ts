@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, join } from "node:path";
 import { loadInventory } from "../inventory";
 import { execute as executeCommand, writeSSHConfig } from "../operations";
 import { atomicReplace } from "../platform";
@@ -1847,7 +1847,4 @@ export class ControlPlane {
   }
 }
 
-// Private state directory beside the inventory. Shared by the CLI and the panel.
-export function controlStateDirectory(inventoryPath: string): string {
-  return join(dirname(resolve(inventoryPath)), "control-plane");
-}
+export { controlStateDirectory } from "./paths";

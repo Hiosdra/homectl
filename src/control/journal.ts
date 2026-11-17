@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
 import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
 import { canonicalJson, sha256 } from "./canonical";
+import { controlStateDirectory } from "./paths";
 import { containsSecretMaterial } from "./redact";
 import { schemas } from "./schema";
 import { ControlStore } from "./store";
@@ -158,6 +158,11 @@ export class AuditJournal {
   }
 
   async append(event: AuditEvent): Promise<AuditEntry> {
+    if (!schemas.auditEvent(event))
+      throw new HomectlError(
+        5,
+        "Audit event refused: schema validation failed",
+      );
     // Fail closed: never write a payload that looks like secret material.
     if (containsSecretMaterial(JSON.stringify(event)))
       throw new HomectlError(
@@ -192,12 +197,8 @@ export async function appendLocalAudit(
   inventoryPath: string,
   event: AuditEvent,
 ): Promise<AuditEntry> {
-  const directory = join(dirname(resolve(inventoryPath)), "control-plane");
-  const store = new ControlStore(directory);
+  const store = new ControlStore(controlStateDirectory(inventoryPath));
   await store.ensureDirectory();
-  const journal = new AuditJournal(
-    join(directory, "audit.jsonl"),
-    join(directory, "audit.anchor"),
-  );
+  const journal = new AuditJournal(store.auditPath, store.anchorPath);
   return store.withLock(() => journal.append(event));
 }
