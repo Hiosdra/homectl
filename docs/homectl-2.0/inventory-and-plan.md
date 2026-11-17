@@ -178,8 +178,8 @@ Same branch, local commits only. Scope: review fixes on slice 1 plus the operato
 - API timestamps are ISO-8601 UTC strings; records keep epoch milliseconds.
 - CLI: readable tables (`client list`, `ops`), `show`, prefix ids, execution summaries, idempotent revoke, color only on a TTY (`NO_COLOR` respected).
 - MCP tool text is a summary that includes the full operation id and fingerprint.
-- Local panel: an **Approvals** view (queue with Pending / Approved / History, clients with revoke, audit card with verify). The panel executes ready operations and revokes clients; it has no approval route.
-- UI smoke test seeds synthetic clients and operations, walks the Approvals view, executes an inspection, and asserts no page errors. Screenshots are written to `.impeccable/review/` (gitignored).
+- Local panel: an **Accept requests** view (queue with Pending / Approved / History, clients with revoke, audit log with verify). The panel executes ready operations and revokes clients; it has no approval route.
+- UI smoke test seeds synthetic clients and operations, walks the Accept requests view, executes an inspection, and asserts no page errors. Screenshots are written to `.impeccable/review/` (gitignored).
 
 Still out of scope after slice 2: peer convergence, OIDC, output retrieval for remote clients, Proxmox and Ugreen work.
 

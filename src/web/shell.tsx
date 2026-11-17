@@ -203,6 +203,11 @@ export function Workspace() {
 }
 
 export function Connection() {
-  return <UnlockConnect onDone={() => void refresh()} />;
+  return (
+    <UnlockConnect
+      banner={ui.banners.connection}
+      onDone={() => void refresh()}
+    />
+  );
 }
 

@@ -18,7 +18,10 @@ import { normalizePublicKey } from "./public-key";
 
 export function keyReference(name: string, inventoryPath: string): Auth {
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(name))
-    throw new HomectlError(2, "Invalid key name");
+    throw new HomectlError(
+      2,
+      "Invalid key name; use 1-63 lowercase letters, digits or hyphens, starting with a lowercase letter",
+    );
   const p = sessionPaths(inventoryPath);
   return {
     type: "keepassxc",
@@ -27,6 +30,23 @@ export function keyReference(name: string, inventoryPath: string): Auth {
     socket: p.socket,
     public_key: join(p.keys, `${name}.pub`),
   };
+}
+
+export async function inspectKey(name: string, auth: Auth) {
+  try {
+    return {
+      name,
+      auth,
+      publicKey: normalizePublicKey(await readFile(auth.public_key, "utf8")),
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      throw new HomectlError(
+        2,
+        `No key named ${name}; create it with \`home-ctl key create ${name}\``,
+      );
+    throw error;
+  }
 }
 
 export async function createKey(

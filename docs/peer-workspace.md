@@ -39,7 +39,7 @@ On the command line, `home-ctl pair` on both devices guides you through the same
 
 ## Sync changes
 
-On a new device, create a vault in **Access** first, with a password of your choice. Vault passwords stay on their own computer and can differ between devices.
+On a new device, create a vault in **Access** first, with a password of your choice. Database passwords stay on their own computer and can differ between devices.
 
 Then unlock both vaults, open **Sync** for a paired device, and review the proposed changes. For each conflict, pick one:
 

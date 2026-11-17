@@ -207,7 +207,7 @@ export class Hub {
   }
   async unlock(password: string, create = false) {
     if (typeof password !== "string" || !password || password.length > 1024)
-      throw new HomectlError(2, "Enter a local vault password");
+      throw new HomectlError(2, "Enter the database password");
     await this.vault.unlock(password, create);
     const inv = await loadInventory(this.inventoryPath);
     let state: { expiresAt?: number | null } = {

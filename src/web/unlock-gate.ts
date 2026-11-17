@@ -155,12 +155,12 @@ export class PanelGate {
     try {
       password = openPassword(envelope, this.#keys);
     } catch {
-      return this.#fail("Unlock failed. Check the vault password.");
+      return this.#fail("Unlock failed. Check the database password.");
     }
     try {
       await open(password);
     } catch {
-      return this.#fail("Unlock failed. Check the vault password.");
+      return this.#fail("Unlock failed. Check the database password.");
     }
     this.#failures = 0;
     this.#vaultOpen = true;

@@ -106,7 +106,9 @@ async function boot() {
     try {
       await api("/api/connect", { token });
     } catch (e) {
-      report(String(e));
+      report(
+        e instanceof Error ? e.message : "Could not connect to the workspace.",
+      );
     }
   }
   try {

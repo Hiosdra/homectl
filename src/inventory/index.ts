@@ -122,7 +122,10 @@ export async function loadInventory(path: string): Promise<Inventory> {
     return parseInventory(await readFile(path, "utf8"));
   } catch (e) {
     if (e instanceof HomectlError) throw e;
-    throw new HomectlError(2, "Cannot read inventory; run home-ctl setup");
+    throw new HomectlError(
+      2,
+      `Cannot read inventory ${path}; run home-ctl setup`,
+    );
   }
 }
 export async function saveInventory(path: string, inventory: Inventory) {
@@ -136,6 +139,10 @@ export async function saveInventory(path: string, inventory: Inventory) {
 }
 export function resolveHost(inventory: Inventory, name: string): Machine {
   const m = inventory.machines[name];
-  if (!m) throw new HomectlError(2, "Unknown inventory host");
+  if (!m)
+    throw new HomectlError(
+      2,
+      `Unknown inventory host ${name}; run home-ctl hosts to list configured hosts`,
+    );
   return m;
 }

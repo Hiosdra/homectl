@@ -706,6 +706,6 @@ describe("actionable status and approval text", () => {
     expect(text).toContain(
       `home-ctl control execute ${plan.structuredContent?.operationId}`,
     );
-    expect(text).toContain("Execute in the panel → Approvals");
+    expect(text).toMatch(/choose Accept in the panel.*Accept requests/);
   });
 });

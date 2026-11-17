@@ -413,7 +413,7 @@ export async function controlCommand(
       ...(to !== undefined ? { to } : {}),
       ...(cancel ? { cancel: true } : {}),
     });
-    if (!result) throw new HomectlError(5, "Open home-ctl panel first");
+    if (!result) throw new HomectlError(5, "Open home-ctl panel; leave open.");
     return {
       value: result,
       human: `${shortId(result.operationId)}: ${result.next}`,
@@ -451,7 +451,7 @@ export async function controlCommand(
           : {}),
       },
     );
-    if (!result) throw new HomectlError(5, "Open home-ctl panel first");
+    if (!result) throw new HomectlError(5, "Open home-ctl panel; leave open.");
     return {
       value: result,
       human: suspend
@@ -485,7 +485,7 @@ export async function controlCommand(
         ? { owner: input.values.owner }
         : {}),
     });
-    if (!result) throw new HomectlError(5, "Open home-ctl panel first");
+    if (!result) throw new HomectlError(5, "Open home-ctl panel; leave open.");
     return {
       value: result,
       human: `${shortId(result.operationId)}: ${result.next}`,

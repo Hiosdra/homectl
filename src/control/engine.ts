@@ -1616,7 +1616,7 @@ export class ControlPlane {
       if (op.state === "pending" && approvalRequired)
         throw new HomectlError(
           4,
-          "Operation requires approval before execution",
+          `Ask a different client with approve:decide to approve this operation using homectl_approve; then choose Accept in the panel's Accept requests view (operation ${op.id})`,
         );
       if (op.state !== "approved" && op.state !== "pending")
         throw new HomectlError(

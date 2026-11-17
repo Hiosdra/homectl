@@ -92,6 +92,8 @@ export async function handleAction(action: string | undefined, id: string) {
         throw new Error("Save a shortcut from this computer's host form; peer commands run on the other device.");
       const name = String(values.get("template-name") ?? "").trim();
       if (!name) throw new Error("Enter a name for this saved command.");
+      const impact = String(values.get("impact") ?? "").trim();
+      if (!impact) throw new Error("Enter what this command should do before saving it.");
       const program = String(values.get("program") ?? "").trim();
       const argv = [program, ...String(values.get("arguments") ?? "").split(/\r?\n/).filter(Boolean)];
       const saved = await api<{ command: { name: string } }>("/api/commands/save", {
@@ -99,7 +101,7 @@ export async function handleAction(action: string | undefined, id: string) {
         hosts: [ui.commandHost],
         argv,
         parameters: [],
-        description: "",
+        description: impact,
       });
       ui.savedCommandVersion++;
       report(`Saved “${saved.command.name}”. It will use the current policy each time it runs.`, "notice");
@@ -167,10 +169,17 @@ export async function handleAction(action: string | undefined, id: string) {
         hosts: [row.host],
         argv: row.argv,
         parameters: [],
-        description: row.operation ? `Saved from ${row.operation} audit entry` : "Saved from audit entry",
       };
       ui.savedCommandRun = undefined;
       navigate("commands");
+      return;
+    }
+    case "key-copy-public": {
+      const result = ui.result as { publicKey?: unknown } | undefined;
+      if (typeof result?.publicKey !== "string")
+        throw new Error("The public key is unavailable.");
+      await copyText(result.publicKey);
+      report("Public key copied. Install it on the host through trusted access.", "notice");
       return;
     }
     case "remote-command":
@@ -464,6 +473,14 @@ export async function handleAction(action: string | undefined, id: string) {
       ui.controlResult = undefined;
       render();
       return;
+    case "control-result-copy": {
+      const stream = id === "stderr" ? "stderr" : "stdout";
+      const text = ui.controlResult?.output?.[stream];
+      if (!text) throw new Error(`${stream} is not available to copy.`);
+      await copyText(text);
+      report(`${stream} copied.`, "notice");
+      return;
+    }
     case "control-revoke":
       if (
         await confirm(

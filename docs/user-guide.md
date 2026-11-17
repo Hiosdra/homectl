@@ -48,7 +48,7 @@ home-ctl exec lab-printer -- uname -s
 home-ctl session lock
 ```
 
-The default session lasts **24 hours** from when it starts. Unlocking again does not extend it. To change that:
+The default session lasts **24 hours** from when it starts. Separately, the panel locks the vault after **2 hours without activity** by default; change the idle-lock setting in **Settings**. Unlocking again does not extend the session. To change the session length:
 
 ```sh
 home-ctl session configure --ttl 12h

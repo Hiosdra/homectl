@@ -249,7 +249,7 @@ export function planExecution(
   if (machine.access === "observe" && (sudo || classification !== "inspect"))
     throw new HomectlError(
       3,
-      "Observe permits only supported inspection commands without sudo",
+      `Host ${host} has the observe tier; it permits only supported inspection commands without sudo`,
     );
   if (
     machine.access !== "full" &&
@@ -288,7 +288,7 @@ export function checkApproval(plan: ExecutionPlan, approval?: string) {
   if (plan.needsApproval && approval !== plan.approval)
     throw new HomectlError(
       4,
-      "Explicit user confirmation required for this exact operation",
+      "Review the exact host, command and impact, then re-run with --approval <digest>",
       {
         host: plan.host,
         argv: plan.argv,

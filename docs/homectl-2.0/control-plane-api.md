@@ -196,17 +196,17 @@ home-ctl control audit verify
 2. Start the endpoint in a private terminal and leave it running: `home-ctl serve-mcp`.
 3. Configure each MCP client with the URL `http://127.0.0.1:7449/mcp` and the header `Authorization: Bearer <contents of its token file>`. The snippet printed by `client add` shows the shape.
 4. The Codex client plans: `homectl_plan` with `host: "agent-host"` and `argv: ["hostname"]`. An inspection plan needs no approval.
-5. Run it: `home-ctl control execute <first 8 characters of the id>`, or open **Approvals** in the local panel and press Execute.
-6. For a change (for example `argv: ["systemctl", "restart", "nginx"]`), the Hermes client approves the exact fingerprint with `homectl_approve`; then run it with `home-ctl control execute`, or Execute in the panel.
-7. Check the trail: `home-ctl control audit verify` (or the Audit card in the panel).
+5. Run it: `home-ctl control execute <first 8 characters of the id>`, or choose **Accept** in the panel's **Accept requests** view.
+6. For a change (for example `argv: ["systemctl", "restart", "nginx"]`), the Hermes client approves the exact fingerprint with `homectl_approve`; then run it with `home-ctl control execute`, or choose **Accept** in **Accept requests**.
+7. Check the trail: `home-ctl control audit verify` (or the **Audit log** card in the panel).
 
-## 13. Local panel: Approvals
+## 13. Local panel: Accept requests
 
-The local panel (`home-ctl serve`, `home-ctl panel`) has an **Approvals** view with three parts:
+The local panel (`home-ctl serve`, `home-ctl panel`) has an **Accept requests** view with three parts:
 
-- **Operations**: Pending, Approved and History filters. Rows show state, host, classification, command, impact, issuer → approver, when, and a short fingerprint. Pending changes show "Waiting for approval by another client". Ready operations show **Execute**, which opens a confirmation with host, command, impact, fingerprint and approver. The result appears inline with exit code and collapsed stdout/stderr.
+- **Operations**: Pending, Approved and History filters. Rows show state, host, classification, command, impact, issuer → approver, when, and a short fingerprint. Pending changes show "Waiting for approval by another client". Ready operations show **Accept**, which opens a confirmation with host, command, impact, fingerprint and approver. The result appears inline with exit code and collapsed stdout/stderr.
 - **Clients**: scopes and host grants as chips, status, and **Revoke** (with confirmation). Adding clients stays in a terminal; the panel shows the command to copy.
-- **Audit**: the verification status with **Verify now**.
+- **Audit log**: the verification status with **Verify now**.
 
 The panel's control routes (all behind the existing local session cookie and origin checks) are `GET /api/control`, `POST /api/control/execute`, `POST /api/control/revoke` and `POST /api/control/audit/verify`. **The panel never approves on behalf of a client**: there is no approve route, and approval stays a separate client identity. Execution through the panel uses the same local-operator path as the CLI and is audited the same way.
 

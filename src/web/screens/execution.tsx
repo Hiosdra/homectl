@@ -1,6 +1,6 @@
 // Operation details shown before a run, and the result card after it.
 import { displayStateOf, durationText, shellArgv } from "../format";
-import { Facts, Pre, Tag, type Tone } from "../shared";
+import { Action, Facts, Pre, Tag, type Tone } from "../shared";
 import { Button } from "../ui/button";
 import { Disclosure } from "../disclosure";
 import type { ControlExecution, ControlOp } from "../types";
@@ -93,7 +93,10 @@ function ResultBlock({ title, text }: { title: string; text: string }) {
   const lines = body.split("\n").length;
   return (
     <Disclosure title={<>{title} · {lines} line{lines === 1 ? "" : "s"}</>} compact>
+      <div className="grid gap-2">
         <Pre>{body}</Pre>
+        <Action action="control-result-copy" id={title} label={`Copy ${title}`} kind="quiet" />
+      </div>
       </Disclosure>
   );
 }

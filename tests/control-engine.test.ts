@@ -729,7 +729,7 @@ describe("execution (local operator only)", () => {
     const h = await harness();
     const codex = await client(h, CODEX);
     const plan = await planOn(h, codex.actor, "lab-printer", CHANGE);
-    await expectCode(run(h, plan.operationId), 4, "requires approval");
+    await expectCode(run(h, plan.operationId), 4, "Ask a different client");
     expect(h.calls).toHaveLength(0);
   });
 
@@ -1074,7 +1074,7 @@ describe("inspection plans run without a second client", () => {
         { op: "execute", operationId: change.operationId },
       ),
       4,
-      "requires approval",
+      "Ask a different client",
     );
   });
 });

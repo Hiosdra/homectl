@@ -353,7 +353,7 @@ pages.serve = {
         ],
         [
           "--panel-token-file PATH",
-          "Optional extra access code for the remote panel, read from a protected file or Compose secret; never logged. The vault password unlocks the panel without it.",
+          "Optional extra access code for the remote panel, read from a protected file or Compose secret; never logged. The database password unlocks the panel without it.",
         ],
         [
           "--no-discovery",
@@ -546,10 +546,10 @@ pages.control = {
           "The agent calls homectl_plan. Inspection needs no approval; changes need approval by another client.",
         ],
         [
-          "5. Execute",
-          "control execute <id>, or Execute in the panel's Approvals view",
+          "5. Accept and run",
+          "control execute <id>, or choose Accept in the panel's Accept requests view",
         ],
-        ["6. Verify", "control audit verify, or the Audit card in the panel"],
+        ["6. Verify", "control audit verify, or the panel's Audit log card"],
       ],
     },
     globalOptions,
@@ -559,6 +559,7 @@ pages.ssh = {
   ...(pages.exec as Page),
   usage: "home-ctl ssh <host> [options] -- <command> [args...]",
 };
+export const helpTopics = Object.keys(pages);
 
 function wrap(text: string, width: number): string[] {
   const lines: string[] = [];

@@ -257,9 +257,8 @@ try {
     .click();
   await expect(page.getByLabel(/^Program$/)).toHaveValue("uname");
   await expect(page.getByLabel(/^Arguments/)).toHaveValue("-s");
-  await page
-    .getByRole("button", { name: "Review command", exact: true })
-    .click();
+  await page.locator("#command-impact").fill("Inspect the operating system");
+  await page.getByRole("button", { name: "Review command" }).click();
   await expect(page.locator("#confirm-dialog")).toBeVisible();
   await expect(
     page.locator("#confirm-dialog button[value=confirm]"),
@@ -303,8 +302,8 @@ try {
   await page.getByRole("link", { name: /^Vault/ }).click();
   const smokePassword = "local UI smoke password";
   const safe = page.locator("form#unlock-form");
-  await safe.getByLabel("Safe password", { exact: true }).fill(smokePassword);
-  await safe.getByLabel(/^Confirm safe password$/).fill(smokePassword);
+  await safe.locator("#password").fill(smokePassword);
+  await safe.getByLabel(/^Confirm database password$/).fill(smokePassword);
   await safe.getByRole("button", { name: "Create and unlock safe" }).click();
   await expect(
     page.getByText("Vault created and unlocked on this device."),
@@ -429,7 +428,7 @@ try {
   await page.route("**/api/vault/unlock", (route) =>
     route.fulfill({ status: 200, json: { unlocked: true } }),
   );
-  await page.getByLabel("Vault password", { exact: true }).fill(smokePassword);
+  await page.locator("#sync-unlock-password").fill(smokePassword);
   await page.locator("#sync-unlock-form button[type=submit]").click();
   await expect(page.locator("#notice")).toContainText(
     "Vault unlocked. Review the updated changes",

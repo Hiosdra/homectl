@@ -131,7 +131,6 @@ export function CommandPanel({ host }: { host: string }) {
             <Input
               id="command-impact"
               name="impact"
-              defaultValue="Inspect the operating system"
               required
             />
           </div>

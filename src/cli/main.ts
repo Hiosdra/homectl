@@ -20,17 +20,17 @@ import {
   ttlSeconds,
 } from "../session";
 import { initDatabase } from "../session/database";
-import { createKey, keyReference } from "../session/keys";
+import { createKey, inspectKey, keyReference } from "../session/keys";
 import { normalizePublicKey } from "../session/public-key";
 import { paths } from "../setup";
 import { transportSpec } from "../transports";
 import { HomectlError, type Machine, type ProcessResult } from "../types";
 import { runUpdate } from "../update";
 import { runCommands } from "./commands";
-import { renderHelp } from "./help";
+import { helpTopics, renderHelp } from "./help";
 import { hostCommand } from "./host-commands";
 import { runInternal } from "./internal-roles";
-import { formatError, formatHuman } from "./output";
+import { formatError, formatHuman, normalizeCliError } from "./output";
 import { confirm } from "./prompts";
 export const help = renderHelp();
 
@@ -76,7 +76,6 @@ async function panelInterface(inventoryPath: string, requested?: string) {
 export async function main(raw = process.argv.slice(2)): Promise<number> {
   // Internal roles that homectl starts for itself (src/cli/internal-roles.ts).
   if (raw[0] === "__internal") return runInternal(raw[1]);
-  await (await import("../skill-install")).refreshManagedSkills();
   const split = raw.indexOf("--");
   const cliArgs = split < 0 ? raw : raw.slice(0, split);
   const commandArgs = split < 0 ? [] : raw.slice(split + 1);
@@ -138,6 +137,8 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
     });
     json = v.json ?? false;
     const [command, host, keyName] = positionals;
+    if (command === "setup" && v["configure-firewall"] && !v.interface)
+      throw new HomectlError(2, "Pass --interface with --configure-firewall");
     if (
       (v.ttl || v.database) &&
       (command !== "session" || host !== "configure")
@@ -212,8 +213,14 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         json ? JSON.stringify(result) : formatHuman(result, command, host),
       );
     if (!command || v.help || command === "help") {
+      const topic = command === "help" ? host : command;
+      if (topic && !helpTopics.includes(topic))
+        throw new HomectlError(
+          2,
+          `Unknown command: ${topic}; use home-ctl help`,
+        );
       emit(
-        renderHelp(command === "help" ? host : command, {
+        renderHelp(topic, {
           width: process.stdout.columns,
           color: Boolean(
             process.stdout.isTTY &&
@@ -226,7 +233,11 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       return 0;
     }
     if ((v["install-deps"] || v["configure-firewall"]) && command !== "setup")
-      throw new HomectlError(2, "--install-deps is only supported by setup");
+      throw new HomectlError(
+        2,
+        "--install-deps and --configure-firewall are only supported by setup",
+      );
+    await (await import("../skill-install")).refreshManagedSkills();
     if (command === "update") {
       emit(await runUpdate(positionals, commandArgs, v.inventory, dryRun));
       return 0;
@@ -339,10 +350,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           return 0;
         }
         if (host === "confirm") {
-          const state = await localApi<{ pair: { sas?: string } }>(
-            inventoryPath,
-            "/api/state",
-          );
+          const state = await localApi<{
+            pair: { sas?: string; remote?: { id?: string; name?: string } };
+          }>(inventoryPath, "/api/state");
           if (!state.pair?.sas)
             throw new HomectlError(
               3,
@@ -354,19 +364,28 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
               3,
               "Pairing cancelled: phrase not confirmed",
             );
-          const result = await localApi<{ pair: unknown }>(
-            inventoryPath,
-            "/api/pair/confirm",
-            {
-              permissions: {
-                sync: true,
-                diagnostics: false,
-                operations: [],
-                administer: false,
-              },
+          const result = await localApi<{
+            pair: { remote?: { id?: string; name?: string } } | null;
+            peers: { id: string; name: string }[];
+          }>(inventoryPath, "/api/pair/confirm", {
+            permissions: {
+              sync: true,
+              diagnostics: false,
+              operations: [],
+              administer: false,
             },
-          );
+          });
           emit(result.pair);
+          const remote = result.pair?.remote;
+          if (
+            !json &&
+            remote?.id &&
+            remote.name &&
+            result.peers.some((peer) => peer.id === remote.id)
+          )
+            console.log(
+              `Paired with ${remote.name}. To change its permissions, open home-ctl panel → Sync → Permissions for that device.`,
+            );
           return 0;
         }
         if (host === "cancel") {
@@ -389,7 +408,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         if (!keyName)
           throw new HomectlError(
             2,
-            "Use sync preview <peer-id>, apply <preview-id> --file choices.json, or cancel <preview-id>",
+            "Use sync preview <peer-id>, apply <preview-id> [--file choices.json], or cancel <preview-id>",
           );
         if (host === "preview") {
           emit(
@@ -398,12 +417,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           return 0;
         }
         if (host === "apply") {
-          if (!v.file)
-            throw new HomectlError(
-              4,
-              "Review the preview, then provide explicit choices with --file (use {} when there are no conflicts)",
-            );
-          const choices = JSON.parse(await readFile(resolve(v.file), "utf8"));
+          const choices = v.file
+            ? JSON.parse(await readFile(resolve(v.file), "utf8"))
+            : {};
           emit(
             await localApi(inventoryPath, "/api/sync/apply", {
               id: keyName,
@@ -761,13 +777,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       emit(
         host === "create"
           ? await createKey(keyName, inv, inventoryPath)
-          : {
-              name: keyName,
-              auth,
-              publicKey: normalizePublicKey(
-                await readFile(auth.public_key, "utf8"),
-              ),
-            },
+          : await inspectKey(keyName, auth),
       );
       return 0;
     }
@@ -963,13 +973,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
     }
     throw new HomectlError(2, "Unknown command; use home-ctl help");
   } catch (e) {
-    const error =
-      e instanceof HomectlError
-        ? e
-        : new HomectlError(
-            2,
-            "Invalid input or unavailable resource; details suppressed",
-          );
+    const error = normalizeCliError(e);
     console.error(
       json
         ? JSON.stringify({

@@ -20,6 +20,11 @@ export async function setupFlow(options: {
     !options.json &&
     !options.dryRun &&
     Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  if (options.configureFirewall && !options.interface)
+    throw new HomectlError(
+      2,
+      "Firewall configuration requires --interface <local-LAN-IP>",
+    );
   const ask = async (prompt: string) => {
     const input = createInterface({
       input: process.stdin,
@@ -72,11 +77,6 @@ export async function setupFlow(options: {
       }
     }
   }
-  if (configure && !ip)
-    throw new HomectlError(
-      2,
-      "Noninteractive firewall configuration requires --interface <local-LAN-IP>",
-    );
   if (ip) {
     const plan = await firewallPlan(ip);
     if (interactive && !configure && plan.backend !== "unsupported") {

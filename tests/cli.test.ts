@@ -71,6 +71,32 @@ test("unknown host exits 2", async () =>
   expect(
     (await invoke(["inspect", "missing", "--inventory", await fixture()])).code,
   ).toBe(2));
+test("missing key inspection names the key and creation command", async () => {
+  const result = await invoke([
+    "key",
+    "inspect",
+    "missing-key",
+    "--inventory",
+    await fixture(),
+  ]);
+  expect(result.code).toBe(2);
+  expect(result.stderr).toContain(
+    "No key named missing-key; create it with `home-ctl key create missing-key`",
+  );
+});
+test("missing command file names the unreadable path", async () => {
+  const missing = join(tmpdir(), `homectl-missing-${randomUUID()}.json`);
+  const result = await invoke([
+    "commands",
+    "save",
+    "--file",
+    missing,
+    "--inventory",
+    await fixture(),
+  ]);
+  expect(result.code).toBe(2);
+  expect(result.stderr).toContain(`Cannot read file ${missing}`);
+});
 test("observe mutation exits 3", async () => {
   const path = await fixture();
   await saveInventory(path, {
@@ -198,7 +224,8 @@ test("commands CLI saves, lists and refuses a mutating run without approval", as
       "--json",
     ]);
     expect(refused.code).toBe(4);
-    expect(refused.stderr).toContain("Explicit user confirmation required");
+    expect(refused.stderr).toContain("Review the exact host");
+    expect(refused.stderr).toContain("--approval <digest>");
     const journal = await readFile(
       join(path, "..", "control-plane", "audit.jsonl"),
       "utf8",
@@ -322,4 +349,5 @@ test("argument errors honor JSON even if argument parsing fails", async () => {
   expect(JSON.parse(result.stderr).code).toBe(2);
   const human = await invoke(["hosts", "--invalid-option"]);
   expect(human.stderr).toStartWith("Error:");
+  expect(human.stderr).toContain("Unknown option");
 });

@@ -27,6 +27,16 @@ const IDLE = [
   ["24h", "24 hours"],
 ] as const;
 
+function optionsWithCurrent(
+  choices: readonly (readonly [string, string])[],
+  current: string,
+) {
+  const options = choices.map(([value, label]) => ({ value, label }));
+  if (!choices.some(([value]) => value === current))
+    options.push({ value: current, label: `${sessionTtlLabel(current)} (current)` });
+  return options;
+}
+
 export function Settings() {
   return (
     <>
@@ -118,6 +128,8 @@ function SessionCard() {
   const left = unlocked && expires ? formatLeft(expires) : undefined;
   const ttl = ui.state.inventory.session?.ttl ?? "24h";
   const idle = ui.state.inventory.session?.idle ?? "2h";
+  const lengthOptions = optionsWithCurrent(LENGTHS, ttl);
+  const idleOptions = optionsWithCurrent(IDLE, idle);
   const [changing, setChanging] = useState(false);
   return (
     <Section
@@ -130,20 +142,20 @@ function SessionCard() {
     >
       <dl className="grid grid-cols-[120px_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
         <dt className="text-muted-foreground">Length</dt>
-        <dd>{sessionTtlLabel(ttl)} (default). Choose 1 h, 8 h, 7 days or until reboot.</dd>
+        <dd>Current: {sessionTtlLabel(ttl)}. The default is 24 h; choose 1 h, 8 h, 24 h, 7 days or until reboot.</dd>
         <dt className="text-muted-foreground">Lock after idle</dt>
-        <dd>{idle.replace(/h$/, " h").replace(/m$/, " min")} without use</dd>
+        <dd>Current: {sessionTtlLabel(idle)}. The default is 2 h without activity.</dd>
       </dl>
       {changing ? (
         <form id="session-form" className="mt-4 grid gap-3">
           <div className="grid gap-1.5">
             <HelpLabel htmlFor="session-ttl" label="Session length" help="How long the vault stays unlocked after you unlock it. When this ends, you unlock again." />
-            <Select name="ttl" items={LENGTHS.map(([value, label]) => ({ value, label }))} defaultValue={ttl}>
+            <Select name="ttl" items={lengthOptions} defaultValue={ttl}>
               <SelectTrigger id="session-ttl" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectPopup>
-                {LENGTHS.map(([value, label]) => (
+                {lengthOptions.map(({ value, label }) => (
                   <SelectItem key={value} value={value}>
                     {label}
                   </SelectItem>
@@ -153,12 +165,12 @@ function SessionCard() {
           </div>
           <div className="grid gap-1.5">
             <HelpLabel htmlFor="session-idle" label="Lock after no activity" help="The vault locks itself when the panel has not been used for this long, even before the session length ends." />
-            <Select name="idle" items={IDLE.map(([value, label]) => ({ value, label }))} defaultValue={idle}>
+            <Select name="idle" items={idleOptions} defaultValue={idle}>
               <SelectTrigger id="session-idle" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectPopup>
-                {IDLE.map(([value, label]) => (
+                {idleOptions.map(({ value, label }) => (
                   <SelectItem key={value} value={value}>
                     {label}
                   </SelectItem>

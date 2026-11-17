@@ -64,7 +64,7 @@ function CreateKey() {
           <Input id="key-name" name="name" pattern="[a-z][a-z0-9-]{0,62}" placeholder="storage-nas" required />
         </div>
         <div className="grid gap-1.5">
-          <HelpLabel htmlFor="key-password" label="Safe password" help="The safe password. It is needed to create the key." />
+          <HelpLabel htmlFor="key-password" label="Database password" help="Enter the password for this device's KeePassXC database to create the SSH key." />
           <Input id="key-password" name="password" type="password" autoComplete="current-password" required />
         </div>
         <div className="flex justify-end">

@@ -42,7 +42,7 @@ Give an approver `approve:decide` on the device where that approver's client liv
 1. An agent on device A calls `homectl_plan`. A is the owner of the new operation.
 2. An approver on device B calls `homectl_approve`. B replies "Approval forwarded to owner A; it applies after the next sync". B shows the approval as "forwarded, awaiting confirmation" until A's state reflects it.
 3. After the next sync, A applies the approval. B shows "approved by <client> (via <device>)".
-4. The operator runs it on A: `home-ctl control execute <id>`, or Execute in A's Approvals view. On B the row reads "Runs on A" and has no Execute button.
+4. The operator runs it on A: `home-ctl control execute <id>`, or chooses Accept in A's Accept requests view. On B the row reads "Runs on A" and has no Accept button.
 
 Inspection plans need no approval. Changes always do.
 

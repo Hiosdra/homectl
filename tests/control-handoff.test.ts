@@ -514,7 +514,7 @@ describe("taking an operation back starts it pending", () => {
     );
     expect(back?.state).toBe("pending");
     expect(back?.approval).toBeUndefined();
-    await expectCode(execute(A, operationId), 4, "requires approval");
+    await expectCode(execute(A, operationId), 4, "Ask a different client");
     expect(A.runs.length).toBe(0);
   });
 });

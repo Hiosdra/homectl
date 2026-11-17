@@ -579,7 +579,7 @@ export async function serve(options: ServeOptions) {
                   const name = String(v.name);
                   const password = String(v.password ?? "");
                   if (!password || password.length > 1024)
-                    throw new HomectlError(2, "Enter the local vault password");
+                    throw new HomectlError(2, "Enter the database password");
                   await hub.lock();
                   const inv = await loadInventory(options.inventoryPath);
                   const created = await createKey(
