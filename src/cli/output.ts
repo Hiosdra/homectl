@@ -105,6 +105,10 @@ export function formatHuman(
           ),
         )
       : "No paired devices. Run home-ctl pair on both computers.";
+  if (command === "commands" && action === "list" && Array.isArray(value))
+    return value.length
+      ? tree(value)
+      : "No saved commands yet. Use home-ctl commands save --file PATH.";
   if (!record(value)) return tree(value);
   if (command === "doctor" && Array.isArray(value.checks)) {
     const { checks: entries, ok, note, ...rest } = value;

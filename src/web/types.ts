@@ -192,3 +192,41 @@ export type ControlExecution = {
   operation: ControlOp;
   output?: { stdout: string; stderr: string };
 };
+export type SavedCommandParameter = { name: string; description?: string };
+export type SavedCommand = {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  hosts: string[];
+  argv: string[];
+  parameters: SavedCommandParameter[];
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+  available: string[];
+  unavailable: string[];
+};
+export type AuditHistoryRow = {
+  id: string;
+  sequence: number;
+  at: string;
+  operationId?: string;
+  operation?: string;
+  host?: string;
+  argv?: string[];
+  requester: string;
+  requesterName?: string;
+  policyDecision: "allowed" | "needs-approval" | "refused";
+  classification?: string;
+  approver?: string;
+  approverName?: string;
+  status: string;
+  exitCode?: number;
+  durationMs?: number;
+  reason?: string;
+};
+export type AuditHistoryPage = {
+  entries: AuditHistoryRow[];
+  nextCursor?: number;
+  limit: number;
+};

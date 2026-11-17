@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
 import { canonicalJson, sha256 } from "./canonical";
 import { containsSecretMaterial } from "./redact";
 import { schemas } from "./schema";
+import { ControlStore } from "./store";
 import type { AuditEntry, AuditEvent } from "./types";
 
 export const GENESIS = "0".repeat(64);
@@ -182,4 +184,20 @@ export class AuditJournal {
     await this.writeAnchor({ v: 1, seq: entry.seq, hash: entry.hash });
     return entry;
   }
+}
+
+// Normal CLI, panel and peer operations share the control plane's existing
+// journal. The audit file is deliberately absent from peer snapshots.
+export async function appendLocalAudit(
+  inventoryPath: string,
+  event: AuditEvent,
+): Promise<AuditEntry> {
+  const directory = join(dirname(resolve(inventoryPath)), "control-plane");
+  const store = new ControlStore(directory);
+  await store.ensureDirectory();
+  const journal = new AuditJournal(
+    join(directory, "audit.jsonl"),
+    join(directory, "audit.anchor"),
+  );
+  return store.withLock(() => journal.append(event));
 }

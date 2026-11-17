@@ -305,7 +305,13 @@ export type AuditEventName =
   | "peer.suspended"
   | "auth.oidc"
   | "oidc.configured"
-  | "peer.resumed";
+  | "peer.resumed"
+  | "command.started"
+  | "command.succeeded"
+  | "command.failed"
+  | "command.unknown"
+  | "command.refused"
+  | "command.approval-required";
 
 // Audit payloads carry identifiers, fixed reason codes and redacted argv only.
 export interface AuditEvent {
@@ -317,9 +323,13 @@ export interface AuditEvent {
   argv?: string[];
   fingerprint?: string;
   classification?: Classification;
+  device?: string;
+  deviceName?: string;
   decision?: "approve" | "reject";
+  approver?: string;
   reason?: string;
   exitCode?: number;
+  policyDecision?: "allowed" | "needs-approval" | "refused";
 }
 
 export interface AuditEntry {

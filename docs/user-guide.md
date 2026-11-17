@@ -125,6 +125,24 @@ home-ctl exec lab-nas --dry-run --impact 'Delete /srv/example; its contents will
 
 Show the exact host, arguments, targets and effects to the user. After they confirm, run the command with the returned digest as `--approval <digest>`, using the same host, argv and impact. Any change invalidates the approval. There is no `--yes` flag. Do not bypass a policy error with raw SSH. `ssh <host> -- command...` uses the same guarded path and is not an interactive shell.
 
+## Audit history and saved commands
+
+Open **Audit history** in the local panel to review attempted and completed commands and control operations. Rows show the time, target, requesting client or device, redacted argv, policy decision, approver, status, exit code and duration when recorded. The existing hash-chained journal is stored locally under `control-plane/`; stdout and stderr are not written to it, and audit history is never synced to peers. Run `home-ctl control audit verify` to check the journal and its anchor.
+
+In **Command**, enter a name under “Save as a shortcut” to save the current local command. You can also save a redacted-safe command from its Audit history row, or create and edit a template in **Saved commands**. Templates declare target hosts, argv items and optional parameters. Each parameter value is requested for each run and is not stored. A host that is not in this device's inventory is marked unavailable.
+
+Saved commands sync like other reviewed peer records. They appear in the existing Sync comparison; concurrent edits or deletes use the usual local, remote or keep-both choices. Each device checks a template against its own inventory and policy when it runs. A saved command never grants access or carries an approval: every mutating, privileged, destructive or opaque run requires a fresh exact approval.
+
+```sh
+home-ctl commands list
+home-ctl commands save --file ./command.json
+home-ctl commands run <id> --dry-run --target lab-nas -- unit=nginx
+home-ctl commands run <id> --target lab-nas --approval <digest> -- unit=nginx
+home-ctl commands rm <id>
+```
+
+The save file is a JSON object with `name`, `hosts`, `argv`, optional `parameters`, and optional `description`. To edit an existing template, pass its id with `--id`. `commands run --dry-run` previews the exact host, argv and approval digest without contacting the host; provide parameter values after `--` as `name=value`, or use `--parameters-file PATH`. The local panel API exposes the same operations through its authenticated `/api/audit` and `/api/commands/*` routes.
+
 ## Proxmox VM provisioning over SSH
 
 Enroll the Proxmox SSH account with `full` and check it with `doctor`. Non-root accounts need noninteractive sudo for `pvesh`; root runs it directly. Add a provider to the inventory. It holds no secrets:
@@ -167,6 +185,8 @@ The provisioning journal records ownership and progress. Conflicts, changed plan
 | `~/.config/homectl/inventory.yaml.session/` | Private runtime control and agent sockets |
 | `~/.config/homectl/ssh_config` | Generated SSH aliases |
 | `~/.config/homectl/state/` | VM provisioning journals |
+| `~/.config/homectl/control-plane/audit.jsonl` | Local hash-chained operation audit journal |
+| `~/.config/homectl/saved-commands.json` | Versioned saved command templates |
 
 Use `--inventory /absolute/path/inventory.yaml` for another inventory. Socket and public-key paths then follow that file's location. Database paths are absolute. The [inventory example](../examples/inventory.example.yaml) shows the full schema. Keep the real inventory, the database, backups and runtime files outside Git.
 

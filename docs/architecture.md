@@ -25,6 +25,8 @@ The same agent host runs local commands and all remote operations. Remote-contro
 - `enroll`: validates configuration and SSH/OS before saving; optional explicit sudoers bootstrap preserves a different existing policy by refusing replacement.
 - `provisioners`: deterministic cloud-init plans, task/ownership journals and resumable provisioning. `ssh` maps allowed operations to node-local `pvesh` over the same managed-key worker.
 - `setup`: additive per-user CLI/skill links, SSH Include and doctor.
+- `control/journal.ts` and `control/audit-view.ts`: the hash-chained, device-local audit journal and a filtered, paginated view derived from it. Stored argv uses the existing redaction helpers; command output is not recorded.
+- `saved-commands.ts`: versioned local command templates with explicit hosts and declared parameter placeholders. They contain no grants, credentials or approvals; each run goes through normal command policy and approval checks.
 
 ## Session lifecycle
 
@@ -56,6 +58,8 @@ Human approval remains a conversation workflow. Actual restrictions come from Un
 ## Peer workspace
 
 `serve` runs two separate HTTP surfaces: an authenticated localhost-only browser panel and an explicit-IP peer protocol listener. `peer/pairing` wraps SRP-6a and dual user confirmation; `peer/crypto` implements authenticated ephemeral X25519/HKDF/AES-GCM message envelopes with single-use challenges. `peer/store` keeps trust/grants and vector metadata under private filesystem permissions, redacting credential payloads from persistent state. `peer/sync` captures revisions, tombstones and conflict choices. `peer/vault` uses kdbxweb/hash-wasm to read and apply homectl credential entries while retaining KDBX encryption at rest; passwords are never transmitted. `peer/hub` combines these with current inventory policies and queues remote mutations for local approval. Network waits occur outside mutation queues so simultaneous symmetric sync cannot deadlock.
+
+Saved command templates are included in the existing reviewed sync records. The normal vector-clock conflict choices apply to concurrent edits and deletions. The audit journal is excluded from peer snapshots. A receiving device marks saved-command hosts absent from its own inventory unavailable and applies its local execution policy at run time.
 
 `platform` selects native Windows OpenSSH, maintains owner/SYSTEM DACLs and private directories. Windows sessions use a per-inventory named-pipe Ed25519 agent; Unix sessions retain dedicated OpenSSH. Encrypted PKCS8 staging replaces Linux-only plaintext tmpfs key generation. `service` creates a systemd user unit or a supplied WinSW service host. Session state and paths remain local and are reconstructed on import.
 

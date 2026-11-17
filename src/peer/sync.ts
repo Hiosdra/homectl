@@ -76,7 +76,7 @@ export function validateRecords(input: unknown): Record<string, Version> {
     throw new HomectlError(2, "Invalid peer records");
   for (const [id, record] of Object.entries(input)) {
     if (
-      !/^(machine|provider|credential|hostkey):[A-Za-z0-9+/=_-]{1,128}$/.test(
+      !/^(machine|provider|credential|hostkey|saved-command):[A-Za-z0-9+/=_-]{1,128}$/.test(
         id,
       ) ||
       !record ||
@@ -172,7 +172,10 @@ export function merge(
           2,
           "A conflicting host fingerprint cannot be trusted by keeping both; choose a verified version",
         );
-      const newId = `${prefix}:copy-${randomUUID()}`;
+      const newId =
+        prefix === "saved-command"
+          ? `${prefix}:copy-${hash({ id, value: remote.value }).slice(0, 59)}`
+          : `${prefix}:copy-${randomUUID()}`;
       records[newId] = {
         clock: { [device]: 1 },
         value: structuredClone(remote.value),

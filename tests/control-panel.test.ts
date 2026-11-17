@@ -9,7 +9,12 @@ afterEach(async () => {
   for (const fn of cleanup.splice(0).reverse()) await fn();
 });
 
-async function panel() {
+async function panel(
+  options: {
+    access?: string;
+    operationRunner?: Parameters<typeof serve>[0]["operationRunner"];
+  } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), "homectl-panel-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const inventory = join(root, "inventory.yaml");
@@ -20,7 +25,7 @@ machines:
   agent-host:
     description: Synthetic local device
     transport: local
-    access: user
+    access: ${options.access ?? "user"}
 `,
   );
   const running = await serve({
@@ -29,6 +34,7 @@ machines:
     port: 0,
     peerPort: 0,
     discover: false,
+    operationRunner: options.operationRunner,
   });
   cleanup.push(() => running.stop());
   const launch = JSON.parse(await readFile(running.launch, "utf8"));
@@ -149,3 +155,103 @@ test("the panel revokes clients idempotently and reports unknown operations plai
     "Unknown operation",
   );
 });
+
+test("saved command API keeps unknown hosts unavailable and enforces policy with local redacted audit", async () => {
+  let runs = 0;
+  const { call } = await panel({
+    access: "full",
+    operationRunner: async () => {
+      runs++;
+      return {
+        exitCode: 0,
+        stdout: "OUTPUT_SHOULD_NOT_BE_IN_AUDIT",
+        stderr: "",
+      };
+    },
+  });
+  const saved = await call("POST", "/api/commands/save", {
+    command: {
+      name: "Echo parameter",
+      hosts: ["agent-host"],
+      argv: ["echo", "--token", "{{token}}"],
+      parameters: [{ name: "token", description: "Value for this run" }],
+    },
+  });
+  expect(saved.status).toBe(200);
+  const savedBody = (await saved.json()) as { command: { id: string } };
+  const list = await call("GET", "/api/commands");
+  const listed = (await list.json()) as {
+    commands: { id: string; available: string[] }[];
+  };
+  expect(
+    listed.commands.find((item) => item.id === savedBody.command.id)?.available,
+  ).toEqual(["agent-host"]);
+
+  await call("POST", "/api/commands/save", {
+    command: { name: "Unavailable", hosts: ["unknown"], argv: ["hostname"] },
+  });
+  const unavailable = (await call("GET", "/api/commands").then((r) =>
+    r.json(),
+  )) as {
+    commands: { name: string; available: string[]; unavailable: string[] }[];
+  };
+  expect(
+    unavailable.commands.find((item) => item.name === "Unavailable"),
+  ).toMatchObject({ available: [], unavailable: ["unknown"] });
+  const blocked = await call("POST", "/api/commands/run", {
+    id: savedBody.command.id,
+    host: "unknown",
+    parameters: { token: "unused" },
+    dryRun: true,
+  });
+  expect(blocked.status).toBe(403);
+  expect(((await blocked.json()) as { error: string }).error).toContain(
+    "unavailable",
+  );
+
+  const values = { token: "hct_abcdefghijklmnop1234" };
+  const previewResponse = await call("POST", "/api/commands/run", {
+    id: savedBody.command.id,
+    host: "agent-host",
+    parameters: values,
+    dryRun: true,
+  });
+  const preview = (await previewResponse.json()) as {
+    plan: { approval: string; needsApproval: boolean };
+  };
+  expect(preview.plan.needsApproval).toBe(true);
+  const noApproval = await call("POST", "/api/commands/run", {
+    id: savedBody.command.id,
+    host: "agent-host",
+    parameters: values,
+    dryRun: false,
+  });
+  expect(noApproval.status).toBe(409);
+  expect(runs).toBe(0);
+  const executed = await call("POST", "/api/commands/run", {
+    id: savedBody.command.id,
+    host: "agent-host",
+    parameters: values,
+    dryRun: false,
+    approval: preview.plan.approval,
+  });
+  expect(executed.status).toBe(200);
+  expect(runs).toBe(1);
+
+  const audit = await call(
+    "GET",
+    "/api/audit?host=agent-host&status=succeeded",
+  );
+  const history = (await audit.json()) as {
+    entries: { argv: string[]; status: string }[];
+  };
+  expect(history.entries[0]?.argv).toEqual(["echo", "--token", "[REDACTED]"]);
+  const serialized = JSON.stringify(history);
+  expect(serialized).not.toContain(values.token);
+  expect(serialized).not.toContain("OUTPUT_SHOULD_NOT_BE_IN_AUDIT");
+
+  const removed = await call("POST", "/api/commands/remove", {
+    id: savedBody.command.id,
+  });
+  expect(removed.status).toBe(200);
+}, 30_000);

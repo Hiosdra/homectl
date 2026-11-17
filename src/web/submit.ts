@@ -5,6 +5,7 @@ import {
   api,
   confirm,
   element,
+  loadAudit,
   refresh,
   render,
   report,
@@ -74,6 +75,89 @@ export function handleSubmit(form: HTMLFormElement) {
       ui.result = done;
       if (done.pending) ui.operationResult = { id: done.id, peerId: id };
       render();
+      return;
+    }
+    if (form.id === "saved-command-form") {
+      const hosts = String(values.get("hosts") ?? "")
+        .split(/[\n,]/)
+        .map((host) => host.trim())
+        .filter(Boolean);
+      const argv = String(values.get("argv") ?? "")
+        .split(/\r?\n/)
+        .filter((arg) => arg.length > 0);
+      const parameters = String(values.get("parameters") ?? "")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const [name, ...description] = line.split("|");
+          return {
+            name: name?.trim() ?? "",
+            ...(description.length
+              ? { description: description.join("|").trim() }
+              : {}),
+          };
+        });
+      await api("/api/commands/save", {
+        id: String(values.get("id") ?? "") || undefined,
+        command: {
+          name: values.get("name"),
+          hosts,
+          argv,
+          parameters,
+          description: values.get("description"),
+        },
+      });
+      ui.savedCommandDraft = undefined;
+      ui.savedCommandVersion++;
+      successMessage =
+        "Saved command updated. Each run still uses this device's current policy.";
+    }
+    if (form.id === "saved-command-run-form") {
+      const id = String(values.get("id"));
+      const host = String(values.get("host"));
+      const parameters = Object.fromEntries(
+        [...values.entries()]
+          .filter(([name]) => name.startsWith("parameter-"))
+          .map(([name, value]) => [
+            name.slice("parameter-".length),
+            String(value),
+          ]),
+      );
+      const payload = { id, host, parameters };
+      const preview = await api<{
+        plan: {
+          classification: string;
+          approval: string;
+          needsApproval: boolean;
+        };
+      }>("/api/commands/run", { ...payload, dryRun: true });
+      ui.result = preview;
+      render();
+      if (
+        !(await confirm(
+          `Run saved command on ${host}?`,
+          `${preview.plan.classification}${preview.plan.needsApproval ? " · approval required" : ""}. Homectl rechecks the local policy before execution.`,
+        ))
+      )
+        return;
+      ui.result = await api("/api/commands/run", {
+        ...payload,
+        dryRun: false,
+        approval: preview.plan.approval,
+      });
+      ui.savedCommandRun = id;
+      render();
+      return;
+    }
+    if (form.id === "audit-filter-form") {
+      ui.auditFilters = {
+        host: String(values.get("host") ?? ""),
+        status: String(values.get("status") ?? ""),
+        text: String(values.get("text") ?? "").trim(),
+      };
+      ui.auditPage = undefined;
+      await loadAudit(true);
       return;
     }
     if (form.id === "key-form") {

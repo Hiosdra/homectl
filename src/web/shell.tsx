@@ -16,6 +16,8 @@ import { SyncCompare } from "./screens/sync";
 import { Devices } from "./screens/devices";
 import { Vault } from "./screens/vault";
 import { Welcome } from "./screens/welcome";
+import { AuditScreen } from "./screens/audit";
+import { CommandsScreen } from "./screens/commands";
 import { api, refresh, task, ui } from "./store";
 
 export const NAV: [string, string][] = [
@@ -23,11 +25,17 @@ export const NAV: [string, string][] = [
   ["approvals", "Accept requests"],
   ["access", "Vault"],
   ["sync", "Sync"],
+  ["commands", "Saved commands"],
+  ["audit", "Audit history"],
   ["settings", "Settings"],
 ];
 
 // Shorter labels where the bottom bar is narrow.
-const SHORT_LABEL: Record<string, string> = { approvals: "Requests" };
+const SHORT_LABEL: Record<string, string> = {
+  approvals: "Requests",
+  commands: "Saved",
+  audit: "Audit",
+};
 
 export function Screen() {
   if (ui.permissionPeer) return <PermissionPanel id={ui.permissionPeer} />;
@@ -45,6 +53,10 @@ export function Screen() {
       return ui.preview ? <SyncCompare p={ui.preview} /> : <Devices />;
     case "settings":
       return <Settings />;
+    case "commands":
+      return <CommandsScreen />;
+    case "audit":
+      return <AuditScreen />;
     case "welcome":
       return <Welcome />;
     default:
@@ -69,7 +81,7 @@ export function Workspace() {
             <BrandMark />
             homectl
           </a>
-          <nav aria-label="Main navigation" className="grid gap-1.5 max-[700px]:grid-cols-5 max-[700px]:gap-0.5">
+          <nav aria-label="Main navigation" className="grid gap-1.5 max-[700px]:grid-cols-7 max-[700px]:gap-0.5">
             {NAV.map(([id, label]) => (
               <a
                 key={id}

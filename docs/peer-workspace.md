@@ -51,9 +51,9 @@ Credential conflicts show fingerprints only, never key or password values. Confl
 
 When you apply, the other device gets an offer and reviews it before writing anything. Deletions are recorded, so an older device cannot bring a removed entry back. The app refuses to apply a review made from data that changed afterwards. You will need a new review.
 
-**What syncs:** SSH machines, access policy, Proxmox provider definitions, `homectl-*` credential entries with their attachments, and trusted SSH host keys.
+**What syncs:** SSH machines, access policy, Proxmox provider definitions, saved command templates, `homectl-*` credential entries with their attachments, and trusted SSH host keys. Saved commands are shortcuts only. The receiving device marks unknown hosts unavailable and checks its own inventory and policy on every run. Concurrent template edits and deletes appear in the normal conflict review.
 
-**What stays local:** database paths, agent endpoints, this computer's host definitions, the session TTL and active sessions. Entries outside the `homectl` namespace in your KeePass database are never transferred.
+**What stays local:** audit history, database paths, agent endpoints, this computer's host definitions, the session TTL and active sessions. Entries outside the `homectl` namespace in your KeePass database are never transferred.
 
 Sync runs only when you start it. A service keeps the workspace available in the background, but unattended periodic sync is not enabled.
 

@@ -9,6 +9,7 @@ import {
   partialCandidates,
 } from "./format";
 import type {
+  AuditHistoryPage,
   ControlExecution,
   ControlOverview,
   Preview,
@@ -66,6 +67,20 @@ export const ui = {
   controlTab: "queue" as "queue" | "clients",
   controlFilter: "ready" as ControlBucket,
   controlResult: undefined as ControlExecution | undefined,
+  savedCommandVersion: 0,
+  savedCommandDraft: undefined as
+    | {
+        id?: string;
+        name: string;
+        hosts: string[];
+        argv: string[];
+        parameters: { name: string; description?: string }[];
+        description?: string;
+      }
+    | undefined,
+  savedCommandRun: undefined as string | undefined,
+  auditPage: undefined as import("./types").AuditHistoryPage | undefined,
+  auditFilters: { host: "", status: "", text: "" },
   // The request a dashboard Review opened; its row is marked and scrolled to.
   highlightOperation: undefined as string | undefined,
   // The request open in the side panel of Accept requests.
@@ -402,6 +417,22 @@ export async function refresh() {
   ui.control = await api<ControlOverview>("/api/control").catch(
     () => undefined,
   );
+  render();
+}
+
+export async function loadAudit(first = true) {
+  const params = new URLSearchParams();
+  if (ui.auditFilters.host) params.set("host", ui.auditFilters.host);
+  if (ui.auditFilters.status) params.set("status", ui.auditFilters.status);
+  if (ui.auditFilters.text) params.set("text", ui.auditFilters.text);
+  const cursor = first ? undefined : ui.auditPage?.nextCursor;
+  if (cursor !== undefined) params.set("cursor", String(cursor));
+  params.set("limit", "50");
+  const page = await api<AuditHistoryPage>(`/api/audit?${params.toString()}`);
+  ui.auditPage =
+    first || !ui.auditPage
+      ? page
+      : { ...page, entries: [...ui.auditPage.entries, ...page.entries] };
   render();
 }
 

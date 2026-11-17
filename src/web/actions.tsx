@@ -9,6 +9,7 @@ import {
   copyText,
   element,
   focusScreen,
+  loadAudit,
   navigate,
   pairingAddress,
   refresh,
@@ -81,6 +82,96 @@ export async function handleAction(action: string | undefined, id: string) {
       ui.commandPeer = "";
       render();
       return;
+    case "save-command-from-form": {
+      if (ui.commandPeer)
+        throw new Error("Save a template from this computer's host form; peer commands run on the other device.");
+      const form = element<HTMLFormElement>("command-form");
+      const values = new FormData(form);
+      if (String(values.get("peer") ?? ""))
+        throw new Error("Save a shortcut from this computer's host form; peer commands run on the other device.");
+      const name = String(values.get("template-name") ?? "").trim();
+      if (!name) throw new Error("Enter a name for this saved command.");
+      const program = String(values.get("program") ?? "").trim();
+      const argv = [program, ...String(values.get("arguments") ?? "").split(/\r?\n/).filter(Boolean)];
+      const saved = await api<{ command: { name: string } }>("/api/commands/save", {
+        name,
+        hosts: [ui.commandHost],
+        argv,
+        parameters: [],
+        description: "",
+      });
+      ui.savedCommandVersion++;
+      report(`Saved “${saved.command.name}”. It will use the current policy each time it runs.`, "notice");
+      return;
+    }
+    case "saved-command-new":
+      ui.savedCommandRun = undefined;
+      ui.savedCommandDraft = { name: "", hosts: [], argv: [], parameters: [] };
+      navigate("commands");
+      return;
+    case "saved-command-run":
+      ui.savedCommandDraft = undefined;
+      ui.savedCommandRun = id;
+      navigate("commands");
+      return;
+    case "saved-command-edit": {
+      const { commands } = await api<{ commands: import("./types").SavedCommand[] }>("/api/commands");
+      const command = commands.find((item) => item.id === id);
+      if (!command) throw new Error("Saved command no longer exists. Refresh the list.");
+      ui.savedCommandDraft = command;
+      ui.savedCommandRun = undefined;
+      navigate("commands");
+      return;
+    }
+    case "saved-command-cancel-edit":
+      ui.savedCommandDraft = undefined;
+      render();
+      return;
+    case "saved-command-cancel-run":
+      ui.savedCommandRun = undefined;
+      ui.result = undefined;
+      render();
+      return;
+    case "saved-command-remove": {
+      if (!(await confirm(
+        "Remove saved command?",
+        "This deletion will be included in the next reviewed sync with paired peers.",
+      ))) return;
+      const command = await api<{ removed: string }>("/api/commands/remove", { id });
+      ui.savedCommandVersion++;
+      if (ui.savedCommandRun === id) ui.savedCommandRun = undefined;
+      report(`Saved command ${command.removed} removed.`, "notice");
+      return;
+    }
+    case "audit-refresh":
+      ui.auditPage = undefined;
+      await loadAudit(true);
+      return;
+    case "audit-more":
+      await loadAudit(false);
+      return;
+    case "audit-copy-argv": {
+      const row = ui.auditPage?.entries.find((entry) => entry.id === id);
+      if (!row?.argv) throw new Error("This audit entry has no argv to copy.");
+      await copyText(JSON.stringify(row.argv));
+      report("Redacted argv JSON copied.", "notice");
+      return;
+    }
+    case "audit-save-command": {
+      const row = ui.auditPage?.entries.find((entry) => entry.id === id);
+      if (!row?.host || !row.argv?.length || row.argv.includes("[REDACTED]"))
+        throw new Error("This entry has no saveable command. Redacted arguments cannot be restored.");
+      ui.savedCommandDraft = {
+        name: `${row.host} ${row.argv[0]}`.slice(0, 80),
+        hosts: [row.host],
+        argv: row.argv,
+        parameters: [],
+        description: row.operation ? `Saved from ${row.operation} audit entry` : "Saved from audit entry",
+      };
+      ui.savedCommandRun = undefined;
+      navigate("commands");
+      return;
+    }
     case "remote-command":
       ui.commandHost = id;
       ui.commandPeer = ui.remoteHosts?.peerId ?? "";

@@ -1,5 +1,8 @@
+import { commandsHelp } from "./commands-help";
+import { peerHelp } from "./peer-help";
+
 type Section = { title: string; rows: [string, string][] };
-type Page = { usage: string; intro?: string; sections: Section[] };
+export type Page = { usage: string; intro?: string; sections: Section[] };
 
 const globalOptions: Section = {
   title: "Options",
@@ -427,12 +430,8 @@ pages.sync = {
     globalOptions,
   ],
 };
-pages.peer = {
-  usage: "home-ctl peer <peer-id> --target <host> -- <argv...>",
-  intro:
-    "Uses the peer's grants and host policy. Mutations wait for local approval on the execution peer.",
-  sections: [globalOptions],
-};
+pages.peer = peerHelp;
+pages.commands = commandsHelp;
 pages["serve-mcp"] = {
   usage:
     "home-ctl serve-mcp [--host 127.0.0.1] [--port 7449] [--inventory PATH]",

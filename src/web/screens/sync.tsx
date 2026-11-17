@@ -18,6 +18,7 @@ const SIDE_LABEL: Record<string, string> = {
   credential: "Credential",
   hostkey: "Trusted host key",
   provider: "Provider",
+  "saved-command": "Saved command",
 };
 
 const object = (value: unknown): Record<string, unknown> =>
@@ -53,6 +54,8 @@ export function syncChangeCards(
         ? ["description", "address", "user", "access", "transport"]
         : type === "provider"
           ? ["type", "host", "node"]
+          : type === "saved-command"
+            ? ["name", "hosts", "argv", "parameters", "description"]
           : [];
     const left = object(before);
     const right = object(after);
@@ -64,11 +67,13 @@ export function syncChangeCards(
         ? "Secret contents stay hidden."
         : type === "hostkey"
           ? "Review the host fingerprint independently before trusting it."
+          : type === "saved-command"
+            ? "Shortcuts never grant access. Each device checks its own inventory and policy when a command runs."
           : "";
     return (
       <article key={id} className="min-w-0 rounded-lg border border-border bg-background p-4">
         <h3 className="mb-2 text-[15px] font-semibold break-words">
-          {label}: {name}
+          {label}: {type === "saved-command" ? display(right.name ?? name) : name}
         </h3>
         <Tag>{action}</Tag>
         {details.length ? (

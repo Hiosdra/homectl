@@ -62,6 +62,7 @@ import {
   RUNTIME_SOCKET,
 } from "./policy-constants";
 import { containsSecretMaterial, redactArgv } from "./redact";
+import { rejectedRequestContext } from "./rejected-request";
 import type { ReplicaOverlay } from "./replicator";
 import { schemas } from "./schema";
 import { type ControlState, ControlStore } from "./store";
@@ -762,7 +763,7 @@ export class ControlPlane {
         event: "request.rejected",
         client: who,
         ...(kind ? { op: kind } : {}),
-        reason: e.message,
+        ...rejectedRequestContext(raw, e.code),
       }).catch(() => undefined);
       throw e;
     }

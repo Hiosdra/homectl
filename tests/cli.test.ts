@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanEnv } from "../src/credentials";
@@ -135,6 +136,73 @@ test("safe command emits result and exit 0", async () => {
   ]);
   expect(r.code).toBe(0);
   expect(JSON.parse(r.stdout).result.stdout.trim().length).toBeGreaterThan(0);
+});
+test("commands CLI saves, lists and refuses a mutating run without approval", async () => {
+  const path = await fixture();
+  const templatePath = join(tmpdir(), `saved-${randomUUID()}.json`);
+  try {
+    await writeFile(
+      templatePath,
+      JSON.stringify({
+        name: "Restart nginx",
+        hosts: ["example"],
+        argv: ["systemctl", "restart", "nginx"],
+      }),
+    );
+    const saved = await invoke([
+      "commands",
+      "save",
+      "--file",
+      templatePath,
+      "--inventory",
+      path,
+      "--json",
+    ]);
+    expect(saved.code).toBe(0);
+    const id = (JSON.parse(saved.stdout) as { command: { id: string } }).command
+      .id;
+    const listed = await invoke([
+      "commands",
+      "list",
+      "--inventory",
+      path,
+      "--json",
+    ]);
+    expect((JSON.parse(listed.stdout) as { id: string }[])[0]?.id).toBe(id);
+
+    const preview = await invoke([
+      "commands",
+      "run",
+      id,
+      "--target",
+      "example",
+      "--inventory",
+      path,
+      "--dry-run",
+      "--json",
+    ]);
+    expect(preview.code).toBe(0);
+    expect(JSON.parse(preview.stdout).plan.needsApproval).toBe(true);
+    const refused = await invoke([
+      "commands",
+      "run",
+      id,
+      "--target",
+      "example",
+      "--inventory",
+      path,
+      "--json",
+    ]);
+    expect(refused.code).toBe(4);
+    expect(refused.stderr).toContain("Explicit user confirmation required");
+    const journal = await readFile(
+      join(path, "..", "control-plane", "audit.jsonl"),
+      "utf8",
+    );
+    expect(journal).toContain("command.approval-required");
+  } finally {
+    await rm(templatePath, { force: true });
+  }
 });
 test("remote failure exits 6 and preserves actual exit status", async () => {
   const path = await fixture();

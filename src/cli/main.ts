@@ -7,9 +7,8 @@ import { credentialSpec } from "../credentials";
 
 import { enroll, installSudo } from "../enroll";
 import { loadInventory, resolveHost, saveInventory } from "../inventory";
-import { execute, workerArgv, writeSSHConfig } from "../operations";
+import { workerArgv, writeSSHConfig } from "../operations";
 import { windows } from "../platform";
-import { checkApproval, planExecution } from "../policies";
 import { run } from "../process";
 import { type ProvisionRequest, planProvision, proxmox } from "../provisioners";
 import { proxmoxSSH } from "../provisioners/ssh";
@@ -23,11 +22,13 @@ import {
 import { initDatabase } from "../session/database";
 import { createKey, keyReference } from "../session/keys";
 import { normalizePublicKey } from "../session/public-key";
-import { doctor, paths } from "../setup";
+import { paths } from "../setup";
 import { transportSpec } from "../transports";
 import { HomectlError, type Machine, type ProcessResult } from "../types";
 import { runUpdate } from "../update";
+import { runCommands } from "./commands";
 import { renderHelp } from "./help";
+import { hostCommand } from "./host-commands";
 import { runInternal } from "./internal-roles";
 import { formatError, formatHuman } from "./output";
 import { confirm } from "./prompts";
@@ -114,6 +115,8 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         "configure-firewall": { type: "boolean" },
         inventory: { type: "string" },
         file: { type: "string" },
+        id: { type: "string" },
+        "parameters-file": { type: "string" },
         name: { type: "string" },
         scopes: { type: "string" },
         hosts: { type: "string" },
@@ -142,6 +145,14 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       throw new HomectlError(
         2,
         "--ttl and --database apply only to session configure",
+      );
+    if (
+      (v.id !== undefined || v["parameters-file"] !== undefined) &&
+      command !== "commands"
+    )
+      throw new HomectlError(
+        2,
+        "--id and --parameters-file apply only to commands",
       );
     if (
       [
@@ -646,6 +657,23 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       return result.code;
     }
     const inv = await loadInventory(inventoryPath);
+    if (command === "commands") {
+      return await runCommands({
+        positionals,
+        commandArgs,
+        inventoryPath,
+        configPath,
+        inventory: inv,
+        dryRun,
+        file: v.file,
+        id: v.id,
+        parametersFile: v["parameters-file"],
+        target: v.target,
+        approval: v.approval,
+        impact: v.impact,
+        emit,
+      });
+    }
     if (positionals.length > (command === "key" ? 3 : 2))
       throw new HomectlError(
         2,
@@ -743,51 +771,17 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       );
       return 0;
     }
-    if (command === "hosts") {
-      emit(inv.machines);
-      return 0;
-    }
-    if (command === "inspect") {
-      if (!host) throw new HomectlError(2, "Specify host");
-      emit({ host, ...resolveHost(inv, host) });
-      return 0;
-    }
-    if (command === "doctor") {
-      if (dryRun) {
-        emit({ wouldCheck: host ?? "tools", credentialFetch: false });
-        return 0;
-      }
-      await writeSSHConfig(configPath, inv.machines);
-      const result = await doctor(inv, configPath, host);
-      emit(result);
-      return result.ok ? 0 : 5;
-    }
-    if (command === "exec" || command === "ssh") {
-      if (!host) throw new HomectlError(2, "Specify host");
-      if (!dryRun) {
-        checkApproval(
-          planExecution(host, resolveHost(inv, host), commandArgs, v.impact),
-          v.approval,
-        );
-        await writeSSHConfig(configPath, inv.machines);
-      }
-      const result = await execute(host, resolveHost(inv, host), commandArgs, {
-        configPath,
-        dryRun,
-        approval: v.approval,
-        impact: v.impact,
-      });
-      emit(result);
-      return "result" in result && result.result && result.result.exitCode !== 0
-        ? 6
-        : 0;
-    }
-    if (command === "sudoers") {
-      if (!host) throw new HomectlError(2, "Specify host");
-      const m = resolveHost(inv, host);
-      emit((await import("../policies")).sudoers(m.user ?? "", m));
-      return 0;
-    }
+    const hostResult = await hostCommand(command, host, {
+      inventory: inv,
+      inventoryPath,
+      configPath,
+      commandArgs,
+      dryRun,
+      approval: v.approval,
+      impact: v.impact,
+      emit,
+    });
+    if (hostResult !== undefined) return hostResult;
     if (command === "enroll") {
       if (!host || !v.file)
         throw new HomectlError(2, "enroll requires host and --file");

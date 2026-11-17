@@ -128,6 +128,8 @@ async function boot() {
     "sync",
     "peers",
     "settings",
+    "commands",
+    "audit",
     "welcome",
   ].includes(hash)
     ? hash

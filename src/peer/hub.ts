@@ -11,10 +11,13 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { type DeviceKey, loadOrCreateDeviceKey } from "../control/device-key";
 import { controlStateDirectory } from "../control/engine";
+import { appendLocalAudit } from "../control/journal";
+import { redactArgv } from "../control/redact";
 import { loadInventory, parseInventory, saveInventory } from "../inventory";
 import { execute, writeSSHConfig } from "../operations";
 import { privateDirectory, protect } from "../platform";
 import { planExecution } from "../policies";
+import { SavedCommandStore, savedCommandsFromRecords } from "../saved-commands";
 import {
   lockSession,
   sessionConfig,
@@ -24,6 +27,7 @@ import {
 import { keyReference } from "../session/keys";
 import { doctor } from "../setup";
 import { HomectlError, type Inventory, type Machine } from "../types";
+import { peerCommand } from "./command";
 import {
   type Envelope,
   equal,
@@ -103,6 +107,7 @@ async function post(
 type Operation = {
   id: string;
   peerId: string;
+  operationId: string;
   host: string;
   argv: string[];
   impact?: string;
@@ -123,6 +128,7 @@ type Pending = {
 export class Hub {
   state!: PeerState;
   vault!: Vault;
+  savedCommands!: SavedCommandStore;
   pair?: Pair;
   pending = new Map<string, Pending>();
   operations = new Map<string, Operation>();
@@ -147,6 +153,7 @@ export class Hub {
   ) {}
   async init() {
     this.state = await loadState(peerPath(this.inventoryPath));
+    this.savedCommands = SavedCommandStore.forInventory(this.inventoryPath);
     const inv = await loadInventory(this.inventoryPath);
     this.vault = new Vault(sessionConfig(inv, this.inventoryPath).database);
     this.device = await loadOrCreateDeviceKey(
@@ -495,7 +502,9 @@ export class Hub {
         };
     for (const [name, p] of Object.entries(inv.providers ?? {}))
       values[`provider:${name}`] = { name, ...p };
-    const prefixes = ["machine:", "provider:"];
+    for (const command of await this.savedCommands.list())
+      values[`saved-command:${command.id}`] = command;
+    const prefixes = ["machine:", "provider:", "saved-command:"];
     if (this.vault.unlocked) {
       prefixes.push("credential:");
       for (const [name, v] of Object.entries(this.vault.snapshot()))
@@ -711,6 +720,7 @@ export class Hub {
       }
     const machines: Record<string, Machine> = {};
     const providers: NonNullable<Inventory["providers"]> = {};
+    savedCommandsFromRecords(records);
     for (const [id, r] of Object.entries(records)) {
       if (r.value === null) continue;
       if (id.startsWith("machine:")) {
@@ -813,6 +823,7 @@ export class Hub {
     await lockSession(this.inventoryPath);
     await saveInventory(this.inventoryPath, next);
     await writeSSHConfig(this.configPath, next.machines);
+    await this.savedCommands.replaceFromRecords(records);
     this.state.records = records;
     for (const [key, v] of Object.entries(records))
       if (!key.startsWith("credential:") || this.vault.unlocked)
@@ -880,61 +891,7 @@ export class Hub {
       );
     }
     if (action === "exec") {
-      const v = payload as {
-        host: string;
-        argv: string[];
-        impact?: string;
-        approval?: string;
-        dryRun?: boolean;
-      };
-      if (!peer.permissions.operations.includes(v.host))
-        throw new HomectlError(3, "Peer has no operation grant for this host");
-      const inv = await loadInventory(this.inventoryPath);
-      const m = inv.machines[v.host];
-      if (!m) throw new HomectlError(2, "Unknown host");
-      if (m.transport === "local" && !peer.permissions.administer)
-        throw new HomectlError(3, "Peer administration is disabled");
-      if (
-        !Array.isArray(v.argv) ||
-        !v.argv.length ||
-        v.argv.some((a) => typeof a !== "string" || a.length > 4096)
-      )
-        throw new HomectlError(2, "Invalid command");
-      // Remote approval digests are never trusted. Mutations are reviewed on
-      // the execution peer's local panel, bound to the exact argv and impact.
-      const plan = planExecution(v.host, m, v.argv, v.impact);
-      if (plan.classification !== "inspect" && !v.dryRun) {
-        for (const [id, o] of this.operations)
-          if (o.expiresAt < Date.now()) this.operations.delete(id);
-        if (this.operations.size >= 32)
-          throw new HomectlError(3, "Too many pending operations");
-        const id = randomUUID();
-        this.operations.set(id, {
-          id,
-          peerId: peer.id,
-          host: v.host,
-          argv: v.argv,
-          impact: v.impact,
-          approval: plan.approval,
-          expiresAt: Date.now() + 300_000,
-          state: "pending",
-        });
-        return { pending: true, id, approvalNeededOn: this.state.name };
-      }
-      if (
-        !v.dryRun &&
-        !this.vault.unlocked &&
-        !(await sessionStatus(this.inventoryPath)).unlocked
-      )
-        throw new HomectlError(
-          5,
-          "Unlock the execution device locally before running a peer operation",
-        );
-      return execute(v.host, m, v.argv, {
-        configPath: this.configPath,
-        dryRun: v.dryRun,
-        impact: v.impact,
-      });
+      return peerCommand(this, peer, payload);
     }
     if (action === "operation-status") {
       const o = this.operations.get((payload as { id: string }).id);
@@ -950,6 +907,18 @@ export class Hub {
       throw new HomectlError(3, "Operation approval expired or already used");
     if (!approved) {
       o.state = "rejected";
+      const peer = this.state.peers[o.peerId];
+      await appendLocalAudit(this.inventoryPath, {
+        event: "command.refused",
+        op: "execute",
+        operationId: o.operationId,
+        client: "local-operator",
+        ...(peer ? { device: peer.id, deviceName: peer.name } : {}),
+        host: o.host,
+        argv: redactArgv(o.argv),
+        policyDecision: "refused",
+        reason: "peer-operation-rejected",
+      });
       return { rejected: true };
     }
     const peer = this.state.peers[o.peerId];
@@ -982,6 +951,12 @@ export class Hub {
         configPath: this.configPath,
         approval: o.approval,
         impact: o.impact,
+        audit: {
+          inventoryPath: this.inventoryPath,
+          ...(peer ? { device: peer.id, deviceName: peer.name } : {}),
+          approver: "local-operator",
+          operationId: o.operationId,
+        },
       });
       return { executed: true, result: o.result };
     } catch (e) {
