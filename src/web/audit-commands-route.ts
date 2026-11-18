@@ -1,6 +1,6 @@
 import {
   clearLocalCommandHistory,
-  readLocalCommandHistory,
+  readLocalCommandHistoryWithIssues,
 } from "../command-history";
 import {
   type AuditHistoryFilters,
@@ -107,20 +107,34 @@ export async function auditCommandsRoute(
       ...(cursor !== undefined ? { cursor } : {}),
       ...(limit !== undefined ? { limit } : {}),
     };
-    const clients = await control.listClients();
-    const names = Object.fromEntries(
-      clients.map((client) => [client.id, client.name]),
-    );
-    const [controlRows, history] = await Promise.all([
-      control.auditRows(names),
-      readLocalCommandHistory(inventoryPath),
-    ]);
-    return response(
-      auditHistoryFromRows(
-        [...controlRows, ...commandHistoryRows(history)],
-        filters,
-      ),
-    );
+    const rows: ReturnType<typeof commandHistoryRows> = [];
+    const warnings: string[] = [];
+    let malformedHistoryLines = 0;
+    try {
+      const clients = await control.listClients();
+      const names = Object.fromEntries(
+        clients.map((client) => [client.id, client.name]),
+      );
+      rows.push(...(await control.auditRows(names)));
+    } catch {
+      warnings.push("Control-plane audit history is unavailable.");
+    }
+    try {
+      const history = await readLocalCommandHistoryWithIssues(inventoryPath);
+      malformedHistoryLines = history.malformedLines;
+      rows.push(...commandHistoryRows(history.entries));
+      if (malformedHistoryLines)
+        warnings.push(
+          `Skipped ${malformedHistoryLines} malformed local command history line${malformedHistoryLines === 1 ? "" : "s"}.`,
+        );
+    } catch {
+      warnings.push("Local command history is unavailable.");
+    }
+    return response({
+      ...auditHistoryFromRows(rows, filters),
+      malformedHistoryLines,
+      ...(warnings.length ? { warnings } : {}),
+    });
   }
   if (
     req.method !== "POST" ||

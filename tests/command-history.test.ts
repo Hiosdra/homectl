@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,8 @@ import {
   type LocalCommandHistoryInput,
   redactCommandHistoryArgv,
 } from "../src/command-history";
+
+setDefaultTimeout(30_000);
 
 function input(
   phase: LocalCommandHistoryInput["phase"],
@@ -41,8 +43,32 @@ const secretFlagCases: [string, string[]][] = [
   ["secret label", ["tool", "secret:", "MySecret"]],
   ["embedded secret label", ["tool", "--data=password:", "MySecret"]],
   ["--password", ["tool", "--password", "MySecret"]],
+  ["--api-key", ["tool", "--api-key", "MySecret"]],
+  ["--apikey", ["tool", "--apikey", "MySecret"]],
+  ["--api_key", ["tool", "--api_key", "MySecret"]],
+  ["--access-key", ["tool", "--access-key", "MySecret"]],
+  ["--secret-key", ["tool", "--secret-key", "MySecret"]],
+  ["--client-secret", ["tool", "--client-secret", "MySecret"]],
+  ["--authorization", ["tool", "--authorization", "MySecret"]],
+  ["--auth", ["tool", "--auth", "MySecret"]],
+  ["--pass", ["tool", "--pass", "MySecret"]],
+  ["--passwd", ["tool", "--passwd", "MySecret"]],
   ["--token", ["tool", "--token", "MySecret"]],
   ["--secret", ["tool", "--secret", "MySecret"]],
+  ["--key assignment", ["tool", "--key=MySecret"]],
+  ["--api-key assignment", ["tool", "--api-key=MySecret"]],
+  ["--apikey assignment", ["tool", "--apikey=MySecret"]],
+  ["--api_key assignment", ["tool", "--api_key=MySecret"]],
+  ["--access-key assignment", ["tool", "--access-key=MySecret"]],
+  ["--secret-key assignment", ["tool", "--secret-key=MySecret"]],
+  ["--client-secret assignment", ["tool", "--client-secret=MySecret"]],
+  ["--authorization assignment", ["tool", "--authorization=MySecret"]],
+  ["--auth assignment", ["tool", "--auth=MySecret"]],
+  ["--pass assignment", ["tool", "--pass=MySecret"]],
+  ["--passwd assignment", ["tool", "--passwd=MySecret"]],
+  ["--password assignment", ["tool", "--password=MySecret"]],
+  ["--token assignment", ["tool", "--token=MySecret"]],
+  ["--secret assignment", ["tool", "--secret=MySecret"]],
   ["Authorization header", ["curl", "-H", "Authorization: Bearer MySecret"]],
   [
     "Bearer header value",
@@ -55,10 +81,65 @@ test.each(secretFlagCases)("redacts %s", (_label, argv) => {
   expect(redactCommandHistoryArgv(argv).join(" ")).not.toContain("MySecret");
 });
 
+test("preserves secret flag names while redacting assigned values", () => {
+  expect(redactCommandHistoryArgv(["tool", "--token=MySecret"])).toEqual([
+    "tool",
+    "--token=[REDACTED]",
+  ]);
+});
+
 test("URL userinfo preserves the username while hiding the password", () => {
   expect(
     redactCommandHistoryArgv(["https://admin:MySecret@example.test/path"]),
   ).toEqual(["https://admin:[REDACTED]@example.test/path"]);
+});
+
+test("redacts Authorization headers without leaking a later token argument", () => {
+  for (const argv of [
+    ["curl", "-H", "Authorization:", "Bearer", "MySecret"],
+    ["curl", "-H", "Authorization: Bearer MySecret"],
+  ]) {
+    const redacted = redactCommandHistoryArgv(argv);
+    expect(redacted.join(" ")).not.toContain("MySecret");
+    expect(redacted).toContain("[REDACTED]");
+  }
+});
+
+test("skips malformed history lines and appends after them", async () => {
+  const dir = await mkdtemp(
+    join(tmpdir(), "homectl-command-history-malformed-"),
+  );
+  try {
+    const store = new CommandHistoryStore(join(dir, "inventory.yaml"), {
+      getUid: nonRootUid,
+      now: () => 2000,
+      warn: () => {},
+    });
+    await store.append(input("outcome", 1000, "before-malformed"));
+    const validLine = (await store.read()).map((entry) =>
+      JSON.stringify(entry),
+    );
+    await writeFile(
+      store.path,
+      `${validLine.join("\n")}\n{malformed json\n{"id":"invalid-shape"}\n`,
+    );
+
+    const initial = await store.readWithIssues();
+    expect(initial.entries.map((entry) => entry.operationId)).toEqual([
+      "before-malformed",
+    ]);
+    expect(initial.malformedLines).toBe(2);
+
+    await store.append(input("outcome", 2000, "after-malformed"));
+    const afterAppend = await store.readWithIssues();
+    expect(afterAppend.entries.map((entry) => entry.operationId)).toEqual([
+      "before-malformed",
+      "after-malformed",
+    ]);
+    expect(afterAppend.malformedLines).toBe(0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("serializes a started and outcome pair and retains stable sequences", async () => {

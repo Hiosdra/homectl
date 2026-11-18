@@ -3,7 +3,7 @@ import { lstat, readFile, unlink, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { withFileLock } from "./control/file-lock";
-import { containsSecretMaterial } from "./control/redact";
+import { redactArgv } from "./control/redact";
 import type { Classification } from "./control/types";
 import {
   atomicReplace,
@@ -74,22 +74,20 @@ export function commandHistoryPath(inventoryPath: string): string {
   return join(dirname(resolve(inventoryPath)), "history", "commands.jsonl");
 }
 
-function parseHistory(text: string): CommandHistoryEntry[] {
-  if (!text.trim()) return [];
-  return text
-    .split("\n")
-    .filter(Boolean)
-    .map((line, index) => {
-      let entry: unknown;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        throw new Error(`Command history line ${index + 1} is invalid JSON`);
+function parseHistory(text: string): {
+  entries: CommandHistoryEntry[];
+  malformedLines: number;
+} {
+  const entries: CommandHistoryEntry[] = [];
+  let malformedLines = 0;
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const entry: unknown = JSON.parse(line);
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        malformedLines++;
+        continue;
       }
-      if (!entry || typeof entry !== "object")
-        throw new Error(
-          `Command history line ${index + 1} has an invalid shape`,
-        );
       const candidate = entry as CommandHistoryEntry;
       if (
         typeof candidate.id !== "string" ||
@@ -102,12 +100,16 @@ function parseHistory(text: string): CommandHistoryEntry[] {
         typeof candidate.operationId !== "string" ||
         typeof candidate.status !== "string" ||
         (candidate.phase !== "started" && candidate.phase !== "outcome")
-      )
-        throw new Error(
-          `Command history line ${index + 1} has an invalid shape`,
-        );
-      return candidate;
-    });
+      ) {
+        malformedLines++;
+        continue;
+      }
+      entries.push(candidate);
+    } catch {
+      malformedLines++;
+    }
+  }
+  return { entries, malformedLines };
 }
 
 export class CommandHistoryStore {
@@ -150,17 +152,24 @@ export class CommandHistoryStore {
   }
 
   async read(): Promise<CommandHistoryEntry[]> {
+    return (await this.readWithIssues()).entries;
+  }
+
+  async readWithIssues(): Promise<{
+    entries: CommandHistoryEntry[];
+    malformedLines: number;
+  }> {
     await this.chain;
     if (
       !(await this.exists(this.directory)) ||
       !(await ownedByCurrentUser(this.directory))
     )
-      return [];
+      return { entries: [], malformedLines: 0 };
     if (
       !(await this.exists(this.path)) ||
       !(await ownedByCurrentUser(this.path))
     )
-      return [];
+      return { entries: [], malformedLines: 0 };
     return parseHistory(await readFile(this.path, "utf8"));
   }
 
@@ -254,7 +263,7 @@ export class CommandHistoryStore {
     if (!(await ownedByCurrentUser(this.path)))
       throw new Error("Command history file belongs to another user");
     await protect(this.path);
-    return parseHistory(await readFile(this.path, "utf8"));
+    return parseHistory(await readFile(this.path, "utf8")).entries;
   }
 
   private async writeEntries(entries: CommandHistoryEntry[]): Promise<void> {
@@ -281,10 +290,6 @@ export class CommandHistoryStore {
   }
 }
 
-const secretOption =
-  /(?:password|passwd|token|secret)(?:\s*[:=]|$)|--(?:password|token|secret)$/i;
-const separateSecretValueMarker =
-  /(?:password|token|secret):$|--(?:password|token|secret)$/i;
 const credentialPair = /^([^:\s]+):([^\s]*)$/;
 const urlCredentials = /([a-z][a-z0-9+.-]*:\/\/[^\s/:?#@]+):[^\s/@?#]*@/gi;
 
@@ -372,21 +377,6 @@ export function redactCommandHistoryArgv(argv: string[]): string[] {
       output.push(`${arg.slice(0, 2)}[REDACTED]`);
       continue;
     }
-    if (separateSecretValueMarker.test(arg)) {
-      output.push(arg);
-      redactNext = "value";
-      continue;
-    }
-    const equals = arg.indexOf("=");
-    if (equals > 0 && secretOption.test(arg.slice(0, equals))) {
-      output.push(`${arg.slice(0, equals)}=[REDACTED]`);
-      continue;
-    }
-    if (arg.startsWith("-") && secretOption.test(arg)) {
-      output.push(arg);
-      redactNext = "value";
-      continue;
-    }
     if (/authorization\s*:\s*$/i.test(arg)) {
       output.push(arg);
       redactNext = "authorization";
@@ -397,22 +387,9 @@ export function redactCommandHistoryArgv(argv: string[]): string[] {
       output.push(urlRedacted);
       continue;
     }
-    if (containsSensitiveArgument(arg)) {
-      output.push("[REDACTED]");
-      continue;
-    }
     output.push(arg);
   }
-  return output;
-}
-
-function containsSensitiveArgument(value: string): boolean {
-  return (
-    /(?:password|passwd|token|secret)\s*[:=]\s*\S+/i.test(value) ||
-    /^Authorization\s*:\s*\S+/i.test(value) ||
-    /^Bearer\s+\S+/i.test(value) ||
-    containsSecretMaterial(value)
-  );
+  return redactArgv(output);
 }
 
 const stores = new Map<string, CommandHistoryStore>();
@@ -439,6 +416,10 @@ export function readLocalCommandHistory(
   inventoryPath: string,
 ): Promise<CommandHistoryEntry[]> {
   return storeFor(inventoryPath).read();
+}
+
+export function readLocalCommandHistoryWithIssues(inventoryPath: string) {
+  return storeFor(inventoryPath).readWithIssues();
 }
 
 export function clearLocalCommandHistory(

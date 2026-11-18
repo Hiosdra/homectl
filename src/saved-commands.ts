@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { ensurePrivateDirectoryOnce, withFileLock } from "./control/file-lock";
@@ -239,20 +239,18 @@ export class SavedCommandStore {
     }
   }
 
-  private async write(state: DiskState): Promise<void> {
+  private async write(state: DiskState): Promise<string> {
     const temp = `${this.path}.${randomUUID()}.tmp`;
     const commands = dictionary<unknown>();
     for (const [id, entry] of Object.entries(state.invalid))
       if (!Object.hasOwn(state.commands, id)) commands[id] = entry.value;
     for (const [id, command] of Object.entries(state.commands))
       commands[id] = command;
-    await writeFile(
-      temp,
-      JSON.stringify({ version: state.version, commands }),
-      { mode: 0o600, flag: "wx" },
-    );
+    const contents = JSON.stringify({ version: state.version, commands });
+    await writeFile(temp, contents, { mode: 0o600, flag: "wx" });
     await protect(temp);
     await atomicReplace(temp, this.path);
+    return createHash("sha256").update(contents).digest("hex");
   }
 
   async list(): Promise<SavedCommand[]> {
@@ -415,8 +413,9 @@ export class SavedCommandStore {
       ];
       const commandMap = dictionary<SavedCommand>();
       for (const command of commands) commandMap[command.id] = command;
+      let writtenHash: string;
       try {
-        await this.write({
+        writtenHash = await this.write({
           version: 1,
           commands: commandMap,
           invalid: current.invalid,
@@ -432,10 +431,18 @@ export class SavedCommandStore {
         await apply(true, preservedInvalidIds);
       } catch (error) {
         try {
-          await this.write(current);
+          const contents = await readFile(this.path, "utf8");
+          const currentHash = createHash("sha256")
+            .update(contents)
+            .digest("hex");
+          if (currentHash === writtenHash) await this.write(current);
+          else
+            console.warn(
+              "Saved commands changed during peer sync; rollback was skipped to preserve the newer file.",
+            );
         } catch {
           console.warn(
-            "Could not restore saved commands after peer sync failed.",
+            "Could not verify saved commands after peer sync failed; rollback was skipped to preserve any newer write.",
           );
         }
         throw error;

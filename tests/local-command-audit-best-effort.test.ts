@@ -2,7 +2,10 @@ import { expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { flushLocalCommandHistory } from "../src/command-history";
+import {
+  flushLocalCommandHistory,
+  readLocalCommandHistory,
+} from "../src/command-history";
 import { execute } from "../src/operations";
 import type { Machine } from "../src/types";
 
@@ -91,7 +94,12 @@ test("history-write failures do not replace command results or runner errors", a
       }),
     ).rejects.toBe(runnerError);
     await flushLocalCommandHistory(inventoryPath);
-    expect(warningCount()).toBeGreaterThan(previousWarnings);
+    expect(warningCount()).toBe(previousWarnings);
+    expect(
+      (await readLocalCommandHistory(inventoryPath)).map(
+        (entry) => entry.status,
+      ),
+    ).toEqual(["executing", "unknown"]);
   } finally {
     warning.mockRestore();
     await rm(dir, { recursive: true, force: true });

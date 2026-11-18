@@ -1,17 +1,23 @@
 // Secret-like material detection and argv redaction. Pattern-based and
 // deliberately conservative: a detection refuses the request or the write.
+const SECRET_NAME_SOURCE = `(?:api[_-]?key|access[_-]?key|secret[_-]?key|client[_-]?secret|authorization|auth|password|passwd|pass|token|secret|key)`;
+
 const SECRET_PATTERNS: RegExp[] = [
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/,
-  /\b(?:password|passwd|pass|token|secret|api[_-]?key|authorization)\b\s*[=:]\s*\S+/i,
+  new RegExp(String.raw`\b${SECRET_NAME_SOURCE}\b\s*[=:]\s*\S+`, "i"),
   /\bbearer\s+[A-Za-z0-9._~+/-]{8,}/i,
   /\bhct_[A-Za-z0-9_-]{16,}/,
 ];
 
-const SECRET_PLACEHOLDER_ASSIGNMENT =
-  /\b(?:password|passwd|pass|token|secret|api[_-]?key|authorization)\b\s*[=:]\s*(?:\{\{[a-z][a-z0-9_-]{0,31}\}\}|\[REDACTED\])(?=["'\s,}\]]|$)/gi;
+const SECRET_PLACEHOLDER_ASSIGNMENT = new RegExp(
+  String.raw`\b${SECRET_NAME_SOURCE}\b\s*[=:]\s*(?:\{\{[a-z][a-z0-9_-]{0,31}\}\}|\[REDACTED\])(?=["'\s,}\]]|$)`,
+  "gi",
+);
 
-const SECRET_NAME =
-  /(?:password|passwd|token|secret|api[_-]?key|authorization)/i;
+const SECRET_NAME = new RegExp(
+  `(?:^|[^a-z0-9])${SECRET_NAME_SOURCE}(?:$|[^a-z0-9])`,
+  "i",
+);
 
 export const AUDIT_NORMALIZATION_MARKERS = {
   redacted: "[REDACTED]",
@@ -65,6 +71,11 @@ export function redactArgv(argv: string[]): string[] {
       out.push(AUDIT_NORMALIZATION_MARKERS.redacted);
       continue;
     }
+    if (/[=:]\s*$/.test(arg) && SECRET_NAME.test(arg)) {
+      out.push(arg);
+      redactNext = true;
+      continue;
+    }
     if (arg.startsWith("-") && SECRET_NAME.test(arg)) {
       out.push(arg);
       redactNext = true;
@@ -73,20 +84,4 @@ export function redactArgv(argv: string[]): string[] {
     out.push(arg);
   }
   return out;
-}
-
-export function normalizeAuditArgv(argv: string[]): string[] {
-  const redacted = redactArgv(argv).map((arg) => {
-    if (!arg) return AUDIT_NORMALIZATION_MARKERS.emptyArgument;
-    const marker = AUDIT_NORMALIZATION_MARKERS.truncatedArgument;
-    return arg.length > 4096
-      ? `${arg.slice(0, 4096 - marker.length)}${marker}`
-      : arg;
-  });
-  if (!redacted.length) return [AUDIT_NORMALIZATION_MARKERS.noArguments];
-  if (redacted.length <= 64) return redacted;
-  return [
-    ...redacted.slice(0, 63),
-    `${AUDIT_NORMALIZATION_MARKERS.truncatedArgumentsPrefix}${redacted.length - 63}${AUDIT_NORMALIZATION_MARKERS.truncatedArgumentsSuffix}`,
-  ];
 }

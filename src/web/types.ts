@@ -241,4 +241,6 @@ export type AuditHistoryPage = {
   entries: AuditHistoryRow[];
   nextCursor?: string;
   limit: number;
+  malformedHistoryLines?: number;
+  warnings?: string[];
 };

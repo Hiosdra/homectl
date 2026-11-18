@@ -50,12 +50,12 @@ export async function snapshotWithIssues(
   try {
     savedCommands = await context.savedCommands.listWithIssues();
   } catch (error) {
-    if (!isSavedCommandFileCorrupt(error)) throw error;
     savedCommandsAvailable = false;
     issues.push({
       id: "saved-commands",
-      reason:
-        "Saved command file is corrupt; saved-command sync is disabled. Preserve it and investigate.",
+      reason: isSavedCommandFileCorrupt(error)
+        ? "Saved command file is corrupt; saved-command sync is disabled. Preserve it and investigate."
+        : "Saved command file could not be read; saved-command sync is disabled for this snapshot. Preserve it and investigate.",
     });
   }
   issues.push(
