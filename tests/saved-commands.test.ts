@@ -370,8 +370,7 @@ test("invalid command attempts stay outside the control-plane journal", async ()
       expect(history).toHaveLength(3);
       expect(
         history.every(
-          (entry) =>
-            entry.phase === "outcome" && entry.status === "refused",
+          (entry) => entry.phase === "outcome" && entry.status === "refused",
         ),
       ).toBe(true);
     }

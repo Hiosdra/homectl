@@ -68,15 +68,17 @@ test("history-write failures do not replace command results or runner errors", a
     });
     const warningCount = () =>
       warning.mock.calls.filter(
-        ([message]) =>
-          message === "Could not write local command history.",
+        ([message]) => message === "Could not write local command history.",
       ).length;
     await flushLocalCommandHistory(inventoryPath);
     expect(warningCount()).toBe(2);
 
     await rm(historyDirectory, { force: true });
     await mkdir(historyDirectory, { recursive: true });
-    await writeFile(join(historyDirectory, "commands.jsonl"), "not valid JSON\n");
+    await writeFile(
+      join(historyDirectory, "commands.jsonl"),
+      "not valid JSON\n",
+    );
     const runnerError = new Error("runner failure");
     const previousWarnings = warningCount();
     await expect(
