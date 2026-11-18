@@ -127,8 +127,10 @@ describe("audit journal hash chain", () => {
     const { dir, journal } = await filled();
     try {
       const entries = await journal.read();
+      const first = entries[0];
+      if (!first) throw new Error("Expected a journal entry");
       const invalid = {
-        ...entries[0],
+        ...first,
         event: { event: 42 } as unknown as AuditEvent,
       };
       expect(verifyChain([invalid])).toMatchObject({
