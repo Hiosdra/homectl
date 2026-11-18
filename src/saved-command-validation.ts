@@ -1,6 +1,6 @@
 import {
   containsRedactionMarker,
-  containsSecretMaterial,
+  containsSecretMaterialAllowingTemplatePlaceholders,
   redactArgv,
 } from "./control/redact";
 import {
@@ -141,7 +141,7 @@ export function validateFields(input: unknown): SavedCommandFields {
   if (description && description.length > 500)
     fail("Description must be 500 characters or fewer");
   if (
-    containsSecretMaterial(
+    containsSecretMaterialAllowingTemplatePlaceholders(
       JSON.stringify({ name, hosts, argv, parameters, description }),
     )
   )

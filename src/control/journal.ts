@@ -3,7 +3,7 @@ import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
 import { canonicalJson, sha256 } from "./canonical";
-import { containsControlAuditSecretMaterial } from "./redact";
+import { containsSecretMaterial } from "./redact";
 import { schemas } from "./schema";
 import type { AuditEntry, AuditEvent } from "./types";
 
@@ -157,7 +157,7 @@ export class AuditJournal {
 
   async append(event: AuditEvent): Promise<AuditEntry> {
     // Fail closed: never write a payload that looks like secret material.
-    if (containsControlAuditSecretMaterial(JSON.stringify(event)))
+    if (containsSecretMaterial(JSON.stringify(event)))
       throw new HomectlError(
         5,
         "Audit event refused: secret-like material detected",

@@ -430,7 +430,7 @@ test("a later peer-state failure cannot replace saved commands", async () => {
   }
 });
 
-test("peer approval and rejection state survives audit append failures", async () => {
+test("peer approval and rejection state does not depend on control-plane command writes", async () => {
   const current = await fixture("Execution device");
   await saveInventory(current.path, {
     version: 1,
@@ -476,7 +476,7 @@ test("peer approval and rejection state survives audit append failures", async (
       rejected: true,
     });
     expect(current.server.hub.operations.get(id)?.state).toBe("rejected");
-    expect(warning).toHaveBeenCalledTimes(2);
+    expect(warning).not.toHaveBeenCalled();
   } finally {
     warning.mockRestore();
   }

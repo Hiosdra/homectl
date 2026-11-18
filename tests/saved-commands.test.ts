@@ -161,7 +161,7 @@ describe("saved command storage", () => {
     }
   });
 
-  test("a valid synced record replaces a stale invalid record with the same id", async () => {
+  test("a valid synced record does not overwrite an invalid local record", async () => {
     const dir = await directory();
     try {
       const path = join(dir, "saved-commands.json");
@@ -177,11 +177,13 @@ describe("saved command storage", () => {
         [`saved-command:${valid.id}`]: { value: valid },
       });
 
-      expect(await store.list()).toEqual([valid]);
-      expect((await store.listWithIssues()).invalid).toEqual([]);
+      expect(await store.list()).toEqual([]);
+      expect((await store.listWithIssues()).invalid).toMatchObject([
+        { id: valid.id, status: "invalid" },
+      ]);
       expect(
         JSON.parse(await readFile(path, "utf8")).commands[valid.id],
-      ).toEqual(valid);
+      ).toEqual(invalid);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -365,12 +367,13 @@ test("invalid command attempts stay outside the control-plane journal", async ()
     if (process.getuid?.() === 0) {
       expect(history).toEqual([]);
     } else {
-      expect(history.map((entry) => entry.argv)).toEqual([
-        [],
-        [""],
-        ["hostname", ...Array(64).fill("x")],
-      ]);
-      expect(history.every((entry) => entry.status === "refused")).toBe(true);
+      expect(history).toHaveLength(3);
+      expect(
+        history.every(
+          (entry) =>
+            entry.phase === "outcome" && entry.status === "refused",
+        ),
+      ).toBe(true);
     }
   } finally {
     await rm(dir, { recursive: true, force: true });

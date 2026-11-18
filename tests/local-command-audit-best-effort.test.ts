@@ -2,9 +2,9 @@ import { expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { flushLocalCommandHistory } from "../src/command-history";
 import { execute } from "../src/operations";
 import type { Machine } from "../src/types";
-import { waitFor } from "./audit-test-helpers";
 
 const machine: Machine = {
   description: "Synthetic",
@@ -16,10 +16,11 @@ async function directory() {
   return mkdtemp(join(tmpdir(), "homectl-audit-best-effort-"));
 }
 
-test("root-session refusals do not create the user's audit journal", async () => {
+test("root-session refusals do not create command-history or control-plane files", async () => {
   const dir = await directory();
   const warning = spyOn(console, "warn").mockImplementation(() => {});
   const inventoryPath = join(dir, "inventory.yaml");
+  const historyPath = join(dir, "history", "commands.jsonl");
   const auditPath = join(dir, "control-plane", "audit.jsonl");
   try {
     await expect(
@@ -34,12 +35,14 @@ test("root-session refusals do not create the user's audit journal", async () =>
       message:
         "Run homectl as a non-root existing user for non-full local tiers",
     });
+    expect(await Bun.file(historyPath).exists()).toBe(false);
+    expect(await Bun.file(join(dir, "history")).exists()).toBe(false);
     expect(await Bun.file(auditPath).exists()).toBe(false);
     expect(
       await Bun.file(join(dir, "control-plane", "audit.anchor")).exists(),
     ).toBe(false);
     expect(warning).toHaveBeenCalledWith(
-      expect.stringContaining("was not added to the user's audit journal"),
+      expect.stringContaining("not written because homectl is running as root"),
     );
   } finally {
     warning.mockRestore();
@@ -47,13 +50,14 @@ test("root-session refusals do not create the user's audit journal", async () =>
   }
 });
 
-test("audit-write failures do not replace command results or runner errors", async () => {
+test("history-write failures do not replace command results or runner errors", async () => {
   const dir = await directory();
-  const controlDirectory = join(dir, "control-plane");
+  const historyDirectory = join(dir, "history");
+  const inventoryPath = join(dir, "inventory.yaml");
   const warning = spyOn(console, "warn").mockImplementation(() => {});
   try {
-    const audit = { inventoryPath: join(dir, "inventory.yaml") };
-    await writeFile(controlDirectory, "not a directory");
+    const audit = { inventoryPath };
+    await writeFile(historyDirectory, "not a directory");
     const outcome = await execute("example", machine, ["hostname"], {
       configPath: join(dir, "ssh_config"),
       audit,
@@ -65,24 +69,14 @@ test("audit-write failures do not replace command results or runner errors", asy
     const warningCount = () =>
       warning.mock.calls.filter(
         ([message]) =>
-          message ===
-          "The command ran, but its audit event could not be saved.",
+          message === "Could not write local command history.",
       ).length;
-    await waitFor(
-      () => warning.mock.calls.map(([message]) => message),
-      (messages) =>
-        messages.includes(
-          "The command is running, but its start audit event could not be saved.",
-        ) &&
-        messages.includes(
-          "The command ran, but its audit event could not be saved.",
-        ),
-      "command audit failure warnings",
-    );
+    await flushLocalCommandHistory(inventoryPath);
+    expect(warningCount()).toBe(2);
 
-    await rm(controlDirectory, { force: true });
-    await mkdir(controlDirectory, { recursive: true });
-    await writeFile(join(controlDirectory, "audit.jsonl"), "not valid JSON\n");
+    await rm(historyDirectory, { force: true });
+    await mkdir(historyDirectory, { recursive: true });
+    await writeFile(join(historyDirectory, "commands.jsonl"), "not valid JSON\n");
     const runnerError = new Error("runner failure");
     const previousWarnings = warningCount();
     await expect(
@@ -94,11 +88,8 @@ test("audit-write failures do not replace command results or runner errors", asy
         },
       }),
     ).rejects.toBe(runnerError);
-    await waitFor(
-      warningCount,
-      (count) => count > previousWarnings,
-      "runner audit warning",
-    );
+    await flushLocalCommandHistory(inventoryPath);
+    expect(warningCount()).toBeGreaterThan(previousWarnings);
   } finally {
     warning.mockRestore();
     await rm(dir, { recursive: true, force: true });

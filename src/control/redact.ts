@@ -23,12 +23,14 @@ export const AUDIT_NORMALIZATION_MARKERS = {
 } as const;
 
 export function containsSecretMaterial(text: string): boolean {
-  const withoutPlaceholders = text.replace(SECRET_PLACEHOLDER_ASSIGNMENT, " ");
-  return SECRET_PATTERNS.some((pattern) => pattern.test(withoutPlaceholders));
+  return SECRET_PATTERNS.some((pattern) => pattern.test(text));
 }
 
-export function containsControlAuditSecretMaterial(text: string): boolean {
-  return SECRET_PATTERNS.some((pattern) => pattern.test(text));
+export function containsSecretMaterialAllowingTemplatePlaceholders(
+  text: string,
+): boolean {
+  const withoutPlaceholders = text.replace(SECRET_PLACEHOLDER_ASSIGNMENT, " ");
+  return SECRET_PATTERNS.some((pattern) => pattern.test(withoutPlaceholders));
 }
 
 export function containsRedactionMarker(argv: readonly string[]): boolean {

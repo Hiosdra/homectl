@@ -117,7 +117,7 @@ describe("audit journal hash chain", () => {
     const journal = new AuditJournal(path, join(dir, "audit.anchor"));
     try {
       await expect(
-        journal.append({ event: "invalid-event" } as unknown as AuditEvent),
+        journal.append({ event: 42 } as unknown as AuditEvent),
       ).rejects.toThrow("schema validation failed");
       expect(await journal.read()).toEqual([]);
     } finally {

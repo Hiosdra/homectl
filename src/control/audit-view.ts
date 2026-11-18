@@ -346,7 +346,8 @@ function recordKey(record: AuditHistoryRecord): AuditCursor {
 
 function compareKey(a: AuditCursor, b: AuditCursor): number {
   if (a.at !== b.at) return a.at > b.at ? -1 : 1;
-  if (a.source !== b.source) return a.source > b.source ? -1 : 1;
+  if (a.source !== b.source)
+    return a.source === "command-history" ? -1 : 1;
   if (a.sequence !== b.sequence) return b.sequence - a.sequence;
   return a.id === b.id ? 0 : a.id > b.id ? -1 : 1;
 }
