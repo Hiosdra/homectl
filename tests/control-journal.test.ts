@@ -80,15 +80,11 @@ describe("argv redaction and secret detection", () => {
       expect(containsSecretMaterial(text)).toBe(false);
     expect(containsSecretMaterial('"--password={{pw}}"')).toBe(true);
     expect(
-      containsSecretMaterialAllowingTemplatePlaceholders(
-        '"--password={{pw}}"',
-      ),
+      containsSecretMaterialAllowingTemplatePlaceholders('"--password={{pw}}"'),
     ).toBe(false);
     expect(containsSecretMaterial('"PASSWORD={{pw}}"')).toBe(true);
     expect(
-      containsSecretMaterialAllowingTemplatePlaceholders(
-        '"PASSWORD={{pw}}"',
-      ),
+      containsSecretMaterialAllowingTemplatePlaceholders('"PASSWORD={{pw}}"'),
     ).toBe(false);
     expect(containsSecretMaterial('"PASSWORD={{pw}}suffix"')).toBe(true);
     expect(containsSecretMaterial('"--password=[REDACTED]"')).toBe(true);
