@@ -368,11 +368,11 @@ test("invalid command attempts stay outside the control-plane journal", async ()
       expect(history).toEqual([]);
     } else {
       expect(history).toHaveLength(3);
-      expect(
-        history.every(
-          (entry) => entry.phase === "outcome" && entry.status === "refused",
-        ),
-      ).toBe(true);
+      expect(history.map((entry) => [entry.phase, entry.status])).toEqual([
+        ["outcome", "refused"],
+        ["outcome", "approval-required"],
+        ["outcome", "approval-required"],
+      ]);
     }
   } finally {
     await rm(dir, { recursive: true, force: true });

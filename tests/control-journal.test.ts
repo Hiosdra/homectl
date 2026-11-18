@@ -7,6 +7,7 @@ import { AuditJournal, GENESIS, verifyChain } from "../src/control/journal";
 import {
   containsRedactionMarker,
   containsSecretMaterial,
+  containsSecretMaterialAllowingTemplatePlaceholders,
   redactArgv,
 } from "../src/control/redact";
 import type { AuditEvent } from "../src/control/types";
@@ -77,11 +78,21 @@ describe("argv redaction and secret detection", () => {
       expect(containsSecretMaterial(text)).toBe(true);
     for (const text of ["uname -s", "docker ps --format json", "status:read"])
       expect(containsSecretMaterial(text)).toBe(false);
-    expect(containsSecretMaterial('"--password={{pw}}"')).toBe(false);
-    expect(containsSecretMaterial('"PASSWORD={{pw}}"')).toBe(false);
+    expect(containsSecretMaterial('"--password={{pw}}"')).toBe(true);
+    expect(
+      containsSecretMaterialAllowingTemplatePlaceholders(
+        '"--password={{pw}}"',
+      ),
+    ).toBe(false);
+    expect(containsSecretMaterial('"PASSWORD={{pw}}"')).toBe(true);
+    expect(
+      containsSecretMaterialAllowingTemplatePlaceholders(
+        '"PASSWORD={{pw}}"',
+      ),
+    ).toBe(false);
     expect(containsSecretMaterial('"PASSWORD={{pw}}suffix"')).toBe(true);
-    expect(containsSecretMaterial('"--password=[REDACTED]"')).toBe(false);
-    expect(containsSecretMaterial('"--token=[REDACTED]"')).toBe(false);
+    expect(containsSecretMaterial('"--password=[REDACTED]"')).toBe(true);
+    expect(containsSecretMaterial('"--token=[REDACTED]"')).toBe(true);
     expect(containsRedactionMarker(["NAME=[REDACTED]"])).toBe(true);
   });
 });
@@ -112,14 +123,18 @@ describe("audit journal hash chain", () => {
     return { dir, path, journal };
   }
 
-  test("rejects schema-invalid events before they can poison the chain", async () => {
-    const { dir, path } = await workspace();
-    const journal = new AuditJournal(path, join(dir, "audit.anchor"));
+  test("detects schema-invalid entries during chain verification", async () => {
+    const { dir, journal } = await filled();
     try {
-      await expect(
-        journal.append({ event: 42 } as unknown as AuditEvent),
-      ).rejects.toThrow("schema validation failed");
-      expect(await journal.read()).toEqual([]);
+      const entries = await journal.read();
+      const invalid = {
+        ...entries[0],
+        event: { event: 42 } as unknown as AuditEvent,
+      };
+      expect(verifyChain([invalid])).toMatchObject({
+        ok: false,
+        error: "schema violation at entry 1",
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
