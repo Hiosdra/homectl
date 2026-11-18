@@ -7,7 +7,11 @@ import {
   type SavedCommandStore,
 } from "../saved-commands";
 import { collectHostKeys } from "./hostkeys";
-import type { PeerState, Version } from "./store";
+import {
+  type PeerState,
+  savedCommandPeerStateUnreadable,
+  type Version,
+} from "./store";
 import {
   capture,
   filterSnapshotRecords,
@@ -56,6 +60,20 @@ export async function snapshotWithIssues(
       reason: isSavedCommandFileCorrupt(error)
         ? "Saved command file is corrupt; saved-command sync is disabled. Preserve it and investigate."
         : "Saved command file could not be read; saved-command sync is disabled for this snapshot. Preserve it and investigate.",
+    });
+  }
+  // Without the saved-command peer state the clocks are unknown: recapturing
+  // local commands with fresh clocks would let older peer copies win silently.
+  if (
+    savedCommandsAvailable &&
+    savedCommandPeerStateUnreadable(context.inventoryPath)
+  ) {
+    savedCommandsAvailable = false;
+    savedCommands = { commands: [], invalid: [] };
+    issues.push({
+      id: "saved-commands",
+      reason:
+        "Saved-command sync state (peers-saved-commands.json) could not be read; saved-command sync is disabled. Preserve it and investigate.",
     });
   }
   issues.push(

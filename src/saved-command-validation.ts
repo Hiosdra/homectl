@@ -10,6 +10,44 @@ import {
 } from "./saved-command-types";
 import { HomectlError } from "./types";
 
+// Credential forms the control-plane patterns do not catch: user:password
+// after -u/--user, URL userinfo with a password, and -pSECRET / -p SECRET for
+// the MySQL clients and sshpass. Only a declared {{placeholder}} may stand in
+// the password position; other uses of -u/-p (sudo -u, ssh -p) stay allowed.
+const MYSQL_CLIENTS = new Set(["mysql", "mysqldump", "mysqladmin", "mariadb"]);
+function plaintextCredential(argv: string[], names: Set<string>): boolean {
+  const placeholder = (value: string) => {
+    const match = /^\{\{([a-z][a-z0-9_-]{0,31})\}\}$/.exec(value);
+    return match !== null && names.has(match[1] ?? "");
+  };
+  const program = (argv[0] ?? "")
+    .split(/[\\/]/)
+    .pop()
+    ?.toLowerCase()
+    .replace(/\.exe$/, "");
+  for (const [index, argument] of argv.entries()) {
+    const previous = index > 0 ? argv[index - 1] : undefined;
+    for (const url of argument.matchAll(
+      /[a-z][a-z0-9+.-]*:\/\/[^\s/:?#@]+:([^\s/@?#]*)@/gi,
+    ))
+      if (url[1] && !placeholder(url[1])) return true;
+    const user =
+      previous === "-u" || previous === "--user"
+        ? argument
+        : /^(?:-u|--user)=(.*)$/i.exec(argument)?.[1];
+    const password =
+      user === undefined ? undefined : /^[^:\s]+:(.+)$/.exec(user)?.[1];
+    if (password && !placeholder(password)) return true;
+    if (program && (MYSQL_CLIENTS.has(program) || program === "sshpass")) {
+      const attached = /^-p(.+)$/.exec(argument)?.[1];
+      if (attached && !placeholder(attached)) return true;
+      if (program === "sshpass" && previous === "-p" && !placeholder(argument))
+        return true;
+    }
+  }
+  return false;
+}
+
 const HOST = /^[a-z][a-z0-9-]{0,62}$/;
 const PARAMETER = /^[a-z][a-z0-9_-]{0,31}$/;
 const ID = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -97,6 +135,10 @@ export function validateFields(input: unknown): SavedCommandFields {
   }));
   const names = new Set(parameters.map((parameter) => parameter.name));
   if (names.size !== parameters.length) fail("Parameter names must be unique");
+  if (plaintextCredential(argv, names))
+    fail(
+      "Secret-like arguments cannot be stored; declare a parameter and use its placeholder",
+    );
   const redacted = redactArgv(argv);
   for (const [index, argument] of argv.entries()) {
     if (redacted[index] === argument) continue;

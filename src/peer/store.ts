@@ -52,6 +52,14 @@ function savedCommandPeerPath(path: string) {
 // Saved-command sidecars that exist but could not be read or parsed. Saved-command
 // sync stays disabled for them and their file is never overwritten until it is repaired.
 const unreadableSavedCommandSidecars = new Set<string>();
+
+// True when this inventory's saved-command peer state exists but could not be
+// read. Snapshot and apply then leave saved commands out entirely.
+export function savedCommandPeerStateUnreadable(inventoryPath: string) {
+  return unreadableSavedCommandSidecars.has(
+    savedCommandPeerPath(peerPath(inventoryPath)),
+  );
+}
 async function writeStateFile(path: string, value: unknown) {
   const tmp = `${path}.${randomUUID()}.tmp`;
   await writeFile(tmp, JSON.stringify(value), { mode: 0o600, flag: "wx" });
