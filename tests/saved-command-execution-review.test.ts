@@ -1,11 +1,15 @@
-import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { expect, spyOn, test } from "bun:test";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AuditJournal } from "../src/control/journal";
 import { execute } from "../src/operations";
 import { checkApproval, planExecution } from "../src/policies";
-import { expandSavedCommand, SavedCommandStore } from "../src/saved-commands";
+import {
+  expandSavedCommand,
+  redactSavedCommandArgv,
+  SavedCommandStore,
+} from "../src/saved-commands";
 import type { Machine } from "../src/types";
 
 const machine: Machine = {
@@ -60,6 +64,67 @@ test("redacted command-start audit permits secret-bearing argv execution", async
   }
 });
 
+test("root-session refusals do not create the user's audit journal", async () => {
+  const dir = await directory();
+  const warning = spyOn(console, "warn").mockImplementation(() => {});
+  const inventoryPath = join(dir, "inventory.yaml");
+  const auditPath = join(dir, "control-plane", "audit.jsonl");
+  try {
+    await expect(
+      execute("example", { ...machine, access: "observe" }, ["rm", "fixture"], {
+        configPath: join(dir, "ssh_config"),
+        getUid: () => 0,
+        audit: { inventoryPath },
+        runner: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+      }),
+    ).rejects.toMatchObject({
+      code: 3,
+      message:
+        "Run homectl as a non-root existing user for non-full local tiers",
+    });
+    expect(await Bun.file(auditPath).exists()).toBe(false);
+    expect(
+      await Bun.file(join(dir, "control-plane", "audit.anchor")).exists(),
+    ).toBe(false);
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining("was not added to the user's audit journal"),
+    );
+  } finally {
+    warning.mockRestore();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("audit failures do not replace policy or approval refusal errors", async () => {
+  const dir = await directory();
+  const inventoryPath = join(dir, "inventory.yaml");
+  const controlDirectory = join(dir, "control-plane");
+  const warning = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    await mkdir(controlDirectory, { recursive: true });
+    await writeFile(join(controlDirectory, "audit.jsonl"), "not valid JSON\n");
+    const audit = { inventoryPath };
+    await expect(
+      execute("example", { ...machine, access: "observe" }, ["rm", "fixture"], {
+        configPath: join(dir, "ssh_config"),
+        getUid: () => 1000,
+        audit,
+      }),
+    ).rejects.toMatchObject({ code: 3 });
+    await expect(
+      execute("example", machine, ["rm", "fixture"], {
+        configPath: join(dir, "ssh_config"),
+        requireApproval: true,
+        audit,
+      }),
+    ).rejects.toMatchObject({ code: 4 });
+    expect(warning).toHaveBeenCalledTimes(2);
+  } finally {
+    warning.mockRestore();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("saved token parameter templates execute while audit stores only redacted argv", async () => {
   const dir = await directory();
   const secretValue = "private-token-parameter";
@@ -73,11 +138,14 @@ test("saved token parameter templates execute while audit stores only redacted a
       parameters: [{ name: "tok" }],
     });
     const argv = expandSavedCommand(saved, "example", { tok: secretValue });
+    const displayArgv = redactSavedCommandArgv(saved, argv, {
+      tok: secretValue,
+    });
     const preview = await execute("example", machine, argv, {
       configPath: join(dir, "ssh_config"),
       dryRun: true,
       requireApproval: true,
-      displayArgv: saved.argv,
+      displayArgv,
       displayImpact: saved.description,
     });
     let executedArgv: string[] = [];
@@ -86,7 +154,7 @@ test("saved token parameter templates execute while audit stores only redacted a
       approval: preview.plan.approval,
       approvalContext: "cli",
       requireApproval: true,
-      displayArgv: saved.argv,
+      displayArgv,
       displayImpact: saved.description,
       audit: { inventoryPath },
       runner: async (spec) => {
@@ -107,9 +175,9 @@ test("saved token parameter templates execute while audit stores only redacted a
   }
 });
 
-test("parameterized plans display templates while approval binds expanded argv", async () => {
+test("parameterized plans show expanded argv while approval binds its exact form", async () => {
   const dir = await directory();
-  const secretValue = "private-parameter-value";
+  const parameterValue = "nginx.service";
   try {
     const inventoryPath = join(dir, "inventory.yaml");
     const saved = await new SavedCommandStore(
@@ -118,17 +186,22 @@ test("parameterized plans display templates while approval binds expanded argv",
       ...template,
       argv: ["rm", "{{unit}}"],
       parameters: [{ name: "unit" }],
+      description: "Remove one service unit",
     });
-    const argv = expandSavedCommand(saved, "example", { unit: secretValue });
-    const impact = "Remove {{unit}}";
+    const argv = expandSavedCommand(saved, "example", { unit: parameterValue });
+    const displayArgv = redactSavedCommandArgv(saved, argv, {
+      unit: parameterValue,
+    });
+    const impact = saved.description ?? "";
     const preview = await execute("example", machine, argv, {
       configPath: join(dir, "ssh_config"),
       dryRun: true,
       requireApproval: true,
-      displayArgv: saved.argv,
+      displayArgv,
       displayImpact: impact,
     });
-    expect(preview.plan.argv).toEqual(saved.argv);
+    expect(preview.plan.argv).toEqual(["rm", parameterValue]);
+    expect(preview.plan.argv).not.toEqual(saved.argv);
     expect(preview.plan.impact).toBe(impact);
     expect(preview.plan.approval).toBe(
       planExecution("example", machine, argv).approval,
@@ -140,12 +213,12 @@ test("parameterized plans display templates while approval binds expanded argv",
       execute("example", machine, argv, {
         configPath: join(dir, "ssh_config"),
         requireApproval: true,
-        displayArgv: saved.argv,
+        displayArgv,
         displayImpact: impact,
       }),
     ).rejects.toMatchObject({
       code: 4,
-      details: { argv: saved.argv, impact },
+      details: { argv: displayArgv, impact },
     });
 
     let executedArgv: string[] = [];
@@ -153,7 +226,7 @@ test("parameterized plans display templates while approval binds expanded argv",
       configPath: join(dir, "ssh_config"),
       requireApproval: true,
       approval: preview.plan.approval,
-      displayArgv: saved.argv,
+      displayArgv,
       displayImpact: impact,
       audit: { inventoryPath },
       runner: async (spec) => {
@@ -162,13 +235,65 @@ test("parameterized plans display templates while approval binds expanded argv",
       },
     });
     expect(executedArgv).toEqual(argv);
-    expect(result.plan.argv).toEqual(saved.argv);
+    expect(result.plan.argv).toEqual(displayArgv);
     const journal = await readFile(
       join(dir, "control-plane", "audit.jsonl"),
       "utf8",
     );
-    expect(journal).toContain("{{unit}}");
+    expect(journal).toContain(parameterValue);
+    expect(journal).not.toContain("{{unit}}");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("secret-flagged saved parameters stay masked in plans, errors, and audit", async () => {
+  const dir = await directory();
+  const secretValue = "private-secret-value";
+  try {
+    const inventoryPath = join(dir, "inventory.yaml");
+    const saved = await new SavedCommandStore(
+      join(dir, "saved-commands.json"),
+    ).save({
+      ...template,
+      argv: ["rm", "{{token}}"],
+      parameters: [{ name: "token", secret: true }],
+    });
+    const values = { token: secretValue };
+    const argv = expandSavedCommand(saved, "example", values);
+    const displayArgv = redactSavedCommandArgv(saved, argv, values);
+    const preview = await execute("example", machine, argv, {
+      configPath: join(dir, "ssh_config"),
+      dryRun: true,
+      requireApproval: true,
+      displayArgv,
+    });
+    expect(preview.plan.argv).toEqual(["rm", "[REDACTED]"]);
+    await expect(
+      execute("example", machine, argv, {
+        configPath: join(dir, "ssh_config"),
+        requireApproval: true,
+        displayArgv,
+      }),
+    ).rejects.toMatchObject({ details: { argv: displayArgv } });
+    await execute("example", machine, argv, {
+      configPath: join(dir, "ssh_config"),
+      requireApproval: true,
+      approval: preview.plan.approval,
+      displayArgv,
+      auditArgv: displayArgv,
+      audit: { inventoryPath },
+      runner: async (spec) => {
+        expect(spec.argv).toEqual(argv);
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      },
+    });
+    const journal = await readFile(
+      join(dir, "control-plane", "audit.jsonl"),
+      "utf8",
+    );
     expect(journal).not.toContain(secretValue);
+    expect(journal).toContain("[REDACTED]");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

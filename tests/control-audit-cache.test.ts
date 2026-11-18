@@ -49,3 +49,51 @@ test("audit entry cache reuses size and mtime and refreshes after a write", asyn
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("derived audit rows are cached with the journal entries", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "homectl-audit-rows-"));
+  const path = join(directory, "audit.jsonl");
+  await writeFile(path, "initial");
+  let reads = 0;
+  let sequence = 1;
+  const cache = new AuditEntriesCache();
+  const journal = {
+    path,
+    read: async (): Promise<AuditEntry[]> => {
+      reads++;
+      return [
+        {
+          v: 1,
+          seq: sequence,
+          at: new Date(0).toISOString(),
+          prev: "0".repeat(64),
+          hash: "1".repeat(64),
+          event: {
+            event: "command.refused",
+            op: "execute",
+            operationId: `cached-operation-${sequence}`,
+            host: "nas",
+            argv: ["rm", "fixture"],
+            policyDecision: "refused",
+            reason: "policy-refused",
+          },
+        },
+      ];
+    },
+  };
+  try {
+    const first = await cache.rows(journal, {});
+    const cached = await cache.rows(journal, {});
+    expect(first).toBe(cached);
+    expect(first).toHaveLength(1);
+    expect(reads).toBe(1);
+
+    sequence++;
+    await writeFile(path, "updated journal entries");
+    const refreshed = await cache.rows(journal, {});
+    expect(refreshed).not.toBe(first);
+    expect(reads).toBe(2);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

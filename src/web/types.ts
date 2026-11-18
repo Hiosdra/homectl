@@ -193,7 +193,11 @@ export type ControlExecution = {
   operation: ControlOp;
   output?: { stdout: string; stderr: string };
 };
-export type SavedCommandParameter = { name: string; description?: string };
+export type SavedCommandParameter = {
+  name: string;
+  description?: string;
+  secret?: boolean;
+};
 export type SavedCommand = {
   schemaVersion: 1;
   id: string;

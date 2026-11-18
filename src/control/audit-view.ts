@@ -46,7 +46,7 @@ export type AuditHistoryPage = {
   limit: number;
 };
 
-type AuditHistoryRecord = {
+export type AuditHistoryRecord = {
   row: AuditHistoryRow;
   creationSequence: number;
 };
@@ -116,7 +116,7 @@ function baseRow(
   };
 }
 
-function rowsFromJournal(
+export function auditHistoryRows(
   entries: readonly AuditEntry[],
   names: Record<string, string>,
 ): AuditHistoryRecord[] {
@@ -257,40 +257,45 @@ export function auditHistory(
   names: Record<string, string> = {},
   filters: AuditHistoryFilters = {},
 ): AuditHistoryPage {
+  return auditHistoryFromRows(auditHistoryRows(entries, names), filters);
+}
+
+export function auditHistoryFromRows(
+  rows: readonly AuditHistoryRecord[],
+  filters: AuditHistoryFilters = {},
+): AuditHistoryPage {
   const limit = Math.max(1, Math.min(100, Math.trunc(filters.limit ?? 50)));
   const query = filters.text?.trim().toLocaleLowerCase();
-  const rows = rowsFromJournal(entries, names).filter(
-    ({ row, creationSequence }) => {
-      if (filters.host && row.host !== filters.host) return false;
-      if (filters.status && row.status !== filters.status) return false;
-      if (filters.cursor !== undefined && creationSequence >= filters.cursor)
-        return false;
-      if (!query) return true;
-      return [
-        row.operationId,
-        row.operation,
-        row.host,
-        row.requester,
-        row.requesterName,
-        row.approver,
-        row.approverName,
-        row.policyDecision,
-        row.status,
-        row.reason,
-        row.classification,
-        ...(row.argv ?? []),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLocaleLowerCase()
-        .includes(query);
-    },
-  );
-  const page = rows.slice(0, limit);
+  const filteredRows = rows.filter(({ row, creationSequence }) => {
+    if (filters.host && row.host !== filters.host) return false;
+    if (filters.status && row.status !== filters.status) return false;
+    if (filters.cursor !== undefined && creationSequence >= filters.cursor)
+      return false;
+    if (!query) return true;
+    return [
+      row.operationId,
+      row.operation,
+      row.host,
+      row.requester,
+      row.requesterName,
+      row.approver,
+      row.approverName,
+      row.policyDecision,
+      row.status,
+      row.reason,
+      row.classification,
+      ...(row.argv ?? []),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLocaleLowerCase()
+      .includes(query);
+  });
+  const page = filteredRows.slice(0, limit);
   return {
     entries: page.map(({ row }) => row),
     limit,
-    ...(rows.length > limit && page.length
+    ...(filteredRows.length > limit && page.length
       ? { nextCursor: page.at(-1)?.creationSequence }
       : {}),
   };

@@ -62,19 +62,25 @@ export async function peerCommand(hub: Hub, peer: Peer, payload: unknown) {
     if (hub.operations.size >= 32)
       throw new HomectlError(3, "Too many pending operations");
     const id = randomUUID();
-    await appendLocalAudit(hub.inventoryPath, {
-      event: "command.approval-required",
-      op: "execute",
-      operationId: id,
-      client: "local-operator",
-      device: peer.id,
-      deviceName: peer.name,
-      host: v.host,
-      argv: normalizeAuditArgv(v.argv),
-      classification: plan.classification,
-      policyDecision: "needs-approval",
-      reason: "peer-approval-required",
-    });
+    try {
+      await appendLocalAudit(hub.inventoryPath, {
+        event: "command.approval-required",
+        op: "execute",
+        operationId: id,
+        client: "local-operator",
+        device: peer.id,
+        deviceName: peer.name,
+        host: v.host,
+        argv: normalizeAuditArgv(v.argv),
+        classification: plan.classification,
+        policyDecision: "needs-approval",
+        reason: "peer-approval-required",
+      });
+    } catch {
+      console.warn(
+        "Could not record the approval-required peer command in the audit journal.",
+      );
+    }
     hub.operations.set(id, {
       id,
       peerId: peer.id,

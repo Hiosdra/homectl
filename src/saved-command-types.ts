@@ -3,6 +3,7 @@ export const SAVED_COMMAND_VERSION = 1 as const;
 export type SavedCommandParameter = {
   name: string;
   description?: string;
+  secret?: boolean;
 };
 
 export type SavedCommand = {

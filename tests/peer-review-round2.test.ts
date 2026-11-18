@@ -140,6 +140,52 @@ test("saved-command sync is capability-negotiated and invalid records are isolat
   }
 });
 
+test("sync preview refresh retains negotiated features and incoming issues", async () => {
+  const current = await fixture("Current");
+  const peerFeatures = ["saved-commands"];
+  const issues = [{ id: "saved-command:bad", reason: "Invalid saved command" }];
+  const preview = await current.server.hub.preview(
+    "incoming-peer",
+    {},
+    false,
+    peerFeatures,
+    issues,
+  );
+  const launch = JSON.parse(await readFile(current.server.launch, "utf8")) as {
+    token: string;
+  };
+  const connect = await fetch(`${current.server.url}/api/connect`, {
+    method: "POST",
+    headers: {
+      Origin: current.server.url,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ token: launch.token }),
+  });
+  const cookie = connect.headers.get("set-cookie")?.split(";")[0] ?? "";
+  const refreshed = await fetch(`${current.server.url}/api/sync/preview`, {
+    method: "POST",
+    headers: {
+      Origin: current.server.url,
+      Cookie: cookie,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ id: preview.id }),
+  });
+  expect(refreshed.status).toBe(200);
+  const result = (await refreshed.json()) as {
+    id: string;
+    issues: { id: string; reason: string }[];
+  };
+  expect(result.issues).toContainEqual({
+    id: "saved-command:bad",
+    reason: "Invalid saved command",
+  });
+  expect(current.server.hub.pending.get(result.id)?.peerFeatures).toEqual(
+    peerFeatures,
+  );
+});
+
 test("invalid local saved commands are preserved and excluded from sync snapshots", async () => {
   const current = await fixture("Current");
   const saved = await current.server.hub.savedCommands.save({
@@ -316,9 +362,9 @@ test("failed saved-command acquisition leaves peer apply state and files untouch
   const beforeInventory = await readFile(current.path, "utf8");
   const beforeRecords = structuredClone(current.server.hub.state.records);
   const beforeObserved = structuredClone(current.server.hub.state.observed);
-  const replace = spyOn(
+  const validate = spyOn(
     current.server.hub.savedCommands,
-    "replaceFromRecords",
+    "validateReplacement",
   ).mockRejectedValue(new Error("Saved command validation failed"));
   try {
     await expect(current.server.hub.applyRecords({})).rejects.toThrow(
@@ -330,6 +376,102 @@ test("failed saved-command acquisition leaves peer apply state and files untouch
     expect(current.server.hub.state.records).toEqual(beforeRecords);
     expect(current.server.hub.state.observed).toEqual(beforeObserved);
   } finally {
-    replace.mockRestore();
+    validate.mockRestore();
+  }
+});
+
+test("a later peer-state failure cannot replace saved commands", async () => {
+  const current = await fixture("Current");
+  const existing = await current.server.hub.savedCommands.save({
+    name: "Existing shortcut",
+    hosts: ["example"],
+    argv: ["hostname"],
+    parameters: [],
+  });
+  const savedCommandsPath = current.server.hub.savedCommands.path;
+  const beforeSavedCommands = await readFile(savedCommandsPath, "utf8");
+  const beforeRecords = structuredClone(current.server.hub.state.records);
+  const beforeObserved = structuredClone(current.server.hub.state.observed);
+  const timestamp = new Date().toISOString();
+  const incoming = {
+    schemaVersion: 1,
+    id: "remote-shortcut",
+    name: "Remote shortcut",
+    hosts: ["example"],
+    argv: ["hostname", "-f"],
+    parameters: [],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const save = spyOn(current.server.hub, "save").mockRejectedValueOnce(
+    new Error("injected peer-state persistence failure"),
+  );
+  try {
+    await expect(
+      current.server.hub.applyRecords({
+        "saved-command:remote-shortcut": {
+          clock: { [randomUUID()]: 1 },
+          value: incoming,
+        },
+      }),
+    ).rejects.toThrow("injected peer-state persistence failure");
+    expect(await readFile(savedCommandsPath, "utf8")).toBe(beforeSavedCommands);
+    expect(await current.server.hub.savedCommands.list()).toEqual([existing]);
+    expect(current.server.hub.state.records).toEqual(beforeRecords);
+    expect(current.server.hub.state.observed).toEqual(beforeObserved);
+  } finally {
+    save.mockRestore();
+  }
+});
+
+test("peer approval and rejection state survives audit append failures", async () => {
+  const current = await fixture("Execution device");
+  await saveInventory(current.path, {
+    version: 1,
+    session: { ttl: "24h", database: join(current.root, "vault.kdbx") },
+    machines: {
+      example: {
+        description: "Synthetic",
+        transport: "local",
+        access: "full",
+      },
+    },
+  });
+  const peer: Peer = {
+    id: randomUUID(),
+    name: "Remote device",
+    platform: "test",
+    address: "127.0.0.1",
+    key: "",
+    permissions: {
+      sync: true,
+      diagnostics: false,
+      administer: true,
+      operations: ["example"],
+    },
+    pairedAt: Date.now(),
+  };
+  current.server.hub.state.peers[peer.id] = peer;
+  await mkdir(join(current.root, "control-plane"), { recursive: true });
+  await writeFile(
+    join(current.root, "control-plane", "audit.jsonl"),
+    "not valid JSON\n",
+  );
+  const warning = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const result = await peerCommand(current.server.hub, peer, {
+      host: "example",
+      argv: ["rm", "fixture"],
+    });
+    expect(result).toMatchObject({ pending: true });
+    const id = (result as { id: string }).id;
+    expect(current.server.hub.operations.get(id)?.state).toBe("pending");
+    expect(await current.server.hub.decideOperation(id, false)).toEqual({
+      rejected: true,
+    });
+    expect(current.server.hub.operations.get(id)?.state).toBe("rejected");
+    expect(warning).toHaveBeenCalledTimes(2);
+  } finally {
+    warning.mockRestore();
   }
 });

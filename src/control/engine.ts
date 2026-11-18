@@ -1064,6 +1064,10 @@ export class ControlPlane {
     return this.auditCache.read(this.journal);
   }
 
+  async auditRows(names: Record<string, string>) {
+    return this.auditCache.rows(this.journal, names);
+  }
+
   async recordReplicated(event: AuditEvent): Promise<void> {
     await this.audit(event);
   }

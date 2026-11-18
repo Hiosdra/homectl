@@ -341,7 +341,7 @@ test("sync apply requires an explicit reviewed choices file", async () => {
   );
 });
 
-test("parameterized command previews and JSON errors expose only template argv", async () => {
+test("parameterized command previews and JSON errors expose redacted expanded argv", async () => {
   const path = await fixture();
   const templatePath = join(tmpdir(), `saved-param-${randomUUID()}.json`);
   const secretValue = "private-value-that-must-not-be-echoed";
@@ -349,7 +349,7 @@ test("parameterized command previews and JSON errors expose only template argv",
     name: "Remove named target",
     hosts: ["example"],
     argv: ["rm", "{{target}}"],
-    parameters: [{ name: "target" }],
+    parameters: [{ name: "target", secret: true }],
     description: "Remove {{target}}",
   };
   try {
@@ -384,13 +384,13 @@ test("parameterized command previews and JSON errors expose only template argv",
     ]);
     expect(preview.code).toBe(0);
     const previewPlan = JSON.parse(preview.stdout).plan;
-    expect(previewPlan.argv).toEqual(template.argv);
+    expect(previewPlan.argv).toEqual(["rm", "[REDACTED]"]);
     expect(preview.stdout).not.toContain(secretValue);
 
     const refused = await invoke(runArgs);
     expect(refused.code).toBe(4);
     const error = JSON.parse(refused.stderr);
-    expect(error.details.argv).toEqual(template.argv);
+    expect(error.details.argv).toEqual(["rm", "[REDACTED]"]);
     expect(refused.stderr).not.toContain(secretValue);
   } finally {
     await rm(templatePath, { force: true });

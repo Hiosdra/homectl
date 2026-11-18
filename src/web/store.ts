@@ -74,7 +74,7 @@ export const ui = {
         name: string;
         hosts: string[];
         argv: string[];
-        parameters: { name: string; description?: string }[];
+        parameters: { name: string; description?: string; secret?: boolean }[];
         description?: string;
       }
     | undefined,

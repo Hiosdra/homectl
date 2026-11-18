@@ -1,5 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { describe, expect, spyOn, test } from "bun:test";
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonicalJson, fingerprint } from "../src/control/canonical";
@@ -256,6 +263,60 @@ describe("audit journal hash chain", () => {
       await expect(
         journal.append({ event: "request.accepted", client: "codex-pc" }),
       ).rejects.toBeInstanceOf(HomectlError);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("cached tails append incrementally and reverify changed journal data", async () => {
+    const { dir, path } = await workspace();
+    const journal = new AuditJournal(path, join(dir, "audit.anchor"));
+    try {
+      await journal.append({ event: "client.created", client: "first" });
+      const read = spyOn(journal, "read");
+      await journal.append({ event: "client.created", client: "second" });
+      expect(read).not.toHaveBeenCalled();
+
+      const original = await readFile(path, "utf8");
+      expect(original).toContain('"client":"first"');
+      await writeFile(
+        path,
+        original.replace('"client":"first"', '"client":"other"'),
+      );
+      await utimes(path, new Date(), new Date(Date.now() + 5_000));
+      await expect(
+        journal.append({ event: "request.accepted", client: "third" }),
+      ).rejects.toMatchObject({ code: 5 });
+      expect(read).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("anchor replacement retains the existing journal owner", async () => {
+    if (process.platform === "win32") return;
+    const { dir, path } = await workspace();
+    const anchorPath = join(dir, "audit.anchor");
+    const journal = new AuditJournal(path, anchorPath);
+    try {
+      await journal.append({ event: "client.created", client: "owner-check" });
+      const [journalOwner, anchorOwner] = await Promise.all([
+        stat(path),
+        stat(anchorPath),
+      ]);
+      expect([anchorOwner.uid, anchorOwner.gid]).toEqual([
+        journalOwner.uid,
+        journalOwner.gid,
+      ]);
+      await journal.append({
+        event: "client.created",
+        client: "owner-check-2",
+      });
+      const updatedAnchorOwner = await stat(anchorPath);
+      expect([updatedAnchorOwner.uid, updatedAnchorOwner.gid]).toEqual([
+        journalOwner.uid,
+        journalOwner.gid,
+      ]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

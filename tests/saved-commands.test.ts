@@ -408,3 +408,89 @@ test("audit-write failures do not replace command results or runner errors", asy
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("invalid saved commands can be removed or replaced", async () => {
+  const dir = await directory();
+  const path = join(dir, "saved-commands.json");
+  const broken = {
+    version: 1,
+    commands: { "broken-id": { schemaVersion: 99 } },
+  };
+  try {
+    const store = new SavedCommandStore(path);
+    await writeFile(path, JSON.stringify(broken));
+    expect(
+      (await store.listWithIssues()).invalid.map((item) => item.id),
+    ).toEqual(["broken-id"]);
+    await store.remove("broken-id");
+    expect((await store.listWithIssues()).invalid).toEqual([]);
+
+    await writeFile(path, JSON.stringify(broken));
+    const fixed = await store.save(
+      { ...template, name: "Fixed command" },
+      "broken-id",
+    );
+    expect(fixed.id).toBe("broken-id");
+    expect((await store.listWithIssues()).invalid).toEqual([]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("reserved names and ids are rejected and unknown fields are stripped", async () => {
+  const dir = await directory();
+  try {
+    const store = new SavedCommandStore(join(dir, "saved-commands.json"));
+    for (const reserved of ["__proto__", "constructor", "prototype"]) {
+      await expect(
+        store.save({ ...template, name: reserved }),
+      ).rejects.toThrow();
+      await expect(store.save(template, reserved)).rejects.toThrow(
+        "Saved command id is invalid",
+      );
+    }
+    const saved = await store.save({
+      ...template,
+      legacyField: "hunter2",
+      parameters: [
+        { name: "unit", description: "Service unit", default: "hunter2" },
+      ],
+    });
+    expect(saved).not.toHaveProperty("legacyField");
+    expect(saved.parameters[0]).not.toHaveProperty("default");
+    const persisted = await readFile(join(dir, "saved-commands.json"), "utf8");
+    expect(persisted).not.toContain("hunter2");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("synced saved-command name collisions resolve deterministically", () => {
+  const timestamp = new Date(0).toISOString();
+  const value = (id: string) => ({
+    schemaVersion: 1,
+    id,
+    name: "Shared command",
+    hosts: ["example"],
+    argv: ["echo", "hello"],
+    parameters: [],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
+  const records = {
+    "saved-command:device-z": { value: value("device-z") },
+    "saved-command:device-a": { value: value("device-a") },
+  };
+  const parsed = savedCommandsFromRecords(records);
+  const reverse = savedCommandsFromRecords(
+    Object.fromEntries(Object.entries(records).reverse()),
+  );
+  expect(parsed).toEqual(reverse);
+  expect(new Set(parsed.map((command) => command.name)).size).toBe(2);
+  expect(parsed.find((command) => command.id === "device-a")?.name).toBe(
+    "Shared command",
+  );
+  expect(parsed.find((command) => command.id === "device-z")?.name).toMatch(
+    /^Shared command \(device-device-z\)$/,
+  );
+});

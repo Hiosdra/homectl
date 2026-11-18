@@ -24,10 +24,12 @@ type ExecuteOptions = {
   approvalContext?: "cli" | "panel" | "peer";
   impact?: string;
   displayArgv?: string[];
+  auditArgv?: string[];
   displayImpact?: string;
   requireApproval?: boolean;
   runner?: Runner;
   catalogue?: boolean;
+  getUid?: () => number | undefined;
   beforeRun?: () => Promise<void>;
   audit?: {
     inventoryPath: string;
@@ -104,7 +106,7 @@ export async function execute(
           ? { deviceName: options.audit.requesterName }
           : {}),
       host,
-      argv: normalizeAuditArgv(options.displayArgv ?? argv),
+      argv: normalizeAuditArgv(options.auditArgv ?? argv),
       ...(details.classification
         ? { classification: details.classification }
         : {}),
@@ -135,6 +137,32 @@ export async function execute(
       return warning;
     }
   };
+  const auditRefusal = async (
+    event: "command.refused" | "command.approval-required",
+    details: Parameters<typeof audit>[1],
+  ) => {
+    try {
+      await audit(event, details);
+    } catch {
+      console.warn(
+        "Could not record the refused command in the audit journal.",
+      );
+    }
+  };
+  if (
+    !options.dryRun &&
+    machine.transport === "local" &&
+    machine.access !== "full" &&
+    (options.getUid?.() ?? process.getuid?.()) === 0
+  ) {
+    console.warn(
+      "The root-session refusal was not added to the user's audit journal.",
+    );
+    throw new HomectlError(
+      3,
+      "Run homectl as a non-root existing user for non-full local tiers",
+    );
+  }
   let plan: ExecutionPlan;
   try {
     plan = planExecution(host, machine, argv, options.impact, {
@@ -142,7 +170,7 @@ export async function execute(
     });
   } catch (error) {
     if (!options.dryRun)
-      await audit("command.refused", {
+      await auditRefusal("command.refused", {
         policyDecision: "refused",
         reason: "policy-refused",
       });
@@ -159,7 +187,7 @@ export async function execute(
   try {
     checkApproval(plan, options.approval, options.approvalContext);
   } catch (error) {
-    await audit(
+    await auditRefusal(
       error instanceof HomectlError && error.code === 4
         ? "command.approval-required"
         : "command.refused",
@@ -176,21 +204,6 @@ export async function execute(
       },
     );
     throw error;
-  }
-  if (
-    machine.transport === "local" &&
-    machine.access !== "full" &&
-    process.getuid?.() === 0
-  ) {
-    await audit("command.refused", {
-      classification: plan.classification,
-      policyDecision: "refused",
-      reason: "root-session-refused",
-    });
-    throw new (await import("./types")).HomectlError(
-      3,
-      "Run homectl as a non-root existing user for non-full local tiers",
-    );
   }
   await options.beforeRun?.();
   const spec = credentialSpec(

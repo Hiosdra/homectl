@@ -1,13 +1,17 @@
 import {
   type AuditHistoryFilters,
   type AuditStatus,
-  auditHistory,
+  auditHistoryFromRows,
 } from "../control/audit-view";
 import type { ControlPlane } from "../control/engine";
 import { loadInventory } from "../inventory";
 import { executeWithSSHConfig } from "../operations";
 import type { Hub } from "../peer/hub";
-import { availableCommandHosts, expandSavedCommand } from "../saved-commands";
+import {
+  availableCommandHosts,
+  expandSavedCommand,
+  redactSavedCommandArgv,
+} from "../saved-commands";
 import { HomectlError, type Runner } from "../types";
 import { body, response } from "./http";
 
@@ -81,7 +85,9 @@ export async function auditCommandsRoute(
     const names = Object.fromEntries(
       clients.map((client) => [client.id, client.name]),
     );
-    return response(auditHistory(await control.auditEntries(), names, filters));
+    return response(
+      auditHistoryFromRows(await control.auditRows(names), filters),
+    );
   }
   if (
     req.method !== "POST" ||
@@ -179,6 +185,11 @@ export async function auditCommandsRoute(
         host,
         parameters as Record<string, string>,
       );
+      const redactedArgv = redactSavedCommandArgv(
+        command,
+        argv,
+        parameters as Record<string, string>,
+      );
       return executeWithSSHConfig(host, machine, argv, {
         configPath,
         machines: inventory.machines,
@@ -188,7 +199,8 @@ export async function auditCommandsRoute(
           typeof value.approval === "string" ? value.approval : undefined,
         approvalContext: "panel",
         impact: command.description || `Run saved command: ${command.name}`,
-        displayArgv: command.argv,
+        displayArgv: redactedArgv,
+        auditArgv: redactedArgv,
         displayImpact:
           command.description || `Run saved command: ${command.name}`,
         runner: options.operationRunner,

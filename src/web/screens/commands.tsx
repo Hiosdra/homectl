@@ -31,8 +31,8 @@ function CommandEditor() {
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="saved-parameters">Declared parameters (one per line)</Label>
-          <Textarea id="saved-parameters" name="parameters" defaultValue={draft.parameters.map((p) => `${p.name}${p.description ? ` | ${p.description}` : ""}`).join("\n")} placeholder="unit | systemd service name" />
-          <Note>Reference a parameter as <code>{"{{name}}"}</code> inside one argv item. Values are requested for each run and never saved.</Note>
+          <Textarea id="saved-parameters" name="parameters" defaultValue={draft.parameters.map((p) => `${p.name}${p.description ? ` | ${p.description}` : ""}${p.secret ? " | secret" : ""}`).join("\n")} placeholder="unit | systemd service name | secret" />
+          <Note>Reference a parameter as <code>{"{{name}}"}</code> inside one argv item. Add <code>| secret</code> to always mask a value. Values are requested for each run and never saved.</Note>
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="saved-description">Description (optional)</Label>
@@ -65,7 +65,7 @@ function RunCommand({ command }: { command: SavedCommand }) {
           {command.parameters.map((parameter) => (
             <div className="grid gap-1.5" key={parameter.name}>
               <Label htmlFor={`saved-param-${parameter.name}`}>{parameter.name}</Label>
-              <Input id={`saved-param-${parameter.name}`} name={`parameter-${parameter.name}`} required maxLength={4096} />
+              <Input id={`saved-param-${parameter.name}`} name={`parameter-${parameter.name}`} type={parameter.secret ? "password" : "text"} autoComplete="off" required maxLength={4096} />
               {parameter.description ? <Note>{parameter.description}</Note> : null}
             </div>
           ))}
@@ -127,7 +127,7 @@ export function CommandsScreen() {
           </ListRow>
         ))}
         {invalidCommands.map((command) => (
-          <ListRow key={command.id} actions={<Tag tone="warning">invalid — needs attention</Tag>}>
+          <ListRow key={command.id} actions={<Action action="saved-command-remove" id={command.id} label="Remove" kind="quiet-danger" />}>
             <div className="min-w-0">
               <strong>Invalid saved command</strong>
               <p className="mt-1 break-all text-sm text-muted-foreground">ID {command.id}</p>

@@ -27,6 +27,7 @@ import {
 import { keyReference } from "../session/keys";
 import { doctor } from "../setup";
 import { HomectlError, type Inventory, type Machine } from "../types";
+import { savePeerSyncRecords } from "./apply-sync-records";
 import { peerCommand } from "./command";
 import {
   type Envelope,
@@ -554,8 +555,10 @@ export class Hub {
     incoming: unknown,
     remoteVaultUnlocked?: boolean,
     supportedFeatures: string[] = [],
+    priorIssues: { id: string; reason: string }[] = [],
   ) {
-    const { records, issues } = sanitizeSyncRecords(incoming);
+    const { records, issues: incomingIssues } = sanitizeSyncRecords(incoming);
+    const issues = [...priorIssues, ...incomingIssues];
     if (
       Object.keys(records).some((k) => k.startsWith("credential:")) &&
       !this.vault.unlocked
@@ -817,7 +820,10 @@ export class Hub {
         .map(([id, r]) => [id, String(r.value)]),
     );
     validateHostKeys(trusted, machines);
-    await this.savedCommands.replaceFromRecords(records, expectedSavedCommands);
+    await this.savedCommands.validateReplacement(
+      records,
+      expectedSavedCommands,
+    );
     if (this.vault.unlocked) await this.vault.apply(credentials);
     await privateDirectory(join(dirname(this.inventoryPath), "public-keys"));
     for (const m of Object.values(machines))
@@ -843,11 +849,7 @@ export class Hub {
     await lockSession(this.inventoryPath);
     await saveInventory(this.inventoryPath, next);
     await writeSSHConfig(this.configPath, next.machines);
-    this.state.records = records;
-    for (const [key, v] of Object.entries(records))
-      if (!key.startsWith("credential:") || this.vault.unlocked)
-        this.state.observed[key] = hash(v.value);
-    await this.save();
+    await savePeerSyncRecords(this, records, expectedSavedCommands);
   }
   async remoteAction(peer: Peer, action: string, payload: unknown) {
     if (action === "control-exchange") {
@@ -923,17 +925,23 @@ export class Hub {
     if (!approved) {
       o.state = "rejected";
       const peer = this.state.peers[o.peerId];
-      await appendLocalAudit(this.inventoryPath, {
-        event: "command.refused",
-        op: "execute",
-        operationId: o.operationId,
-        client: "local-operator",
-        ...(peer ? { device: peer.id, deviceName: peer.name } : {}),
-        host: o.host,
-        argv: normalizeAuditArgv(o.argv),
-        policyDecision: "refused",
-        reason: "peer-operation-rejected",
-      });
+      try {
+        await appendLocalAudit(this.inventoryPath, {
+          event: "command.refused",
+          op: "execute",
+          operationId: o.operationId,
+          client: "local-operator",
+          ...(peer ? { device: peer.id, deviceName: peer.name } : {}),
+          host: o.host,
+          argv: normalizeAuditArgv(o.argv),
+          policyDecision: "refused",
+          reason: "peer-operation-rejected",
+        });
+      } catch {
+        console.warn(
+          "Could not record the rejected peer operation in the audit journal.",
+        );
+      }
       return { rejected: true };
     }
     const peer = this.state.peers[o.peerId];

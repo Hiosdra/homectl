@@ -42,9 +42,32 @@ export function parseSavedCommandsFromRecordsWithIssues(
       .filter((command) => !command.id.startsWith("copy-"))
       .map((command) => command.name.toLocaleLowerCase()),
   );
-  for (const command of commands.filter((item) =>
-    item.id.startsWith("copy-"),
-  )) {
+  const lexical = (a: SavedCommand, b: SavedCommand) =>
+    a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  const originals = commands
+    .filter((command) => !command.id.startsWith("copy-"))
+    .sort(lexical);
+  const retainedNames = new Set<string>();
+  for (const command of originals) {
+    const key = command.name.toLocaleLowerCase();
+    if (!retainedNames.has(key)) {
+      retainedNames.add(key);
+      continue;
+    }
+    const baseName = command.name;
+    let suffixNumber = 1;
+    let candidate: string;
+    do {
+      const suffix = ` (device-${command.id.slice(0, 8)}${suffixNumber === 1 ? "" : `-${suffixNumber}`})`;
+      candidate = `${baseName.slice(0, 80 - suffix.length).trimEnd()}${suffix}`;
+      suffixNumber++;
+    } while (usedNames.has(candidate.toLocaleLowerCase()));
+    command.name = candidate;
+    usedNames.add(candidate.toLocaleLowerCase());
+  }
+  for (const command of commands
+    .filter((item) => item.id.startsWith("copy-"))
+    .sort(lexical)) {
     const baseName = command.name.replace(/ \(copy(?: \d+)?\)$/, "");
     let suffixNumber = 1;
     let candidate: string;

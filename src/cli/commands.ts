@@ -5,6 +5,7 @@ import { executeWithSSHConfig } from "../operations";
 import {
   availableCommandHosts,
   expandSavedCommand,
+  redactSavedCommandArgv,
   SavedCommandStore,
 } from "../saved-commands";
 import { HomectlError, type Inventory } from "../types";
@@ -114,7 +115,8 @@ export async function runCommands(options: {
       dryRun: options.dryRun,
       approval: options.approval,
       approvalContext: "cli",
-      displayArgv: saved.argv,
+      displayArgv: redactSavedCommandArgv(saved, argv, parameters),
+      auditArgv: redactSavedCommandArgv(saved, argv, parameters),
       displayImpact:
         options.impact ||
         saved.description ||

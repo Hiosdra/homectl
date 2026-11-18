@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, readFile, writeFile } from "node:fs/promises";
-import { atomicReplace } from "../platform";
+import { appendFile, chown, readFile, stat, writeFile } from "node:fs/promises";
+import { atomicReplace, protect } from "../platform";
 import { HomectlError } from "../types";
 import { canonicalJson, sha256 } from "./canonical";
 import { controlStateDirectory } from "./paths";
@@ -30,6 +30,25 @@ export interface AuditAnchor {
 }
 
 type EntryBody = Omit<AuditEntry, "hash">;
+
+type VerifiedTail = {
+  journalSignature: string;
+  anchorSignature: string;
+  seq: number;
+  hash: string;
+};
+
+const verifiedTails = new Map<string, VerifiedTail>();
+
+async function fileSignature(path: string): Promise<string> {
+  try {
+    const metadata = await stat(path);
+    return `${metadata.size}:${metadata.mtimeMs}`;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+    throw error;
+  }
+}
 
 function normalizeAuditEvent(event: AuditEvent): AuditEvent {
   const normalized = { ...event };
@@ -129,12 +148,63 @@ export class AuditJournal {
   private async writeAnchor(anchor: AuditAnchor): Promise<void> {
     const temp = `${this.anchorPath}.${randomUUID()}.tmp`;
     await writeFile(temp, JSON.stringify(anchor), { mode: 0o600, flag: "wx" });
+    await protect(temp);
+    if (process.platform !== "win32") {
+      let owner: { uid: number; gid: number } | undefined;
+      for (const path of [this.anchorPath, this.path]) {
+        try {
+          owner = await stat(path);
+          break;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      }
+      if (owner) {
+        const temporary = await stat(temp);
+        if (temporary.uid !== owner.uid || temporary.gid !== owner.gid)
+          await chown(temp, owner.uid, owner.gid);
+      }
+    }
     await atomicReplace(temp, this.anchorPath);
+  }
+
+  private cacheKey(): string {
+    return `${this.path}\0${this.anchorPath}`;
+  }
+
+  private async signatures() {
+    const [journalSignature, anchorSignature] = await Promise.all([
+      fileSignature(this.path),
+      fileSignature(this.anchorPath),
+    ]);
+    return { journalSignature, anchorSignature };
+  }
+
+  private rememberTail(
+    entries: AuditEntry[],
+    signatures: { journalSignature: string; anchorSignature: string },
+  ) {
+    const last = entries.at(-1);
+    verifiedTails.set(this.cacheKey(), {
+      ...signatures,
+      seq: last?.seq ?? 0,
+      hash: last?.hash ?? GENESIS,
+    });
   }
 
   // Chain check plus anchor check.
   async verify(): Promise<ChainCheck> {
-    return this.check(await this.read());
+    const before = await this.signatures();
+    const entries = await this.read();
+    const check = await this.check(entries);
+    const after = await this.signatures();
+    if (
+      check.ok &&
+      before.journalSignature === after.journalSignature &&
+      before.anchorSignature === after.anchorSignature
+    )
+      this.rememberTail(entries, after);
+    return check;
   }
 
   private async check(entries: AuditEntry[]): Promise<ChainCheck> {
@@ -181,24 +251,40 @@ export class AuditJournal {
         5,
         "Audit event refused: secret-like material detected",
       );
-    const entries = await this.read();
-    const check = await this.check(entries);
-    if (!check.ok)
-      throw new HomectlError(
-        5,
-        "Audit journal failed verification; run home-ctl control audit verify",
-      );
-    const last = entries.at(-1);
+    const signatures = await this.signatures();
+    const key = this.cacheKey();
+    let tail = verifiedTails.get(key);
+    if (
+      !tail ||
+      tail.journalSignature !== signatures.journalSignature ||
+      tail.anchorSignature !== signatures.anchorSignature
+    ) {
+      const entries = await this.read();
+      const check = await this.check(entries);
+      const after = await this.signatures();
+      if (
+        !check.ok ||
+        after.journalSignature !== signatures.journalSignature ||
+        after.anchorSignature !== signatures.anchorSignature
+      )
+        throw new HomectlError(
+          5,
+          "Audit journal failed verification; run home-ctl control audit verify",
+        );
+      this.rememberTail(entries, after);
+      tail = verifiedTails.get(key);
+    }
     const body: EntryBody = {
       v: 1,
-      seq: (last?.seq ?? 0) + 1,
+      seq: (tail?.seq ?? 0) + 1,
       at: new Date(this.clock()).toISOString(),
-      prev: last?.hash ?? GENESIS,
+      prev: tail?.hash ?? GENESIS,
       event: normalizedEvent,
     };
     const entry: AuditEntry = { ...body, hash: chainHash(body) };
     await appendFile(this.path, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
     await this.writeAnchor({ v: 1, seq: entry.seq, hash: entry.hash });
+    this.rememberTail([entry], await this.signatures());
     return entry;
   }
 }

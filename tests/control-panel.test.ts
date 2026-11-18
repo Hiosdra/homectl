@@ -235,7 +235,7 @@ test("saved command API keeps unknown hosts unavailable and enforces policy with
     };
   };
   expect(preview.plan.needsApproval).toBe(true);
-  expect(preview.plan.argv).toEqual(["echo", "--token", "{{token}}"]);
+  expect(preview.plan.argv).toEqual(["echo", "--token", "[REDACTED]"]);
   expect(JSON.stringify(preview)).not.toContain(values.token);
   const noApproval = await call("POST", "/api/commands/run", {
     id: savedBody.command.id,
@@ -263,7 +263,7 @@ test("saved command API keeps unknown hosts unavailable and enforces policy with
   expect((execution as { plan: { argv: string[] } }).plan.argv).toEqual([
     "echo",
     "--token",
-    "{{token}}",
+    "[REDACTED]",
   ]);
   expect(runs).toBe(1);
 
@@ -334,6 +334,11 @@ test("invalid saved commands are surfaced by the commands API", async () => {
       reason: expect.any(String),
     }),
   ]);
+  const removed = await call("POST", "/api/commands/remove", { id: "broken" });
+  expect(removed.status).toBe(200);
+  expect(await removed.json()).toEqual({ removed: "broken" });
+  const refreshed = await call("GET", "/api/commands");
+  expect(await refreshed.json()).toEqual({ commands: [] });
 });
 
 test("API exec is serialized with machine saves", async () => {

@@ -26,6 +26,21 @@ export function parseSavedCommandArgv(value: string): string[] {
   return parsed;
 }
 
+export function savedCommandConfirmation(
+  host: string,
+  plan: {
+    argv: string[];
+    classification: string;
+    impact: string;
+    needsApproval: boolean;
+  },
+) {
+  return {
+    title: `Run saved command on ${host}?`,
+    body: `Command: ${displayArgv(plan.argv)} · ${plan.classification}. Impact: ${plan.impact}${plan.needsApproval ? " · approval required" : ""}. Homectl rechecks the local policy before execution.`,
+  };
+}
+
 export function handleSubmit(form: HTMLFormElement) {
   const formId = form.getAttribute("id");
   const values = new FormData(form);
@@ -101,12 +116,18 @@ export function handleSubmit(form: HTMLFormElement) {
         .map((line) => line.trim())
         .filter(Boolean)
         .map((line) => {
-          const [name, ...description] = line.split("|");
+          const [name, ...parts] = line.split("|");
+          const secret = parts.some(
+            (part) => part.trim().toLocaleLowerCase() === "secret",
+          );
+          const description = parts
+            .filter((part) => part.trim().toLocaleLowerCase() !== "secret")
+            .join("|")
+            .trim();
           return {
             name: name?.trim() ?? "",
-            ...(description.length
-              ? { description: description.join("|").trim() }
-              : {}),
+            ...(description ? { description } : {}),
+            ...(secret ? { secret: true } : {}),
           };
         });
       await api("/api/commands/save", {
@@ -147,13 +168,8 @@ export function handleSubmit(form: HTMLFormElement) {
       }>("/api/commands/run", { ...payload, dryRun: true });
       ui.result = preview;
       render();
-      if (
-        !(await confirm(
-          `Run saved command on ${host}?`,
-          `${displayArgv(preview.plan.argv)} · ${preview.plan.classification} · ${preview.plan.impact}${preview.plan.needsApproval ? " · approval required" : ""}. Homectl rechecks the local policy before execution.`,
-        ))
-      )
-        return;
+      const confirmation = savedCommandConfirmation(host, preview.plan);
+      if (!(await confirm(confirmation.title, confirmation.body))) return;
       ui.result = await api("/api/commands/run", {
         ...payload,
         dryRun: false,

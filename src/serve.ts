@@ -552,6 +552,8 @@ export async function serve(options: ServeOptions) {
                       p.peerId,
                       p.records,
                       p.remoteVaultUnlocked,
+                      p.peerFeatures,
+                      p.issues,
                     ),
                   );
                 }

@@ -55,12 +55,17 @@ export async function verifySavedCommandEditor(
   const reviewButton = page.getByRole("button", { name: "Review and run" });
   await expect(reviewButton).toHaveAttribute("type", "submit");
   await reviewButton.click();
-  await expect(page.locator("#confirm-dialog")).toContainText('"{{target}}"');
+  await expect(page.locator("#confirm-dialog")).toContainText(
+    "Run saved command on agent-host?",
+  );
+  await expect(page.locator("#confirm-dialog")).toContainText(
+    'Command: "rm" "private-panel-parameter"',
+  );
   await expect(page.locator("#confirm-dialog")).toContainText(
     "Remove {{target}}",
   );
   await expect(page.locator("#confirm-dialog")).not.toContainText(
-    "private-panel-parameter",
+    '"{{target}}"',
   );
   await page.locator("#confirm-dialog button[value=cancel]").click();
   await expect(page.locator("#confirm-dialog")).toHaveCount(0);
