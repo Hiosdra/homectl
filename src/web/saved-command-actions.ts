@@ -22,7 +22,9 @@ export async function handleSavedCommandAction(
       }>("/api/commands");
       const command = commands.find((item) => item.id === id);
       if (!command || "status" in command)
-        throw new Error("Saved command is invalid or no longer exists. Review the list.");
+        throw new Error(
+          "Saved command is invalid or no longer exists. Review the list.",
+        );
       ui.savedCommandDraft = command;
       ui.savedCommandRun = undefined;
       navigate("commands");
@@ -38,21 +40,29 @@ export async function handleSavedCommandAction(
       render();
       return true;
     case "saved-command-remove": {
-      if (!(await confirm(
-        "Remove saved command?",
-        "This deletion will be included in the next reviewed sync with paired peers.",
-      ))) return true;
-      const command = await api<{ removed: string }>("/api/commands/remove", { id });
+      if (
+        !(await confirm(
+          "Remove saved command?",
+          "This deletion will be included in the next reviewed sync with paired peers.",
+        ))
+      )
+        return true;
+      const command = await api<{ removed: string }>("/api/commands/remove", {
+        id,
+      });
       ui.savedCommandVersion++;
       if (ui.savedCommandRun === id) ui.savedCommandRun = undefined;
-      report("Saved command " + command.removed + " removed.", "notice");
+      report(`Saved command ${command.removed} removed.`, "notice");
       return true;
     }
     case "audit-clear": {
-      if (!(await confirm(
-        "Clear local command history?",
-        "This permanently removes ordinary command-history rows from this device. The control-plane journal is not changed.",
-      ))) return true;
+      if (
+        !(await confirm(
+          "Clear local command history?",
+          "This permanently removes ordinary command-history rows from this device. The control-plane journal is not changed.",
+        ))
+      )
+        return true;
       const result = await api<{ cleared: boolean }>("/api/audit/clear", {});
       ui.auditPage = undefined;
       await loadAudit(true);

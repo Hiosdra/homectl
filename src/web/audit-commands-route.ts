@@ -1,13 +1,13 @@
 import {
+  clearLocalCommandHistory,
+  readLocalCommandHistory,
+} from "../command-history";
+import {
   type AuditHistoryFilters,
   type AuditStatus,
   auditHistoryFromRows,
   commandHistoryRows,
 } from "../control/audit-view";
-import {
-  clearLocalCommandHistory,
-  readLocalCommandHistory,
-} from "../command-history";
 import type { ControlPlane } from "../control/engine";
 import { loadInventory } from "../inventory";
 import { executeWithSSHConfig } from "../operations";

@@ -26,7 +26,7 @@ import { paths } from "../setup";
 import { transportSpec } from "../transports";
 import { HomectlError, type Machine, type ProcessResult } from "../types";
 import { runUpdate } from "../update";
-import { runCommandsFromCli, runHistoryCommand } from "./commands";
+import { runLocalCliCommand } from "./commands";
 import { helpTopics, renderHelp } from "./help";
 import { hostCommand } from "./host-commands";
 import { runInternal } from "./internal-roles";
@@ -674,17 +674,19 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       console.log(json ? JSON.stringify(result.value) : result.human);
       return result.code;
     }
-    if (command === "history") {
-      return await runHistoryCommand(
-        host, positionals, commandArgs, dryRun, inventoryPath, emit,
-      );
-    }
+    const localCommandResult = await runLocalCliCommand({
+      command,
+      host,
+      positionals,
+      commandArgs,
+      dryRun,
+      inventoryPath,
+      configPath,
+      values: v,
+      emit,
+    });
+    if (localCommandResult !== undefined) return localCommandResult;
     const inv = await loadInventory(inventoryPath);
-    if (command === "commands") {
-      return await runCommandsFromCli(
-        positionals, commandArgs, inventoryPath, configPath, inv, dryRun, v, emit,
-      );
-    }
     if (positionals.length > (command === "key" ? 3 : 2))
       throw new HomectlError(
         2,

@@ -1,8 +1,8 @@
-import Ajv from "ajv";
 import { expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Ajv from "ajv";
 import { AuditJournal } from "../src/control/journal";
 import type { AuditEventName } from "../src/control/types";
 
@@ -45,7 +45,10 @@ test("written control-plane events remain valid under the master audit schema", 
     );
     expect(validate).toBeDefined();
 
-    const journal = new AuditJournal(join(dir, "audit.jsonl"), join(dir, "audit.anchor"));
+    const journal = new AuditJournal(
+      join(dir, "audit.jsonl"),
+      join(dir, "audit.anchor"),
+    );
     for (const event of masterEventNames) await journal.append({ event });
 
     for (const entry of await journal.read())

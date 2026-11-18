@@ -8,9 +8,9 @@ import {
 import { copyFile, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { dirname, join } from "node:path";
+import { recordLocalCommand } from "../command-history";
 import { type DeviceKey, loadOrCreateDeviceKey } from "../control/device-key";
 import { controlStateDirectory } from "../control/engine";
-import { recordLocalCommand } from "../command-history";
 import { loadInventory, parseInventory, saveInventory } from "../inventory";
 import { execute, writeSSHConfig } from "../operations";
 import { privateDirectory, protect } from "../platform";

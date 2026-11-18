@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CommandHistoryStore,
-  redactCommandHistoryArgv,
   type LocalCommandHistoryInput,
+  redactCommandHistoryArgv,
 } from "../src/command-history";
 
 function input(
@@ -44,7 +44,10 @@ const secretFlagCases: [string, string[]][] = [
   ["--token", ["tool", "--token", "MySecret"]],
   ["--secret", ["tool", "--secret", "MySecret"]],
   ["Authorization header", ["curl", "-H", "Authorization: Bearer MySecret"]],
-  ["Bearer header value", ["curl", "-H", "Authorization:", "Bearer", "MySecret"]],
+  [
+    "Bearer header value",
+    ["curl", "-H", "Authorization:", "Bearer", "MySecret"],
+  ],
   ["standalone Bearer value", ["curl", "-H", "Bearer MySecret"]],
 ];
 
@@ -84,7 +87,9 @@ test("serializes a started and outcome pair and retains stable sequences", async
 });
 
 test("rotates by entry count and age", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "homectl-command-history-retention-"));
+  const dir = await mkdtemp(
+    join(tmpdir(), "homectl-command-history-retention-"),
+  );
   try {
     let now = 1_800_000_000_003;
     const store = new CommandHistoryStore(join(dir, "inventory.yaml"), {
@@ -100,7 +105,9 @@ test("rotates by entry count and age", async () => {
         ...input("outcome", base + index, `count-${index}`),
         startedAt: undefined,
       });
-    expect((await store.read()).map((entry) => entry.sequence)).toEqual([2, 3, 4]);
+    expect((await store.read()).map((entry) => entry.sequence)).toEqual([
+      2, 3, 4,
+    ]);
 
     now = base + 31 * 24 * 60 * 60 * 1000;
     await store.append({
@@ -150,7 +157,9 @@ test("history write failures warn without rejecting the command recorder", async
       getUid: nonRootUid,
       warn: (message) => warnings.push(message),
     });
-    await expect(store.append(input("outcome", Date.now(), "failed-write"))).resolves.toBeUndefined();
+    await expect(
+      store.append(input("outcome", Date.now(), "failed-write")),
+    ).resolves.toBeUndefined();
     expect(warnings).toContain("Could not write local command history.");
   } finally {
     await rm(dir, { recursive: true, force: true });

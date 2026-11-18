@@ -1,8 +1,8 @@
-import { redactArgv } from "./redact";
 import type { CommandHistoryEntry } from "../command-history";
 import { redactCommandHistoryArgv } from "../command-history";
-import type { AuditEntry, AuditEvent, Classification } from "./types";
 import { HomectlError } from "../types";
+import { redactArgv } from "./redact";
+import type { AuditEntry, AuditEvent, Classification } from "./types";
 
 export type AuditPolicyDecision = "allowed" | "needs-approval" | "refused";
 export type AuditStatus =
@@ -122,10 +122,11 @@ export function auditHistoryRows(
       const prior = event.operationId
         ? operations.get(event.operationId)?.row
         : undefined;
-      const policyDecision =
-        (/approval|required|approved/i.test(event.reason ?? "")
-          ? "needs-approval"
-          : "refused");
+      const policyDecision = /approval|required|approved/i.test(
+        event.reason ?? "",
+      )
+        ? "needs-approval"
+        : "refused";
       const row = baseRow(
         `attempt-${entry.seq}`,
         entry.seq,
@@ -189,8 +190,7 @@ export function auditHistoryRows(
       continue;
     }
     if (event.event === "operation.executing") {
-      if (!row.operation)
-        row.operation = "control operation";
+      if (!row.operation) row.operation = "control operation";
       row.at = entry.at;
       startedAt.set(id, Date.parse(entry.at));
       row.host = event.host ?? row.host;
@@ -241,9 +241,13 @@ export function commandHistoryRows(
           host: entry.host,
           argv: redactCommandHistoryArgv(entry.argv),
           requester: entry.requester,
-          ...(entry.requesterName ? { requesterName: entry.requesterName } : {}),
+          ...(entry.requesterName
+            ? { requesterName: entry.requesterName }
+            : {}),
           policyDecision: entry.policyDecision,
-          ...(entry.classification ? { classification: entry.classification } : {}),
+          ...(entry.classification
+            ? { classification: entry.classification }
+            : {}),
           ...(entry.approver ? { approver: entry.approver } : {}),
           status: entry.status,
         },
@@ -260,7 +264,8 @@ export function commandHistoryRows(
     if (entry.classification) record.row.classification = entry.classification;
     if (entry.approver) record.row.approver = entry.approver;
     if (entry.exitCode !== undefined) record.row.exitCode = entry.exitCode;
-    if (entry.durationMs !== undefined) record.row.durationMs = entry.durationMs;
+    if (entry.durationMs !== undefined)
+      record.row.durationMs = entry.durationMs;
     if (entry.reason) record.row.reason = entry.reason;
   }
   return [...byOperation.values()];
@@ -281,29 +286,31 @@ export function auditHistoryFromRows(
   const limit = Math.max(1, Math.min(100, Math.trunc(filters.limit ?? 50)));
   const query = filters.text?.trim().toLocaleLowerCase();
   const cursor = decodeAuditCursor(filters.cursor);
-  const filteredRows = rows.filter(({ row }) => {
-    if (filters.host && row.host !== filters.host) return false;
-    if (filters.status && row.status !== filters.status) return false;
-    if (!query) return true;
-    return [
-      row.operationId,
-      row.operation,
-      row.host,
-      row.requester,
-      row.requesterName,
-      row.approver,
-      row.approverName,
-      row.policyDecision,
-      row.status,
-      row.reason,
-      row.classification,
-      ...(row.argv ?? []),
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLocaleLowerCase()
-      .includes(query);
-  }).sort(compareRecords);
+  const filteredRows = rows
+    .filter(({ row }) => {
+      if (filters.host && row.host !== filters.host) return false;
+      if (filters.status && row.status !== filters.status) return false;
+      if (!query) return true;
+      return [
+        row.operationId,
+        row.operation,
+        row.host,
+        row.requester,
+        row.requesterName,
+        row.approver,
+        row.approverName,
+        row.policyDecision,
+        row.status,
+        row.reason,
+        row.classification,
+        ...(row.argv ?? []),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLocaleLowerCase()
+        .includes(query);
+    })
+    .sort(compareRecords);
   const afterCursor = cursor
     ? filteredRows.filter((record) => compareKey(recordKey(record), cursor) > 0)
     : filteredRows;
@@ -312,12 +319,21 @@ export function auditHistoryFromRows(
     entries: page.map(({ row }) => row),
     limit,
     ...(afterCursor.length > limit && page.length
-      ? { nextCursor: encodeAuditCursor(recordKey(page.at(-1) as AuditHistoryRecord)) }
+      ? {
+          nextCursor: encodeAuditCursor(
+            recordKey(page.at(-1) as AuditHistoryRecord),
+          ),
+        }
       : {}),
   };
 }
 
-type AuditCursor = { at: string; source: AuditHistoryRow["source"]; sequence: number; id: string };
+type AuditCursor = {
+  at: string;
+  source: AuditHistoryRow["source"];
+  sequence: number;
+  id: string;
+};
 
 function recordKey(record: AuditHistoryRecord): AuditCursor {
   return {
@@ -346,11 +362,14 @@ function encodeAuditCursor(cursor: AuditCursor): string {
 function decodeAuditCursor(value: string | undefined): AuditCursor | undefined {
   if (!value) return undefined;
   try {
-    const cursor = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as AuditCursor;
+    const cursor = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    ) as AuditCursor;
     if (
       typeof cursor.at !== "string" ||
       !Number.isFinite(Date.parse(cursor.at)) ||
-      (cursor.source !== "control-plane" && cursor.source !== "command-history") ||
+      (cursor.source !== "control-plane" &&
+        cursor.source !== "command-history") ||
       !Number.isSafeInteger(cursor.sequence) ||
       cursor.sequence < 1 ||
       typeof cursor.id !== "string"

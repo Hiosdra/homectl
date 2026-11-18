@@ -69,11 +69,11 @@ test("derived audit rows are cached with the journal entries", async () => {
           prev: "0".repeat(64),
           hash: "1".repeat(64),
           event: {
-          event: "operation.planned",
-          operationId: `cached-operation-${sequence}`,
+            event: "operation.planned",
+            operationId: `cached-operation-${sequence}`,
             host: "nas",
             argv: ["rm", "fixture"],
-          classification: "mutation",
+            classification: "mutation",
           },
         },
       ];

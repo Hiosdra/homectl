@@ -2,11 +2,11 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readLocalCommandHistory } from "../src/command-history";
 import {
   auditHistoryFromRows,
   commandHistoryRows,
 } from "../src/control/audit-view";
-import { readLocalCommandHistory } from "../src/command-history";
 import { AuditJournal } from "../src/control/journal";
 import { execute } from "../src/operations";
 import {
@@ -16,7 +16,6 @@ import {
   savedCommandsFromRecords,
 } from "../src/saved-commands";
 import type { Machine } from "../src/types";
-import { waitFor } from "./audit-test-helpers";
 
 const machine: Machine = {
   description: "Synthetic",

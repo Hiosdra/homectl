@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { lstat, readFile, unlink, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
 import { hostname } from "node:os";
-import { atomicReplace, ownedByCurrentUser, privateDirectory, protect } from "./platform";
+import { dirname, join, resolve } from "node:path";
 import { withFileLock } from "./control/file-lock";
 import { containsSecretMaterial } from "./control/redact";
 import type { Classification } from "./control/types";
+import {
+  atomicReplace,
+  ownedByCurrentUser,
+  privateDirectory,
+  protect,
+} from "./platform";
 
 export type CommandHistoryStatus =
   | "executing"
@@ -71,31 +76,38 @@ export function commandHistoryPath(inventoryPath: string): string {
 
 function parseHistory(text: string): CommandHistoryEntry[] {
   if (!text.trim()) return [];
-  return text.split("\n").filter(Boolean).map((line, index) => {
-    let entry: unknown;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      throw new Error(`Command history line ${index + 1} is invalid JSON`);
-    }
-    if (!entry || typeof entry !== "object")
-      throw new Error(`Command history line ${index + 1} has an invalid shape`);
-    const candidate = entry as CommandHistoryEntry;
-    if (
-      typeof candidate.id !== "string" ||
-      !Number.isSafeInteger(candidate.sequence) ||
-      candidate.sequence < 1 ||
-      typeof candidate.at !== "string" ||
-      typeof candidate.host !== "string" ||
-      !Array.isArray(candidate.argv) ||
-      typeof candidate.requester !== "string" ||
-      typeof candidate.operationId !== "string" ||
-      typeof candidate.status !== "string" ||
-      (candidate.phase !== "started" && candidate.phase !== "outcome")
-    )
-      throw new Error(`Command history line ${index + 1} has an invalid shape`);
-    return candidate;
-  });
+  return text
+    .split("\n")
+    .filter(Boolean)
+    .map((line, index) => {
+      let entry: unknown;
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        throw new Error(`Command history line ${index + 1} is invalid JSON`);
+      }
+      if (!entry || typeof entry !== "object")
+        throw new Error(
+          `Command history line ${index + 1} has an invalid shape`,
+        );
+      const candidate = entry as CommandHistoryEntry;
+      if (
+        typeof candidate.id !== "string" ||
+        !Number.isSafeInteger(candidate.sequence) ||
+        candidate.sequence < 1 ||
+        typeof candidate.at !== "string" ||
+        typeof candidate.host !== "string" ||
+        !Array.isArray(candidate.argv) ||
+        typeof candidate.requester !== "string" ||
+        typeof candidate.operationId !== "string" ||
+        typeof candidate.status !== "string" ||
+        (candidate.phase !== "started" && candidate.phase !== "outcome")
+      )
+        throw new Error(
+          `Command history line ${index + 1} has an invalid shape`,
+        );
+      return candidate;
+    });
 }
 
 export class CommandHistoryStore {
@@ -111,8 +123,11 @@ export class CommandHistoryStore {
   constructor(inventoryPath: string, options: HistoryOptions = {}) {
     this.path = commandHistoryPath(inventoryPath);
     this.directory = dirname(this.path);
-    this.maxEntries = options.maxEntries ?? positiveSetting("HOMECTL_HISTORY_MAX_ENTRIES", 5000);
-    this.maxAgeDays = options.maxAgeDays ?? positiveSetting("HOMECTL_HISTORY_MAX_AGE_DAYS", 30);
+    this.maxEntries =
+      options.maxEntries ??
+      positiveSetting("HOMECTL_HISTORY_MAX_ENTRIES", 5000);
+    this.maxAgeDays =
+      options.maxAgeDays ?? positiveSetting("HOMECTL_HISTORY_MAX_AGE_DAYS", 30);
     this.getUid = options.getUid ?? (() => process.getuid?.());
     this.now = options.now ?? Date.now;
     this.warn = options.warn ?? console.warn;
@@ -136,44 +151,66 @@ export class CommandHistoryStore {
 
   async read(): Promise<CommandHistoryEntry[]> {
     await this.chain;
-    if (!(await this.exists(this.directory)) || !(await ownedByCurrentUser(this.directory))) return [];
-    if (!(await this.exists(this.path)) || !(await ownedByCurrentUser(this.path))) return [];
+    if (
+      !(await this.exists(this.directory)) ||
+      !(await ownedByCurrentUser(this.directory))
+    )
+      return [];
+    if (
+      !(await this.exists(this.path)) ||
+      !(await ownedByCurrentUser(this.path))
+    )
+      return [];
     return parseHistory(await readFile(this.path, "utf8"));
   }
 
   async clear(): Promise<boolean> {
     await this.chain;
     if (this.getUid() === 0) {
-      this.warn("Local command history was not cleared because homectl is running as root.");
+      this.warn(
+        "Local command history was not cleared because homectl is running as root.",
+      );
       return false;
     }
     const stateDirectory = dirname(this.directory);
     if (!(await ownedByCurrentUser(stateDirectory))) {
-      this.warn("Local command history was not cleared because the state directory belongs to another user.");
+      this.warn(
+        "Local command history was not cleared because the state directory belongs to another user.",
+      );
       return false;
     }
     if (!(await this.exists(this.directory))) return true;
     await privateDirectory(this.directory);
-    return withFileLock(join(this.directory, ".commands.lock"), "Command history", async () => {
-      if (!(await this.exists(this.path))) return true;
-      if (!(await ownedByCurrentUser(this.path))) return false;
-      await unlink(this.path);
-      return true;
-    });
+    return withFileLock(
+      join(this.directory, ".commands.lock"),
+      "Command history",
+      async () => {
+        if (!(await this.exists(this.path))) return true;
+        if (!(await ownedByCurrentUser(this.path))) return false;
+        await unlink(this.path);
+        return true;
+      },
+    );
   }
 
   private async appendNow(input: LocalCommandHistoryInput): Promise<void> {
     if (this.getUid() === 0) {
-      this.warn("Local command history was not written because homectl is running as root.");
+      this.warn(
+        "Local command history was not written because homectl is running as root.",
+      );
       return;
     }
     if (!(await ownedByCurrentUser(dirname(this.directory)))) {
-      this.warn("Local command history was not written because the state directory belongs to another user.");
+      this.warn(
+        "Local command history was not written because the state directory belongs to another user.",
+      );
       return;
     }
     await privateDirectory(this.directory);
-    await withFileLock(join(this.directory, ".commands.lock"), "Command history", () =>
-      this.appendLocked(input),
+    await withFileLock(
+      join(this.directory, ".commands.lock"),
+      "Command history",
+      () => this.appendLocked(input),
     );
   }
 
@@ -204,7 +241,8 @@ export class CommandHistoryStore {
     };
     const cutoff = this.now() - this.maxAgeDays * 24 * 60 * 60 * 1000;
     const eligible = entries.filter((item) => Date.parse(item.at) >= cutoff);
-    const retained = this.maxEntries <= 1 ? [] : eligible.slice(-(this.maxEntries - 1));
+    const retained =
+      this.maxEntries <= 1 ? [] : eligible.slice(-(this.maxEntries - 1));
     await this.writeEntries([...retained, entry]);
   }
 
@@ -243,8 +281,10 @@ export class CommandHistoryStore {
   }
 }
 
-const secretOption = /(?:password|passwd|token|secret)(?:\s*[:=]|$)|--(?:password|token|secret)$/i;
-const separateSecretValueMarker = /(?:password|token|secret):$|--(?:password|token|secret)$/i;
+const secretOption =
+  /(?:password|passwd|token|secret)(?:\s*[:=]|$)|--(?:password|token|secret)$/i;
+const separateSecretValueMarker =
+  /(?:password|token|secret):$|--(?:password|token|secret)$/i;
 const credentialPair = /^([^:\s]+):([^\s]*)$/;
 const urlCredentials = /([a-z][a-z0-9+.-]*:\/\/[^\s/:?#@]+):[^\s/@?#]*@/gi;
 
@@ -264,14 +304,19 @@ export function redactCommandHistoryArgv(argv: string[]): string[] {
     if (redactNext) {
       if (redactNext === "user") {
         output.push(redactCredentialPair(arg) ?? "[REDACTED]");
-      } else if (redactNext === "authorization" && /^\s*Bearer\s*$/i.test(arg)) {
+      } else if (
+        redactNext === "authorization" &&
+        /^\s*Bearer\s*$/i.test(arg)
+      ) {
         output.push(arg);
         redactNext = "bearer";
         continue;
       } else if (/^\s*Bearer\s+/i.test(arg)) {
         output.push(arg.replace(/^(\s*Bearer\s+).+$/i, "$1[REDACTED]"));
       } else if (/^\s*Authorization\s*:/i.test(arg)) {
-        output.push(arg.replace(/^(\s*Authorization\s*:\s*).+$/i, "$1[REDACTED]"));
+        output.push(
+          arg.replace(/^(\s*Authorization\s*:\s*).+$/i, "$1[REDACTED]"),
+        );
       } else {
         output.push("[REDACTED]");
       }
@@ -286,7 +331,9 @@ export function redactCommandHistoryArgv(argv: string[]): string[] {
         output.push(headerPrefix);
         redactNext = "authorization";
       } else if (/^Bearer\s+\S+/i.test(headerValue)) {
-        output.push(`${headerPrefix}${headerValue.replace(/^(Bearer\s+).+$/i, "$1[REDACTED]")}`);
+        output.push(
+          `${headerPrefix}${headerValue.replace(/^(Bearer\s+).+$/i, "$1[REDACTED]")}`,
+        );
       } else if (/^Bearer\s*$/i.test(headerValue)) {
         output.push(`${headerPrefix}${headerValue}`);
         redactNext = "bearer";
@@ -360,9 +407,12 @@ export function redactCommandHistoryArgv(argv: string[]): string[] {
 }
 
 function containsSensitiveArgument(value: string): boolean {
-  return /(?:password|passwd|token|secret)\s*[:=]\s*\S+/i.test(value) ||
-    /^Authorization\s*:\s*\S+/i.test(value) || /^Bearer\s+\S+/i.test(value) ||
-    containsSecretMaterial(value);
+  return (
+    /(?:password|passwd|token|secret)\s*[:=]\s*\S+/i.test(value) ||
+    /^Authorization\s*:\s*\S+/i.test(value) ||
+    /^Bearer\s+\S+/i.test(value) ||
+    containsSecretMaterial(value)
+  );
 }
 
 const stores = new Map<string, CommandHistoryStore>();

@@ -77,7 +77,9 @@ function assertExpectedCommands(
 ): void {
   const expectedForValidLocalCommands = expected
     ? Object.fromEntries(
-        Object.entries(expected).filter(([id]) => !Object.hasOwn(current.invalid, id)),
+        Object.entries(expected).filter(
+          ([id]) => !Object.hasOwn(current.invalid, id),
+        ),
       )
     : undefined;
   if (

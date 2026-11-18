@@ -130,7 +130,11 @@ test("invalid control-plane journal does not affect ordinary command recording",
     ).toBe("not valid JSON\n");
     const history = await readLocalCommandHistory(inventoryPath);
     if (process.getuid?.() === 0) expect(history).toEqual([]);
-    else expect(history.map((entry) => entry.status)).toEqual(["executing", "succeeded"]);
+    else
+      expect(history.map((entry) => entry.status)).toEqual([
+        "executing",
+        "succeeded",
+      ]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -185,12 +189,14 @@ test("only successfully approved local-history runs record the approver", async 
     } else {
       expect(
         entries.find(
-          (entry) => entry.operationId === inspectId && entry.phase === "outcome",
+          (entry) =>
+            entry.operationId === inspectId && entry.phase === "outcome",
         )?.approver,
       ).toBeUndefined();
       expect(
         entries.find(
-          (entry) => entry.operationId === mutationId && entry.phase === "outcome",
+          (entry) =>
+            entry.operationId === mutationId && entry.phase === "outcome",
         )?.approver,
       ).toBe("local-operator");
     }
@@ -236,9 +242,10 @@ test("a locked KeePassXC session is locally recorded as refused before the runne
     const entries = await readLocalCommandHistory(inventoryPath);
     expect(runs).toBe(0);
     if (process.getuid?.() === 0) expect(entries).toEqual([]);
-    else expect(entries).toMatchObject([
-      { phase: "outcome", status: "refused", reason: "SSH session locked" },
-    ]);
+    else
+      expect(entries).toMatchObject([
+        { phase: "outcome", status: "refused", reason: "SSH session locked" },
+      ]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

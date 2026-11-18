@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { clearLocalCommandHistory } from "../command-history";
+import { loadInventory } from "../inventory";
 import { executeWithSSHConfig } from "../operations";
 import {
   availableCommandHosts,
@@ -64,6 +65,39 @@ export async function runHistoryCommand(
   const cleared = await clearLocalCommandHistory(inventoryPath);
   emit({ cleared });
   return cleared ? 0 : 3;
+}
+
+export async function runLocalCliCommand(options: {
+  command: string | undefined;
+  host: string | undefined;
+  positionals: string[];
+  commandArgs: string[];
+  dryRun: boolean;
+  inventoryPath: string;
+  configPath: string;
+  values: CommandOptionValues;
+  emit: (value: unknown) => void;
+}): Promise<number | undefined> {
+  if (options.command === "history")
+    return runHistoryCommand(
+      options.host,
+      options.positionals,
+      options.commandArgs,
+      options.dryRun,
+      options.inventoryPath,
+      options.emit,
+    );
+  if (options.command !== "commands") return undefined;
+  return runCommandsFromCli(
+    options.positionals,
+    options.commandArgs,
+    options.inventoryPath,
+    options.configPath,
+    await loadInventory(options.inventoryPath),
+    options.dryRun,
+    options.values,
+    options.emit,
+  );
 }
 
 export async function runCommands(options: {

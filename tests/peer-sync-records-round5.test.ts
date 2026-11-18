@@ -118,7 +118,10 @@ test("sync apply preserves a locally invalid command without publishing its dele
     commands: Record<string, Record<string, unknown>>;
   };
   disk.commands[saved.id] = { ...saved, name: "x".repeat(81) };
-  await writeFile(path, JSON.stringify({ version: 1, commands: disk.commands }));
+  await writeFile(
+    path,
+    JSON.stringify({ version: 1, commands: disk.commands }),
+  );
 
   try {
     await savePeerSyncRecords(

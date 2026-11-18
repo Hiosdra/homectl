@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { CommandHistoryEntry } from "../src/command-history";
 import {
   auditHistory,
   auditHistoryFromRows,
@@ -7,7 +8,6 @@ import {
 } from "../src/control/audit-view";
 import { AUDIT_NORMALIZATION_MARKERS } from "../src/control/redact";
 import type { AuditEntry, AuditEvent } from "../src/control/types";
-import type { CommandHistoryEntry } from "../src/command-history";
 import {
   canSaveAuditRow,
   savedCommandDraftFromAuditRow,
@@ -128,7 +128,10 @@ test("merged history pagination keeps cursors stable across both sources", () =>
     },
   ];
   const firstPage = auditHistoryFromRows(
-    [...auditHistoryRows(controlEntries, {}), ...commandHistoryRows(commandEntries)],
+    [
+      ...auditHistoryRows(controlEntries, {}),
+      ...commandHistoryRows(commandEntries),
+    ],
     { limit: 1 },
   );
   expect(firstPage.entries[0]?.source).toBe("command-history");
@@ -146,7 +149,10 @@ test("merged history pagination keeps cursors stable across both sources", () =>
     status: "succeeded",
   });
   const nextPage = auditHistoryFromRows(
-    [...auditHistoryRows(controlEntries, {}), ...commandHistoryRows(commandEntries)],
+    [
+      ...auditHistoryRows(controlEntries, {}),
+      ...commandHistoryRows(commandEntries),
+    ],
     { limit: 1, cursor: firstPage.nextCursor },
   );
   expect(nextPage.entries.map((row) => row.source)).toEqual(["control-plane"]);
