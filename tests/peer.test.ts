@@ -221,6 +221,7 @@ test("credentials remain KDBX-encrypted at rest and sync reconstructs platform-l
     second.s.hub.vault.snapshot()["homectl-nas"]?.attachments.id_ed25519,
   ).toBe(credential.attachments.id_ed25519);
 }, 30_000);
+
 test("sync distinguishes a locked remote vault, a missing credential, and a legacy peer", async () => {
   const source = await fixture("Source"),
     target = await fixture("Target");

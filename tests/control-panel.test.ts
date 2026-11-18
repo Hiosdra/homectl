@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AUDIT_NORMALIZATION_MARKERS } from "../src/control/redact";
 import { serve } from "../src/serve";
+import { waitFor } from "./audit-test-helpers";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -267,13 +268,19 @@ test("saved command API keeps unknown hosts unavailable and enforces policy with
   ]);
   expect(runs).toBe(1);
 
-  const audit = await call(
-    "GET",
-    "/api/audit?host=agent-host&status=succeeded",
+  const history = await waitFor(
+    async () => {
+      const response = await call(
+        "GET",
+        "/api/audit?host=agent-host&status=succeeded",
+      );
+      return (await response.json()) as {
+        entries: { argv: string[]; status: string }[];
+      };
+    },
+    (value) => value.entries.length > 0,
+    "panel command audit entry",
   );
-  const history = (await audit.json()) as {
-    entries: { argv: string[]; status: string }[];
-  };
   expect(history.entries[0]?.argv).toEqual(["echo", "--token", "[REDACTED]"]);
   const serialized = JSON.stringify(history);
   expect(serialized).not.toContain(values.token);
@@ -339,6 +346,25 @@ test("invalid saved commands are surfaced by the commands API", async () => {
   expect(await removed.json()).toEqual({ removed: "broken" });
   const refreshed = await call("GET", "/api/commands");
   expect(await refreshed.json()).toEqual({ commands: [] });
+});
+
+test("a corrupt saved-command file is reported without rewriting it", async () => {
+  const { call, running } = await panel();
+  const corrupt = "{ this is not valid saved-command data\n";
+  await writeFile(running.hub.savedCommands.path, corrupt);
+
+  const response = await call("GET", "/api/commands");
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    commands: [
+      {
+        id: "saved-commands",
+        status: "invalid",
+        reason: expect.stringContaining("corrupt"),
+      },
+    ],
+  });
+  expect(await readFile(running.hub.savedCommands.path, "utf8")).toBe(corrupt);
 });
 
 test("API exec is serialized with machine saves", async () => {

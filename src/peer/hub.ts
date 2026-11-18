@@ -5,9 +5,8 @@ import {
   type KeyObject,
   randomUUID,
 } from "node:crypto";
-import { copyFile, readFile, writeFile } from "node:fs/promises";
+import { copyFile, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { type DeviceKey, loadOrCreateDeviceKey } from "../control/device-key";
 import { controlStateDirectory } from "../control/engine";
@@ -37,7 +36,7 @@ import {
   seal,
   transportKey,
 } from "./crypto";
-import { collectHostKeys, validateHostKeys } from "./hostkeys";
+import { validateHostKeys } from "./hostkeys";
 import { safeVersion, validatePermissions } from "./hub-helpers";
 import {
   createPair,
@@ -48,6 +47,7 @@ import {
   pairProof,
   pairStart,
 } from "./pairing";
+import { snapshotWithIssues } from "./snapshot";
 import {
   loadState,
   type Peer,
@@ -59,8 +59,6 @@ import {
 } from "./store";
 import {
   type Choice,
-  capture,
-  filterSnapshotRecords,
   hash,
   merge,
   PEER_FEATURES,
@@ -506,49 +504,7 @@ export class Hub {
     }
   }
   async snapshot(forWire = true, features: readonly string[] = PEER_FEATURES) {
-    const inv = await loadInventory(this.inventoryPath);
-    const values: Record<string, unknown> = {};
-    for (const [name, m] of Object.entries(inv.machines))
-      if (m.transport === "ssh")
-        values[`machine:${name}`] = {
-          name,
-          ...m,
-          auth: m.auth ? { type: m.auth.type, entry: m.auth.entry } : undefined,
-        };
-    for (const [name, p] of Object.entries(inv.providers ?? {}))
-      values[`provider:${name}`] = { name, ...p };
-    const savedCommands = await this.savedCommands.listWithIssues();
-    const invalidSavedCommandIds = new Set(
-      savedCommands.invalid.map((item) => `saved-command:${item.id}`),
-    );
-    for (const command of savedCommands.commands)
-      values[`saved-command:${command.id}`] = command;
-    const prefixes = ["machine:", "provider:", "saved-command:"];
-    if (this.vault.unlocked) {
-      prefixes.push("credential:");
-      for (const [name, v] of Object.entries(this.vault.snapshot()))
-        values[`credential:${name}`] = v;
-    }
-    const known = join(dirname(this.inventoryPath), "known_hosts");
-    for (const source of [join(homedir(), ".ssh", "known_hosts"), known]) {
-      try {
-        Object.assign(
-          values,
-          collectHostKeys(await readFile(source, "utf8"), inv.machines),
-        );
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
-      }
-    }
-    prefixes.push("hostkey:");
-    capture(this.state, values, prefixes, invalidSavedCommandIds);
-    await this.save();
-    return filterSnapshotRecords(this.state.records, {
-      forWire,
-      vaultUnlocked: this.vault.unlocked,
-      features,
-      invalidSavedCommandIds,
-    });
+    return (await snapshotWithIssues(this, forWire, features)).records;
   }
   async preview(
     peerId: string,
@@ -558,7 +514,6 @@ export class Hub {
     priorIssues: { id: string; reason: string }[] = [],
   ) {
     const { records, issues: incomingIssues } = sanitizeSyncRecords(incoming);
-    const issues = [...priorIssues, ...incomingIssues];
     if (
       Object.keys(records).some((k) => k.startsWith("credential:")) &&
       !this.vault.unlocked
@@ -567,7 +522,13 @@ export class Hub {
         4,
         "Unlock the local vault before accepting credential changes",
       );
-    const local = structuredClone(await this.snapshot(false));
+    const localSnapshot = await snapshotWithIssues(
+      this,
+      false,
+      supportedFeatures,
+    );
+    const local = structuredClone(localSnapshot.records);
+    const issues = [...priorIssues, ...incomingIssues, ...localSnapshot.issues];
     const result = merge(local, records, this.state.id);
     let remoteVaultNeeded = false;
     if (
@@ -659,6 +620,7 @@ export class Hub {
         snapshot.records,
         snapshot.vaultUnlocked,
         snapshot.features,
+        snapshot.issues,
       ),
     );
   }
@@ -708,12 +670,14 @@ export class Hub {
     const result = await this.serial(() => this.commit(id, choices, partial));
     // The remote peer also gets a local review; accepting a pair does not let
     // another machine silently overwrite this one's inventory or credentials.
-    const snapshot = await this.serial(async () =>
-      syncSnapshotEnvelope(
-        await this.snapshot(true, p.peerFeatures),
+    const snapshot = await this.serial(async () => {
+      const local = await snapshotWithIssues(this, true, p.peerFeatures);
+      return syncSnapshotEnvelope(
+        local.records,
         this.vault.unlocked,
-      ),
-    );
+        local.issues,
+      );
+    });
     const remote = await this.peerRequest(peerId, "offer", {
       ...snapshot,
       version: 2,
@@ -820,36 +784,40 @@ export class Hub {
         .map(([id, r]) => [id, String(r.value)]),
     );
     validateHostKeys(trusted, machines);
-    await this.savedCommands.validateReplacement(
+    await savePeerSyncRecords(
+      this,
       records,
       expectedSavedCommands,
-    );
-    if (this.vault.unlocked) await this.vault.apply(credentials);
-    await privateDirectory(join(dirname(this.inventoryPath), "public-keys"));
-    for (const m of Object.values(machines))
-      if (m.auth && credentials[m.auth.entry]) {
-        await writeFile(
-          m.auth.public_key,
-          credentialPublicKey(credentials[m.auth.entry] as Credential),
-          { mode: 0o600 },
+      async () => {
+        if (this.vault.unlocked) await this.vault.apply(credentials);
+        await privateDirectory(
+          join(dirname(this.inventoryPath), "public-keys"),
         );
-        await protect(m.auth.public_key);
-      }
-    const known = join(dirname(this.inventoryPath), "known_hosts");
-    await privateDirectory(dirname(known));
-    await writeFile(known, `${Object.values(trusted).join("\n")}\n`, {
-      mode: 0o600,
-    });
-    await protect(known);
-    if (await Bun.file(this.inventoryPath).exists()) {
-      const backup = `${this.inventoryPath}.before-sync-${Date.now()}`;
-      await copyFile(this.inventoryPath, backup);
-      await protect(backup);
-    }
-    await lockSession(this.inventoryPath);
-    await saveInventory(this.inventoryPath, next);
-    await writeSSHConfig(this.configPath, next.machines);
-    await savePeerSyncRecords(this, records, expectedSavedCommands);
+        for (const m of Object.values(machines))
+          if (m.auth && credentials[m.auth.entry]) {
+            await writeFile(
+              m.auth.public_key,
+              credentialPublicKey(credentials[m.auth.entry] as Credential),
+              { mode: 0o600 },
+            );
+            await protect(m.auth.public_key);
+          }
+        const known = join(dirname(this.inventoryPath), "known_hosts");
+        await privateDirectory(dirname(known));
+        await writeFile(known, `${Object.values(trusted).join("\n")}\n`, {
+          mode: 0o600,
+        });
+        await protect(known);
+        if (await Bun.file(this.inventoryPath).exists()) {
+          const backup = `${this.inventoryPath}.before-sync-${Date.now()}`;
+          await copyFile(this.inventoryPath, backup);
+          await protect(backup);
+        }
+        await lockSession(this.inventoryPath);
+        await saveInventory(this.inventoryPath, next);
+        await writeSSHConfig(this.configPath, next.machines);
+      },
+    );
   }
   async remoteAction(peer: Peer, action: string, payload: unknown) {
     if (action === "control-exchange") {
@@ -873,7 +841,7 @@ export class Hub {
           : {};
       if (action === "snapshot") {
         return syncSnapshotResponse(input, this.vault.unlocked, (features) =>
-          this.snapshot(true, features),
+          snapshotWithIssues(this, true, features),
         );
       }
       const offer = readSyncOffer(input);
@@ -882,6 +850,7 @@ export class Hub {
         offer.records,
         offer.vaultUnlocked,
         offer.features,
+        offer.issues,
       );
     }
     if (action === "status") {

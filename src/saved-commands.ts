@@ -151,6 +151,13 @@ export function savedCommandsFromRecords(
   return savedCommandsFromRecordsWithIssues(records).commands;
 }
 
+export function isSavedCommandFileCorrupt(error: unknown): boolean {
+  return (
+    error instanceof HomectlError &&
+    error.message.startsWith("Saved command file is corrupt;")
+  );
+}
+
 export function availableCommandHosts(
   command: SavedCommand,
   inventoryHosts: Iterable<string>,
@@ -356,10 +363,32 @@ export class SavedCommandStore {
     records: Record<string, { value: unknown | null }>,
     expectedSavedCommands?: Record<string, { value: unknown | null }>,
   ): Promise<SavedCommand[]> {
-    const parsed = savedCommandsFromRecordsWithIssues(records);
+    const available = await this.replaceFromRecordsWith(
+      records,
+      expectedSavedCommands,
+      async () => {},
+    );
+    return available ? this.list() : [];
+  }
+
+  async replaceFromRecordsWith(
+    records: Record<string, { value: unknown | null }>,
+    expectedSavedCommands:
+      | Record<string, { value: unknown | null }>
+      | undefined,
+    apply: (savedCommandsAvailable: boolean) => Promise<void>,
+  ): Promise<boolean> {
     const expected = expectedCommandMap(expectedSavedCommands);
     return this.withLock(async () => {
-      const current = await this.read();
+      let current: DiskState;
+      try {
+        current = await this.read();
+      } catch (error) {
+        if (!isSavedCommandFileCorrupt(error)) throw error;
+        await apply(false);
+        return false;
+      }
+      const parsed = savedCommandsFromRecordsWithIssues(records);
       assertExpectedCommands(current, expected);
       const issueIds = new Set(parsed.issues.map((issue) => issue.id));
       const commands = [
@@ -370,13 +399,32 @@ export class SavedCommandStore {
       ];
       const commandMap = dictionary<SavedCommand>();
       for (const command of commands) commandMap[command.id] = command;
-      const state: DiskState = {
-        version: 1,
-        commands: commandMap,
-        invalid: current.invalid,
-      };
-      await this.write(state);
-      return commands;
+      try {
+        await this.write({
+          version: 1,
+          commands: commandMap,
+          invalid: current.invalid,
+        });
+      } catch {
+        await apply(false);
+        console.warn(
+          "Saved commands were left unchanged; other peer sync records were applied.",
+        );
+        return false;
+      }
+      try {
+        await apply(true);
+      } catch (error) {
+        try {
+          await this.write(current);
+        } catch {
+          console.warn(
+            "Could not restore saved commands after peer sync failed.",
+          );
+        }
+        throw error;
+      }
+      return true;
     });
   }
 

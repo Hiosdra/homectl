@@ -362,9 +362,9 @@ test("failed saved-command acquisition leaves peer apply state and files untouch
   const beforeInventory = await readFile(current.path, "utf8");
   const beforeRecords = structuredClone(current.server.hub.state.records);
   const beforeObserved = structuredClone(current.server.hub.state.observed);
-  const validate = spyOn(
+  const replace = spyOn(
     current.server.hub.savedCommands,
-    "validateReplacement",
+    "replaceFromRecordsWith",
   ).mockRejectedValue(new Error("Saved command validation failed"));
   try {
     await expect(current.server.hub.applyRecords({})).rejects.toThrow(
@@ -376,7 +376,7 @@ test("failed saved-command acquisition leaves peer apply state and files untouch
     expect(current.server.hub.state.records).toEqual(beforeRecords);
     expect(current.server.hub.state.observed).toEqual(beforeObserved);
   } finally {
-    validate.mockRestore();
+    replace.mockRestore();
   }
 });
 

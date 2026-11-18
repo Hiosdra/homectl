@@ -1,4 +1,4 @@
-import { redactArgv } from "./redact";
+import { containsSecretMaterial, redactArgv } from "./redact";
 import type { AuditEvent } from "./types";
 
 type RejectionContext = Pick<
@@ -9,6 +9,7 @@ type RejectionContext = Pick<
 export function rejectedRequestContext(
   raw: unknown,
   code: number,
+  errorMessage?: string,
 ): RejectionContext {
   const request =
     raw && typeof raw === "object" && !Array.isArray(raw)
@@ -19,7 +20,7 @@ export function rejectedRequestContext(
     /^[a-z][a-z0-9-]{0,62}$/.test(request.host)
       ? request.host
       : undefined;
-  const argv =
+  const rawArgv =
     Array.isArray(request.argv) &&
     request.argv.length > 0 &&
     request.argv.length <= 64 &&
@@ -30,8 +31,12 @@ export function rejectedRequestContext(
         arg.length <= 4096 &&
         !arg.includes("\0"),
     )
-      ? redactArgv(request.argv as string[])
+      ? (request.argv as string[])
       : undefined;
+  const omitArgv =
+    errorMessage?.startsWith("Secret-like material") === true ||
+    (rawArgv !== undefined && containsSecretMaterial(rawArgv.join(" ")));
+  const argv = rawArgv && !omitArgv ? redactArgv(rawArgv) : undefined;
   const operationId =
     typeof request.operationId === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(

@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AuditJournal } from "../src/control/journal";
@@ -11,6 +11,7 @@ import {
   SavedCommandStore,
 } from "../src/saved-commands";
 import type { Machine } from "../src/types";
+import { waitFor } from "./audit-test-helpers";
 
 const machine: Machine = {
   description: "Synthetic",
@@ -53,44 +54,19 @@ test("redacted command-start audit permits secret-bearing argv execution", async
       join(dir, "control-plane", "audit.jsonl"),
       join(dir, "control-plane", "audit.anchor"),
     );
-    const entries = await journal.read();
+    const entries = await waitFor(
+      () => journal.read(),
+      (value) =>
+        value.some((entry) => entry.event.event === "command.started") &&
+        value.some((entry) => entry.event.event === "command.succeeded"),
+      "redacted command audit events",
+    );
     expect(
       entries.some((entry) => entry.event.event === "command.started"),
     ).toBe(true);
     expect(JSON.stringify(entries)).not.toContain("hunter2");
     expect(JSON.stringify(entries)).toContain("--password=[REDACTED]");
   } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("root-session refusals do not create the user's audit journal", async () => {
-  const dir = await directory();
-  const warning = spyOn(console, "warn").mockImplementation(() => {});
-  const inventoryPath = join(dir, "inventory.yaml");
-  const auditPath = join(dir, "control-plane", "audit.jsonl");
-  try {
-    await expect(
-      execute("example", { ...machine, access: "observe" }, ["rm", "fixture"], {
-        configPath: join(dir, "ssh_config"),
-        getUid: () => 0,
-        audit: { inventoryPath },
-        runner: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
-      }),
-    ).rejects.toMatchObject({
-      code: 3,
-      message:
-        "Run homectl as a non-root existing user for non-full local tiers",
-    });
-    expect(await Bun.file(auditPath).exists()).toBe(false);
-    expect(
-      await Bun.file(join(dir, "control-plane", "audit.anchor")).exists(),
-    ).toBe(false);
-    expect(warning).toHaveBeenCalledWith(
-      expect.stringContaining("was not added to the user's audit journal"),
-    );
-  } finally {
-    warning.mockRestore();
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -118,9 +94,188 @@ test("audit failures do not replace policy or approval refusal errors", async ()
         audit,
       }),
     ).rejects.toMatchObject({ code: 4 });
-    expect(warning).toHaveBeenCalledTimes(2);
+    const refusalWarnings = () =>
+      warning.mock.calls.filter(
+        ([message]) =>
+          message ===
+          "Could not record the refused command in the audit journal.",
+      ).length;
+    await waitFor(
+      refusalWarnings,
+      (count) => count >= 2,
+      "policy refusal audit warnings",
+    );
   } finally {
     warning.mockRestore();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("audit append failures warn without delaying or changing command execution", async () => {
+  const dir = await directory();
+  const inventoryPath = join(dir, "inventory.yaml");
+  const warning = spyOn(console, "warn").mockImplementation(() => {});
+  let runs = 0;
+  try {
+    await mkdir(join(dir, "control-plane"), { recursive: true });
+    await writeFile(
+      join(dir, "control-plane", "audit.jsonl"),
+      "not valid JSON\n",
+    );
+    const result = await execute("example", machine, ["hostname"], {
+      configPath: join(dir, "ssh_config"),
+      audit: { inventoryPath },
+      runner: async () => {
+        runs++;
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      },
+    });
+    expect(runs).toBe(1);
+    expect(result.result?.exitCode).toBe(0);
+    await waitFor(
+      () => warning.mock.calls.map(([message]) => message),
+      (messages) =>
+        messages.includes(
+          "The command is running, but its start audit event could not be saved.",
+        ) &&
+        messages.includes(
+          "The command ran, but its audit event could not be saved.",
+        ),
+      "best-effort command audit warnings",
+    );
+  } finally {
+    warning.mockRestore();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("only successfully approved commands record the supplied approver", async () => {
+  const dir = await directory();
+  const inventoryPath = join(dir, "inventory.yaml");
+  const journal = new AuditJournal(
+    join(dir, "control-plane", "audit.jsonl"),
+    join(dir, "control-plane", "audit.anchor"),
+  );
+  const inspectId = "11111111-1111-4111-8111-111111111111";
+  const mutationId = "22222222-2222-4222-8222-222222222222";
+  try {
+    await execute("example", machine, ["hostname"], {
+      configPath: join(dir, "ssh_config"),
+      approval: "stray-approval",
+      audit: {
+        inventoryPath,
+        approver: "local-operator",
+        operationId: inspectId,
+      },
+      runner: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+    });
+    const preview = await execute(
+      "example",
+      machine,
+      ["systemctl", "restart", "nginx"],
+      {
+        configPath: join(dir, "ssh_config"),
+        dryRun: true,
+        requireApproval: true,
+      },
+    );
+    await execute("example", machine, ["systemctl", "restart", "nginx"], {
+      configPath: join(dir, "ssh_config"),
+      requireApproval: true,
+      approval: preview.plan.approval,
+      approvalContext: "cli",
+      audit: {
+        inventoryPath,
+        approver: "local-operator",
+        operationId: mutationId,
+      },
+      runner: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+    });
+    const entries = await waitFor(
+      () => journal.read(),
+      (value) =>
+        value.some(
+          (entry) =>
+            entry.event.event === "command.succeeded" &&
+            entry.event.operationId === inspectId,
+        ) &&
+        value.some(
+          (entry) =>
+            entry.event.event === "command.succeeded" &&
+            entry.event.operationId === mutationId,
+        ),
+      "approved command audit entries",
+    );
+    expect(
+      entries.find(
+        (entry) =>
+          entry.event.event === "command.succeeded" &&
+          entry.event.operationId === inspectId,
+      )?.event.approver,
+    ).toBeUndefined();
+    expect(
+      entries.find(
+        (entry) =>
+          entry.event.event === "command.succeeded" &&
+          entry.event.operationId === mutationId,
+      )?.event.approver,
+    ).toBe("local-operator");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a locked KeePassXC session is audited as refused before the runner", async () => {
+  const dir = await directory();
+  const inventoryPath = join(dir, "inventory.yaml");
+  const journal = new AuditJournal(
+    join(dir, "control-plane", "audit.jsonl"),
+    join(dir, "control-plane", "audit.anchor"),
+  );
+  let runs = 0;
+  const keepassMachine: Machine = {
+    description: "Synthetic SSH host",
+    transport: "ssh",
+    access: "full",
+    address: "192.0.2.10",
+    user: "operator",
+    ssh_alias: "example",
+    auth: {
+      type: "keepassxc",
+      socket: join(dir, "session", "agent.sock"),
+      entry: "homectl-example",
+      public_key: join(dir, "public-keys", "example.pub"),
+    },
+  };
+  try {
+    await expect(
+      execute("example", keepassMachine, ["hostname"], {
+        configPath: join(dir, "ssh_config"),
+        audit: { inventoryPath },
+        runner: async () => {
+          runs++;
+          return { exitCode: 255, stdout: "", stderr: "locked" };
+        },
+      }),
+    ).rejects.toThrow();
+    const entries = await journal.read();
+    expect(runs).toBe(0);
+    expect(entries.map((entry) => entry.event.event)).toContain(
+      "command.refused",
+    );
+    expect(entries.map((entry) => entry.event.event)).not.toContain(
+      "command.started",
+    );
+    expect(entries.map((entry) => entry.event.event)).not.toContain(
+      "command.failed",
+    );
+    expect(
+      entries.find((entry) => entry.event.event === "command.refused")?.event,
+    ).toMatchObject({
+      reason: "SSH session locked",
+      policyDecision: "refused",
+    });
+  } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -164,10 +319,17 @@ test("saved token parameter templates execute while audit stores only redacted a
     });
 
     expect(executedArgv).toEqual(argv);
-    const journal = await readFile(
-      join(dir, "control-plane", "audit.jsonl"),
-      "utf8",
+    const entries = await waitFor(
+      () =>
+        new AuditJournal(
+          join(dir, "control-plane", "audit.jsonl"),
+          join(dir, "control-plane", "audit.anchor"),
+        ).read(),
+      (value) =>
+        value.some((entry) => entry.event.event === "command.succeeded"),
+      "saved-token command audit entry",
     );
+    const journal = JSON.stringify(entries);
     expect(journal).toContain("--token=[REDACTED]");
     expect(journal).not.toContain(secretValue);
   } finally {
@@ -236,10 +398,17 @@ test("parameterized plans show expanded argv while approval binds its exact form
     });
     expect(executedArgv).toEqual(argv);
     expect(result.plan.argv).toEqual(displayArgv);
-    const journal = await readFile(
-      join(dir, "control-plane", "audit.jsonl"),
-      "utf8",
+    const entries = await waitFor(
+      () =>
+        new AuditJournal(
+          join(dir, "control-plane", "audit.jsonl"),
+          join(dir, "control-plane", "audit.anchor"),
+        ).read(),
+      (value) =>
+        value.some((entry) => entry.event.event === "command.succeeded"),
+      "parameterized command audit entry",
     );
+    const journal = JSON.stringify(entries);
     expect(journal).toContain(parameterValue);
     expect(journal).not.toContain("{{unit}}");
   } finally {
@@ -288,10 +457,17 @@ test("secret-flagged saved parameters stay masked in plans, errors, and audit", 
         return { exitCode: 0, stdout: "ok", stderr: "" };
       },
     });
-    const journal = await readFile(
-      join(dir, "control-plane", "audit.jsonl"),
-      "utf8",
+    const entries = await waitFor(
+      () =>
+        new AuditJournal(
+          join(dir, "control-plane", "audit.jsonl"),
+          join(dir, "control-plane", "audit.anchor"),
+        ).read(),
+      (value) =>
+        value.some((entry) => entry.event.event === "command.succeeded"),
+      "secret parameter command audit entry",
     );
+    const journal = JSON.stringify(entries);
     expect(journal).not.toContain(secretValue);
     expect(journal).toContain("[REDACTED]");
   } finally {

@@ -765,8 +765,8 @@ export class ControlPlane {
         event: "request.rejected",
         client: who,
         ...(kind ? { op: kind } : {}),
-        ...rejectedRequestContext(raw, e.code),
-      }).catch(() => undefined);
+        ...rejectedRequestContext(raw, e.code, e.message),
+      }).catch(() => console.warn("Could not record rejected request."));
       throw e;
     }
   }

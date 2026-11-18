@@ -23,6 +23,7 @@ import {
 } from "../src/control/redact";
 import { ControlStore } from "../src/control/store";
 import type { AuditEvent } from "../src/control/types";
+import * as platform from "../src/platform";
 import { HomectlError } from "../src/types";
 
 async function workspace() {
@@ -124,6 +125,62 @@ describe("audit journal hash chain", () => {
     for (const event of events) await journal.append({ ...event });
     return { dir, path, journal };
   }
+
+  test("scans argv values independently and redacts secret-bearing items", async () => {
+    const { dir, path } = await workspace();
+    const journal = new AuditJournal(path, join(dir, "audit.anchor"));
+    try {
+      await journal.append({
+        event: "command.started",
+        host: "nas",
+        argv: [
+          "home-ctl",
+          "exec",
+          "nas",
+          "--",
+          "grep",
+          "-i",
+          "password:",
+          "/var/log/app.log",
+        ],
+      });
+      await journal.append({
+        event: "command.started",
+        host: "nas",
+        argv: ["grep", "password: hunter2"],
+      });
+      await journal.append({
+        event: "command.started",
+        host: "nas",
+        argv: ["grep", "password: {{password}}"],
+      });
+
+      const entries = await journal.read();
+      expect(entries[0]?.event.argv).toContain("password:");
+      expect(entries[1]?.event.argv).toEqual(["grep", "[REDACTED]"]);
+      expect(entries[2]?.event.argv).toEqual([
+        "grep",
+        "password: {{password}}",
+      ]);
+      expect(JSON.stringify(entries)).not.toContain("hunter2");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("protects an audit anchor only on its first append", async () => {
+    const { dir, path } = await workspace();
+    const protect = spyOn(platform, "protect").mockResolvedValue(undefined);
+    const journal = new AuditJournal(path, join(dir, "audit.anchor"));
+    try {
+      await journal.append({ event: "client.created", client: "first" });
+      await journal.append({ event: "client.created", client: "second" });
+      expect(protect).toHaveBeenCalledTimes(1);
+    } finally {
+      protect.mockRestore();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 
   test("rejects schema-invalid events before they can poison the chain", async () => {
     const { dir, path } = await workspace();

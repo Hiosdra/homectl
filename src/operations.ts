@@ -8,6 +8,7 @@ import { probeFailureMessage } from "./diagnostics";
 import { internalCommand } from "./internal";
 import { checkApproval, innerCommand, planExecution } from "./policies";
 import { run } from "./process";
+import { sessionStatus } from "./session";
 import { sshConfig, transportSpec } from "./transports";
 import {
   type ExecutionPlan,
@@ -56,7 +57,6 @@ export function execute(
 ): Promise<{
   plan: ExecutionPlan;
   result: Awaited<ReturnType<Runner>>;
-  auditWarning?: string;
 }>;
 export function execute(
   host: string,
@@ -68,7 +68,6 @@ export function execute(
   | {
       plan: ExecutionPlan;
       result: Awaited<ReturnType<Runner>>;
-      auditWarning?: string;
     }
 >;
 export async function execute(
@@ -78,6 +77,7 @@ export async function execute(
   options: ExecuteOptions,
 ) {
   const operationId = options.audit?.operationId ?? randomUUID();
+  let approvedBy: string | undefined;
   const audit = async (
     event:
       | "command.refused"
@@ -119,23 +119,22 @@ export async function execute(
         "command.failed",
         "command.unknown",
       ].includes(event) && options.audit.approver
-        ? { approver: options.audit.approver }
+        ? approvedBy
+          ? { approver: approvedBy }
+          : {}
         : {}),
     });
   };
-  const auditAfterExecution = async (
-    event: "command.succeeded" | "command.failed" | "command.unknown",
+  const auditBestEffort = (
+    event: Parameters<typeof audit>[0],
     details: Parameters<typeof audit>[1],
+    warning: string,
   ) => {
-    try {
-      await audit(event, details);
-      return undefined;
-    } catch {
-      const warning =
-        "The command ran, but its audit event could not be saved.";
-      console.warn(warning);
-      return warning;
-    }
+    void Promise.resolve()
+      .then(() => audit(event, details))
+      .catch(() => {
+        console.warn(warning);
+      });
   };
   const auditRefusal = async (
     event: "command.refused" | "command.approval-required",
@@ -143,10 +142,12 @@ export async function execute(
   ) => {
     try {
       await audit(event, details);
+      return undefined;
     } catch {
-      console.warn(
-        "Could not record the refused command in the audit journal.",
-      );
+      const warning =
+        "Could not record the refused command in the audit journal.";
+      console.warn(warning);
+      return warning;
     }
   };
   if (
@@ -186,6 +187,7 @@ export async function execute(
   if (options.dryRun) return { plan };
   try {
     checkApproval(plan, options.approval, options.approvalContext);
+    approvedBy = plan.needsApproval ? options.audit?.approver : undefined;
   } catch (error) {
     await auditRefusal(
       error instanceof HomectlError && error.code === 4
@@ -205,33 +207,68 @@ export async function execute(
     );
     throw error;
   }
+  if (
+    machine.auth?.type === "keepassxc" &&
+    options.audit?.inventoryPath &&
+    !(await sessionStatus(options.audit.inventoryPath)).unlocked
+  ) {
+    await auditRefusal("command.refused", {
+      classification: plan.classification,
+      policyDecision: "refused",
+      reason: "SSH session locked",
+    });
+    throw new HomectlError(
+      5,
+      probeFailureMessage({
+        exitCode: 5,
+        stdout: "",
+        stderr: "homectl SSH session is locked",
+      }),
+    );
+  }
   await options.beforeRun?.();
   const spec = credentialSpec(
     machine.auth,
     transportSpec(machine, argv, options.configPath),
     workerArgv,
   );
-  try {
-    await audit("command.started", {
+  auditBestEffort(
+    "command.started",
+    {
       classification: plan.classification,
       policyDecision: plan.needsApproval ? "needs-approval" : "allowed",
-    });
-  } catch {
-    throw new HomectlError(
-      5,
-      "Command was not run because its redacted start-audit event could not be saved",
-    );
-  }
+    },
+    "The command is running, but its start audit event could not be saved.",
+  );
   let result: Awaited<ReturnType<Runner>>;
   try {
     result = await (options.runner ?? run)(spec);
   } catch (error) {
-    await auditAfterExecution("command.unknown", {
-      classification: plan.classification,
-      policyDecision: plan.needsApproval ? "needs-approval" : "allowed",
-      reason: "execution-outcome-unknown",
-    });
+    auditBestEffort(
+      "command.unknown",
+      {
+        classification: plan.classification,
+        policyDecision: plan.needsApproval ? "needs-approval" : "allowed",
+        reason: "execution-outcome-unknown",
+      },
+      "The command ran, but its audit event could not be saved.",
+    );
     throw error;
+  }
+  if (
+    machine.auth?.type === "keepassxc" &&
+    /homectl SSH session is locked/.test(result.stderr)
+  ) {
+    auditBestEffort(
+      "command.refused",
+      {
+        classification: plan.classification,
+        policyDecision: "refused",
+        reason: "SSH session locked",
+      },
+      "The command was not run, but its refusal could not be saved to the audit journal.",
+    );
+    throw new HomectlError(5, probeFailureMessage(result));
   }
   const exitCode =
     Number.isInteger(result.exitCode) &&
@@ -239,20 +276,16 @@ export async function execute(
     result.exitCode <= 255
       ? result.exitCode
       : undefined;
-  const auditWarning = await auditAfterExecution(
+  auditBestEffort(
     exitCode === 0 ? "command.succeeded" : "command.failed",
     {
       classification: plan.classification,
       policyDecision: plan.needsApproval ? "needs-approval" : "allowed",
       ...(exitCode === undefined ? {} : { exitCode }),
     },
+    "The command ran, but its audit event could not be saved.",
   );
-  if (
-    machine.auth?.type === "keepassxc" &&
-    /homectl SSH session is locked/.test(result.stderr)
-  )
-    throw new HomectlError(5, probeFailureMessage(result));
-  return { plan, result, ...(auditWarning ? { auditWarning } : {}) };
+  return { plan, result };
 }
 export async function writeSSHConfig(
   path: string,

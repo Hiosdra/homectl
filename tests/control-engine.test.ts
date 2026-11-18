@@ -11,6 +11,7 @@ import {
 import { schemas } from "../src/control/schema";
 import type { Actor, ClientIdentity } from "../src/control/types";
 import { HomectlError, type ProcessSpec, type Runner } from "../src/types";
+import { expectSecretRefusalsOmitArguments } from "./control-engine-audit-helper";
 
 const INVENTORY = `version: 1
 machines:
@@ -374,7 +375,8 @@ describe("plan creation and screening", () => {
     await expectCode(
       planOn(h, codex.actor, "lab-printer", [
         "tool",
-        "--password=hunter2-secret",
+        "password:",
+        "hunter2-secret",
       ]),
       2,
       "Secret-like",
@@ -395,10 +397,7 @@ describe("plan creation and screening", () => {
       join(h.dir, "control-plane", "audit.jsonl"),
       "utf8",
     );
-    expect(state).not.toContain("hunter2");
-    expect(state).not.toContain("hct_abcdefghijklmnop1234");
-    expect(audit).not.toContain("hunter2");
-    expect(audit).toContain('"request.rejected"');
+    expectSecretRefusalsOmitArguments(state, audit);
   });
 
   test("malformed requests are refused with a fixed message and audited", async () => {

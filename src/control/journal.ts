@@ -39,6 +39,7 @@ type VerifiedTail = {
 };
 
 const verifiedTails = new Map<string, VerifiedTail>();
+const protectedAnchors = new Set<string>();
 
 async function fileSignature(path: string): Promise<string> {
   try {
@@ -53,7 +54,9 @@ async function fileSignature(path: string): Promise<string> {
 function normalizeAuditEvent(event: AuditEvent): AuditEvent {
   const normalized = { ...event };
   if (typeof normalized.argv !== "undefined" && Array.isArray(normalized.argv))
-    normalized.argv = normalizeAuditArgv(normalized.argv);
+    normalized.argv = normalizeAuditArgv(normalized.argv).map((argument) =>
+      containsSecretMaterial(argument) ? "[REDACTED]" : argument,
+    );
   if (typeof normalized.reason === "string")
     normalized.reason = normalized.reason.slice(0, 120);
   if (typeof normalized.deviceName === "string")
@@ -148,7 +151,8 @@ export class AuditJournal {
   private async writeAnchor(anchor: AuditAnchor): Promise<void> {
     const temp = `${this.anchorPath}.${randomUUID()}.tmp`;
     await writeFile(temp, JSON.stringify(anchor), { mode: 0o600, flag: "wx" });
-    await protect(temp);
+    const protectAnchor = !protectedAnchors.has(this.anchorPath);
+    if (protectAnchor) await protect(temp);
     if (process.platform !== "win32") {
       let owner: { uid: number; gid: number } | undefined;
       for (const path of [this.anchorPath, this.path]) {
@@ -166,6 +170,7 @@ export class AuditJournal {
       }
     }
     await atomicReplace(temp, this.anchorPath);
+    if (protectAnchor) protectedAnchors.add(this.anchorPath);
   }
 
   private cacheKey(): string {
@@ -245,8 +250,16 @@ export class AuditJournal {
         5,
         "Audit event refused: schema validation failed",
       );
-    // Fail closed: never write a payload that looks like secret material.
-    if (containsSecretMaterial(JSON.stringify(normalizedEvent)))
+    // Inspect each event string independently; JSON quoting can make ordinary
+    // argv such as password: look like an assignment with a value.
+    if (
+      Object.entries(normalizedEvent).some(
+        ([key, value]) =>
+          key !== "argv" &&
+          typeof value === "string" &&
+          containsSecretMaterial(value),
+      )
+    )
       throw new HomectlError(
         5,
         "Audit event refused: secret-like material detected",

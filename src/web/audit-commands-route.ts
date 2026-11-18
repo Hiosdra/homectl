@@ -10,6 +10,7 @@ import type { Hub } from "../peer/hub";
 import {
   availableCommandHosts,
   expandSavedCommand,
+  isSavedCommandFileCorrupt,
   redactSavedCommandArgv,
 } from "../saved-commands";
 import { HomectlError, type Runner } from "../types";
@@ -29,16 +30,32 @@ export async function auditCommandsRoute(
   const { control, hub, inventoryPath, configPath } = options;
   if (req.method === "GET" && url.pathname === "/api/commands") {
     const inventory = await loadInventory(inventoryPath);
-    const { commands, invalid } = await hub.savedCommands.listWithIssues();
-    return response({
-      commands: [
-        ...commands.map((command) => ({
-          ...command,
-          ...availableCommandHosts(command, Object.keys(inventory.machines)),
-        })),
-        ...invalid,
-      ],
-    });
+    try {
+      const { commands, invalid } = await hub.savedCommands.listWithIssues();
+      return response({
+        commands: [
+          ...commands.map((command) => ({
+            ...command,
+            ...availableCommandHosts(command, Object.keys(inventory.machines)),
+          })),
+          ...invalid,
+        ],
+      });
+    } catch (error) {
+      if (!isSavedCommandFileCorrupt(error)) throw error;
+      return response({
+        commands: [
+          {
+            id: "saved-commands",
+            status: "invalid",
+            reason:
+              error instanceof Error
+                ? error.message
+                : "Saved command file is corrupt; preserve it and investigate",
+          },
+        ],
+      });
+    }
   }
   if (req.method === "GET" && url.pathname === "/api/audit") {
     const host = url.searchParams.get("host") || undefined;

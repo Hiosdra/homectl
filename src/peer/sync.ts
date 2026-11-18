@@ -31,20 +31,39 @@ export type SyncSnapshot = {
   records: unknown;
   vaultUnlocked?: boolean;
   features: string[];
+  issues: PeerRecordIssue[];
 };
+
+function snapshotIssues(input: unknown): PeerRecordIssue[] {
+  if (!Array.isArray(input)) return [];
+  return input.slice(0, 64).flatMap((item) => {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      Array.isArray(item) ||
+      typeof (item as Record<string, unknown>).id !== "string" ||
+      typeof (item as Record<string, unknown>).reason !== "string"
+    )
+      return [];
+    const value = item as { id: string; reason: string };
+    return [{ id: value.id.slice(0, 160), reason: value.reason.slice(0, 300) }];
+  });
+}
 
 export function readSyncSnapshot(remote: unknown): SyncSnapshot {
   const envelope =
     remote && typeof remote === "object" && !Array.isArray(remote)
       ? (remote as Record<string, unknown>)
       : {};
-  if (!("version" in envelope)) return { records: remote, features: [] };
+  if (!("version" in envelope))
+    return { records: remote, features: [], issues: [] };
   if (envelope.version !== 2 || typeof envelope.vaultUnlocked !== "boolean")
     throw new HomectlError(2, "Invalid sync snapshot metadata");
   return {
     records: envelope.records,
     vaultUnlocked: envelope.vaultUnlocked,
     features: peerFeatures(envelope.features),
+    issues: snapshotIssues(envelope.issues),
   };
 }
 
@@ -60,26 +79,36 @@ export function readSyncOffer(input: Record<string, unknown>): SyncSnapshot {
       ? { vaultUnlocked: input.vaultUnlocked as boolean }
       : {}),
     features: peerFeatures(input.features),
+    issues: snapshotIssues(input.issues),
   };
 }
 
 export function syncSnapshotEnvelope(
   records: Record<string, Version>,
   vaultUnlocked: boolean,
+  issues: PeerRecordIssue[] = [],
 ) {
-  return { version: 2, vaultUnlocked, features: PEER_FEATURES, records };
+  return {
+    version: 2,
+    vaultUnlocked,
+    features: PEER_FEATURES,
+    records,
+    ...(issues.length ? { issues } : {}),
+  };
 }
 
 export function syncSnapshotResponse(
   input: Record<string, unknown>,
   vaultUnlocked: boolean,
-  snapshot: (features: readonly string[]) => Promise<Record<string, Version>>,
+  snapshot: (
+    features: readonly string[],
+  ) => Promise<{ records: Record<string, Version>; issues: PeerRecordIssue[] }>,
 ) {
   return (async () => {
     const features = peerFeatures(input.features);
-    const records = await snapshot(features);
+    const { records, issues } = await snapshot(features);
     return input.version === 2
-      ? syncSnapshotEnvelope(records, vaultUnlocked)
+      ? syncSnapshotEnvelope(records, vaultUnlocked, issues)
       : records;
   })();
 }
@@ -102,7 +131,7 @@ export function filterSnapshotRecords(
         (!options.forWire ||
           !id.startsWith("saved-command:") ||
           options.features.includes("saved-commands")) &&
-        !options.invalidSavedCommandIds.has(id),
+        (!options.forWire || !options.invalidSavedCommandIds.has(id)),
     ),
   );
 }

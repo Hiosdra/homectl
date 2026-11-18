@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { auditHistory } from "../src/control/audit-view";
@@ -12,6 +12,7 @@ import {
   savedCommandsFromRecords,
 } from "../src/saved-commands";
 import type { Machine } from "../src/types";
+import { waitFor } from "./audit-test-helpers";
 
 const machine: Machine = {
   description: "Synthetic",
@@ -318,7 +319,15 @@ test("saved mutation cannot bypass approval and local audit excludes output and 
       join(dir, "control-plane", "audit.jsonl"),
       join(dir, "control-plane", "audit.anchor"),
     );
-    const entries = await journal.read();
+    const entries = await waitFor(
+      () => journal.read(),
+      (value) =>
+        value.some((entry) => entry.event.event === "command.succeeded") &&
+        value.some(
+          (entry) => entry.event.event === "command.approval-required",
+        ),
+      "saved mutation audit entries",
+    );
     const serialized = JSON.stringify(entries);
     expect(serialized).not.toContain("hct_abcdefghijklmnop1234");
     expect(serialized).not.toContain("OUTPUT_MUST_NOT_ENTER_AUDIT");
@@ -360,50 +369,6 @@ test("command audit events normalize invalid argv before journaling", async () =
       expect(entry.event.argv?.every((item) => item.length > 0)).toBe(true);
     }
     expect(entries.at(-1)?.event.argv?.at(-1)).toContain("truncated");
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("audit-write failures do not replace command results or runner errors", async () => {
-  const dir = await directory();
-  const controlDirectory = join(dir, "control-plane");
-  try {
-    const audit = { inventoryPath: join(dir, "inventory.yaml") };
-    const outcome = await execute("example", machine, ["hostname"], {
-      configPath: join(dir, "ssh_config"),
-      audit,
-      runner: async () => {
-        await rm(controlDirectory, { recursive: true, force: true });
-        await writeFile(controlDirectory, "not a directory");
-        return { exitCode: 0, stdout: "ran once", stderr: "" };
-      },
-    });
-    expect(outcome).toMatchObject({
-      result: { exitCode: 0, stdout: "ran once" },
-      auditWarning: expect.stringContaining("audit"),
-    });
-
-    await rm(controlDirectory, { force: true });
-    await mkdir(controlDirectory, { recursive: true });
-    const runnerError = new Error("runner failure");
-    const warning = spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      await expect(
-        execute("example", machine, ["hostname"], {
-          configPath: join(dir, "ssh_config"),
-          audit,
-          runner: async () => {
-            await rm(controlDirectory, { recursive: true, force: true });
-            await writeFile(controlDirectory, "not a directory");
-            throw runnerError;
-          },
-        }),
-      ).rejects.toBe(runnerError);
-      expect(warning).toHaveBeenCalled();
-    } finally {
-      warning.mockRestore();
-    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

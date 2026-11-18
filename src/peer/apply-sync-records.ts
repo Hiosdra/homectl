@@ -6,10 +6,13 @@ type ApplyContext = {
   vault: { unlocked: boolean };
   save: () => Promise<void>;
   savedCommands: {
-    replaceFromRecords(
+    replaceFromRecordsWith(
       records: Record<string, Version>,
-      expectedSavedCommands?: Record<string, { value: unknown | null }>,
-    ): Promise<unknown>;
+      expectedSavedCommands:
+        | Record<string, { value: unknown | null }>
+        | undefined,
+      apply: (savedCommandsAvailable: boolean) => Promise<void>,
+    ): Promise<boolean>;
   };
 };
 
@@ -17,19 +20,40 @@ export async function savePeerSyncRecords(
   context: ApplyContext,
   records: Record<string, Version>,
   expectedSavedCommands?: Record<string, { value: unknown | null }>,
+  applyFiles: () => Promise<void> = async () => {},
 ): Promise<void> {
   const previousRecords = context.state.records;
   const previousObserved = context.state.observed;
-  context.state.records = records;
-  context.state.observed = { ...previousObserved };
-  for (const [key, version] of Object.entries(records))
-    if (!key.startsWith("credential:") || context.vault.unlocked)
-      context.state.observed[key] = hash(version.value);
   try {
-    await context.save();
-    await context.savedCommands.replaceFromRecords(
+    await context.savedCommands.replaceFromRecordsWith(
       records,
       expectedSavedCommands,
+      async (savedCommandsAvailable) => {
+        await applyFiles();
+        const nextRecords = savedCommandsAvailable
+          ? records
+          : {
+              ...Object.fromEntries(
+                Object.entries(records).filter(
+                  ([key]) => !key.startsWith("saved-command:"),
+                ),
+              ),
+              ...Object.fromEntries(
+                Object.entries(previousRecords).filter(([key]) =>
+                  key.startsWith("saved-command:"),
+                ),
+              ),
+            };
+        context.state.records = nextRecords;
+        context.state.observed = { ...previousObserved };
+        for (const [key, version] of Object.entries(nextRecords)) {
+          if (!savedCommandsAvailable && key.startsWith("saved-command:"))
+            continue;
+          if (!key.startsWith("credential:") || context.vault.unlocked)
+            context.state.observed[key] = hash(version.value);
+        }
+        await context.save();
+      },
     );
   } catch (error) {
     context.state.records = previousRecords;
