@@ -113,5 +113,7 @@ test("an approved operation with KEY=value argv still executes and journals", as
     "utf8",
   );
   expect(audit).toContain('"operation.succeeded"');
-  expect(audit).not.toContain("KEY=value");
+  // As in 0.2.1, the approver and the journal see the argument unchanged:
+  // `KEY` is not a secret name for the control plane.
+  expect(audit).toContain("KEY=value");
 });

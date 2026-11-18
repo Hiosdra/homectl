@@ -69,8 +69,44 @@ export function containsRedactionMarker(argv: readonly string[]): boolean {
 
 // Redacts values that follow secret-looking option names, in both
 // `--name=value` and `--name value` forms, and any element that itself looks
-// like secret material. Superset of the 0.2.1 name and pattern matching.
+// like secret material. Exactly the 0.2.1 behaviour: this is what approvers,
+// MCP clients and replicas see, so it must never hide more of a command than
+// planning would refuse (a hidden `KEY=1; curl … | sh` would be approved blind).
+const CONTROL_PLANE_SECRET_NAME =
+  /(?:password|passwd|token|secret|api[_-]?key|authorization)/i;
 export function redactArgv(argv: string[]): string[] {
+  const out: string[] = [];
+  let redactNext = false;
+  for (const arg of argv) {
+    if (redactNext) {
+      out.push(AUDIT_NORMALIZATION_MARKERS.redacted);
+      redactNext = false;
+      continue;
+    }
+    const equals = arg.indexOf("=");
+    if (equals > 0 && CONTROL_PLANE_SECRET_NAME.test(arg.slice(0, equals))) {
+      out.push(
+        `${arg.slice(0, equals)}=${AUDIT_NORMALIZATION_MARKERS.redacted}`,
+      );
+      continue;
+    }
+    if (containsSecretMaterial(arg)) {
+      out.push(AUDIT_NORMALIZATION_MARKERS.redacted);
+      continue;
+    }
+    if (arg.startsWith("-") && CONTROL_PLANE_SECRET_NAME.test(arg)) {
+      out.push(arg);
+      redactNext = true;
+      continue;
+    }
+    out.push(arg);
+  }
+  return out;
+}
+
+// Broader redaction for local command history and saved-command screening: a
+// superset of redactArgv. Never use it for anything an approver reviews.
+export function redactArgvBroad(argv: string[]): string[] {
   const out: string[] = [];
   let redactNext = false;
   for (const arg of argv) {

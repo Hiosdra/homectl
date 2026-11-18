@@ -3,7 +3,7 @@ import { lstat, readFile, unlink, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { withFileLock } from "./control/file-lock";
-import { redactArgv } from "./control/redact";
+import { redactArgvBroad } from "./control/redact";
 import type { Classification } from "./control/types";
 import {
   atomicReplace,
@@ -389,7 +389,7 @@ export function redactCommandHistoryArgv(argv: string[]): string[] {
     }
     output.push(arg);
   }
-  return redactArgv(output);
+  return redactArgvBroad(output);
 }
 
 const stores = new Map<string, CommandHistoryStore>();

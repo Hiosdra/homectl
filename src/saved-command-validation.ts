@@ -2,7 +2,7 @@ import {
   containsRedactionMarker,
   containsSecretMaterialAllowingTemplatePlaceholders,
   isSecretOptionName,
-  redactArgv,
+  redactArgvBroad,
 } from "./control/redact";
 import {
   SAVED_COMMAND_VERSION,
@@ -139,7 +139,7 @@ export function validateFields(input: unknown): SavedCommandFields {
     fail(
       "Secret-like arguments cannot be stored; declare a parameter and use its placeholder",
     );
-  const redacted = redactArgv(argv);
+  const redacted = redactArgvBroad(argv);
   for (const [index, argument] of argv.entries()) {
     if (redacted[index] === argument) continue;
     const placeholder = /^\{\{([a-z][a-z0-9_-]{0,31})\}\}$/.exec(argument);
