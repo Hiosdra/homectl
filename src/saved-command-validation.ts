@@ -15,6 +15,8 @@ import { HomectlError } from "./types";
 // the MySQL clients and sshpass. Only a declared {{placeholder}} may stand in
 // the password position; other uses of -u/-p (sudo -u, ssh -p) stay allowed.
 const MYSQL_CLIENTS = new Set(["mysql", "mysqldump", "mysqladmin", "mariadb"]);
+// Programs where `-u user:password` means credentials (not uid:gid or host:path).
+const USER_CREDENTIAL_CLIENTS = new Set(["curl", "wget"]);
 function plaintextCredential(argv: string[], names: Set<string>): boolean {
   const placeholder = (value: string) => {
     const match = /^\{\{([a-z][a-z0-9_-]{0,31})\}\}$/.exec(value);
@@ -31,8 +33,9 @@ function plaintextCredential(argv: string[], names: Set<string>): boolean {
       /[a-z][a-z0-9+.-]*:\/\/[^\s/:?#@]+:([^\s/@?#]*)@/gi,
     ))
       if (url[1] && !placeholder(url[1])) return true;
-    const user =
-      previous === "-u" || previous === "--user"
+    const user = !(program && USER_CREDENTIAL_CLIENTS.has(program))
+      ? undefined
+      : previous === "-u" || previous === "--user"
         ? argument
         : /^(?:-u|--user)=(.*)$/i.exec(argument)?.[1];
     const password =

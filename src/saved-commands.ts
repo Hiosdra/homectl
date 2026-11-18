@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { ensurePrivateDirectoryOnce, withFileLock } from "./control/file-lock";
-import { redactArgvBroad } from "./control/redact";
+import { redactArgv } from "./control/redact";
 import { atomicReplace, protect } from "./platform";
 import { parseSavedCommandsFromRecordsWithIssues } from "./saved-command-records";
 import {
@@ -135,7 +135,7 @@ export function redactSavedCommandArgv(
   argv: string[],
   values: Record<string, string>,
 ): string[] {
-  const redacted = redactArgvBroad(argv);
+  const redacted = redactArgv(argv);
   for (const parameter of command.parameters) {
     if (!parameter.secret) continue;
     const secret = values[parameter.name];

@@ -4,7 +4,8 @@
 // containsSecretMaterial is a refusal check (control-plane plans, reasons,
 // replicated values, journal writes). Its patterns are exactly the 0.2.1 set
 // and must not grow: a broader match would refuse operations already accepted.
-// Broader name matching lives only in redactArgv, which redacts and never refuses.
+// Broader name matching lives only in redactArgvBroad (local history and
+// saved-command screening), which redacts and never refuses.
 const SECRET_PATTERNS: RegExp[] = [
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/,
   /\b(?:password|passwd|pass|token|secret|api[_-]?key|authorization)\b\s*[=:]\s*\S+/i,
@@ -53,7 +54,7 @@ export function containsSecretMaterialAllowingTemplatePlaceholders(
   return SECRET_PATTERNS.some((pattern) => pattern.test(withoutPlaceholders));
 }
 
-// Whether an option or variable name is one redactArgv treats as secret-carrying.
+// Whether an option or variable name is one redactArgvBroad treats as secret-carrying.
 export function isSecretOptionName(name: string): boolean {
   return SECRET_NAME.test(name);
 }

