@@ -280,16 +280,18 @@ export function redactCommandHistoryArgv(argv: string[]): string[] {
     }
     const header = arg.match(/^(\s*Authorization\s*:\s*)(.*)$/i);
     if (header) {
-      if (!header[2]) {
-        output.push(header[1]);
+      const headerPrefix = header[1] ?? "";
+      const headerValue = header[2] ?? "";
+      if (!headerValue) {
+        output.push(headerPrefix);
         redactNext = "authorization";
-      } else if (/^Bearer\s+\S+/i.test(header[2])) {
-        output.push(`${header[1]}${header[2].replace(/^(Bearer\s+).+$/i, "$1[REDACTED]")}`);
-      } else if (/^Bearer\s*$/i.test(header[2])) {
-        output.push(`${header[1]}${header[2]}`);
+      } else if (/^Bearer\s+\S+/i.test(headerValue)) {
+        output.push(`${headerPrefix}${headerValue.replace(/^(Bearer\s+).+$/i, "$1[REDACTED]")}`);
+      } else if (/^Bearer\s*$/i.test(headerValue)) {
+        output.push(`${headerPrefix}${headerValue}`);
         redactNext = "bearer";
       } else {
-        output.push(`${header[1]}[REDACTED]`);
+        output.push(`${headerPrefix}[REDACTED]`);
       }
       continue;
     }
@@ -304,7 +306,9 @@ export function redactCommandHistoryArgv(argv: string[]): string[] {
     }
     const userAssignment = arg.match(/^(--user|-u)=(.+)$/i);
     if (userAssignment) {
-      output.push(`${userAssignment[1]}=${redactCredentialPair(userAssignment[2]) ?? "[REDACTED]"}`);
+      const option = userAssignment[1] ?? "--user";
+      const value = userAssignment[2] ?? "";
+      output.push(`${option}=${redactCredentialPair(value) ?? "[REDACTED]"}`);
       continue;
     }
     if (arg === "--user" || arg === "-u") {
