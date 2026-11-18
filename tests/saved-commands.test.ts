@@ -232,7 +232,7 @@ describe("saved command storage", () => {
     }
   });
 
-  test("sync replacement refuses a concurrent saved-command change", async () => {
+  test("sync replacement leaves saved commands pending after a concurrent saved-command change", async () => {
     const dir = await directory();
     try {
       const store = new SavedCommandStore(join(dir, "saved-commands.json"));
@@ -247,12 +247,12 @@ describe("saved command storage", () => {
       };
       await store.save({ ...template, name: "Concurrent local save" });
 
-      await expect(
-        store.replaceFromRecords(
+      expect(
+        await store.replaceFromRecords(
           { [`saved-command:${base.id}`]: { value: incoming } },
           baseRecords,
         ),
-      ).rejects.toThrow("Saved commands changed since the sync preview");
+      ).toEqual([]);
       expect((await store.list()).map((command) => command.name)).toEqual([
         "Concurrent local save",
         template.name,

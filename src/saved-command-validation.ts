@@ -1,6 +1,7 @@
 import {
   containsRedactionMarker,
   containsSecretMaterialAllowingTemplatePlaceholders,
+  isSecretOptionName,
   redactArgv,
 } from "./control/redact";
 import {
@@ -106,9 +107,7 @@ export function validateFields(input: unknown): SavedCommandFields {
     const flag =
       index > 0 &&
       argv[index - 1]?.startsWith("-") &&
-      /(?:password|passwd|token|secret|api[_-]?key|authorization)/i.test(
-        argv[index - 1] ?? "",
-      );
+      isSecretOptionName(argv[index - 1] ?? "");
     const declared = placeholder?.[1] ?? assignment?.[2];
     if (!declared || !names.has(declared) || !(flag || assignment))
       fail(

@@ -53,7 +53,7 @@ When you apply, the other device gets an offer and reviews it before writing any
 
 **What syncs:** SSH machines, access policy, Proxmox provider definitions, saved command templates, `homectl-*` credential entries with their attachments, and trusted SSH host keys. Saved commands are shortcuts only. The receiving device marks unknown hosts unavailable and checks its own inventory and policy on every run. Concurrent template edits and deletes appear in the normal conflict review.
 
-Saved commands are a negotiated peer feature. Version 0.3.0 advertises support in snapshot metadata and sends command records only when the other peer advertises the same feature. Older peers therefore continue syncing their supported machine, provider, credential and host-key records without seeing unknown saved-command keys. Unsupported or invalid saved-command records received by 0.3.0 are skipped individually and listed in the sync review; they do not block other record types.
+Saved commands are a negotiated peer feature. Version 0.2.2 advertises support in snapshot metadata and sends command records only when the other peer advertises the same feature. Older peers therefore continue syncing their supported machine, provider, credential and host-key records without seeing unknown saved-command keys. Unsupported or invalid saved-command records received by 0.2.2 are skipped individually and listed in the sync review; they do not block other record types.
 
 **What stays local:** audit history, database paths, agent endpoints, this computer's host definitions, the session TTL and active sessions. Entries outside the `homectl` namespace in your KeePass database are never transferred.
 

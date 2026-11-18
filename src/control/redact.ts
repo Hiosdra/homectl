@@ -1,21 +1,35 @@
 // Secret-like material detection and argv redaction. Pattern-based and
-// deliberately conservative: a detection refuses the request or the write.
-const SECRET_NAME_SOURCE = `(?:api[_-]?key|access[_-]?key|secret[_-]?key|client[_-]?secret|authorization|auth|password|passwd|pass|token|secret|key)`;
-
+// deliberately conservative.
+//
+// containsSecretMaterial is a refusal check (control-plane plans, reasons,
+// replicated values, journal writes). Its patterns are exactly the 0.2.1 set
+// and must not grow: a broader match would refuse operations already accepted.
+// Broader name matching lives only in redactArgv, which redacts and never refuses.
 const SECRET_PATTERNS: RegExp[] = [
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/,
-  new RegExp(String.raw`\b${SECRET_NAME_SOURCE}\b\s*[=:]\s*\S+`, "i"),
+  /\b(?:password|passwd|pass|token|secret|api[_-]?key|authorization)\b\s*[=:]\s*\S+/i,
   /\bbearer\s+[A-Za-z0-9._~+/-]{8,}/i,
   /\bhct_[A-Za-z0-9_-]{16,}/,
 ];
 
-const SECRET_PLACEHOLDER_ASSIGNMENT = new RegExp(
-  String.raw`\b${SECRET_NAME_SOURCE}\b\s*[=:]\s*(?:\{\{[a-z][a-z0-9_-]{0,31}\}\}|\[REDACTED\])(?=["'\s,}\]]|$)`,
-  "gi",
-);
+const SECRET_PLACEHOLDER_ASSIGNMENT =
+  /\b(?:password|passwd|pass|token|secret|api[_-]?key|authorization)\b\s*[=:]\s*(?:\{\{[a-z][a-z0-9_-]{0,31}\}\}|\[REDACTED\])(?=["'\s,}\]]|$)/gi;
+
+// Name fragments for argv redaction. Substring match for the master names
+// (so `--dbpassword`, `--authtoken`, `PGPASSWORD` stay redacted); whole-word
+// match for the short names (so `--author` is not redacted).
+const SECRET_NAME_SUBSTRING_SOURCE =
+  "password|passwd|passphrase|token|secret|api[_-]?key|authorization";
+const SECRET_NAME_WORD_SOURCE =
+  "(?:^|[^a-z0-9])(?:pass|auth|key|access[_-]?key)(?![a-z0-9])";
 
 const SECRET_NAME = new RegExp(
-  `(?:^|[^a-z0-9])${SECRET_NAME_SOURCE}(?:$|[^a-z0-9])`,
+  `(?:${SECRET_NAME_SUBSTRING_SOURCE})|${SECRET_NAME_WORD_SOURCE}`,
+  "i",
+);
+
+const SECRET_NAME_ASSIGNMENT = new RegExp(
+  `(?:${SECRET_NAME_SUBSTRING_SOURCE})[a-z0-9_-]*\\s*[=:]\\s*\\S+|${SECRET_NAME_WORD_SOURCE}\\s*[=:]\\s*\\S+`,
   "i",
 );
 
@@ -39,6 +53,11 @@ export function containsSecretMaterialAllowingTemplatePlaceholders(
   return SECRET_PATTERNS.some((pattern) => pattern.test(withoutPlaceholders));
 }
 
+// Whether an option or variable name is one redactArgv treats as secret-carrying.
+export function isSecretOptionName(name: string): boolean {
+  return SECRET_NAME.test(name);
+}
+
 export function containsRedactionMarker(argv: readonly string[]): boolean {
   return argv.some(
     (arg) =>
@@ -50,7 +69,7 @@ export function containsRedactionMarker(argv: readonly string[]): boolean {
 
 // Redacts values that follow secret-looking option names, in both
 // `--name=value` and `--name value` forms, and any element that itself looks
-// like secret material.
+// like secret material. Superset of the 0.2.1 name and pattern matching.
 export function redactArgv(argv: string[]): string[] {
   const out: string[] = [];
   let redactNext = false;
@@ -67,7 +86,7 @@ export function redactArgv(argv: string[]): string[] {
       );
       continue;
     }
-    if (containsSecretMaterial(arg)) {
+    if (containsSecretMaterial(arg) || SECRET_NAME_ASSIGNMENT.test(arg)) {
       out.push(AUDIT_NORMALIZATION_MARKERS.redacted);
       continue;
     }

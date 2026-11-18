@@ -387,19 +387,59 @@ export class SavedCommandStore {
       preservedInvalidIds: string[],
     ) => Promise<void>,
   ): Promise<boolean> {
-    const expected = expectedCommandMap(expectedSavedCommands);
-    return this.withLock(async () => {
-      let current: DiskState;
-      try {
-        current = await this.read();
-      } catch (error) {
-        if (!isSavedCommandFileCorrupt(error)) throw error;
-        await apply(false, []);
-        return false;
-      }
+    let locked = false;
+    try {
+      return await this.withLock(async () => {
+        locked = true;
+        return this.replaceUnderLock(records, expectedSavedCommands, apply);
+      });
+    } catch (error) {
+      // The lock or its private directory failed before anything was read.
+      if (locked) throw error;
+      return this.leaveSavedCommandsPending(error, [], apply);
+    }
+  }
+
+  // Any saved-command failure before the write leaves saved commands pending
+  // (file, state and clocks unchanged) while the other record types still apply.
+  private async leaveSavedCommandsPending(
+    error: unknown,
+    preservedInvalidIds: string[],
+    apply: (
+      savedCommandsAvailable: boolean,
+      preservedInvalidIds: string[],
+    ) => Promise<void>,
+  ): Promise<false> {
+    const reason =
+      error instanceof HomectlError
+        ? error.message
+        : ((error as NodeJS.ErrnoException).code ?? "unexpected error");
+    console.warn(
+      `Saved commands were left unchanged (${reason}); other peer sync records were applied.`,
+    );
+    await apply(false, preservedInvalidIds);
+    return false;
+  }
+
+  private async replaceUnderLock(
+    records: Record<string, { value: unknown | null }>,
+    expectedSavedCommands:
+      | Record<string, { value: unknown | null }>
+      | undefined,
+    apply: (
+      savedCommandsAvailable: boolean,
+      preservedInvalidIds: string[],
+    ) => Promise<void>,
+  ): Promise<boolean> {
+    let current: DiskState;
+    let commandMap: Record<string, SavedCommand>;
+    let preservedInvalidIds: string[];
+    try {
+      const expected = expectedCommandMap(expectedSavedCommands);
+      current = await this.read();
       const parsed = savedCommandsFromRecordsWithIssues(records);
       assertExpectedCommands(current, expected);
-      const preservedInvalidIds = Object.keys(current.invalid).map(
+      preservedInvalidIds = Object.keys(current.invalid).map(
         (id) => `saved-command:${id}`,
       );
       const issueIds = new Set(parsed.issues.map((issue) => issue.id));
@@ -411,44 +451,40 @@ export class SavedCommandStore {
           .filter(([id]) => issueIds.has(`saved-command:${id}`))
           .map(([, command]) => command),
       ];
-      const commandMap = dictionary<SavedCommand>();
+      commandMap = dictionary<SavedCommand>();
       for (const command of commands) commandMap[command.id] = command;
-      let writtenHash: string;
+    } catch (error) {
+      return this.leaveSavedCommandsPending(error, [], apply);
+    }
+    let writtenHash: string;
+    try {
+      writtenHash = await this.write({
+        version: 1,
+        commands: commandMap,
+        invalid: current.invalid,
+      });
+    } catch (error) {
+      return this.leaveSavedCommandsPending(error, preservedInvalidIds, apply);
+    }
+    try {
+      await apply(true, preservedInvalidIds);
+    } catch (error) {
       try {
-        writtenHash = await this.write({
-          version: 1,
-          commands: commandMap,
-          invalid: current.invalid,
-        });
-      } catch {
-        await apply(false, preservedInvalidIds);
-        console.warn(
-          "Saved commands were left unchanged; other peer sync records were applied.",
-        );
-        return false;
-      }
-      try {
-        await apply(true, preservedInvalidIds);
-      } catch (error) {
-        try {
-          const contents = await readFile(this.path, "utf8");
-          const currentHash = createHash("sha256")
-            .update(contents)
-            .digest("hex");
-          if (currentHash === writtenHash) await this.write(current);
-          else
-            console.warn(
-              "Saved commands changed during peer sync; rollback was skipped to preserve the newer file.",
-            );
-        } catch {
+        const contents = await readFile(this.path, "utf8");
+        const currentHash = createHash("sha256").update(contents).digest("hex");
+        if (currentHash === writtenHash) await this.write(current);
+        else
           console.warn(
-            "Could not verify saved commands after peer sync failed; rollback was skipped to preserve any newer write.",
+            "Saved commands changed during peer sync; rollback was skipped to preserve the newer file.",
           );
-        }
-        throw error;
+      } catch {
+        console.warn(
+          "Could not verify saved commands after peer sync failed; rollback was skipped to preserve any newer write.",
+        );
       }
-      return true;
-    });
+      throw error;
+    }
+    return true;
   }
 
   async validateReplacement(

@@ -48,6 +48,10 @@ export function peerPath(inventory: string) {
 function savedCommandPeerPath(path: string) {
   return join(dirname(path), "peers-saved-commands.json");
 }
+
+// Saved-command sidecars that exist but could not be read or parsed. Saved-command
+// sync stays disabled for them and their file is never overwritten until it is repaired.
+const unreadableSavedCommandSidecars = new Set<string>();
 async function writeStateFile(path: string, value: unknown) {
   const tmp = `${path}.${randomUUID()}.tmp`;
   await writeFile(tmp, JSON.stringify(value), { mode: 0o600, flag: "wx" });
@@ -88,11 +92,12 @@ export async function saveState(path: string, state: PeerState) {
       ]),
     ),
   };
-  await writeStateFile(savedCommandPeerPath(path), {
-    version: 1,
-    records: savedRecords,
-    observed: savedObserved,
-  });
+  if (!unreadableSavedCommandSidecars.has(savedCommandPeerPath(path)))
+    await writeStateFile(savedCommandPeerPath(path), {
+      version: 1,
+      records: savedRecords,
+      observed: savedObserved,
+    });
   await writeStateFile(path, disk);
 }
 export async function loadState(path: string): Promise<PeerState> {
@@ -145,10 +150,9 @@ export async function loadState(path: string): Promise<PeerState> {
     records: Record<string, Version>;
     observed: Record<string, string>;
   } = { records: {}, observed: {} };
+  const sidecar = savedCommandPeerPath(path);
   try {
-    const parsed = JSON.parse(
-      await readFile(savedCommandPeerPath(path), "utf8"),
-    ) as {
+    const parsed = JSON.parse(await readFile(sidecar, "utf8")) as {
       version?: unknown;
       records?: Record<string, Version>;
       observed?: Record<string, string>;
@@ -173,8 +177,18 @@ export async function loadState(path: string): Promise<PeerState> {
         ),
       ),
     };
+    unreadableSavedCommandSidecars.delete(sidecar);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      unreadableSavedCommandSidecars.delete(sidecar);
+    } else {
+      // Degrade instead of failing Hub.init: ordinary peer sync keeps working.
+      unreadableSavedCommandSidecars.add(sidecar);
+      savedState = { records: {}, observed: {} };
+      console.warn(
+        "Saved-command peer sync state could not be read; saved-command sync is disabled and the file was left unchanged.",
+      );
+    }
   }
   state = {
     ...state,

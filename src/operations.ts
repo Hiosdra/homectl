@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { recordLocalCommand } from "./command-history";
-import { credentialSpec } from "./credentials";
+import { credentialSpec, managedInventoryPath } from "./credentials";
 import { probeFailureMessage } from "./diagnostics";
 import { internalCommand } from "./internal";
 import { checkApproval, innerCommand, planExecution } from "./policies";
@@ -175,10 +175,13 @@ export async function execute(
     );
     throw error;
   }
+  const managedInventory =
+    machine.auth?.type === "keepassxc"
+      ? managedInventoryPath(machine.auth)
+      : undefined;
   if (
-    machine.auth?.type === "keepassxc" &&
-    options.audit?.inventoryPath &&
-    !(await sessionStatus(options.audit.inventoryPath)).unlocked
+    managedInventory !== undefined &&
+    !(await sessionStatus(managedInventory)).unlocked
   ) {
     recordHistory("outcome", "refused", {
       classification: plan.classification,

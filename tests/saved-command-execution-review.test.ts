@@ -222,6 +222,7 @@ test("a locked KeePassXC session is locally recorded as refused before the runne
     ssh_alias: "example",
     auth: {
       type: "keepassxc",
+      inventory: inventoryPath,
       socket: join(dir, "session", "agent.sock"),
       entry: "homectl-example",
       public_key: join(dir, "public-keys", "example.pub"),
