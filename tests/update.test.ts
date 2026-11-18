@@ -29,7 +29,55 @@ test("update never installs dependencies after a rejected fast-forward", async (
     if (argv[0] !== "git") throw new Error("must not install");
     return { exitCode: argv.includes("pull") ? 1 : 0, stdout: "", stderr: "" };
   };
-  await expect(update(false, runner)).rejects.toThrow("Git refused");
+  await expect(update(false, runner)).rejects.toThrow("Git could not");
+});
+
+test("update explains detached HEAD and includes Git's first diagnostic", async () => {
+  await expect(
+    update(false, async ({ argv }) => ({
+      exitCode: argv.includes("symbolic-ref") ? 1 : 0,
+      stdout: "",
+      stderr: argv.includes("symbolic-ref")
+        ? "fatal: not a symbolic ref\nsecond line"
+        : "",
+    })),
+  ).rejects.toThrow(
+    "Cannot update from a detached HEAD; check out a branch first\nGit: fatal: not a symbolic ref",
+  );
+});
+
+test("update explains a missing upstream and includes Git's first diagnostic", async () => {
+  await expect(
+    update(false, async ({ argv }) => ({
+      exitCode: argv.includes("@{upstream}") ? 1 : 0,
+      stdout: "",
+      stderr: argv.includes("@{upstream}")
+        ? "fatal: no upstream configured\nsecond line"
+        : "",
+    })),
+  ).rejects.toThrow(
+    "No upstream is configured for the current branch; configure one before updating\nGit: fatal: no upstream configured",
+  );
+});
+
+test("update identifies divergent branches before dependency installation", async () => {
+  const commands: string[][] = [];
+  await expect(
+    update(false, async ({ argv }) => {
+      commands.push(argv);
+      const pull = argv.includes("pull");
+      return {
+        exitCode: pull ? 1 : 0,
+        stdout: "",
+        stderr: pull
+          ? "fatal: Not possible to fast-forward, aborting.\nsecond line"
+          : "",
+      };
+    }),
+  ).rejects.toThrow(
+    "Local and upstream branches have diverged; reconcile them before updating\nGit: fatal: Not possible to fast-forward, aborting.",
+  );
+  expect(commands.some((argv) => argv.includes("install"))).toBe(false);
 });
 
 test("Bun install command accepts update argument order", async () => {

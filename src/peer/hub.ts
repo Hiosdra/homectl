@@ -5,16 +5,17 @@ import {
   type KeyObject,
   randomUUID,
 } from "node:crypto";
-import { copyFile, readFile, writeFile } from "node:fs/promises";
+import { copyFile, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { recordLocalCommand } from "../command-history";
 import { type DeviceKey, loadOrCreateDeviceKey } from "../control/device-key";
 import { controlStateDirectory } from "../control/engine";
 import { loadInventory, parseInventory, saveInventory } from "../inventory";
 import { execute, writeSSHConfig } from "../operations";
 import { privateDirectory, protect } from "../platform";
 import { planExecution } from "../policies";
+import { SavedCommandStore } from "../saved-commands";
 import {
   lockSession,
   sessionConfig,
@@ -24,6 +25,8 @@ import {
 import { keyReference } from "../session/keys";
 import { doctor } from "../setup";
 import { HomectlError, type Inventory, type Machine } from "../types";
+import { savePeerSyncRecords } from "./apply-sync-records";
+import { peerCommand } from "./command";
 import {
   type Envelope,
   equal,
@@ -32,7 +35,7 @@ import {
   seal,
   transportKey,
 } from "./crypto";
-import { collectHostKeys, validateHostKeys } from "./hostkeys";
+import { validateHostKeys } from "./hostkeys";
 import { safeVersion, validatePermissions } from "./hub-helpers";
 import {
   createPair,
@@ -43,6 +46,7 @@ import {
   pairProof,
   pairStart,
 } from "./pairing";
+import { snapshotWithIssues } from "./snapshot";
 import {
   loadState,
   type Peer,
@@ -52,7 +56,17 @@ import {
   saveState,
   type Version,
 } from "./store";
-import { type Choice, capture, hash, merge, validateRecords } from "./sync";
+import {
+  type Choice,
+  hash,
+  merge,
+  PEER_FEATURES,
+  readSyncOffer,
+  readSyncSnapshot,
+  sanitizeSyncRecords,
+  syncSnapshotEnvelope,
+  syncSnapshotResponse,
+} from "./sync";
 import { type Credential, credentialPublicKey, Vault } from "./vault";
 export function peerAddress(value: string): string {
   const url = new URL(value);
@@ -103,6 +117,7 @@ async function post(
 type Operation = {
   id: string;
   peerId: string;
+  operationId: string;
   host: string;
   argv: string[];
   impact?: string;
@@ -118,11 +133,14 @@ type Pending = {
   records: Record<string, Version>;
   local: Record<string, Version>;
   remoteVaultUnlocked?: boolean;
+  peerFeatures: string[];
+  issues: { id: string; reason: string }[];
   expiresAt: number;
 };
 export class Hub {
   state!: PeerState;
   vault!: Vault;
+  savedCommands!: SavedCommandStore;
   pair?: Pair;
   pending = new Map<string, Pending>();
   operations = new Map<string, Operation>();
@@ -147,6 +165,7 @@ export class Hub {
   ) {}
   async init() {
     this.state = await loadState(peerPath(this.inventoryPath));
+    this.savedCommands = SavedCommandStore.forInventory(this.inventoryPath);
     const inv = await loadInventory(this.inventoryPath);
     this.vault = new Vault(sessionConfig(inv, this.inventoryPath).database);
     this.device = await loadOrCreateDeviceKey(
@@ -200,7 +219,7 @@ export class Hub {
   }
   async unlock(password: string, create = false) {
     if (typeof password !== "string" || !password || password.length > 1024)
-      throw new HomectlError(2, "Enter a local vault password");
+      throw new HomectlError(2, "Enter the database password");
     await this.vault.unlock(password, create);
     const inv = await loadInventory(this.inventoryPath);
     let state: { expiresAt?: number | null } = {
@@ -483,51 +502,17 @@ export class Hub {
       key.fill(0);
     }
   }
-  async snapshot(forWire = true) {
-    const inv = await loadInventory(this.inventoryPath);
-    const values: Record<string, unknown> = {};
-    for (const [name, m] of Object.entries(inv.machines))
-      if (m.transport === "ssh")
-        values[`machine:${name}`] = {
-          name,
-          ...m,
-          auth: m.auth ? { type: m.auth.type, entry: m.auth.entry } : undefined,
-        };
-    for (const [name, p] of Object.entries(inv.providers ?? {}))
-      values[`provider:${name}`] = { name, ...p };
-    const prefixes = ["machine:", "provider:"];
-    if (this.vault.unlocked) {
-      prefixes.push("credential:");
-      for (const [name, v] of Object.entries(this.vault.snapshot()))
-        values[`credential:${name}`] = v;
-    }
-    const known = join(dirname(this.inventoryPath), "known_hosts");
-    for (const source of [join(homedir(), ".ssh", "known_hosts"), known]) {
-      try {
-        Object.assign(
-          values,
-          collectHostKeys(await readFile(source, "utf8"), inv.machines),
-        );
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
-      }
-    }
-    prefixes.push("hostkey:");
-    capture(this.state, values, prefixes);
-    await this.save();
-    return Object.fromEntries(
-      Object.entries(this.state.records).filter(
-        ([id]) =>
-          !forWire || !id.startsWith("credential:") || this.vault.unlocked,
-      ),
-    );
+  async snapshot(forWire = true, features: readonly string[] = PEER_FEATURES) {
+    return (await snapshotWithIssues(this, forWire, features)).records;
   }
   async preview(
     peerId: string,
     incoming: unknown,
     remoteVaultUnlocked?: boolean,
+    supportedFeatures: string[] = [],
+    priorIssues: { id: string; reason: string }[] = [],
   ) {
-    const records = validateRecords(incoming);
+    const { records, issues: incomingIssues } = sanitizeSyncRecords(incoming);
     if (
       Object.keys(records).some((k) => k.startsWith("credential:")) &&
       !this.vault.unlocked
@@ -536,7 +521,13 @@ export class Hub {
         4,
         "Unlock the local vault before accepting credential changes",
       );
-    const local = structuredClone(await this.snapshot(false));
+    const localSnapshot = await snapshotWithIssues(
+      this,
+      false,
+      supportedFeatures,
+    );
+    const local = structuredClone(localSnapshot.records);
+    const issues = [...priorIssues, ...incomingIssues, ...localSnapshot.issues];
     const result = merge(local, records, this.state.id);
     let remoteVaultNeeded = false;
     if (
@@ -587,6 +578,8 @@ export class Hub {
       records: structuredClone(records),
       local,
       remoteVaultUnlocked,
+      peerFeatures: supportedFeatures,
+      issues,
       expiresAt: Date.now() + 300_000,
     });
     return {
@@ -611,27 +604,24 @@ export class Hub {
         local: safeVersion(c.id, c.local),
         remote: safeVersion(c.id, c.remote),
       })),
+      issues,
     };
   }
   async beginSync(peerId: string) {
-    const remote = await this.peerRequest(peerId, "snapshot", { version: 2 });
-    const envelope =
-      remote && typeof remote === "object" && !Array.isArray(remote)
-        ? (remote as Record<string, unknown>)
-        : {};
-    if ("version" in envelope) {
-      if (envelope.version !== 2 || typeof envelope.vaultUnlocked !== "boolean")
-        throw new HomectlError(2, "Invalid sync snapshot metadata");
-      return this.serial(() =>
-        this.preview(
-          peerId,
-          envelope.records,
-          envelope.vaultUnlocked as boolean,
-        ),
-      );
-    }
-    // Version 1 peers return records directly and do not expose vault state.
-    return this.serial(() => this.preview(peerId, remote));
+    const remote = await this.peerRequest(peerId, "snapshot", {
+      version: 2,
+      features: PEER_FEATURES,
+    });
+    const snapshot = readSyncSnapshot(remote);
+    return this.serial(() =>
+      this.preview(
+        peerId,
+        snapshot.records,
+        snapshot.vaultUnlocked,
+        snapshot.features,
+        snapshot.issues,
+      ),
+    );
   }
   async syncReadiness(peerId: string) {
     const value = await this.peerRequest(peerId, "sync-readiness", {});
@@ -660,7 +650,7 @@ export class Hub {
     // A partial apply writes the routine clean changes only; the rest and any conflict keep the local value.
     if (result.conflicts.length && !partial)
       throw new HomectlError(4, "Resolve every conflict before applying");
-    await this.applyRecords(result.records, p.remoteVaultUnlocked);
+    await this.applyRecords(result.records, p.remoteVaultUnlocked, p.local);
     this.pending.delete(id);
     return {
       applied: true,
@@ -679,10 +669,14 @@ export class Hub {
     const result = await this.serial(() => this.commit(id, choices, partial));
     // The remote peer also gets a local review; accepting a pair does not let
     // another machine silently overwrite this one's inventory or credentials.
-    const snapshot = await this.serial(async () => ({
-      records: await this.snapshot(),
-      vaultUnlocked: this.vault.unlocked,
-    }));
+    const snapshot = await this.serial(async () => {
+      const local = await snapshotWithIssues(this, true, p.peerFeatures);
+      return syncSnapshotEnvelope(
+        local.records,
+        this.vault.unlocked,
+        local.issues,
+      );
+    });
     const remote = await this.peerRequest(peerId, "offer", {
       ...snapshot,
       version: 2,
@@ -692,6 +686,7 @@ export class Hub {
   async applyRecords(
     records: Record<string, Version>,
     remoteVaultUnlocked?: boolean,
+    expectedSavedCommands?: Record<string, { value: unknown | null }>,
   ) {
     const inv = await loadInventory(this.inventoryPath);
     const credentials: Record<string, Credential> = {};
@@ -788,36 +783,40 @@ export class Hub {
         .map(([id, r]) => [id, String(r.value)]),
     );
     validateHostKeys(trusted, machines);
-    if (this.vault.unlocked) await this.vault.apply(credentials);
-    await privateDirectory(join(dirname(this.inventoryPath), "public-keys"));
-    for (const m of Object.values(machines))
-      if (m.auth && credentials[m.auth.entry]) {
-        await writeFile(
-          m.auth.public_key,
-          credentialPublicKey(credentials[m.auth.entry] as Credential),
-          { mode: 0o600 },
+    await savePeerSyncRecords(
+      this,
+      records,
+      expectedSavedCommands,
+      async () => {
+        if (this.vault.unlocked) await this.vault.apply(credentials);
+        await privateDirectory(
+          join(dirname(this.inventoryPath), "public-keys"),
         );
-        await protect(m.auth.public_key);
-      }
-    const known = join(dirname(this.inventoryPath), "known_hosts");
-    await privateDirectory(dirname(known));
-    await writeFile(known, `${Object.values(trusted).join("\n")}\n`, {
-      mode: 0o600,
-    });
-    await protect(known);
-    if (await Bun.file(this.inventoryPath).exists()) {
-      const backup = `${this.inventoryPath}.before-sync-${Date.now()}`;
-      await copyFile(this.inventoryPath, backup);
-      await protect(backup);
-    }
-    await lockSession(this.inventoryPath);
-    await saveInventory(this.inventoryPath, next);
-    await writeSSHConfig(this.configPath, next.machines);
-    this.state.records = records;
-    for (const [key, v] of Object.entries(records))
-      if (!key.startsWith("credential:") || this.vault.unlocked)
-        this.state.observed[key] = hash(v.value);
-    await this.save();
+        for (const m of Object.values(machines))
+          if (m.auth && credentials[m.auth.entry]) {
+            await writeFile(
+              m.auth.public_key,
+              credentialPublicKey(credentials[m.auth.entry] as Credential),
+              { mode: 0o600 },
+            );
+            await protect(m.auth.public_key);
+          }
+        const known = join(dirname(this.inventoryPath), "known_hosts");
+        await privateDirectory(dirname(known));
+        await writeFile(known, `${Object.values(trusted).join("\n")}\n`, {
+          mode: 0o600,
+        });
+        await protect(known);
+        if (await Bun.file(this.inventoryPath).exists()) {
+          const backup = `${this.inventoryPath}.before-sync-${Date.now()}`;
+          await copyFile(this.inventoryPath, backup);
+          await protect(backup);
+        }
+        await lockSession(this.inventoryPath);
+        await saveInventory(this.inventoryPath, next);
+        await writeSSHConfig(this.configPath, next.machines);
+      },
+    );
   }
   async remoteAction(peer: Peer, action: string, payload: unknown) {
     if (action === "control-exchange") {
@@ -840,20 +839,17 @@ export class Hub {
           ? (payload as Record<string, unknown>)
           : {};
       if (action === "snapshot") {
-        const records = await this.snapshot();
-        return input.version === 2
-          ? { version: 2, vaultUnlocked: this.vault.unlocked, records }
-          : records;
+        return syncSnapshotResponse(input, this.vault.unlocked, (features) =>
+          snapshotWithIssues(this, true, features),
+        );
       }
-      if (
-        input.version !== undefined &&
-        (input.version !== 2 || typeof input.vaultUnlocked !== "boolean")
-      )
-        throw new HomectlError(2, "Invalid sync offer metadata");
+      const offer = readSyncOffer(input);
       return this.preview(
         peer.id,
-        input.records,
-        input.version === 2 ? (input.vaultUnlocked as boolean) : undefined,
+        offer.records,
+        offer.vaultUnlocked,
+        offer.features,
+        offer.issues,
       );
     }
     if (action === "status") {
@@ -880,61 +876,7 @@ export class Hub {
       );
     }
     if (action === "exec") {
-      const v = payload as {
-        host: string;
-        argv: string[];
-        impact?: string;
-        approval?: string;
-        dryRun?: boolean;
-      };
-      if (!peer.permissions.operations.includes(v.host))
-        throw new HomectlError(3, "Peer has no operation grant for this host");
-      const inv = await loadInventory(this.inventoryPath);
-      const m = inv.machines[v.host];
-      if (!m) throw new HomectlError(2, "Unknown host");
-      if (m.transport === "local" && !peer.permissions.administer)
-        throw new HomectlError(3, "Peer administration is disabled");
-      if (
-        !Array.isArray(v.argv) ||
-        !v.argv.length ||
-        v.argv.some((a) => typeof a !== "string" || a.length > 4096)
-      )
-        throw new HomectlError(2, "Invalid command");
-      // Remote approval digests are never trusted. Mutations are reviewed on
-      // the execution peer's local panel, bound to the exact argv and impact.
-      const plan = planExecution(v.host, m, v.argv, v.impact);
-      if (plan.classification !== "inspect" && !v.dryRun) {
-        for (const [id, o] of this.operations)
-          if (o.expiresAt < Date.now()) this.operations.delete(id);
-        if (this.operations.size >= 32)
-          throw new HomectlError(3, "Too many pending operations");
-        const id = randomUUID();
-        this.operations.set(id, {
-          id,
-          peerId: peer.id,
-          host: v.host,
-          argv: v.argv,
-          impact: v.impact,
-          approval: plan.approval,
-          expiresAt: Date.now() + 300_000,
-          state: "pending",
-        });
-        return { pending: true, id, approvalNeededOn: this.state.name };
-      }
-      if (
-        !v.dryRun &&
-        !this.vault.unlocked &&
-        !(await sessionStatus(this.inventoryPath)).unlocked
-      )
-        throw new HomectlError(
-          5,
-          "Unlock the execution device locally before running a peer operation",
-        );
-      return execute(v.host, m, v.argv, {
-        configPath: this.configPath,
-        dryRun: v.dryRun,
-        impact: v.impact,
-      });
+      return peerCommand(this, peer, payload);
     }
     if (action === "operation-status") {
       const o = this.operations.get((payload as { id: string }).id);
@@ -950,6 +892,18 @@ export class Hub {
       throw new HomectlError(3, "Operation approval expired or already used");
     if (!approved) {
       o.state = "rejected";
+      const peer = this.state.peers[o.peerId];
+      recordLocalCommand({
+        inventoryPath: this.inventoryPath,
+        host: o.host,
+        argv: o.argv,
+        phase: "outcome",
+        status: "refused",
+        policyDecision: "refused",
+        operationId: o.operationId,
+        ...(peer ? { requester: peer.id, requesterName: peer.name } : {}),
+        reason: "peer-operation-rejected",
+      });
       return { rejected: true };
     }
     const peer = this.state.peers[o.peerId];
@@ -981,7 +935,14 @@ export class Hub {
       o.result = await execute(o.host, machine, o.argv, {
         configPath: this.configPath,
         approval: o.approval,
+        approvalContext: "peer",
         impact: o.impact,
+        audit: {
+          inventoryPath: this.inventoryPath,
+          ...(peer ? { device: peer.id, deviceName: peer.name } : {}),
+          approver: "local-operator",
+          operationId: o.operationId,
+        },
       });
       return { executed: true, result: o.result };
     } catch (e) {

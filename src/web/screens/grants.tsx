@@ -131,10 +131,18 @@ export function CommandPanel({ host }: { host: string }) {
             <Input
               id="command-impact"
               name="impact"
-              defaultValue="Inspect the operating system"
               required
             />
           </div>
+          {!ui.commandPeer ? (
+            <div className="grid gap-1.5">
+              <HelpLabel htmlFor="template-name" label="Save as a shortcut (optional)" help="Save this argv for this device's selected host. Parameter values and approvals are never saved." />
+              <div className="flex flex-wrap gap-2">
+                <Input id="template-name" name="template-name" maxLength={80} placeholder="e.g. Check service status" />
+                <Action action="save-command-from-form" label="Save command" />
+              </div>
+            </div>
+          ) : null}
           <Note>
             The other device must grant access to this host. Changes also need approval
             there.

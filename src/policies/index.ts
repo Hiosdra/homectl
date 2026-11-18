@@ -249,7 +249,7 @@ export function planExecution(
   if (machine.access === "observe" && (sudo || classification !== "inspect"))
     throw new HomectlError(
       3,
-      "Observe permits only supported inspection commands without sudo",
+      `Host ${host} has the observe tier; it permits only supported inspection commands without sudo`,
     );
   if (
     machine.access !== "full" &&
@@ -284,11 +284,19 @@ export function planExecution(
     approval: hash({ host, machine, argv, impact: affected }),
   };
 }
-export function checkApproval(plan: ExecutionPlan, approval?: string) {
+export function checkApproval(
+  plan: ExecutionPlan,
+  approval?: string,
+  context: "cli" | "panel" | "peer" = "cli",
+) {
   if (plan.needsApproval && approval !== plan.approval)
     throw new HomectlError(
       4,
-      "Explicit user confirmation required for this exact operation",
+      context === "panel"
+        ? "Review the command template and impact, then use Request approval and Accept in the panel"
+        : context === "peer"
+          ? "Peer approval digest mismatch; request a fresh review from the peer"
+          : "Review the exact host, command and impact, then re-run with --approval <digest>",
       {
         host: plan.host,
         argv: plan.argv,

@@ -1,4 +1,17 @@
 import { type Auth, HomectlError, type ProcessSpec } from "../types";
+
+// The inventory whose managed SSH session the worker checks. Mirrors the
+// worker's rule so the CLI pre-check and the worker always read one session.
+export function managedInventoryPath(auth: Auth): string | undefined {
+  const socket = auth.socket;
+  return (
+    auth.inventory ??
+    (socket?.endsWith(".session/agent.sock")
+      ? socket.slice(0, -".session/agent.sock".length)
+      : undefined)
+  );
+}
+
 export function credentialSpec(
   auth: Auth | undefined,
   spec: ProcessSpec,

@@ -60,7 +60,7 @@ async function link(source: string, target: string) {
       return;
     throw new HomectlError(
       3,
-      `Existing path conflicts: ${target}; replacement requires separate explicit approval`,
+      `Existing path conflicts: ${target}; move it aside manually if you want setup to create its managed link.`,
     );
   } catch (e) {
     if (e instanceof HomectlError) throw e;
@@ -264,7 +264,11 @@ export async function doctor(
   }
   if (host) {
     const m = inventory.machines[host];
-    if (!m) throw new HomectlError(2, "Unknown host");
+    if (!m)
+      throw new HomectlError(
+        2,
+        `Unknown inventory host ${host}; run home-ctl hosts to list configured hosts`,
+      );
     const { credentialSpec } = await import("./credentials");
     const { transportSpec } = await import("./transports");
     const { workerArgv } = await import("./operations");

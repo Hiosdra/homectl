@@ -43,5 +43,19 @@ export const NAV_ICONS: Record<string, ReactNode> = {
       <line x1="17" y1="16" x2="23" y2="16" />
     </svg>
   ),
+  commands: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 5h16M4 12h16M4 19h16" />
+      <circle cx="7" cy="5" r="1" />
+      <circle cx="7" cy="12" r="1" />
+      <circle cx="7" cy="19" r="1" />
+    </svg>
+  ),
+  audit: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 4v5h5M5.6 8A8 8 0 1 1 4 13" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  ),
 };
 

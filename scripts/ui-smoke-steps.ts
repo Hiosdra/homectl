@@ -1,6 +1,75 @@
 // Steps of the UI smoke test that are shared by several flows.
 import { join } from "node:path";
 import { type Browser, expect, type Page } from "@playwright/test";
+import type { SavedCommandStore } from "../src/saved-commands";
+
+export async function verifySavedCommandEditor(
+  page: Page,
+  store: SavedCommandStore,
+) {
+  const alphaDraft = await store.save({
+    name: "Alpha draft",
+    hosts: ["agent-host"],
+    argv: ["echo", "alpha"],
+    parameters: [],
+  });
+  const betaDraft = await store.save({
+    name: "Beta draft",
+    hosts: ["agent-host"],
+    argv: ["echo", "beta"],
+    parameters: [],
+  });
+  const parameterizedDraft = await store.save({
+    name: "Parameterized review",
+    hosts: ["agent-host"],
+    argv: ["rm", "{{target}}"],
+    parameters: [{ name: "target" }],
+    description: "Remove {{target}}",
+  });
+
+  await page.getByRole("link", { name: "Saved commands" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Saved commands", exact: true }),
+  ).toBeVisible();
+  await page
+    .locator(`[data-action="saved-command-edit"][data-id="${alphaDraft.id}"]`)
+    .click();
+  await expect(page.locator("#saved-name")).toHaveValue("Alpha draft");
+  await page
+    .locator(`[data-action="saved-command-edit"][data-id="${betaDraft.id}"]`)
+    .click();
+  await expect(page.locator("#saved-name")).toHaveValue("Beta draft");
+  await page.getByRole("button", { name: "New command" }).click();
+  await expect(page.locator("#saved-name")).toHaveValue("");
+  await expect(
+    page.locator('#saved-command-form input[name="id"]'),
+  ).toHaveCount(0);
+  await page
+    .locator(
+      `[data-action="saved-command-run"][data-id="${parameterizedDraft.id}"]`,
+    )
+    .click();
+  await page
+    .getByRole("textbox", { name: "target" })
+    .fill("private-panel-parameter");
+  const reviewButton = page.getByRole("button", { name: "Review and run" });
+  await expect(reviewButton).toHaveAttribute("type", "submit");
+  await reviewButton.click();
+  await expect(page.locator("#confirm-dialog")).toContainText(
+    "Run saved command on agent-host?",
+  );
+  await expect(page.locator("#confirm-dialog")).toContainText(
+    'Command: "rm" "private-panel-parameter"',
+  );
+  await expect(page.locator("#confirm-dialog")).toContainText(
+    "Remove {{target}}",
+  );
+  await expect(page.locator("#confirm-dialog")).not.toContainText(
+    '"{{target}}"',
+  );
+  await page.locator("#confirm-dialog button[value=cancel]").click();
+  await expect(page.locator("#confirm-dialog")).toHaveCount(0);
+}
 
 // Screens the flow does not reach on its own, captured for comparison with the approved
 // design: Settings, Welcome (same session cookie in a second tab), and the unlock screen
@@ -11,6 +80,7 @@ export async function captureScreens(
   origin: string,
   out: string,
 ) {
+  await page.screenshot({ path: join(out, "desktop.png"), fullPage: true });
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Settings", exact: true }),

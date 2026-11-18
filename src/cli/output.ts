@@ -1,3 +1,5 @@
+import { HomectlError } from "../types";
+
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -105,6 +107,10 @@ export function formatHuman(
           ),
         )
       : "No paired devices. Run home-ctl pair on both computers.";
+  if (command === "commands" && action === "list" && Array.isArray(value))
+    return value.length
+      ? tree(value)
+      : "No saved commands yet. Use home-ctl commands save --file PATH.";
   if (!record(value)) return tree(value);
   if (command === "doctor" && Array.isArray(value.checks)) {
     const { checks: entries, ok, note, ...rest } = value;
@@ -203,4 +209,19 @@ export function formatError(
   details?: unknown,
 ): string {
   return `Error: ${message}\nExit code: ${code}${details ? `\n${tree(details)}` : ""}`;
+}
+
+export function normalizeCliError(error: unknown): HomectlError {
+  if (error instanceof HomectlError) return error;
+  if (error instanceof Error) {
+    const failure = error as NodeJS.ErrnoException;
+    if (failure.code?.startsWith("ERR_PARSE_ARGS_"))
+      return new HomectlError(2, error.message);
+    if (failure.code === "ENOENT" && typeof failure.path === "string")
+      return new HomectlError(2, `Cannot read file ${failure.path}`);
+  }
+  return new HomectlError(
+    2,
+    "Invalid input or unavailable resource; details suppressed",
+  );
 }

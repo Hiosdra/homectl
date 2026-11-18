@@ -1,5 +1,8 @@
+import { commandsHelp, historyHelp } from "./commands-help";
+import { peerHelp } from "./peer-help";
+
 type Section = { title: string; rows: [string, string][] };
-type Page = { usage: string; intro?: string; sections: Section[] };
+export type Page = { usage: string; intro?: string; sections: Section[] };
 
 const globalOptions: Section = {
   title: "Options",
@@ -350,7 +353,7 @@ pages.serve = {
         ],
         [
           "--panel-token-file PATH",
-          "Optional extra access code for the remote panel, read from a protected file or Compose secret; never logged. The vault password unlocks the panel without it.",
+          "Optional extra access code for the remote panel, read from a protected file or Compose secret; never logged. The database password unlocks the panel without it.",
         ],
         [
           "--no-discovery",
@@ -411,28 +414,25 @@ pages.pair = {
   ],
 };
 pages.sync = {
-  usage: "home-ctl sync <preview|apply|cancel> <peer-or-preview-id>",
+  usage:
+    "home-ctl sync <preview|apply|cancel> <peer-or-preview-id> [--file choices.json]",
   intro:
-    "Preview before applying. Choose local, remote or both for each conflict ID in a choices JSON object.",
+    "Review the preview before applying. An explicit choices JSON file is required, even when it contains {} and there are no conflicts. Choose local, remote or both for each conflict ID.",
   sections: [
     {
       title: "Apply",
       rows: [
         [
           "--file PATH",
-          "Reviewed choices object. Use {} when no conflicts exist.",
+          "Required reviewed choices object. Use {} when no conflicts exist.",
         ],
       ],
     },
     globalOptions,
   ],
 };
-pages.peer = {
-  usage: "home-ctl peer <peer-id> --target <host> -- <argv...>",
-  intro:
-    "Uses the peer's grants and host policy. Mutations wait for local approval on the execution peer.",
-  sections: [globalOptions],
-};
+Object.assign(pages, { peer: peerHelp, commands: commandsHelp });
+pages.history = historyHelp;
 pages["serve-mcp"] = {
   usage:
     "home-ctl serve-mcp [--host 127.0.0.1] [--port 7449] [--inventory PATH]",
@@ -547,10 +547,10 @@ pages.control = {
           "The agent calls homectl_plan. Inspection needs no approval; changes need approval by another client.",
         ],
         [
-          "5. Execute",
-          "control execute <id>, or Execute in the panel's Approvals view",
+          "5. Accept and run",
+          "control execute <id>, or choose Accept in the panel's Accept requests view",
         ],
-        ["6. Verify", "control audit verify, or the Audit card in the panel"],
+        ["6. Verify", "control audit verify, or the panel's Audit log card"],
       ],
     },
     globalOptions,
@@ -560,7 +560,7 @@ pages.ssh = {
   ...(pages.exec as Page),
   usage: "home-ctl ssh <host> [options] -- <command> [args...]",
 };
-
+export const helpTopics = Object.keys(pages);
 function wrap(text: string, width: number): string[] {
   const lines: string[] = [];
   let line = "";

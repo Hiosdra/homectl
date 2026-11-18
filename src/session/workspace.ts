@@ -43,17 +43,13 @@ export async function sessionWorkspace(
       };
     }
     if (!state.vaultUnlocked) {
-      const password = await passwordPrompt(
-        "Local KeePassXC password (SSH and sync): ",
-      );
+      const password = await passwordPrompt("Database password: ");
       await api(path, "/api/vault/unlock", { password, create: false });
     } else if (
       !state.session.unlocked &&
       Object.values(inventory.machines).some((machine) => machine.auth)
     ) {
-      const password = await passwordPrompt(
-        "Local KeePassXC password (SSH and sync): ",
-      );
+      const password = await passwordPrompt("Database password: ");
       await api(path, "/api/vault/unlock", { password, create: false });
     }
     const refreshed = await api<WorkspaceState>(path, "/api/state");
@@ -68,6 +64,6 @@ export async function sessionWorkspace(
   return {
     ...(await sshUnlock(inventory, path, passwordPrompt)),
     syncUnlocked: false,
-    note: "SSH unlocked. Open home-ctl panel to unlock the sync vault there; the vault password is not kept in the SSH session.",
+    note: "SSH keys are loaded from the local KeePassXC database. Its password is not retained in the SSH session.",
   };
 }

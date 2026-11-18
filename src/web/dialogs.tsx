@@ -1,7 +1,15 @@
 // The confirmation and vault-unlock dialogs. Both are driven by requests in the store:
 // a caller awaits the answer, and closing the dialog without choosing counts as no.
 import type { FormEvent } from "react";
-import { api, closeUnlock, element, render, ui } from "./store";
+import {
+  api,
+  closeUnlock,
+  copyText,
+  element,
+  render,
+  report,
+  ui,
+} from "./store";
 import { Alert, AlertDescription } from "./ui/alert";
 import {
   AlertDialog,
@@ -69,13 +77,13 @@ export function UnlockDialog() {
           <DialogHeader>
             <DialogTitle>Unlock this device&apos;s vault</DialogTitle>
             <DialogDescription>
-              Enter this device&apos;s vault password. After unlocking, compare the
+              Enter this device&apos;s database password. After unlocking, compare the
               devices again to review a fresh sync preview. The password is sent to
               this workspace over the current connection.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className="grid gap-2">
-            <Label htmlFor="sync-unlock-password">Vault password</Label>
+            <Label htmlFor="sync-unlock-password">Database password</Label>
             <Input
               id="sync-unlock-password"
               type="password"
@@ -151,7 +159,16 @@ export function ClientDialog() {
           <Pre>
             {COMMAND}
           </Pre>
-          <Note>Replace the placeholders. Only clients granted approve:decide can approve operations.</Note>
+          <Button type="button" variant="secondary" onClick={() => void copyClientCommand()}>
+            Copy command
+          </Button>
+          <ol className="list-decimal space-y-2 pl-5 text-sm">
+            <li>Replace the placeholders, then run the command in a private terminal.</li>
+            <li>Start <code>home-ctl serve-mcp</code> in a private terminal and leave it running.</li>
+            <li>Configure the client with <code>http://127.0.0.1:7449/mcp</code> and the header <code>Authorization: Bearer &lt;token file contents&gt;</code>.</li>
+            <li>Inspection plans need no approval. Changes need approval from a different authorized client.</li>
+          </ol>
+          <Note>Only clients granted approve:decide can approve operations.</Note>
         </DialogPanel>
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={close}>
@@ -165,3 +182,12 @@ export function ClientDialog() {
 
 const COMMAND =
   'home-ctl control client add codex-pc --name "Codex PC" --scopes status:read,inspect:read,plan:create --hosts <host> --token-file <path>';
+
+async function copyClientCommand() {
+  try {
+    await copyText(COMMAND);
+    report("Client command copied. Paste it into a private terminal.", "notice");
+  } catch (error) {
+    report(error instanceof Error ? error.message : "Could not copy the command.");
+  }
+}

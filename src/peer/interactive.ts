@@ -246,6 +246,9 @@ If the other device asks for a code, enter this one there. Never share it in cha
     console.log(
       `Paired with ${remote.name}. Sync permission granted; no credentials transferred.`,
     );
+    console.log(
+      `To change ${remote.name}'s permissions, open home-ctl panel → Sync → Permissions for that device.`,
+    );
     if (running) {
       console.log(
         "This temporary workspace stays available for sync while this terminal is open. Open the panel with home-ctl panel; press Ctrl+C here when finished.",

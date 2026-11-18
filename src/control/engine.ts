@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, join } from "node:path";
 import { loadInventory } from "../inventory";
 import { execute as executeCommand, writeSSHConfig } from "../operations";
 import { atomicReplace } from "../platform";
@@ -25,6 +25,7 @@ import {
   type Machine,
   type Runner,
 } from "../types";
+import { AuditEntriesCache } from "./audit-cache";
 import { requireScope } from "./authorization";
 import { fingerprint, isoTime } from "./canonical";
 import {
@@ -440,6 +441,7 @@ export class ControlPlane {
   // One audit entry per token, and one per window for identical refusals.
   private readonly oidcAuditSeen = new TokenAuditCache();
   private readonly rejectionLimiter = new RejectionLimiter();
+  private readonly auditCache = new AuditEntriesCache();
   private readonly clock: () => number;
   private readonly runner: Runner;
 
@@ -1058,7 +1060,11 @@ export class ControlPlane {
 
   // Replicated-control events from the replicator (identifiers and fixed reasons only).
   async auditEntries() {
-    return this.journal.read();
+    return this.auditCache.read(this.journal);
+  }
+
+  async auditRows(names: Record<string, string>) {
+    return this.auditCache.rows(this.journal, names);
   }
 
   async recordReplicated(event: AuditEvent): Promise<void> {
@@ -1615,7 +1621,7 @@ export class ControlPlane {
       if (op.state === "pending" && approvalRequired)
         throw new HomectlError(
           4,
-          "Operation requires approval before execution",
+          `Ask a different client with approve:decide to approve this operation using homectl_approve; then choose Accept in the panel's Accept requests view (operation ${op.id})`,
         );
       if (op.state !== "approved" && op.state !== "pending")
         throw new HomectlError(
@@ -1846,7 +1852,4 @@ export class ControlPlane {
   }
 }
 
-// Private state directory beside the inventory. Shared by the CLI and the panel.
-export function controlStateDirectory(inventoryPath: string): string {
-  return join(dirname(resolve(inventoryPath)), "control-plane");
-}
+export { controlStateDirectory } from "./paths";

@@ -7,9 +7,8 @@ import { credentialSpec } from "../credentials";
 
 import { enroll, installSudo } from "../enroll";
 import { loadInventory, resolveHost, saveInventory } from "../inventory";
-import { execute, workerArgv, writeSSHConfig } from "../operations";
+import { workerArgv, writeSSHConfig } from "../operations";
 import { windows } from "../platform";
-import { checkApproval, planExecution } from "../policies";
 import { run } from "../process";
 import { type ProvisionRequest, planProvision, proxmox } from "../provisioners";
 import { proxmoxSSH } from "../provisioners/ssh";
@@ -21,15 +20,18 @@ import {
   ttlSeconds,
 } from "../session";
 import { initDatabase } from "../session/database";
-import { createKey, keyReference } from "../session/keys";
+import { createKey, inspectKey, keyReference } from "../session/keys";
 import { normalizePublicKey } from "../session/public-key";
-import { doctor, paths } from "../setup";
+import { paths } from "../setup";
 import { transportSpec } from "../transports";
 import { HomectlError, type Machine, type ProcessResult } from "../types";
 import { runUpdate } from "../update";
-import { renderHelp } from "./help";
+import { runLocalCliCommand } from "./commands";
+import { helpTopics, renderHelp } from "./help";
+import { hostCommand } from "./host-commands";
 import { runInternal } from "./internal-roles";
-import { formatError, formatHuman } from "./output";
+import { knownCommands } from "./known-commands";
+import { formatError, formatHuman, normalizeCliError } from "./output";
 import { confirm } from "./prompts";
 export const help = renderHelp();
 
@@ -75,7 +77,6 @@ async function panelInterface(inventoryPath: string, requested?: string) {
 export async function main(raw = process.argv.slice(2)): Promise<number> {
   // Internal roles that homectl starts for itself (src/cli/internal-roles.ts).
   if (raw[0] === "__internal") return runInternal(raw[1]);
-  await (await import("../skill-install")).refreshManagedSkills();
   const split = raw.indexOf("--");
   const cliArgs = split < 0 ? raw : raw.slice(0, split);
   const commandArgs = split < 0 ? [] : raw.slice(split + 1);
@@ -114,6 +115,8 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         "configure-firewall": { type: "boolean" },
         inventory: { type: "string" },
         file: { type: "string" },
+        id: { type: "string" },
+        "parameters-file": { type: "string" },
         name: { type: "string" },
         scopes: { type: "string" },
         hosts: { type: "string" },
@@ -142,6 +145,14 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       throw new HomectlError(
         2,
         "--ttl and --database apply only to session configure",
+      );
+    if (
+      (v.id !== undefined || v["parameters-file"] !== undefined) &&
+      command !== "commands"
+    )
+      throw new HomectlError(
+        2,
+        "--id and --parameters-file apply only to commands",
       );
     if (
       [
@@ -201,8 +212,14 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         json ? JSON.stringify(result) : formatHuman(result, command, host),
       );
     if (!command || v.help || command === "help") {
+      const topic = command === "help" ? host : command;
+      if (topic && !knownCommands.has(topic))
+        throw new HomectlError(
+          2,
+          `Unknown command: ${topic}; use home-ctl help`,
+        );
       emit(
-        renderHelp(command === "help" ? host : command, {
+        renderHelp(topic && helpTopics.includes(topic) ? topic : "", {
           width: process.stdout.columns,
           color: Boolean(
             process.stdout.isTTY &&
@@ -215,7 +232,11 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       return 0;
     }
     if ((v["install-deps"] || v["configure-firewall"]) && command !== "setup")
-      throw new HomectlError(2, "--install-deps is only supported by setup");
+      throw new HomectlError(
+        2,
+        "--install-deps and --configure-firewall are only supported by setup",
+      );
+    await (await import("../skill-install")).refreshManagedSkills();
     if (command === "update") {
       emit(await runUpdate(positionals, commandArgs, v.inventory, dryRun));
       return 0;
@@ -328,10 +349,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           return 0;
         }
         if (host === "confirm") {
-          const state = await localApi<{ pair: { sas?: string } }>(
-            inventoryPath,
-            "/api/state",
-          );
+          const state = await localApi<{
+            pair: { sas?: string; remote?: { id?: string; name?: string } };
+          }>(inventoryPath, "/api/state");
           if (!state.pair?.sas)
             throw new HomectlError(
               3,
@@ -343,19 +363,28 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
               3,
               "Pairing cancelled: phrase not confirmed",
             );
-          const result = await localApi<{ pair: unknown }>(
-            inventoryPath,
-            "/api/pair/confirm",
-            {
-              permissions: {
-                sync: true,
-                diagnostics: false,
-                operations: [],
-                administer: false,
-              },
+          const result = await localApi<{
+            pair: { remote?: { id?: string; name?: string } } | null;
+            peers: { id: string; name: string }[];
+          }>(inventoryPath, "/api/pair/confirm", {
+            permissions: {
+              sync: true,
+              diagnostics: false,
+              operations: [],
+              administer: false,
             },
-          );
+          });
           emit(result.pair);
+          const remote = result.pair?.remote;
+          if (
+            !json &&
+            remote?.id &&
+            remote.name &&
+            result.peers.some((peer) => peer.id === remote.id)
+          )
+            console.log(
+              `Paired with ${remote.name}. To change its permissions, open home-ctl panel → Sync → Permissions for that device.`,
+            );
           return 0;
         }
         if (host === "cancel") {
@@ -390,7 +419,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           if (!v.file)
             throw new HomectlError(
               4,
-              "Review the preview, then provide explicit choices with --file (use {} when there are no conflicts)",
+              "Review the preview, then provide explicit choices with --file PATH",
             );
           const choices = JSON.parse(await readFile(resolve(v.file), "utf8"));
           emit(
@@ -645,6 +674,18 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       console.log(json ? JSON.stringify(result.value) : result.human);
       return result.code;
     }
+    const localCommandResult = await runLocalCliCommand({
+      command,
+      host,
+      positionals,
+      commandArgs,
+      dryRun,
+      inventoryPath,
+      configPath,
+      values: v,
+      emit,
+    });
+    if (localCommandResult !== undefined) return localCommandResult;
     const inv = await loadInventory(inventoryPath);
     if (positionals.length > (command === "key" ? 3 : 2))
       throw new HomectlError(
@@ -733,61 +774,21 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       emit(
         host === "create"
           ? await createKey(keyName, inv, inventoryPath)
-          : {
-              name: keyName,
-              auth,
-              publicKey: normalizePublicKey(
-                await readFile(auth.public_key, "utf8"),
-              ),
-            },
+          : await inspectKey(keyName, auth),
       );
       return 0;
     }
-    if (command === "hosts") {
-      emit(inv.machines);
-      return 0;
-    }
-    if (command === "inspect") {
-      if (!host) throw new HomectlError(2, "Specify host");
-      emit({ host, ...resolveHost(inv, host) });
-      return 0;
-    }
-    if (command === "doctor") {
-      if (dryRun) {
-        emit({ wouldCheck: host ?? "tools", credentialFetch: false });
-        return 0;
-      }
-      await writeSSHConfig(configPath, inv.machines);
-      const result = await doctor(inv, configPath, host);
-      emit(result);
-      return result.ok ? 0 : 5;
-    }
-    if (command === "exec" || command === "ssh") {
-      if (!host) throw new HomectlError(2, "Specify host");
-      if (!dryRun) {
-        checkApproval(
-          planExecution(host, resolveHost(inv, host), commandArgs, v.impact),
-          v.approval,
-        );
-        await writeSSHConfig(configPath, inv.machines);
-      }
-      const result = await execute(host, resolveHost(inv, host), commandArgs, {
-        configPath,
-        dryRun,
-        approval: v.approval,
-        impact: v.impact,
-      });
-      emit(result);
-      return "result" in result && result.result && result.result.exitCode !== 0
-        ? 6
-        : 0;
-    }
-    if (command === "sudoers") {
-      if (!host) throw new HomectlError(2, "Specify host");
-      const m = resolveHost(inv, host);
-      emit((await import("../policies")).sudoers(m.user ?? "", m));
-      return 0;
-    }
+    const hostResult = await hostCommand(command, host, {
+      inventory: inv,
+      inventoryPath,
+      configPath,
+      commandArgs,
+      dryRun,
+      approval: v.approval,
+      impact: v.impact,
+      emit,
+    });
+    if (hostResult !== undefined) return hostResult;
     if (command === "enroll") {
       if (!host || !v.file)
         throw new HomectlError(2, "enroll requires host and --file");
@@ -969,13 +970,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
     }
     throw new HomectlError(2, "Unknown command; use home-ctl help");
   } catch (e) {
-    const error =
-      e instanceof HomectlError
-        ? e
-        : new HomectlError(
-            2,
-            "Invalid input or unavailable resource; details suppressed",
-          );
+    const error = normalizeCliError(e);
     console.error(
       json
         ? JSON.stringify({

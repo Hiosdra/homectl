@@ -93,4 +93,82 @@ describe("partial apply takes only routine changes", () => {
     expect(result.conflicts).toHaveLength(1);
     expect(result.records["machine:x"]?.value).toEqual({ name: "local" });
   });
+
+  test("saved commands are reviewed explicitly and edit/delete conflicts use normal choices", () => {
+    const local = {
+      "saved-command:status": {
+        clock: { [A]: 1 },
+        value: {
+          schemaVersion: 1,
+          id: "status",
+          name: "Local",
+          hosts: ["nas"],
+          argv: ["hostname"],
+        },
+        at: 1000,
+      },
+    };
+    const remote = {
+      "saved-command:status": {
+        clock: { [B]: 1 },
+        value: {
+          schemaVersion: 1,
+          id: "status",
+          name: "Remote",
+          hosts: ["nas"],
+          argv: ["uptime"],
+        },
+        at: 2000,
+      },
+      "saved-command:deleted": {
+        clock: { [B]: 1 },
+        value: null,
+        at: 2000,
+      },
+    };
+    const partial = merge({}, remote, A, {}, true);
+    expect(partial.records["saved-command:deleted"]).toBeUndefined();
+    expect(partial.records["saved-command:status"]).toBeUndefined();
+
+    const conflict = merge(local, remote, A);
+    expect(conflict.conflicts.map((item) => item.id)).toContain(
+      "saved-command:status",
+    );
+    const both = merge(local, remote, A, { "saved-command:status": "both" });
+    expect(both.records["saved-command:status"]?.value).toEqual(
+      local["saved-command:status"]?.value,
+    );
+    const copy = both.copies[0];
+    expect(copy).toMatch(/^saved-command:copy-/);
+    expect(copy ? both.records[copy]?.value : undefined).toEqual(
+      remote["saved-command:status"]?.value,
+    );
+  });
+
+  test("saved-command keep-both copies use stable ids, including edit/delete conflicts", () => {
+    const id = "saved-command:status";
+    const deleted: Record<string, Version> = {
+      [id]: { clock: { [A]: 2 }, value: null, at: 2000 },
+    };
+    const edited: Record<string, Version> = {
+      [id]: {
+        clock: { [B]: 1 },
+        value: {
+          schemaVersion: 1,
+          id: "status",
+          name: "Remote",
+          hosts: ["nas"],
+          argv: ["uptime"],
+        },
+        at: 1000,
+      },
+    };
+    const first = merge(deleted, edited, A, { [id]: "both" });
+    const second = merge(deleted, edited, B, { [id]: "both" });
+    expect(first.copies).toEqual(second.copies);
+    expect(first.copies[0]).toMatch(/^saved-command:copy-[0-9a-f]{59}$/);
+    expect(first.records[first.copies[0] ?? ""]?.value).toEqual(
+      edited[id]?.value,
+    );
+  });
 });

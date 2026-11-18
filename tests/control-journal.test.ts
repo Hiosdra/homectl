@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonicalJson, fingerprint } from "../src/control/canonical";
 import { AuditJournal, GENESIS, verifyChain } from "../src/control/journal";
-import { containsSecretMaterial, redactArgv } from "../src/control/redact";
+import {
+  containsRedactionMarker,
+  containsSecretMaterial,
+  containsSecretMaterialAllowingTemplatePlaceholders,
+  redactArgv,
+} from "../src/control/redact";
 import type { AuditEvent } from "../src/control/types";
 import { HomectlError } from "../src/types";
 
@@ -73,6 +78,18 @@ describe("argv redaction and secret detection", () => {
       expect(containsSecretMaterial(text)).toBe(true);
     for (const text of ["uname -s", "docker ps --format json", "status:read"])
       expect(containsSecretMaterial(text)).toBe(false);
+    expect(containsSecretMaterial('"--password={{pw}}"')).toBe(true);
+    expect(
+      containsSecretMaterialAllowingTemplatePlaceholders('"--password={{pw}}"'),
+    ).toBe(false);
+    expect(containsSecretMaterial('"PASSWORD={{pw}}"')).toBe(true);
+    expect(
+      containsSecretMaterialAllowingTemplatePlaceholders('"PASSWORD={{pw}}"'),
+    ).toBe(false);
+    expect(containsSecretMaterial('"PASSWORD={{pw}}suffix"')).toBe(true);
+    expect(containsSecretMaterial('"--password=[REDACTED]"')).toBe(true);
+    expect(containsSecretMaterial('"--token=[REDACTED]"')).toBe(true);
+    expect(containsRedactionMarker(["NAME=[REDACTED]"])).toBe(true);
   });
 });
 
@@ -101,6 +118,25 @@ describe("audit journal hash chain", () => {
     for (const event of events) await journal.append({ ...event });
     return { dir, path, journal };
   }
+
+  test("detects schema-invalid entries during chain verification", async () => {
+    const { dir, journal } = await filled();
+    try {
+      const entries = await journal.read();
+      const first = entries[0];
+      if (!first) throw new Error("Expected a journal entry");
+      const invalid = {
+        ...first,
+        event: { event: 42 } as unknown as AuditEvent,
+      };
+      expect(verifyChain([invalid])).toMatchObject({
+        ok: false,
+        error: "schema violation at entry 1",
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 
   test("appends link each entry to its predecessor and verify cleanly", async () => {
     const { dir, journal } = await filled();

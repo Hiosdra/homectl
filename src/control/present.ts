@@ -592,7 +592,7 @@ export function summarizeTool(
     client?: { id: string };
   };
   const run = (id: string) =>
-    `The local operator can run it: home-ctl control execute ${id} (or Execute in the panel → Approvals).`;
+    `The local operator can run it: home-ctl control execute ${id} (or choose Accept in the panel → Accept requests).`;
   if (
     (tool === "homectl_plan" || tool === "homectl_proxmox_plan") &&
     v.operationId

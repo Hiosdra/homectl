@@ -39,7 +39,7 @@ On the command line, `home-ctl pair` on both devices guides you through the same
 
 ## Sync changes
 
-On a new device, create a vault in **Access** first, with a password of your choice. Vault passwords stay on their own computer and can differ between devices.
+On a new device, create a vault in **Access** first, with a password of your choice. Database passwords stay on their own computer and can differ between devices.
 
 Then unlock both vaults, open **Sync** for a paired device, and review the proposed changes. For each conflict, pick one:
 
@@ -51,9 +51,11 @@ Credential conflicts show fingerprints only, never key or password values. Confl
 
 When you apply, the other device gets an offer and reviews it before writing anything. Deletions are recorded, so an older device cannot bring a removed entry back. The app refuses to apply a review made from data that changed afterwards. You will need a new review.
 
-**What syncs:** SSH machines, access policy, Proxmox provider definitions, `homectl-*` credential entries with their attachments, and trusted SSH host keys.
+**What syncs:** SSH machines, access policy, Proxmox provider definitions, saved command templates, `homectl-*` credential entries with their attachments, and trusted SSH host keys. Saved commands are shortcuts only. The receiving device marks unknown hosts unavailable and checks its own inventory and policy on every run. Concurrent template edits and deletes appear in the normal conflict review.
 
-**What stays local:** database paths, agent endpoints, this computer's host definitions, the session TTL and active sessions. Entries outside the `homectl` namespace in your KeePass database are never transferred.
+Saved commands are a negotiated peer feature. Version 0.2.2 advertises support in snapshot metadata and sends command records only when the other peer advertises the same feature. Older peers therefore continue syncing their supported machine, provider, credential and host-key records without seeing unknown saved-command keys. Unsupported or invalid saved-command records received by 0.2.2 are skipped individually and listed in the sync review; they do not block other record types.
+
+**What stays local:** audit history, database paths, agent endpoints, this computer's host definitions, the session TTL and active sessions. Entries outside the `homectl` namespace in your KeePass database are never transferred.
 
 Sync runs only when you start it. A service keeps the workspace available in the background, but unattended periodic sync is not enabled.
 

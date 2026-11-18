@@ -86,13 +86,13 @@ function SafeBlock() {
       ) : (
         <form id="unlock-form" key={exists ? "unlock" : "create"} className="grid gap-3">
           <div className="grid gap-1.5">
-            <HelpLabel htmlFor="password" label="Safe password" help="The safe holds the credentials that sync between your computers. Its password is separate from the SSH session and never leaves this device." />
+            <HelpLabel htmlFor="password" label="Database password" help="This KeePassXC database holds your SSH keys and sync credentials. The same password unlocks both; it stays on this device." />
             <Input id="password" name="password" type="password" autoComplete={exists ? "current-password" : "new-password"} required />
           </div>
           {exists ? null : (
             <>
               <div className="grid gap-1.5">
-                <HelpLabel htmlFor="password-confirm" label="Confirm safe password" help="Type the same password again, so a typing mistake does not go unnoticed." />
+                <HelpLabel htmlFor="password-confirm" label="Confirm database password" help="Type the same database password again, so a typing mistake does not go unnoticed." />
                 <Input id="password-confirm" name="password-confirm" type="password" autoComplete="new-password" required />
               </div>
               <input type="hidden" name="create" value="true" />

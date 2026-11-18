@@ -86,7 +86,8 @@ function onRootClick(event: ReactMouseEvent<HTMLDivElement>) {
 
 function onRootSubmit(event: FormEvent<HTMLDivElement>) {
   const form = event.target as HTMLFormElement;
-  if (form.id === "connect-form" || form.id === "sync-unlock-form" || !form.id) return;
+  const formId = form.getAttribute("id");
+  if (formId === "connect-form" || formId === "sync-unlock-form" || !formId) return;
   event.preventDefault();
   handleSubmit(form);
 }
@@ -106,7 +107,9 @@ async function boot() {
     try {
       await api("/api/connect", { token });
     } catch (e) {
-      report(String(e));
+      report(
+        e instanceof Error ? e.message : "Could not connect to the workspace.",
+      );
     }
   }
   try {
@@ -128,6 +131,8 @@ async function boot() {
     "sync",
     "peers",
     "settings",
+    "commands",
+    "audit",
     "welcome",
   ].includes(hash)
     ? hash

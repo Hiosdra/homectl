@@ -65,6 +65,7 @@ export type Preview = {
   localName: string;
   remoteName: string;
   blocker?: { type: "remote_vault_locked" };
+  issues?: { id: string; reason: string }[];
   changes: string[];
   entries?: {
     id: string;
@@ -191,4 +192,55 @@ export type ControlOverview = {
 export type ControlExecution = {
   operation: ControlOp;
   output?: { stdout: string; stderr: string };
+};
+export type SavedCommandParameter = {
+  name: string;
+  description?: string;
+  secret?: boolean;
+};
+export type SavedCommand = {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  hosts: string[];
+  argv: string[];
+  parameters: SavedCommandParameter[];
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+  available: string[];
+  unavailable: string[];
+};
+export type InvalidSavedCommand = {
+  id: string;
+  status: "invalid";
+  reason: string;
+};
+export type SavedCommandListItem = SavedCommand | InvalidSavedCommand;
+export type AuditHistoryRow = {
+  id: string;
+  sequence: number;
+  at: string;
+  source: "control-plane" | "command-history";
+  operationId?: string;
+  operation?: string;
+  host?: string;
+  argv?: string[];
+  requester: string;
+  requesterName?: string;
+  policyDecision: "allowed" | "needs-approval" | "refused";
+  classification?: string;
+  approver?: string;
+  approverName?: string;
+  status: string;
+  exitCode?: number;
+  durationMs?: number;
+  reason?: string;
+};
+export type AuditHistoryPage = {
+  entries: AuditHistoryRow[];
+  nextCursor?: string;
+  limit: number;
+  malformedHistoryLines?: number;
+  warnings?: string[];
 };

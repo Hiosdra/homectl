@@ -130,7 +130,7 @@ Deterministic Proxmox plan with a `fingerprint`. Apply writes a per-VMID JSON jo
 - **R8 — Unauthenticated probes are journaled.** Failed auth attempts append `auth.rejected` entries under the system actor `control-plane` (no client id, no token). No rate limiting in slice 1; a local process could grow the journal. Mitigation later.
 - **R9 — Windows lock semantics.** The state lock uses exclusive-create lock files with a 30 s staleness rule. Adequate for the single-host, low-concurrency use here; not a formal lock. Not verified on Windows beyond unit tests that run on this machine.
 - **R10 — Loopback HTTP only.** The MCP endpoint is plain HTTP on `127.0.0.1`. Non-loopback binding is refused in code. No TLS. Remote access would need a separate design (issue #5 and Authentik work).
-- **R11 — Growth.** Operations, idempotency entries, consumed nonces and the journal grow without retention in slice 1. Each mutating request reads the whole journal to find the chain head; acceptable at homelab volume, needs a tail-read optimization later.
+- **R11 — Growth.** Operations, idempotency entries, consumed nonces and the control-plane journal grow without retention in slice 1. Each mutating request reads the whole journal to find the chain head; acceptable at homelab volume, needs a tail-read optimization later. Ordinary command history is a separate local-only log with age/count retention and does not alter this journal's retention or recovery behavior.
 - **R12 — Proxmox LXC is not supported.** `pct` is only blocked for MCP unless inspection. No LXC lifecycle adapter exists or is claimed.
 - **R13 — Executor liveness uses PIDs.** An operation left `executing` is recovered as `unknown` at startup only if its recorded executor PID is not alive. A reused PID can delay recovery until the next restart. This fails safe: nothing is re-run.
 - **R14 — Two-file write window.** Operation state (`state.json`) and the journal (`audit.jsonl`) are separate files, so a crash between them can leave a transition without its audit entry, or the reverse. Order is chosen per transition: audit-first for plan, decision and expiry (a failed append prevents the change); state-first for the `executing` commit, which reverts if the append fails; state-first for outcomes, which then report an audit failure. `verify` reports per-operation inconsistencies. Not atomic.
@@ -178,8 +178,8 @@ Same branch, local commits only. Scope: review fixes on slice 1 plus the operato
 - API timestamps are ISO-8601 UTC strings; records keep epoch milliseconds.
 - CLI: readable tables (`client list`, `ops`), `show`, prefix ids, execution summaries, idempotent revoke, color only on a TTY (`NO_COLOR` respected).
 - MCP tool text is a summary that includes the full operation id and fingerprint.
-- Local panel: an **Approvals** view (queue with Pending / Approved / History, clients with revoke, audit card with verify). The panel executes ready operations and revokes clients; it has no approval route.
-- UI smoke test seeds synthetic clients and operations, walks the Approvals view, executes an inspection, and asserts no page errors. Screenshots are written to `.impeccable/review/` (gitignored).
+- Local panel: an **Accept requests** view (queue with Pending / Approved / History, clients with revoke, audit log with verify). The panel executes ready operations and revokes clients; it has no approval route.
+- UI smoke test seeds synthetic clients and operations, walks the Accept requests view, executes an inspection, and asserts no page errors. Screenshots are written to `.impeccable/review/` (gitignored).
 
 Still out of scope after slice 2: peer convergence, OIDC, output retrieval for remote clients, Proxmox and Ugreen work.
 

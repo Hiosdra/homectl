@@ -2,6 +2,7 @@
 // is one user request; the state and the server calls are the same as before the move
 // to coss ui.
 import { ExecutionDetails } from "./screens/execution";
+import { handleSavedCommandAction } from "./saved-command-actions";
 import {
   announce,
   api,
@@ -9,6 +10,7 @@ import {
   copyText,
   element,
   focusScreen,
+  loadAudit,
   navigate,
   pairingAddress,
   refresh,
@@ -22,6 +24,7 @@ import type { ControlExecution, Preview } from "./types";
 import { bucketOf, displayStateOf } from "./format";
 
 export async function handleAction(action: string | undefined, id: string) {
+  if (await handleSavedCommandAction(action, id)) return;
   switch (action) {
     case "add":
       ui.editing = "";
@@ -81,6 +84,52 @@ export async function handleAction(action: string | undefined, id: string) {
       ui.commandPeer = "";
       render();
       return;
+    case "save-command-from-form": {
+      if (ui.commandPeer)
+        throw new Error("Save a template from this computer's host form; peer commands run on the other device.");
+      const form = element<HTMLFormElement>("command-form");
+      const values = new FormData(form);
+      if (String(values.get("peer") ?? ""))
+        throw new Error("Save a shortcut from this computer's host form; peer commands run on the other device.");
+      const name = String(values.get("template-name") ?? "").trim();
+      if (!name) throw new Error("Enter a name for this saved command.");
+      const impact = String(values.get("impact") ?? "").trim();
+      if (!impact) throw new Error("Enter what this command should do before saving it.");
+      const program = String(values.get("program") ?? "").trim();
+      const argv = [program, ...String(values.get("arguments") ?? "").split(/\r?\n/).filter(Boolean)];
+      const saved = await api<{ command: { name: string } }>("/api/commands/save", {
+        name,
+        hosts: [ui.commandHost],
+        argv,
+        parameters: [],
+        description: impact,
+      });
+      ui.savedCommandVersion++;
+      report(`Saved “${saved.command.name}”. It will use the current policy each time it runs.`, "notice");
+      return;
+    }
+    case "audit-refresh":
+      ui.auditPage = undefined;
+      await loadAudit(true);
+      return;
+    case "audit-more":
+      await loadAudit(false);
+      return;
+    case "audit-copy-argv": {
+      const row = ui.auditPage?.entries.find((entry) => entry.id === id);
+      if (!row?.argv) throw new Error("This audit entry has no argv to copy.");
+      await copyText(JSON.stringify(row.argv));
+      report("Redacted argv JSON copied.", "notice");
+      return;
+    }
+    case "key-copy-public": {
+      const result = ui.result as { publicKey?: unknown } | undefined;
+      if (typeof result?.publicKey !== "string")
+        throw new Error("The public key is unavailable.");
+      await copyText(result.publicKey);
+      report("Public key copied. Install it on the host through trusted access.", "notice");
+      return;
+    }
     case "remote-command":
       ui.commandHost = id;
       ui.commandPeer = ui.remoteHosts?.peerId ?? "";
@@ -372,6 +421,14 @@ export async function handleAction(action: string | undefined, id: string) {
       ui.controlResult = undefined;
       render();
       return;
+    case "control-result-copy": {
+      const stream = id === "stderr" ? "stderr" : "stdout";
+      const text = ui.controlResult?.output?.[stream];
+      if (!text) throw new Error(`${stream} is not available to copy.`);
+      await copyText(text);
+      report(`${stream} copied.`, "notice");
+      return;
+    }
     case "control-revoke":
       if (
         await confirm(

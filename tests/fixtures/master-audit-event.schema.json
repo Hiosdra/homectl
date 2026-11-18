@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "auditEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event"],
+      "properties": {
+        "event": {
+          "enum": [
+            "auth.rejected",
+            "request.accepted",
+            "request.rejected",
+            "client.created",
+            "client.revoked",
+            "operation.planned",
+            "operation.decided",
+            "operation.executing",
+            "operation.succeeded",
+            "operation.failed",
+            "operation.unknown",
+            "handoff.offered",
+            "handoff.cancelled",
+            "handoff.accepted",
+            "handoff.resolution-proposed",
+            "handoff.resolution-accepted",
+            "peer.suspended",
+            "peer.resumed",
+            "auth.oidc",
+            "oidc.configured"
+          ]
+        },
+        "client": { "$ref": "#/definitions/clientId" },
+        "op": { "$ref": "#/definitions/operationKind" },
+        "operationId": { "$ref": "#/definitions/operationId" },
+        "host": { "$ref": "#/definitions/hostName" },
+        "argv": { "$ref": "#/definitions/argv" },
+        "fingerprint": { "$ref": "#/definitions/fingerprint" },
+        "classification": { "$ref": "#/definitions/classification" },
+        "decision": { "enum": ["approve", "reject"] },
+        "reason": { "$ref": "#/definitions/reason" },
+        "exitCode": { "type": "integer", "minimum": 0, "maximum": 255 }
+      }
+    },
+    "clientId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+    },
+    "operationKind": {
+      "enum": [
+        "inspect",
+        "plan",
+        "validate",
+        "approve",
+        "execute",
+        "verify",
+        "status",
+        "proxmox-plan"
+      ]
+    },
+    "operationId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "hostName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+    },
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "classification": {
+      "enum": ["inspect", "mutation", "destructive", "opaque"]
+    },
+    "reason": { "type": "string", "minLength": 1, "maxLength": 120 }
+  }
+}

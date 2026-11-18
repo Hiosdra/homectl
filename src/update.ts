@@ -18,20 +18,44 @@ export async function update(dryRun = false, runner: Runner = run) {
     "Refresh the per-user installation with the updated setup",
   ];
   if (dryRun) return { actions };
-  const git = async (args: string[]) => {
+  const git = async (args: string[], failureMessage: string) => {
     const result = await runner({ argv: ["git", "-C", repoRoot, ...args] });
-    if (result.exitCode)
+    if (result.exitCode) {
+      const diagnostic = result.stderr.trim().split(/\r?\n/, 1)[0];
+      const message =
+        args[0] === "pull" &&
+        /not possible to fast-forward|divergent branches|diverged/i.test(
+          result.stderr,
+        )
+          ? "Local and upstream branches have diverged; reconcile them before updating"
+          : failureMessage;
       throw new HomectlError(
         5,
-        "Git refused the update; check upstream access, divergent history, or local changes overlapping incoming files. Local changes were not stashed or discarded",
+        `${message}${diagnostic ? `\nGit: ${diagnostic}` : ""}`,
       );
+    }
     return result.stdout.trim();
   };
-  await git(["symbolic-ref", "--quiet", "HEAD"]);
-  await git(["rev-parse", "--abbrev-ref", "@{upstream}"]);
-  const before = await git(["rev-parse", "HEAD"]);
-  await git(["pull", "--ff-only"]);
-  const revision = await git(["rev-parse", "HEAD"]);
+  await git(
+    ["symbolic-ref", "--quiet", "HEAD"],
+    "Cannot update from a detached HEAD; check out a branch first",
+  );
+  await git(
+    ["rev-parse", "--abbrev-ref", "@{upstream}"],
+    "No upstream is configured for the current branch; configure one before updating",
+  );
+  const before = await git(
+    ["rev-parse", "HEAD"],
+    "Cannot read the current Git revision",
+  );
+  await git(
+    ["pull", "--ff-only"],
+    "Git could not fast-forward the current branch; check remote access and local changes",
+  );
+  const revision = await git(
+    ["rev-parse", "HEAD"],
+    "Cannot read the updated Git revision",
+  );
   const install = await runner({
     argv: [process.execPath, "install", "--cwd", repoRoot, "--frozen-lockfile"],
     timeoutMs: 300_000,

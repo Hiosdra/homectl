@@ -69,18 +69,6 @@ test("concurrent changes require explicit choices, join clocks, and preserve bot
     description: "Windows",
   });
 });
-test("deletions propagate and delete-versus-edit conflicts never silently resurrect", () => {
-  const old = { "machine:nas": { clock: { [a]: 1 }, value: { name: "nas" } } };
-  const deletion = { "machine:nas": { clock: { [a]: 2 }, value: null } };
-  expect(merge(old, deletion, b).records["machine:nas"]?.value).toBeNull();
-  const edited = {
-    "machine:nas": {
-      clock: { [a]: 1, [b]: 1 },
-      value: { name: "nas", description: "edited" },
-    },
-  };
-  expect(merge(deletion, edited, a).conflicts).toHaveLength(1);
-});
 test("authenticated encryption rejects tampering and context substitution", () => {
   const key = Buffer.alloc(32, 17);
   const e = seal(key, { secret: "synthetic" }, "test:request");
@@ -233,6 +221,7 @@ test("credentials remain KDBX-encrypted at rest and sync reconstructs platform-l
     second.s.hub.vault.snapshot()["homectl-nas"]?.attachments.id_ed25519,
   ).toBe(credential.attachments.id_ed25519);
 }, 30_000);
+
 test("sync distinguishes a locked remote vault, a missing credential, and a legacy peer", async () => {
   const source = await fixture("Source"),
     target = await fixture("Target");

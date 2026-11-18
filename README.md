@@ -103,7 +103,7 @@ home-ctl session status
 home-ctl session lock
 ```
 
-The session lasts 24 hours from unlock by default. Unlocking again does not extend it. Locking stops new SSH logins; connections already open can finish.
+The session lasts 24 hours from unlock by default. The panel also locks the vault after 2 hours without activity by default. Unlocking again does not extend the session. Locking stops new SSH logins; connections already open can finish.
 
 ## Provision a Proxmox VM
 
@@ -118,7 +118,7 @@ Start from [vm.example.json](examples/vm.example.json). The [walkthrough](docs/u
 
 ## Sync your computers
 
-Pair two devices with a one-time code and a matching phrase. Then review the changes before anything is applied. Each device keeps its own vault password. Details are in the [sync guide](docs/peer-workspace.md).
+Pair two devices with a one-time code and a matching phrase. Then review the changes before anything is applied. Each device keeps its own database password. Details are in the [sync guide](docs/peer-workspace.md).
 
 ## How it works
 

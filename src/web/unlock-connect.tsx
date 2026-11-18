@@ -43,7 +43,13 @@ const onThisComputer = () =>
   location.protocol === "https:" ||
   ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
 
-export function UnlockConnect({ onDone }: { onDone: () => void }) {
+export function UnlockConnect({
+  banner,
+  onDone,
+}: {
+  banner?: string;
+  onDone: () => void;
+}) {
   const [key, setKey] = useState<KeyInfo | undefined>();
   const [pinned, setPinned] = useState<string | null>(null);
   const [error, setError] = useState<string | undefined>();
@@ -51,10 +57,16 @@ export function UnlockConnect({ onDone }: { onDone: () => void }) {
 
   useEffect(() => {
     setPinned(readPin());
-    void call<KeyInfo>("/api/unlock/key").then((answer) => {
-      if (answer.status === 200) setKey(answer.body);
-      else setError(answer.body.error ?? "The panel did not return its key.");
-    });
+    void call<KeyInfo>("/api/unlock/key")
+      .then((answer) => {
+        if (answer.status === 200) setKey(answer.body);
+        else setError(answer.body.error ?? "The panel did not return its key.");
+      })
+      .catch(() => {
+        setError(
+          "Can't reach the panel. Check that home-ctl panel is still running, then reload.",
+        );
+      });
   }, []);
 
   const changed = key !== undefined && pinned !== null && pinned !== key.fingerprint;
@@ -108,8 +120,13 @@ export function UnlockConnect({ onDone }: { onDone: () => void }) {
         <h1 className="text-[38px] leading-[1.15] font-semibold tracking-[-0.025em] max-[700px]:text-[32px]">
           Unlock homectl
         </h1>
+        {banner ? (
+          <Alert id="connection-banner" variant="error">
+            <AlertDescription>{banner}</AlertDescription>
+          </Alert>
+        ) : null}
         <p className="text-muted-foreground">
-          Your vault password is the only password you need here. One unlock lasts the session length set in
+          Your database password is the only password you need here. One unlock lasts the session length set in
           Settings (24 h by default).
         </p>
         {changed ? (
@@ -124,7 +141,7 @@ export function UnlockConnect({ onDone }: { onDone: () => void }) {
           </Alert>
         ) : null}
         {error ? (
-          <Alert id="connection-error" variant="error">
+          <Alert id="unlock-error" variant="error">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
@@ -138,7 +155,7 @@ export function UnlockConnect({ onDone }: { onDone: () => void }) {
             {local ? null : <Tag tone="success">encrypted in browser</Tag>}
           </div>
           {local ? (
-            <p className="text-muted-foreground">Unlock with your vault password.</p>
+            <p className="text-muted-foreground">Unlock with your database password.</p>
           ) : (
             <p className="text-muted-foreground">
               The password is encrypted in this browser with the server key before it is sent. Server key:{" "}
@@ -146,7 +163,7 @@ export function UnlockConnect({ onDone }: { onDone: () => void }) {
             </p>
           )}
           <form id="unlock-form" className="grid gap-3" onSubmit={(event) => void unlock(event)}>
-            <Label htmlFor="password">Vault password</Label>
+            <Label htmlFor="password">Database password</Label>
             <Input
               id="password"
               name="password"

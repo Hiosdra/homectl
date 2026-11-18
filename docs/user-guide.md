@@ -48,7 +48,7 @@ home-ctl exec lab-printer -- uname -s
 home-ctl session lock
 ```
 
-The default session lasts **24 hours** from when it starts. Unlocking again does not extend it. To change that:
+The default session lasts **24 hours** from when it starts. Separately, the panel locks the vault after **2 hours without activity** by default; change the idle-lock setting in **Settings**. Unlocking again does not extend the session. To change the session length:
 
 ```sh
 home-ctl session configure --ttl 12h
@@ -125,6 +125,26 @@ home-ctl exec lab-nas --dry-run --impact 'Delete /srv/example; its contents will
 
 Show the exact host, arguments, targets and effects to the user. After they confirm, run the command with the returned digest as `--approval <digest>`, using the same host, argv and impact. Any change invalidates the approval. There is no `--yes` flag. Do not bypass a policy error with raw SSH. `ssh <host> -- command...` uses the same guarded path and is not an interactive shell.
 
+## Audit history and saved commands
+
+Open **Audit history** in the local panel to review control-plane journal entries alongside ordinary command runs. Control-plane entries remain in the existing hash-chained journal under `control-plane/`; verify that journal and its anchor with `home-ctl control audit verify`. Ordinary CLI, panel, saved-command and peer command events are stored separately in `history/commands.jsonl`. This private, unchained local history is not synced to peers or included in recovery bundles. Both logs omit stdout/stderr and store redacted argv. The command-history file retains up to 5,000 entries or 30 days by default; set `HOMECTL_HISTORY_MAX_ENTRIES` and `HOMECTL_HISTORY_MAX_AGE_DAYS` to positive integers to change those limits. Running as root, or using a state directory owned by another user, skips command-history writes with a warning. Clear ordinary-command history with `home-ctl history clear` or the confirmed **Clear command history** panel action; this never clears the control-plane journal.
+
+Redaction is pattern-based. It catches common forms (`--password=…`, `--token …`, `-u user:pass`, `-pSECRET` for MySQL clients and sshpass, URL passwords, `Authorization:`/`Bearer` values), but it cannot recognise every way a secret can appear, for example inside a shell string (`sh -c 'echo pw | sudo -S …'`), `smbclient -U user%pass` or `htpasswd -b file user pass`. Pass secrets through files, environment variables set on the host, or saved-command `{{parameters}}` marked `secret`, and run `home-ctl history clear` if one was recorded.
+
+In **Command**, enter a name under “Save as a shortcut” to save the current local command. You can also save a redacted-safe command from its Audit history row, or create and edit a template in **Saved commands**. Templates declare target hosts, argv items and optional parameters. Each parameter value is requested for each run and is not stored. A host that is not in this device's inventory is marked unavailable.
+
+Saved commands sync like other reviewed peer records. They appear in the existing Sync comparison; concurrent edits or deletes use the usual local, remote or keep-both choices. Each device checks a template against its own inventory and policy when it runs. A saved command never grants access or carries an approval: every mutating, privileged, destructive or opaque run requires a fresh exact approval.
+
+```sh
+home-ctl commands list
+home-ctl commands save --file ./command.json
+home-ctl commands run <id> --dry-run --target lab-nas -- unit=nginx
+home-ctl commands run <id> --target lab-nas --approval <digest> -- unit=nginx
+home-ctl commands rm <id>
+```
+
+The save file is a JSON object with `name`, `hosts`, `argv`, optional `parameters`, and optional `description`. Parameter entries allow `name`, optional `description`, and optional `secret: true`; secret-flagged values are always masked. To edit an existing template, pass its id with `--id`. `commands run --dry-run` previews the host, expanded argv, impact, classification and approval digest without contacting the host; secret-flagged and secret-looking values are masked, and parameter values are not echoed in error output. The digest is computed from the expanded argv and impact, so use the exact digest returned by the dry run with `--approval` when running the command. In the panel, the confirmation shows the selected host, expanded argv with the same masking, classification and impact before sending the digest after confirmation. Provide parameter values after `--` as `name=value`, or use `--parameters-file PATH`. The local panel API exposes the same operations through its authenticated `/api/audit` and `/api/commands/*` routes.
+
 ## Proxmox VM provisioning over SSH
 
 Enroll the Proxmox SSH account with `full` and check it with `doctor`. Non-root accounts need noninteractive sudo for `pvesh`; root runs it directly. Add a provider to the inventory. It holds no secrets:
@@ -167,6 +187,9 @@ The provisioning journal records ownership and progress. Conflicts, changed plan
 | `~/.config/homectl/inventory.yaml.session/` | Private runtime control and agent sockets |
 | `~/.config/homectl/ssh_config` | Generated SSH aliases |
 | `~/.config/homectl/state/` | VM provisioning journals |
+| `~/.config/homectl/control-plane/audit.jsonl` | Local hash-chained operation audit journal |
+| `~/.config/homectl/history/commands.jsonl` | Private, unchained ordinary-command history; local only, retention-limited and clearable |
+| `~/.config/homectl/saved-commands.json` | Versioned saved command templates |
 
 Use `--inventory /absolute/path/inventory.yaml` for another inventory. Socket and public-key paths then follow that file's location. Database paths are absolute. The [inventory example](../examples/inventory.example.yaml) shows the full schema. Keep the real inventory, the database, backups and runtime files outside Git.
 

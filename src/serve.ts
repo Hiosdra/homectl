@@ -14,7 +14,7 @@ import { ControlPlane, controlStateDirectory } from "./control/engine";
 import { ControlReplicator } from "./control/replicator";
 import { SYNC_INTERVAL_MS, SyncLoop } from "./control/sync-loop";
 import { loadInventory, parseInventory, saveInventory } from "./inventory";
-import { execute, writeSSHConfig } from "./operations";
+import { writeSSHConfig } from "./operations";
 import { syncApply } from "./peer/apply";
 import { discovery } from "./peer/discovery";
 import { Hub, peerAddress } from "./peer/hub";
@@ -25,6 +25,7 @@ import { createKey, keyReference } from "./session/keys";
 import { doctor } from "./setup";
 import { HomectlError, type Machine, type Runner } from "./types";
 import { startAttentionWatch } from "./web/attention";
+import { auditCommandsRoute } from "./web/audit-commands-route";
 import { controlPanel } from "./web/control-view";
 import {
   body,
@@ -50,6 +51,8 @@ export type ServeOptions = {
   controlSync?: boolean;
   // Test seam: replaces process execution for control-plane runs only.
   controlRunner?: Runner;
+  // Test seam for ordinary local panel commands; production defaults to run().
+  operationRunner?: Runner;
   // Test seams: the sync interval, and a replacement for one scheduled round so
   // a test can hold a round in flight.
   syncIntervalMs?: number;
@@ -370,6 +373,14 @@ export async function serve(options: ServeOptions) {
             if (serviceRoute) return serviceRoute;
             if (req.method === "POST" && req.headers.get("Origin") !== origin)
               throw new HomectlError(3, "Cross-origin operation refused");
+            const commandsOrAudit = await auditCommandsRoute(req, url, {
+              control,
+              hub,
+              inventoryPath: options.inventoryPath,
+              configPath: options.configPath,
+              operationRunner: options.operationRunner,
+            });
+            if (commandsOrAudit) return commandsOrAudit;
             if (req.method === "GET" && url.pathname === "/api/state")
               return response({
                 ...(await hub.status()),
@@ -541,6 +552,8 @@ export async function serve(options: ServeOptions) {
                       p.peerId,
                       p.records,
                       p.remoteVaultUnlocked,
+                      p.peerFeatures,
+                      p.issues,
                     ),
                   );
                 }
@@ -568,7 +581,7 @@ export async function serve(options: ServeOptions) {
                   const name = String(v.name);
                   const password = String(v.password ?? "");
                   if (!password || password.length > 1024)
-                    throw new HomectlError(2, "Enter the local vault password");
+                    throw new HomectlError(2, "Enter the database password");
                   await hub.lock();
                   const inv = await loadInventory(options.inventoryPath);
                   const created = await createKey(
@@ -627,31 +640,6 @@ export async function serve(options: ServeOptions) {
                   await saveInventory(options.inventoryPath, inv);
                   await writeSSHConfig(options.configPath, inv.machines);
                   return response({ removed: true });
-                }
-                case "/api/exec": {
-                  const inv = await loadInventory(options.inventoryPath);
-                  const m = inv.machines[String(v.host)];
-                  if (
-                    !m ||
-                    !Array.isArray(v.argv) ||
-                    v.argv.some((a) => typeof a !== "string") ||
-                    !v.argv.length
-                  )
-                    throw new HomectlError(
-                      2,
-                      "Select a machine and command arguments",
-                    );
-                  // Managed SSH config from the current inventory before any dry run or run.
-                  if (v.dryRun !== true)
-                    await writeSSHConfig(options.configPath, inv.machines);
-                  return response(
-                    await execute(String(v.host), m, v.argv as string[], {
-                      configPath: options.configPath,
-                      dryRun: v.dryRun === true,
-                      approval: v.approval as string | undefined,
-                      impact: v.impact as string | undefined,
-                    }),
-                  );
                 }
                 case "/api/settings": {
                   await saveSession(
