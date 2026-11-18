@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
-import { clearLocalCommandHistory } from "../command-history";
 import { credentialSpec } from "../credentials";
 
 import { enroll, installSudo } from "../enroll";
@@ -27,7 +26,7 @@ import { paths } from "../setup";
 import { transportSpec } from "../transports";
 import { HomectlError, type Machine, type ProcessResult } from "../types";
 import { runUpdate } from "../update";
-import { runCommands } from "./commands";
+import { runCommandsFromCli, runHistoryCommand } from "./commands";
 import { helpTopics, renderHelp } from "./help";
 import { hostCommand } from "./host-commands";
 import { runInternal } from "./internal-roles";
@@ -676,37 +675,15 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       return result.code;
     }
     if (command === "history") {
-      if (
-        host !== "clear" ||
-        positionals.length !== 2 ||
-        commandArgs.length
-      )
-        throw new HomectlError(2, "Use home-ctl history clear");
-      if (dryRun) {
-        emit({ wouldClear: "local command history" });
-        return 0;
-      }
-      const cleared = await clearLocalCommandHistory(inventoryPath);
-      emit({ cleared });
-      return cleared ? 0 : 3;
+      return await runHistoryCommand(
+        host, positionals, commandArgs, dryRun, inventoryPath, emit,
+      );
     }
     const inv = await loadInventory(inventoryPath);
     if (command === "commands") {
-      return await runCommands({
-        positionals,
-        commandArgs,
-        inventoryPath,
-        configPath,
-        inventory: inv,
-        dryRun,
-        file: v.file,
-        id: v.id,
-        parametersFile: v["parameters-file"],
-        target: v.target,
-        approval: v.approval,
-        impact: v.impact,
-        emit,
-      });
+      return await runCommandsFromCli(
+        positionals, commandArgs, inventoryPath, configPath, inv, dryRun, v, emit,
+      );
     }
     if (positionals.length > (command === "key" ? 3 : 2))
       throw new HomectlError(

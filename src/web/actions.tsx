@@ -2,7 +2,7 @@
 // is one user request; the state and the server calls are the same as before the move
 // to coss ui.
 import { ExecutionDetails } from "./screens/execution";
-import { savedCommandDraftFromAuditRow } from "./screens/audit";
+import { handleSavedCommandAction } from "./saved-command-actions";
 import {
   announce,
   api,
@@ -24,6 +24,7 @@ import type { ControlExecution, Preview } from "./types";
 import { bucketOf, displayStateOf } from "./format";
 
 export async function handleAction(action: string | undefined, id: string) {
+  if (await handleSavedCommandAction(action, id)) return;
   switch (action) {
     case "add":
       ui.editing = "";
@@ -107,48 +108,6 @@ export async function handleAction(action: string | undefined, id: string) {
       report(`Saved “${saved.command.name}”. It will use the current policy each time it runs.`, "notice");
       return;
     }
-    case "saved-command-new":
-      ui.savedCommandRun = undefined;
-      ui.savedCommandDraft = { name: "", hosts: [], argv: [], parameters: [] };
-      navigate("commands");
-      return;
-    case "saved-command-run":
-      ui.savedCommandDraft = undefined;
-      ui.savedCommandRun = id;
-      navigate("commands");
-      return;
-    case "saved-command-edit": {
-      const { commands } = await api<{
-        commands: import("./types").SavedCommandListItem[];
-      }>("/api/commands");
-      const command = commands.find((item) => item.id === id);
-      if (!command || "status" in command)
-        throw new Error("Saved command is invalid or no longer exists. Review the list.");
-      ui.savedCommandDraft = command;
-      ui.savedCommandRun = undefined;
-      navigate("commands");
-      return;
-    }
-    case "saved-command-cancel-edit":
-      ui.savedCommandDraft = undefined;
-      render();
-      return;
-    case "saved-command-cancel-run":
-      ui.savedCommandRun = undefined;
-      ui.result = undefined;
-      render();
-      return;
-    case "saved-command-remove": {
-      if (!(await confirm(
-        "Remove saved command?",
-        "This deletion will be included in the next reviewed sync with paired peers.",
-      ))) return;
-      const command = await api<{ removed: string }>("/api/commands/remove", { id });
-      ui.savedCommandVersion++;
-      if (ui.savedCommandRun === id) ui.savedCommandRun = undefined;
-      report(`Saved command ${command.removed} removed.`, "notice");
-      return;
-    }
     case "audit-refresh":
       ui.auditPage = undefined;
       await loadAudit(true);
@@ -156,34 +115,11 @@ export async function handleAction(action: string | undefined, id: string) {
     case "audit-more":
       await loadAudit(false);
       return;
-    case "audit-clear": {
-      if (!(await confirm(
-        "Clear local command history?",
-        "This permanently removes ordinary command-history rows from this device. The control-plane journal is not changed.",
-      ))) return;
-      const result = await api<{ cleared: boolean }>("/api/audit/clear", {});
-      ui.auditPage = undefined;
-      await loadAudit(true);
-      report(
-        result.cleared
-          ? "Local command history cleared."
-          : "Local command history was not cleared; check the warning in the server log.",
-        result.cleared ? "notice" : "error",
-      );
-      return;
-    }
     case "audit-copy-argv": {
       const row = ui.auditPage?.entries.find((entry) => entry.id === id);
       if (!row?.argv) throw new Error("This audit entry has no argv to copy.");
       await copyText(JSON.stringify(row.argv));
       report("Redacted argv JSON copied.", "notice");
-      return;
-    }
-    case "audit-save-command": {
-      const row = ui.auditPage?.entries.find((entry) => entry.id === id);
-      ui.savedCommandDraft = savedCommandDraftFromAuditRow(row);
-      ui.savedCommandRun = undefined;
-      navigate("commands");
       return;
     }
     case "key-copy-public": {

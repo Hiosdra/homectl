@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
+import { clearLocalCommandHistory } from "../command-history";
 import { executeWithSSHConfig } from "../operations";
 import {
   availableCommandHosts,
@@ -9,6 +10,61 @@ import {
   SavedCommandStore,
 } from "../saved-commands";
 import { HomectlError, type Inventory } from "../types";
+
+type CommandOptionValues = {
+  approval?: string;
+  file?: string;
+  id?: string;
+  impact?: string;
+  "parameters-file"?: string;
+  target?: string;
+};
+
+export async function runCommandsFromCli(
+  positionals: string[],
+  commandArgs: string[],
+  inventoryPath: string,
+  configPath: string,
+  inventory: Inventory,
+  dryRun: boolean,
+  values: CommandOptionValues,
+  emit: (value: unknown) => void,
+): Promise<number> {
+  return runCommands({
+    positionals,
+    commandArgs,
+    inventoryPath,
+    configPath,
+    inventory,
+    dryRun,
+    file: values.file,
+    id: values.id,
+    parametersFile: values["parameters-file"],
+    target: values.target,
+    approval: values.approval,
+    impact: values.impact,
+    emit,
+  });
+}
+
+export async function runHistoryCommand(
+  host: string | undefined,
+  positionals: string[],
+  commandArgs: string[],
+  dryRun: boolean,
+  inventoryPath: string,
+  emit: (value: unknown) => void,
+): Promise<number> {
+  if (host !== "clear" || positionals.length !== 2 || commandArgs.length)
+    throw new HomectlError(2, "Use home-ctl history clear");
+  if (dryRun) {
+    emit({ wouldClear: "local command history" });
+    return 0;
+  }
+  const cleared = await clearLocalCommandHistory(inventoryPath);
+  emit({ cleared });
+  return cleared ? 0 : 3;
+}
 
 export async function runCommands(options: {
   positionals: string[];

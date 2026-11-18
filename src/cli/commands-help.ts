@@ -52,3 +52,24 @@ export const commandsHelp: Page = {
     },
   ],
 };
+
+export const historyHelp: Page = {
+  usage: "home-ctl history clear [--inventory PATH] [--json]",
+  intro:
+    "Permanently clear this device's separate ordinary-command history. This does not change the control-plane audit journal.",
+  sections: [
+    {
+      title: "Actions",
+      rows: [["clear", "Remove retained local command-history entries."]],
+    },
+    {
+      title: "Options",
+      rows: [
+        ["--inventory PATH", "Use another inventory file."],
+        ["--json", "Print machine-readable output."],
+        ["--dry-run", "Preview without changes or credential access."],
+        ["-h, --help", "Show help for this command."],
+      ],
+    },
+  ],
+};
