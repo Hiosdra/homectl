@@ -25,7 +25,8 @@ The same agent host runs local commands and all remote operations. Remote-contro
 - `enroll`: validates configuration and SSH/OS before saving; optional explicit sudoers bootstrap preserves a different existing policy by refusing replacement.
 - `provisioners`: deterministic cloud-init plans, task/ownership journals and resumable provisioning. `ssh` maps allowed operations to node-local `pvesh` over the same managed-key worker.
 - `setup`: additive per-user CLI/skill links, SSH Include and doctor.
-- `control/journal.ts` and `control/audit-view.ts`: the hash-chained, device-local audit journal and a filtered, paginated view derived from it. Stored argv uses the existing redaction helpers; command output is not recorded.
+- `control/journal.ts`: the hash-chained, schema-stable, device-local control-plane journal, with its existing secret guard and anchor behavior.
+- `command-history.ts` and `control/audit-view.ts`: best-effort ordinary-command history in a separate private, unchained `history/commands.jsonl` file, merged with control-plane rows in the panel. History is redacted, retention-limited, clearable, local-only and excluded from recovery bundles; command output is not recorded.
 - `saved-commands.ts`: versioned local command templates with explicit hosts and declared parameter placeholders. They contain no grants, credentials or approvals; each run goes through normal command policy and approval checks.
 
 ## Session lifecycle

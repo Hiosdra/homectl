@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readLocalCommandHistory } from "../src/command-history";
+import { AuditJournal } from "../src/control/journal";
 import { saveInventory } from "../src/inventory";
 import { peerCommand } from "../src/peer/command";
 import type { Peer } from "../src/peer/store";
@@ -225,7 +227,7 @@ test("invalid local saved commands are preserved and excluded from sync snapshot
   expect(disk.commands[saved.id]).toEqual(invalid);
 });
 
-test("peer approval queueing normalizes argv and keeps policy errors on audit failure", async () => {
+test("peer command history stays outside the control-plane journal", async () => {
   const queued = await fixture("Execution device");
   await saveInventory(queued.path, {
     version: 1,
@@ -257,29 +259,26 @@ test("peer approval queueing normalizes argv and keeps policy errors on audit fa
     ],
   });
   expect(queuedResult).toMatchObject({ pending: true });
-  const audit = (
-    await readFile(join(queued.root, "control-plane", "audit.jsonl"), "utf8")
-  )
-    .trim()
-    .split("\n")
-    .map(
-      (line) =>
-        JSON.parse(line) as { event: { event: string; argv: string[] } },
-    );
-  expect(audit[0]?.event.argv).toHaveLength(64);
-  expect(audit[0]?.event.argv[1]).toBe("--token=[REDACTED]");
-  expect(audit[0]?.event.argv.at(-1)).toBe("[truncated 8 arguments]");
+  const journal = new AuditJournal(
+    join(queued.root, "control-plane", "audit.jsonl"),
+    join(queued.root, "control-plane", "audit.anchor"),
+  );
+  expect(await journal.read()).toEqual([]);
   await queued.server.hub.decideOperation(
     (queuedResult as { id: string }).id,
     false,
   );
-  const rejectedAudit = await readFile(
-    join(queued.root, "control-plane", "audit.jsonl"),
-    "utf8",
-  );
-  expect(rejectedAudit).toContain('"event":"command.refused"');
-  expect(rejectedAudit).toContain("--token=[REDACTED]");
-  expect(rejectedAudit).not.toContain("{{tok}}");
+  expect(await journal.read()).toEqual([]);
+  const peerHistory = await readLocalCommandHistory(queued.path);
+  if (process.getuid?.() === 0) {
+    expect(peerHistory).toEqual([]);
+  } else {
+    expect(peerHistory).toHaveLength(2);
+    expect(peerHistory[0]?.argv[1]).toBe("--token=[REDACTED]");
+    expect(peerHistory[0]?.argv).toHaveLength(71);
+    expect(peerHistory[1]?.status).toBe("refused");
+    expect(JSON.stringify(peerHistory)).not.toContain("{{tok}}");
+  }
 
   const refused = await fixture("Execution device");
   await saveInventory(refused.path, {
@@ -310,7 +309,7 @@ test("peer approval queueing normalizes argv and keeps policy errors on audit fa
   }
 });
 
-test("peer policy refusals can journal redacted token placeholders", async () => {
+test("peer policy refusals stay outside the control-plane journal", async () => {
   const current = await fixture("Execution device");
   await saveInventory(current.path, {
     version: 1,
@@ -344,13 +343,20 @@ test("peer policy refusals can journal redacted token placeholders", async () =>
       argv: ["rm", "--token={{tok}}"],
     }),
   ).rejects.toThrow("observe tier");
-  const journal = await readFile(
+  const journal = new AuditJournal(
     join(current.root, "control-plane", "audit.jsonl"),
-    "utf8",
+    join(current.root, "control-plane", "audit.anchor"),
   );
-  expect(journal).toContain('"event":"command.refused"');
-  expect(journal).toContain("--token=[REDACTED]");
-  expect(journal).not.toContain("{{tok}}");
+  expect(await journal.read()).toEqual([]);
+  const peerHistory = await readLocalCommandHistory(current.path);
+  if (process.getuid?.() === 0) {
+    expect(peerHistory).toEqual([]);
+  } else {
+    expect(peerHistory).toHaveLength(1);
+    expect(peerHistory[0]?.status).toBe("refused");
+    expect(peerHistory[0]?.argv).toEqual(["rm", "--token=[REDACTED]"]);
+    expect(JSON.stringify(peerHistory)).not.toContain("{{tok}}");
+  }
 });
 
 test("failed saved-command acquisition leaves peer apply state and files untouched", async () => {

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
+import { clearLocalCommandHistory } from "../command-history";
 import { credentialSpec } from "../credentials";
 
 import { enroll, installSudo } from "../enroll";
@@ -673,6 +674,21 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       });
       console.log(json ? JSON.stringify(result.value) : result.human);
       return result.code;
+    }
+    if (command === "history") {
+      if (
+        host !== "clear" ||
+        positionals.length !== 2 ||
+        commandArgs.length
+      )
+        throw new HomectlError(2, "Use home-ctl history clear");
+      if (dryRun) {
+        emit({ wouldClear: "local command history" });
+        return 0;
+      }
+      const cleared = await clearLocalCommandHistory(inventoryPath);
+      emit({ cleared });
+      return cleared ? 0 : 3;
     }
     const inv = await loadInventory(inventoryPath);
     if (command === "commands") {

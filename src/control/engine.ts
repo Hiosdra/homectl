@@ -63,7 +63,6 @@ import {
   RUNTIME_SOCKET,
 } from "./policy-constants";
 import { containsSecretMaterial, redactArgv } from "./redact";
-import { rejectedRequestContext } from "./rejected-request";
 import type { ReplicaOverlay } from "./replicator";
 import { schemas } from "./schema";
 import { type ControlState, ControlStore } from "./store";
@@ -765,8 +764,8 @@ export class ControlPlane {
         event: "request.rejected",
         client: who,
         ...(kind ? { op: kind } : {}),
-        ...rejectedRequestContext(raw, e.code, e.message),
-      }).catch(() => console.warn("Could not record rejected request."));
+        reason: e.message,
+      }).catch(() => undefined);
       throw e;
     }
   }

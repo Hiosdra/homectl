@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { appendLocalAudit } from "./control/journal";
-import { normalizeAuditArgv } from "./control/redact";
+import { recordLocalCommand } from "./command-history";
 import { credentialSpec } from "./credentials";
 import { probeFailureMessage } from "./diagnostics";
 import { internalCommand } from "./internal";
@@ -78,77 +77,51 @@ export async function execute(
 ) {
   const operationId = options.audit?.operationId ?? randomUUID();
   let approvedBy: string | undefined;
-  const audit = async (
-    event:
-      | "command.refused"
-      | "command.approval-required"
-      | "command.started"
-      | "command.succeeded"
-      | "command.failed"
-      | "command.unknown",
+  const recordHistory = (
+    phase: "started" | "outcome",
+    status:
+      | "executing"
+      | "succeeded"
+      | "failed"
+      | "unknown"
+      | "refused"
+      | "approval-required",
     details: {
-      classification?: "inspect" | "mutation" | "destructive" | "opaque";
+      classification?: ExecutionPlan["classification"];
       policyDecision: "allowed" | "needs-approval" | "refused";
       reason?: string;
       exitCode?: number;
+      startedAt?: number;
     },
   ) => {
-    if (!options.audit) return;
-    await appendLocalAudit(options.audit.inventoryPath, {
-      event,
-      op: "execute",
-      operationId,
-      client: options.audit.requester ?? "local-operator",
-      ...(options.audit.device ? { device: options.audit.device } : {}),
-      ...(options.audit.deviceName
-        ? { deviceName: options.audit.deviceName }
-        : options.audit.requesterName
-          ? { deviceName: options.audit.requesterName }
-          : {}),
+    if (!options.audit || options.dryRun) return;
+    if ((options.getUid?.() ?? process.getuid?.()) === 0) {
+      console.warn(
+        "Local command history was not written because homectl is running as root.",
+      );
+      return;
+    }
+    recordLocalCommand({
+      inventoryPath: options.audit.inventoryPath,
       host,
-      argv: normalizeAuditArgv(options.auditArgv ?? argv),
+      argv: options.auditArgv ?? argv,
+      phase,
+      status,
+      policyDecision: details.policyDecision,
+      operationId,
+      requester: options.audit.device ?? options.audit.requester,
+      requesterName: options.audit.deviceName ?? options.audit.requesterName,
+      ...(approvedBy ? { approver: approvedBy } : {}),
       ...(details.classification
         ? { classification: details.classification }
         : {}),
       ...(details.reason ? { reason: details.reason } : {}),
-      ...(details.exitCode !== undefined ? { exitCode: details.exitCode } : {}),
-      policyDecision: details.policyDecision,
-      ...([
-        "command.started",
-        "command.succeeded",
-        "command.failed",
-        "command.unknown",
-      ].includes(event) && options.audit.approver
-        ? approvedBy
-          ? { approver: approvedBy }
-          : {}
-        : {}),
+      ...(details.exitCode === undefined ? {} : { exitCode: details.exitCode }),
+      ...(details.startedAt === undefined
+        ? {}
+        : { startedAt: details.startedAt }),
+      finishedAt: Date.now(),
     });
-  };
-  const auditBestEffort = (
-    event: Parameters<typeof audit>[0],
-    details: Parameters<typeof audit>[1],
-    warning: string,
-  ) => {
-    void Promise.resolve()
-      .then(() => audit(event, details))
-      .catch(() => {
-        console.warn(warning);
-      });
-  };
-  const auditRefusal = async (
-    event: "command.refused" | "command.approval-required",
-    details: Parameters<typeof audit>[1],
-  ) => {
-    try {
-      await audit(event, details);
-      return undefined;
-    } catch {
-      const warning =
-        "Could not record the refused command in the audit journal.";
-      console.warn(warning);
-      return warning;
-    }
   };
   if (
     !options.dryRun &&
@@ -156,9 +129,10 @@ export async function execute(
     machine.access !== "full" &&
     (options.getUid?.() ?? process.getuid?.()) === 0
   ) {
-    console.warn(
-      "The root-session refusal was not added to the user's audit journal.",
-    );
+    recordHistory("outcome", "refused", {
+      policyDecision: "refused",
+      reason: "root-local-tier-refused",
+    });
     throw new HomectlError(
       3,
       "Run homectl as a non-root existing user for non-full local tiers",
@@ -171,7 +145,7 @@ export async function execute(
     });
   } catch (error) {
     if (!options.dryRun)
-      await auditRefusal("command.refused", {
+      recordHistory("outcome", "refused", {
         policyDecision: "refused",
         reason: "policy-refused",
       });
@@ -189,20 +163,14 @@ export async function execute(
     checkApproval(plan, options.approval, options.approvalContext);
     approvedBy = plan.needsApproval ? options.audit?.approver : undefined;
   } catch (error) {
-    await auditRefusal(
-      error instanceof HomectlError && error.code === 4
-        ? "command.approval-required"
-        : "command.refused",
+    const approvalRequired = error instanceof HomectlError && error.code === 4;
+    recordHistory(
+      "outcome",
+      approvalRequired ? "approval-required" : "refused",
       {
         classification: plan.classification,
-        policyDecision:
-          error instanceof HomectlError && error.code === 4
-            ? "needs-approval"
-            : "refused",
-        reason:
-          error instanceof HomectlError && error.code === 4
-            ? "approval-required"
-            : "approval-invalid",
+        policyDecision: approvalRequired ? "needs-approval" : "refused",
+        reason: approvalRequired ? "approval-required" : "approval-invalid",
       },
     );
     throw error;
@@ -212,7 +180,7 @@ export async function execute(
     options.audit?.inventoryPath &&
     !(await sessionStatus(options.audit.inventoryPath)).unlocked
   ) {
-    await auditRefusal("command.refused", {
+    recordHistory("outcome", "refused", {
       classification: plan.classification,
       policyDecision: "refused",
       reason: "SSH session locked",
@@ -232,42 +200,35 @@ export async function execute(
     transportSpec(machine, argv, options.configPath),
     workerArgv,
   );
-  auditBestEffort(
-    "command.started",
-    {
-      classification: plan.classification,
-      policyDecision: plan.needsApproval ? "needs-approval" : "allowed",
-    },
-    "The command is running, but its start audit event could not be saved.",
-  );
+  const startedAt = Date.now();
+  const policyDecision = plan.needsApproval ? "needs-approval" : "allowed";
+  recordHistory("started", "executing", {
+    classification: plan.classification,
+    policyDecision,
+    startedAt,
+  });
   let result: Awaited<ReturnType<Runner>>;
   try {
     result = await (options.runner ?? run)(spec);
   } catch (error) {
-    auditBestEffort(
-      "command.unknown",
-      {
-        classification: plan.classification,
-        policyDecision: plan.needsApproval ? "needs-approval" : "allowed",
-        reason: "execution-outcome-unknown",
-      },
-      "The command ran, but its audit event could not be saved.",
-    );
+    recordHistory("outcome", "unknown", {
+      classification: plan.classification,
+      policyDecision,
+      reason: "execution-outcome-unknown",
+      startedAt,
+    });
     throw error;
   }
   if (
     machine.auth?.type === "keepassxc" &&
     /homectl SSH session is locked/.test(result.stderr)
   ) {
-    auditBestEffort(
-      "command.refused",
-      {
-        classification: plan.classification,
-        policyDecision: "refused",
-        reason: "SSH session locked",
-      },
-      "The command was not run, but its refusal could not be saved to the audit journal.",
-    );
+    recordHistory("outcome", "refused", {
+      classification: plan.classification,
+      policyDecision: "refused",
+      reason: "SSH session locked",
+      startedAt,
+    });
     throw new HomectlError(5, probeFailureMessage(result));
   }
   const exitCode =
@@ -276,15 +237,12 @@ export async function execute(
     result.exitCode <= 255
       ? result.exitCode
       : undefined;
-  auditBestEffort(
-    exitCode === 0 ? "command.succeeded" : "command.failed",
-    {
-      classification: plan.classification,
-      policyDecision: plan.needsApproval ? "needs-approval" : "allowed",
-      ...(exitCode === undefined ? {} : { exitCode }),
-    },
-    "The command ran, but its audit event could not be saved.",
-  );
+  recordHistory("outcome", exitCode === 0 ? "succeeded" : "failed", {
+    classification: plan.classification,
+    policyDecision,
+    ...(exitCode === undefined ? {} : { exitCode }),
+    startedAt,
+  });
   return { plan, result };
 }
 export async function writeSSHConfig(

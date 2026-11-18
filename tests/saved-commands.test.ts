@@ -2,7 +2,11 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { auditHistory } from "../src/control/audit-view";
+import {
+  auditHistoryFromRows,
+  commandHistoryRows,
+} from "../src/control/audit-view";
+import { readLocalCommandHistory } from "../src/command-history";
 import { AuditJournal } from "../src/control/journal";
 import { execute } from "../src/operations";
 import {
@@ -319,32 +323,29 @@ test("saved mutation cannot bypass approval and local audit excludes output and 
       join(dir, "control-plane", "audit.jsonl"),
       join(dir, "control-plane", "audit.anchor"),
     );
-    const entries = await waitFor(
-      () => journal.read(),
-      (value) =>
-        value.some((entry) => entry.event.event === "command.succeeded") &&
-        value.some(
-          (entry) => entry.event.event === "command.approval-required",
-        ),
-      "saved mutation audit entries",
-    );
-    const serialized = JSON.stringify(entries);
-    expect(serialized).not.toContain("hct_abcdefghijklmnop1234");
-    expect(serialized).not.toContain("OUTPUT_MUST_NOT_ENTER_AUDIT");
-    expect(serialized).toContain("[REDACTED]");
-    const history = auditHistory(entries);
-    expect(history.entries.map((row) => row.status)).toEqual([
-      "succeeded",
-      "approval-required",
-    ]);
-    expect(history.entries[0]?.approver).toBe("local-operator");
-    expect(history.entries[0]?.argv).toContain("[REDACTED]");
+    expect(await journal.read()).toEqual([]);
+    const historyEntries = await readLocalCommandHistory(inventoryPath);
+    if (process.getuid?.() === 0) {
+      expect(historyEntries).toEqual([]);
+    } else {
+      const serialized = JSON.stringify(historyEntries);
+      expect(serialized).not.toContain("hct_abcdefghijklmnop1234");
+      expect(serialized).not.toContain("OUTPUT_MUST_NOT_ENTER_AUDIT");
+      expect(serialized).toContain("[REDACTED]");
+      const history = auditHistoryFromRows(commandHistoryRows(historyEntries));
+      expect(history.entries.map((row) => row.status)).toEqual([
+        "succeeded",
+        "approval-required",
+      ]);
+      expect(history.entries[0]?.approver).toBe("local-operator");
+      expect(history.entries[0]?.argv).toContain("[REDACTED]");
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("command audit events normalize invalid argv before journaling", async () => {
+test("invalid command attempts stay outside the control-plane journal", async () => {
   const dir = await directory();
   try {
     const inventoryPath = join(dir, "inventory.yaml");
@@ -360,15 +361,18 @@ test("command audit events normalize invalid argv before journaling", async () =
       join(dir, "control-plane", "audit.jsonl"),
       join(dir, "control-plane", "audit.anchor"),
     );
-    const entries = await journal.read();
-    expect((await journal.verify()).ok).toBe(true);
-    expect(entries).toHaveLength(3);
-    for (const entry of entries) {
-      expect(entry.event.argv?.length).toBeGreaterThanOrEqual(1);
-      expect(entry.event.argv?.length).toBeLessThanOrEqual(64);
-      expect(entry.event.argv?.every((item) => item.length > 0)).toBe(true);
+    expect(await journal.read()).toEqual([]);
+    const history = await readLocalCommandHistory(inventoryPath);
+    if (process.getuid?.() === 0) {
+      expect(history).toEqual([]);
+    } else {
+      expect(history.map((entry) => entry.argv)).toEqual([
+        [],
+        [""],
+        ["hostname", ...Array(64).fill("x")],
+      ]);
+      expect(history.every((entry) => entry.status === "refused")).toBe(true);
     }
-    expect(entries.at(-1)?.event.argv?.at(-1)).toContain("truncated");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

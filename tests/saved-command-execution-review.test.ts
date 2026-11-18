@@ -2,6 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readLocalCommandHistory } from "../src/command-history";
 import { AuditJournal } from "../src/control/journal";
 import { execute } from "../src/operations";
 import { checkApproval, planExecution } from "../src/policies";
@@ -11,7 +12,6 @@ import {
   SavedCommandStore,
 } from "../src/saved-commands";
 import type { Machine } from "../src/types";
-import { waitFor } from "./audit-test-helpers";
 
 const machine: Machine = {
   description: "Synthetic",
@@ -30,7 +30,7 @@ async function directory() {
   return mkdtemp(join(tmpdir(), "homectl-saved-command-review-"));
 }
 
-test("redacted command-start audit permits secret-bearing argv execution", async () => {
+test("redacted local command history permits secret-bearing argv execution", async () => {
   const dir = await directory();
   try {
     const inventoryPath = join(dir, "inventory.yaml");
@@ -54,24 +54,24 @@ test("redacted command-start audit permits secret-bearing argv execution", async
       join(dir, "control-plane", "audit.jsonl"),
       join(dir, "control-plane", "audit.anchor"),
     );
-    const entries = await waitFor(
-      () => journal.read(),
-      (value) =>
-        value.some((entry) => entry.event.event === "command.started") &&
-        value.some((entry) => entry.event.event === "command.succeeded"),
-      "redacted command audit events",
-    );
-    expect(
-      entries.some((entry) => entry.event.event === "command.started"),
-    ).toBe(true);
-    expect(JSON.stringify(entries)).not.toContain("hunter2");
-    expect(JSON.stringify(entries)).toContain("--password=[REDACTED]");
+    expect(await journal.read()).toEqual([]);
+    const entries = await readLocalCommandHistory(inventoryPath);
+    if (process.getuid?.() === 0) {
+      expect(entries).toEqual([]);
+    } else {
+      expect(entries.map((entry) => entry.phase)).toEqual([
+        "started",
+        "outcome",
+      ]);
+      expect(JSON.stringify(entries)).not.toContain("hunter2");
+      expect(JSON.stringify(entries)).toContain("--password=[REDACTED]");
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("audit failures do not replace policy or approval refusal errors", async () => {
+test("control-plane journal failures do not replace command refusal errors", async () => {
   const dir = await directory();
   const inventoryPath = join(dir, "inventory.yaml");
   const controlDirectory = join(dir, "control-plane");
@@ -94,27 +94,20 @@ test("audit failures do not replace policy or approval refusal errors", async ()
         audit,
       }),
     ).rejects.toMatchObject({ code: 4 });
-    const refusalWarnings = () =>
-      warning.mock.calls.filter(
-        ([message]) =>
-          message ===
-          "Could not record the refused command in the audit journal.",
-      ).length;
-    await waitFor(
-      refusalWarnings,
-      (count) => count >= 2,
-      "policy refusal audit warnings",
-    );
+    expect(
+      warning.mock.calls.some(([message]) =>
+        String(message).includes("audit journal"),
+      ),
+    ).toBe(false);
   } finally {
     warning.mockRestore();
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("audit append failures warn without delaying or changing command execution", async () => {
+test("invalid control-plane journal does not affect ordinary command recording", async () => {
   const dir = await directory();
   const inventoryPath = join(dir, "inventory.yaml");
-  const warning = spyOn(console, "warn").mockImplementation(() => {});
   let runs = 0;
   try {
     await mkdir(join(dir, "control-plane"), { recursive: true });
@@ -132,24 +125,18 @@ test("audit append failures warn without delaying or changing command execution"
     });
     expect(runs).toBe(1);
     expect(result.result?.exitCode).toBe(0);
-    await waitFor(
-      () => warning.mock.calls.map(([message]) => message),
-      (messages) =>
-        messages.includes(
-          "The command is running, but its start audit event could not be saved.",
-        ) &&
-        messages.includes(
-          "The command ran, but its audit event could not be saved.",
-        ),
-      "best-effort command audit warnings",
-    );
+    expect(
+      await readFile(join(dir, "control-plane", "audit.jsonl"), "utf8"),
+    ).toBe("not valid JSON\n");
+    const history = await readLocalCommandHistory(inventoryPath);
+    if (process.getuid?.() === 0) expect(history).toEqual([]);
+    else expect(history.map((entry) => entry.status)).toEqual(["executing", "succeeded"]);
   } finally {
-    warning.mockRestore();
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("only successfully approved commands record the supplied approver", async () => {
+test("only successfully approved local-history runs record the approver", async () => {
   const dir = await directory();
   const inventoryPath = join(dir, "inventory.yaml");
   const journal = new AuditJournal(
@@ -191,41 +178,28 @@ test("only successfully approved commands record the supplied approver", async (
       },
       runner: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
     });
-    const entries = await waitFor(
-      () => journal.read(),
-      (value) =>
-        value.some(
-          (entry) =>
-            entry.event.event === "command.succeeded" &&
-            entry.event.operationId === inspectId,
-        ) &&
-        value.some(
-          (entry) =>
-            entry.event.event === "command.succeeded" &&
-            entry.event.operationId === mutationId,
-        ),
-      "approved command audit entries",
-    );
-    expect(
-      entries.find(
-        (entry) =>
-          entry.event.event === "command.succeeded" &&
-          entry.event.operationId === inspectId,
-      )?.event.approver,
-    ).toBeUndefined();
-    expect(
-      entries.find(
-        (entry) =>
-          entry.event.event === "command.succeeded" &&
-          entry.event.operationId === mutationId,
-      )?.event.approver,
-    ).toBe("local-operator");
+    expect(await journal.read()).toEqual([]);
+    const entries = await readLocalCommandHistory(inventoryPath);
+    if (process.getuid?.() === 0) {
+      expect(entries).toEqual([]);
+    } else {
+      expect(
+        entries.find(
+          (entry) => entry.operationId === inspectId && entry.phase === "outcome",
+        )?.approver,
+      ).toBeUndefined();
+      expect(
+        entries.find(
+          (entry) => entry.operationId === mutationId && entry.phase === "outcome",
+        )?.approver,
+      ).toBe("local-operator");
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("a locked KeePassXC session is audited as refused before the runner", async () => {
+test("a locked KeePassXC session is locally recorded as refused before the runner", async () => {
   const dir = await directory();
   const inventoryPath = join(dir, "inventory.yaml");
   const journal = new AuditJournal(
@@ -258,29 +232,19 @@ test("a locked KeePassXC session is audited as refused before the runner", async
         },
       }),
     ).rejects.toThrow();
-    const entries = await journal.read();
+    expect(await journal.read()).toEqual([]);
+    const entries = await readLocalCommandHistory(inventoryPath);
     expect(runs).toBe(0);
-    expect(entries.map((entry) => entry.event.event)).toContain(
-      "command.refused",
-    );
-    expect(entries.map((entry) => entry.event.event)).not.toContain(
-      "command.started",
-    );
-    expect(entries.map((entry) => entry.event.event)).not.toContain(
-      "command.failed",
-    );
-    expect(
-      entries.find((entry) => entry.event.event === "command.refused")?.event,
-    ).toMatchObject({
-      reason: "SSH session locked",
-      policyDecision: "refused",
-    });
+    if (process.getuid?.() === 0) expect(entries).toEqual([]);
+    else expect(entries).toMatchObject([
+      { phase: "outcome", status: "refused", reason: "SSH session locked" },
+    ]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("saved token parameter templates execute while audit stores only redacted argv", async () => {
+test("saved token parameter templates execute while local history stores redacted argv", async () => {
   const dir = await directory();
   const secretValue = "private-token-parameter";
   try {
@@ -319,19 +283,19 @@ test("saved token parameter templates execute while audit stores only redacted a
     });
 
     expect(executedArgv).toEqual(argv);
-    const entries = await waitFor(
-      () =>
-        new AuditJournal(
-          join(dir, "control-plane", "audit.jsonl"),
-          join(dir, "control-plane", "audit.anchor"),
-        ).read(),
-      (value) =>
-        value.some((entry) => entry.event.event === "command.succeeded"),
-      "saved-token command audit entry",
-    );
-    const journal = JSON.stringify(entries);
-    expect(journal).toContain("--token=[REDACTED]");
-    expect(journal).not.toContain(secretValue);
+    expect(
+      await new AuditJournal(
+        join(dir, "control-plane", "audit.jsonl"),
+        join(dir, "control-plane", "audit.anchor"),
+      ).read(),
+    ).toEqual([]);
+    const entries = await readLocalCommandHistory(inventoryPath);
+    if (process.getuid?.() === 0) expect(entries).toEqual([]);
+    else {
+      const history = JSON.stringify(entries);
+      expect(history).toContain("--token=[REDACTED]");
+      expect(history).not.toContain(secretValue);
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -398,25 +362,25 @@ test("parameterized plans show expanded argv while approval binds its exact form
     });
     expect(executedArgv).toEqual(argv);
     expect(result.plan.argv).toEqual(displayArgv);
-    const entries = await waitFor(
-      () =>
-        new AuditJournal(
-          join(dir, "control-plane", "audit.jsonl"),
-          join(dir, "control-plane", "audit.anchor"),
-        ).read(),
-      (value) =>
-        value.some((entry) => entry.event.event === "command.succeeded"),
-      "parameterized command audit entry",
-    );
-    const journal = JSON.stringify(entries);
-    expect(journal).toContain(parameterValue);
-    expect(journal).not.toContain("{{unit}}");
+    expect(
+      await new AuditJournal(
+        join(dir, "control-plane", "audit.jsonl"),
+        join(dir, "control-plane", "audit.anchor"),
+      ).read(),
+    ).toEqual([]);
+    const entries = await readLocalCommandHistory(inventoryPath);
+    if (process.getuid?.() === 0) expect(entries).toEqual([]);
+    else {
+      const history = JSON.stringify(entries);
+      expect(history).toContain(parameterValue);
+      expect(history).not.toContain("{{unit}}");
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("secret-flagged saved parameters stay masked in plans, errors, and audit", async () => {
+test("secret-flagged saved parameters stay masked in plans, errors, and local history", async () => {
   const dir = await directory();
   const secretValue = "private-secret-value";
   try {
@@ -457,19 +421,19 @@ test("secret-flagged saved parameters stay masked in plans, errors, and audit", 
         return { exitCode: 0, stdout: "ok", stderr: "" };
       },
     });
-    const entries = await waitFor(
-      () =>
-        new AuditJournal(
-          join(dir, "control-plane", "audit.jsonl"),
-          join(dir, "control-plane", "audit.anchor"),
-        ).read(),
-      (value) =>
-        value.some((entry) => entry.event.event === "command.succeeded"),
-      "secret parameter command audit entry",
-    );
-    const journal = JSON.stringify(entries);
-    expect(journal).not.toContain(secretValue);
-    expect(journal).toContain("[REDACTED]");
+    expect(
+      await new AuditJournal(
+        join(dir, "control-plane", "audit.jsonl"),
+        join(dir, "control-plane", "audit.anchor"),
+      ).read(),
+    ).toEqual([]);
+    const entries = await readLocalCommandHistory(inventoryPath);
+    if (process.getuid?.() === 0) expect(entries).toEqual([]);
+    else {
+      const history = JSON.stringify(entries);
+      expect(history).not.toContain(secretValue);
+      expect(history).toContain("[REDACTED]");
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -1,29 +1,15 @@
-import { describe, expect, spyOn, test } from "bun:test";
-import {
-  mkdtemp,
-  readFile,
-  rm,
-  stat,
-  utimes,
-  writeFile,
-} from "node:fs/promises";
+import { describe, expect, test } from "bun:test";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonicalJson, fingerprint } from "../src/control/canonical";
-import {
-  AuditJournal,
-  appendLocalAudit,
-  GENESIS,
-  verifyChain,
-} from "../src/control/journal";
+import { AuditJournal, GENESIS, verifyChain } from "../src/control/journal";
 import {
   containsRedactionMarker,
   containsSecretMaterial,
   redactArgv,
 } from "../src/control/redact";
-import { ControlStore } from "../src/control/store";
 import type { AuditEvent } from "../src/control/types";
-import * as platform from "../src/platform";
 import { HomectlError } from "../src/types";
 
 async function workspace() {
@@ -125,62 +111,6 @@ describe("audit journal hash chain", () => {
     for (const event of events) await journal.append({ ...event });
     return { dir, path, journal };
   }
-
-  test("scans argv values independently and redacts secret-bearing items", async () => {
-    const { dir, path } = await workspace();
-    const journal = new AuditJournal(path, join(dir, "audit.anchor"));
-    try {
-      await journal.append({
-        event: "command.started",
-        host: "nas",
-        argv: [
-          "home-ctl",
-          "exec",
-          "nas",
-          "--",
-          "grep",
-          "-i",
-          "password:",
-          "/var/log/app.log",
-        ],
-      });
-      await journal.append({
-        event: "command.started",
-        host: "nas",
-        argv: ["grep", "password: hunter2"],
-      });
-      await journal.append({
-        event: "command.started",
-        host: "nas",
-        argv: ["grep", "password: {{password}}"],
-      });
-
-      const entries = await journal.read();
-      expect(entries[0]?.event.argv).toContain("password:");
-      expect(entries[1]?.event.argv).toEqual(["grep", "[REDACTED]"]);
-      expect(entries[2]?.event.argv).toEqual([
-        "grep",
-        "password: {{password}}",
-      ]);
-      expect(JSON.stringify(entries)).not.toContain("hunter2");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("protects an audit anchor only on its first append", async () => {
-    const { dir, path } = await workspace();
-    const protect = spyOn(platform, "protect").mockResolvedValue(undefined);
-    const journal = new AuditJournal(path, join(dir, "audit.anchor"));
-    try {
-      await journal.append({ event: "client.created", client: "first" });
-      await journal.append({ event: "client.created", client: "second" });
-      expect(protect).toHaveBeenCalledTimes(1);
-    } finally {
-      protect.mockRestore();
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
 
   test("rejects schema-invalid events before they can poison the chain", async () => {
     const { dir, path } = await workspace();
@@ -325,60 +255,6 @@ describe("audit journal hash chain", () => {
     }
   });
 
-  test("cached tails append incrementally and reverify changed journal data", async () => {
-    const { dir, path } = await workspace();
-    const journal = new AuditJournal(path, join(dir, "audit.anchor"));
-    try {
-      await journal.append({ event: "client.created", client: "first" });
-      const read = spyOn(journal, "read");
-      await journal.append({ event: "client.created", client: "second" });
-      expect(read).not.toHaveBeenCalled();
-
-      const original = await readFile(path, "utf8");
-      expect(original).toContain('"client":"first"');
-      await writeFile(
-        path,
-        original.replace('"client":"first"', '"client":"other"'),
-      );
-      await utimes(path, new Date(), new Date(Date.now() + 5_000));
-      await expect(
-        journal.append({ event: "request.accepted", client: "third" }),
-      ).rejects.toMatchObject({ code: 5 });
-      expect(read).toHaveBeenCalledTimes(1);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("anchor replacement retains the existing journal owner", async () => {
-    if (process.platform === "win32") return;
-    const { dir, path } = await workspace();
-    const anchorPath = join(dir, "audit.anchor");
-    const journal = new AuditJournal(path, anchorPath);
-    try {
-      await journal.append({ event: "client.created", client: "owner-check" });
-      const [journalOwner, anchorOwner] = await Promise.all([
-        stat(path),
-        stat(anchorPath),
-      ]);
-      expect([anchorOwner.uid, anchorOwner.gid]).toEqual([
-        journalOwner.uid,
-        journalOwner.gid,
-      ]);
-      await journal.append({
-        event: "client.created",
-        client: "owner-check-2",
-      });
-      const updatedAnchorOwner = await stat(anchorPath);
-      expect([updatedAnchorOwner.uid, updatedAnchorOwner.gid]).toEqual([
-        journalOwner.uid,
-        journalOwner.gid,
-      ]);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
   test("a corrupt journal refuses further appends", async () => {
     const { dir, path, journal } = await filled();
     try {
@@ -403,72 +279,6 @@ describe("audit journal hash chain", () => {
         }),
       ).rejects.toMatchObject({ code: 5 });
       expect(await readFile(path, "utf8")).toBe(before);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("argv normalization keeps audit events within schema bounds", async () => {
-    const { dir, path } = await workspace();
-    const journal = new AuditJournal(path, join(dir, "audit.anchor"));
-    try {
-      const noArguments = await journal.append({
-        event: "command.started",
-        argv: [],
-      });
-      const emptyArgument = await journal.append({
-        event: "command.started",
-        argv: [""],
-      });
-      const manyArguments = await journal.append({
-        event: "command.started",
-        argv: Array(65).fill("arg"),
-      });
-      expect(noArguments.event.argv).toEqual(["[no arguments]"]);
-      expect(emptyArgument.event.argv).toEqual(["[empty argument]"]);
-      expect(manyArguments.event.argv).toHaveLength(64);
-      expect(manyArguments.event.argv?.at(-1)).toBe("[truncated 2 arguments]");
-      await expect(
-        journal.append({ event: "invalid-event" } as unknown as AuditEvent),
-      ).rejects.toMatchObject({ code: 5 });
-      expect(await journal.read()).toHaveLength(3);
-      expect((await journal.verify()).ok).toBe(true);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("long OIDC reasons and device names are normalized before schema validation", async () => {
-    const { dir, path } = await workspace();
-    const journal = new AuditJournal(path, join(dir, "audit.anchor"));
-    try {
-      const entry = await journal.append({
-        event: "auth.oidc",
-        client: "oidc-issuer",
-        reason: `Issuer host ${"x".repeat(180)}`,
-        deviceName: "d".repeat(130),
-      });
-      expect(entry.event.reason).toHaveLength(120);
-      expect(entry.event.deviceName).toHaveLength(100);
-      expect((await journal.verify()).ok).toBe(true);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("local audit appends use the control store journal and anchor paths", async () => {
-    const { dir } = await workspace();
-    try {
-      const inventoryPath = join(dir, "inventory.yaml");
-      const store = new ControlStore(join(dir, "control-plane"));
-      await appendLocalAudit(inventoryPath, {
-        event: "client.created",
-        client: "codex-pc",
-      });
-      expect(
-        JSON.parse(await readFile(store.auditPath, "utf8")),
-      ).toHaveProperty("event.event", "client.created");
-      expect(JSON.parse(await readFile(store.anchorPath, "utf8")).seq).toBe(1);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -127,7 +127,7 @@ Show the exact host, arguments, targets and effects to the user. After they conf
 
 ## Audit history and saved commands
 
-Open **Audit history** in the local panel to review attempted and completed commands and control operations. Rows show the time, target, requesting client or device, redacted argv, policy decision, approver, status, exit code and duration when recorded. The existing hash-chained journal is stored locally under `control-plane/`; stdout and stderr are not written to it, and audit history is never synced to peers. Run `home-ctl control audit verify` to check the journal and its anchor.
+Open **Audit history** in the local panel to review control-plane journal entries alongside ordinary command runs. Control-plane entries remain in the existing hash-chained journal under `control-plane/`; verify that journal and its anchor with `home-ctl control audit verify`. Ordinary CLI, panel, saved-command and peer command events are stored separately in `history/commands.jsonl`. This private, unchained local history is not synced to peers or included in recovery bundles. Both logs omit stdout/stderr and store redacted argv. The command-history file retains up to 5,000 entries or 30 days by default; set `HOMECTL_HISTORY_MAX_ENTRIES` and `HOMECTL_HISTORY_MAX_AGE_DAYS` to positive integers to change those limits. Running as root, or using a state directory owned by another user, skips command-history writes with a warning. Clear ordinary-command history with `home-ctl history clear` or the confirmed **Clear command history** panel action; this never clears the control-plane journal.
 
 In **Command**, enter a name under “Save as a shortcut” to save the current local command. You can also save a redacted-safe command from its Audit history row, or create and edit a template in **Saved commands**. Templates declare target hosts, argv items and optional parameters. Each parameter value is requested for each run and is not stored. A host that is not in this device's inventory is marked unavailable.
 
@@ -186,6 +186,7 @@ The provisioning journal records ownership and progress. Conflicts, changed plan
 | `~/.config/homectl/ssh_config` | Generated SSH aliases |
 | `~/.config/homectl/state/` | VM provisioning journals |
 | `~/.config/homectl/control-plane/audit.jsonl` | Local hash-chained operation audit journal |
+| `~/.config/homectl/history/commands.jsonl` | Private, unchained ordinary-command history; local only, retention-limited and clearable |
 | `~/.config/homectl/saved-commands.json` | Versioned saved command templates |
 
 Use `--inventory /absolute/path/inventory.yaml` for another inventory. Socket and public-key paths then follow that file's location. Database paths are absolute. The [inventory example](../examples/inventory.example.yaml) shows the full schema. Keep the real inventory, the database, backups and runtime files outside Git.

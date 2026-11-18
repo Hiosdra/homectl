@@ -1,5 +1,8 @@
 import { redactArgv } from "./redact";
+import type { CommandHistoryEntry } from "../command-history";
+import { redactCommandHistoryArgv } from "../command-history";
 import type { AuditEntry, AuditEvent, Classification } from "./types";
+import { HomectlError } from "../types";
 
 export type AuditPolicyDecision = "allowed" | "needs-approval" | "refused";
 export type AuditStatus =
@@ -16,6 +19,7 @@ export type AuditHistoryRow = {
   id: string;
   sequence: number;
   at: string;
+  source: "control-plane" | "command-history";
   operationId?: string;
   operation?: string;
   host?: string;
@@ -36,28 +40,27 @@ export type AuditHistoryFilters = {
   host?: string;
   status?: AuditStatus;
   text?: string;
-  cursor?: number;
+  cursor?: string;
   limit?: number;
 };
 
 export type AuditHistoryPage = {
   entries: AuditHistoryRow[];
-  nextCursor?: number;
+  nextCursor?: string;
   limit: number;
 };
 
 export type AuditHistoryRecord = {
   row: AuditHistoryRow;
+  cursorAt: string;
   creationSequence: number;
+  source: AuditHistoryRow["source"];
 };
 
 const terminalState: Record<string, AuditStatus> = {
   "operation.succeeded": "succeeded",
   "operation.failed": "failed",
   "operation.unknown": "unknown",
-  "command.succeeded": "succeeded",
-  "command.failed": "failed",
-  "command.unknown": "unknown",
 };
 
 const operationEvents = new Set([
@@ -67,12 +70,6 @@ const operationEvents = new Set([
   "operation.succeeded",
   "operation.failed",
   "operation.unknown",
-  "command.started",
-  "command.succeeded",
-  "command.failed",
-  "command.unknown",
-  "command.refused",
-  "command.approval-required",
 ]);
 
 function clientName(id: string | undefined, names: Record<string, string>) {
@@ -80,7 +77,6 @@ function clientName(id: string | undefined, names: Record<string, string>) {
 }
 
 function policyOf(event: AuditEvent): AuditPolicyDecision {
-  if (event.policyDecision) return event.policyDecision;
   if (event.event === "operation.decided")
     return event.decision === "approve" ? "allowed" : "refused";
   return event.classification === "inspect" ? "allowed" : "needs-approval";
@@ -97,20 +93,17 @@ function baseRow(
     id,
     sequence,
     at,
+    source: "control-plane",
     ...(event.operationId ? { operationId: event.operationId } : {}),
     ...(event.op ? { operation: event.op } : {}),
     ...(event.host ? { host: event.host } : {}),
     ...(event.argv ? { argv: redactArgv(event.argv) } : {}),
-    requester: event.device ?? event.client ?? "unknown",
-    ...(event.deviceName || clientName(event.client, names)
-      ? { requesterName: event.deviceName ?? clientName(event.client, names) }
+    requester: event.client ?? "unknown",
+    ...(clientName(event.client, names)
+      ? { requesterName: clientName(event.client, names) }
       : {}),
     policyDecision: policyOf(event),
     ...(event.classification ? { classification: event.classification } : {}),
-    ...(event.approver ? { approver: event.approver } : {}),
-    ...(clientName(event.approver, names)
-      ? { approverName: clientName(event.approver, names) }
-      : {}),
     status: "pending",
     ...(event.reason ? { reason: event.reason } : {}),
   };
@@ -130,7 +123,6 @@ export function auditHistoryRows(
         ? operations.get(event.operationId)?.row
         : undefined;
       const policyDecision =
-        event.policyDecision ??
         (/approval|required|approved/i.test(event.reason ?? "")
           ? "needs-approval"
           : "refused");
@@ -145,14 +137,19 @@ export function auditHistoryRows(
           ...(prior?.classification
             ? { classification: prior.classification }
             : {}),
-          policyDecision,
         },
         names,
       );
       row.status =
         policyDecision === "needs-approval" ? "approval-required" : "refused";
+      row.policyDecision = policyDecision;
       if (!row.operation && prior?.operation) row.operation = prior.operation;
-      attempts.push({ row, creationSequence: entry.seq });
+      attempts.push({
+        row,
+        cursorAt: entry.at,
+        creationSequence: entry.seq,
+        source: "control-plane",
+      });
       continue;
     }
     if (!operationEvents.has(event.event)) continue;
@@ -161,7 +158,9 @@ export function auditHistoryRows(
     if (!record) {
       record = {
         row: baseRow(id, entry.seq, entry.at, event, names),
+        cursorAt: entry.at,
         creationSequence: entry.seq,
+        source: "control-plane",
       };
       operations.set(id, record);
     }
@@ -172,8 +171,8 @@ export function auditHistoryRows(
       row.operation = "control plan";
       row.host = event.host ?? row.host;
       row.argv = event.argv ? redactArgv(event.argv) : row.argv;
-      row.requester = event.device ?? event.client ?? row.requester;
-      row.requesterName = event.deviceName ?? clientName(event.client, names);
+      row.requester = event.client ?? row.requester;
+      row.requesterName = clientName(event.client, names);
       row.classification = event.classification ?? row.classification;
       row.policyDecision = policyOf(event);
       row.status = "pending";
@@ -189,49 +188,18 @@ export function auditHistoryRows(
       row.reason = event.decision === "reject" ? "rejected" : row.reason;
       continue;
     }
-    if (event.approver) {
-      row.approver = event.approver;
-      row.approverName = clientName(event.approver, names);
-    }
-    if (
-      event.event === "operation.executing" ||
-      event.event === "command.started"
-    ) {
+    if (event.event === "operation.executing") {
       if (!row.operation)
-        row.operation = event.event.startsWith("command")
-          ? "command"
-          : "control operation";
+        row.operation = "control operation";
       row.at = entry.at;
       startedAt.set(id, Date.parse(entry.at));
       row.host = event.host ?? row.host;
       row.argv = event.argv ? redactArgv(event.argv) : row.argv;
-      row.requester = event.device ?? event.client ?? row.requester;
-      row.requesterName =
-        event.deviceName ??
-        clientName(event.client, names) ??
-        row.requesterName;
+      row.requester = event.client ?? row.requester;
+      row.requesterName = clientName(event.client, names) ?? row.requesterName;
       row.classification = event.classification ?? row.classification;
       row.policyDecision = policyOf(event);
       row.status = "executing";
-      row.reason = event.reason ?? row.reason;
-      continue;
-    }
-    if (
-      event.event === "command.refused" ||
-      event.event === "command.approval-required"
-    ) {
-      row.operation = "command";
-      row.host = event.host ?? row.host;
-      row.argv = event.argv ? redactArgv(event.argv) : row.argv;
-      row.classification = event.classification ?? row.classification;
-      row.policyDecision =
-        event.event === "command.approval-required"
-          ? "needs-approval"
-          : "refused";
-      row.status =
-        event.event === "command.approval-required"
-          ? "approval-required"
-          : "refused";
       row.reason = event.reason ?? row.reason;
       continue;
     }
@@ -252,6 +220,52 @@ export function auditHistoryRows(
   );
 }
 
+export function commandHistoryRows(
+  entries: readonly CommandHistoryEntry[],
+): AuditHistoryRecord[] {
+  const byOperation = new Map<string, AuditHistoryRecord>();
+  for (const entry of entries) {
+    let record = byOperation.get(entry.operationId);
+    if (!record) {
+      record = {
+        source: "command-history",
+        cursorAt: entry.at,
+        creationSequence: entry.sequence,
+        row: {
+          id: `command-${entry.operationId}`,
+          sequence: entry.sequence,
+          at: entry.at,
+          source: "command-history",
+          operationId: entry.operationId,
+          operation: "command",
+          host: entry.host,
+          argv: redactCommandHistoryArgv(entry.argv),
+          requester: entry.requester,
+          ...(entry.requesterName ? { requesterName: entry.requesterName } : {}),
+          policyDecision: entry.policyDecision,
+          ...(entry.classification ? { classification: entry.classification } : {}),
+          ...(entry.approver ? { approver: entry.approver } : {}),
+          status: entry.status,
+        },
+      };
+      byOperation.set(entry.operationId, record);
+    }
+    record.row.sequence = entry.sequence;
+    record.row.at = entry.at;
+    record.row.argv = redactCommandHistoryArgv(entry.argv);
+    record.row.policyDecision = entry.policyDecision;
+    record.row.status = entry.status;
+    if (entry.requester) record.row.requester = entry.requester;
+    if (entry.requesterName) record.row.requesterName = entry.requesterName;
+    if (entry.classification) record.row.classification = entry.classification;
+    if (entry.approver) record.row.approver = entry.approver;
+    if (entry.exitCode !== undefined) record.row.exitCode = entry.exitCode;
+    if (entry.durationMs !== undefined) record.row.durationMs = entry.durationMs;
+    if (entry.reason) record.row.reason = entry.reason;
+  }
+  return [...byOperation.values()];
+}
+
 export function auditHistory(
   entries: readonly AuditEntry[],
   names: Record<string, string> = {},
@@ -266,11 +280,10 @@ export function auditHistoryFromRows(
 ): AuditHistoryPage {
   const limit = Math.max(1, Math.min(100, Math.trunc(filters.limit ?? 50)));
   const query = filters.text?.trim().toLocaleLowerCase();
-  const filteredRows = rows.filter(({ row, creationSequence }) => {
+  const cursor = decodeAuditCursor(filters.cursor);
+  const filteredRows = rows.filter(({ row }) => {
     if (filters.host && row.host !== filters.host) return false;
     if (filters.status && row.status !== filters.status) return false;
-    if (filters.cursor !== undefined && creationSequence >= filters.cursor)
-      return false;
     if (!query) return true;
     return [
       row.operationId,
@@ -290,13 +303,61 @@ export function auditHistoryFromRows(
       .join(" ")
       .toLocaleLowerCase()
       .includes(query);
-  });
-  const page = filteredRows.slice(0, limit);
+  }).sort(compareRecords);
+  const afterCursor = cursor
+    ? filteredRows.filter((record) => compareKey(recordKey(record), cursor) > 0)
+    : filteredRows;
+  const page = afterCursor.slice(0, limit);
   return {
     entries: page.map(({ row }) => row),
     limit,
-    ...(filteredRows.length > limit && page.length
-      ? { nextCursor: page.at(-1)?.creationSequence }
+    ...(afterCursor.length > limit && page.length
+      ? { nextCursor: encodeAuditCursor(recordKey(page.at(-1) as AuditHistoryRecord)) }
       : {}),
   };
+}
+
+type AuditCursor = { at: string; source: AuditHistoryRow["source"]; sequence: number; id: string };
+
+function recordKey(record: AuditHistoryRecord): AuditCursor {
+  return {
+    at: record.cursorAt,
+    source: record.source,
+    sequence: record.creationSequence,
+    id: record.row.id,
+  };
+}
+
+function compareKey(a: AuditCursor, b: AuditCursor): number {
+  if (a.at !== b.at) return a.at > b.at ? -1 : 1;
+  if (a.source !== b.source) return a.source > b.source ? -1 : 1;
+  if (a.sequence !== b.sequence) return b.sequence - a.sequence;
+  return a.id === b.id ? 0 : a.id > b.id ? -1 : 1;
+}
+
+function compareRecords(a: AuditHistoryRecord, b: AuditHistoryRecord): number {
+  return compareKey(recordKey(a), recordKey(b));
+}
+
+function encodeAuditCursor(cursor: AuditCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+function decodeAuditCursor(value: string | undefined): AuditCursor | undefined {
+  if (!value) return undefined;
+  try {
+    const cursor = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as AuditCursor;
+    if (
+      typeof cursor.at !== "string" ||
+      !Number.isFinite(Date.parse(cursor.at)) ||
+      (cursor.source !== "control-plane" && cursor.source !== "command-history") ||
+      !Number.isSafeInteger(cursor.sequence) ||
+      cursor.sequence < 1 ||
+      typeof cursor.id !== "string"
+    )
+      throw new Error("shape");
+    return cursor;
+  } catch {
+    throw new HomectlError(2, "Audit cursor is invalid; refresh the history");
+  }
 }

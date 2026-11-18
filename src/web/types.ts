@@ -221,6 +221,7 @@ export type AuditHistoryRow = {
   id: string;
   sequence: number;
   at: string;
+  source: "control-plane" | "command-history";
   operationId?: string;
   operation?: string;
   host?: string;
@@ -238,6 +239,6 @@ export type AuditHistoryRow = {
 };
 export type AuditHistoryPage = {
   entries: AuditHistoryRow[];
-  nextCursor?: number;
+  nextCursor?: string;
   limit: number;
 };

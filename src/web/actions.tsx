@@ -156,6 +156,22 @@ export async function handleAction(action: string | undefined, id: string) {
     case "audit-more":
       await loadAudit(false);
       return;
+    case "audit-clear": {
+      if (!(await confirm(
+        "Clear local command history?",
+        "This permanently removes ordinary command-history rows from this device. The control-plane journal is not changed.",
+      ))) return;
+      const result = await api<{ cleared: boolean }>("/api/audit/clear", {});
+      ui.auditPage = undefined;
+      await loadAudit(true);
+      report(
+        result.cleared
+          ? "Local command history cleared."
+          : "Local command history was not cleared; check the warning in the server log.",
+        result.cleared ? "notice" : "error",
+      );
+      return;
+    }
     case "audit-copy-argv": {
       const row = ui.auditPage?.entries.find((entry) => entry.id === id);
       if (!row?.argv) throw new Error("This audit entry has no argv to copy.");

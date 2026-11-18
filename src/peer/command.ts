@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendLocalAudit } from "../control/journal";
-import { normalizeAuditArgv } from "../control/redact";
+import { recordLocalCommand } from "../command-history";
 import { loadInventory } from "../inventory";
 import { execute } from "../operations";
 import { planExecution } from "../policies";
@@ -35,24 +34,18 @@ export async function peerCommand(hub: Hub, peer: Peer, payload: unknown) {
     plan = planExecution(v.host, machine, v.argv, v.impact);
   } catch (error) {
     if (!v.dryRun) {
-      try {
-        await appendLocalAudit(hub.inventoryPath, {
-          event: "command.refused",
-          op: "execute",
-          operationId: randomUUID(),
-          client: "local-operator",
-          device: peer.id,
-          deviceName: peer.name,
-          host: v.host,
-          argv: normalizeAuditArgv(v.argv),
-          policyDecision: "refused",
-          reason: "policy-refused",
-        });
-      } catch {
-        console.warn(
-          "Could not record the refused peer command in the audit journal.",
-        );
-      }
+      recordLocalCommand({
+        inventoryPath: hub.inventoryPath,
+        host: v.host,
+        argv: v.argv,
+        phase: "outcome",
+        status: "refused",
+        policyDecision: "refused",
+        operationId: randomUUID(),
+        requester: peer.id,
+        requesterName: peer.name,
+        reason: "policy-refused",
+      });
     }
     throw error;
   }
@@ -62,25 +55,19 @@ export async function peerCommand(hub: Hub, peer: Peer, payload: unknown) {
     if (hub.operations.size >= 32)
       throw new HomectlError(3, "Too many pending operations");
     const id = randomUUID();
-    try {
-      await appendLocalAudit(hub.inventoryPath, {
-        event: "command.approval-required",
-        op: "execute",
-        operationId: id,
-        client: "local-operator",
-        device: peer.id,
-        deviceName: peer.name,
-        host: v.host,
-        argv: normalizeAuditArgv(v.argv),
-        classification: plan.classification,
-        policyDecision: "needs-approval",
-        reason: "peer-approval-required",
-      });
-    } catch {
-      console.warn(
-        "Could not record the approval-required peer command in the audit journal.",
-      );
-    }
+    recordLocalCommand({
+      inventoryPath: hub.inventoryPath,
+      host: v.host,
+      argv: v.argv,
+      phase: "outcome",
+      status: "approval-required",
+      policyDecision: "needs-approval",
+      operationId: id,
+      requester: peer.id,
+      requesterName: peer.name,
+      classification: plan.classification,
+      reason: "peer-approval-required",
+    });
     hub.operations.set(id, {
       id,
       peerId: peer.id,

@@ -75,9 +75,15 @@ function assertExpectedCommands(
   current: DiskState,
   expected: Record<string, SavedCommand> | undefined,
 ): void {
+  const expectedForValidLocalCommands = expected
+    ? Object.fromEntries(
+        Object.entries(expected).filter(([id]) => !Object.hasOwn(current.invalid, id)),
+      )
+    : undefined;
   if (
-    expected &&
-    stableCommandMap(current.commands) !== stableCommandMap(expected)
+    expectedForValidLocalCommands &&
+    stableCommandMap(current.commands) !==
+      stableCommandMap(expectedForValidLocalCommands)
   )
     throw new HomectlError(
       3,
@@ -376,7 +382,10 @@ export class SavedCommandStore {
     expectedSavedCommands:
       | Record<string, { value: unknown | null }>
       | undefined,
-    apply: (savedCommandsAvailable: boolean) => Promise<void>,
+    apply: (
+      savedCommandsAvailable: boolean,
+      preservedInvalidIds: string[],
+    ) => Promise<void>,
   ): Promise<boolean> {
     const expected = expectedCommandMap(expectedSavedCommands);
     return this.withLock(async () => {
@@ -385,14 +394,19 @@ export class SavedCommandStore {
         current = await this.read();
       } catch (error) {
         if (!isSavedCommandFileCorrupt(error)) throw error;
-        await apply(false);
+        await apply(false, []);
         return false;
       }
       const parsed = savedCommandsFromRecordsWithIssues(records);
       assertExpectedCommands(current, expected);
+      const preservedInvalidIds = Object.keys(current.invalid).map(
+        (id) => `saved-command:${id}`,
+      );
       const issueIds = new Set(parsed.issues.map((issue) => issue.id));
       const commands = [
-        ...parsed.commands,
+        ...parsed.commands.filter(
+          (command) => !Object.hasOwn(current.invalid, command.id),
+        ),
         ...Object.entries(current.commands)
           .filter(([id]) => issueIds.has(`saved-command:${id}`))
           .map(([, command]) => command),
@@ -406,14 +420,14 @@ export class SavedCommandStore {
           invalid: current.invalid,
         });
       } catch {
-        await apply(false);
+        await apply(false, preservedInvalidIds);
         console.warn(
           "Saved commands were left unchanged; other peer sync records were applied.",
         );
         return false;
       }
       try {
-        await apply(true);
+        await apply(true, preservedInvalidIds);
       } catch (error) {
         try {
           await this.write(current);

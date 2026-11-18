@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { savePeerSyncRecords } from "../src/peer/apply-sync-records";
@@ -79,6 +79,70 @@ test("failed saved-command replacement applies other records and keeps its clock
   } finally {
     write.mockRestore();
     warning.mockRestore();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("sync apply preserves a locally invalid command without publishing its deletion", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "homectl-peer-sync-invalid-local-"));
+  const path = join(dir, "saved-commands.json");
+  const store = new SavedCommandStore(path);
+  const saved = await store.save({
+    name: "Previously valid command",
+    hosts: ["nas"],
+    argv: ["hostname"],
+    parameters: [],
+  });
+  const savedId = `saved-command:${saved.id}`;
+  const peerId = "22222222-2222-4222-8222-222222222222";
+  const previousSaved: Version = {
+    clock: { [peerId]: 2 },
+    value: saved,
+    at: 1000,
+  };
+  const staleSaved: Version = {
+    clock: { [peerId]: 1 },
+    value: { ...saved, name: "Stale synced name" },
+    at: 900,
+  };
+  const machine: Version = {
+    clock: { [peerId]: 3 },
+    value: { name: "nas" },
+    at: 1100,
+  };
+  const state = {
+    records: { [savedId]: previousSaved },
+    observed: { [savedId]: "previous-observation" },
+  };
+  const disk = JSON.parse(await readFile(path, "utf8")) as {
+    commands: Record<string, Record<string, unknown>>;
+  };
+  disk.commands[saved.id] = { ...saved, name: "x".repeat(81) };
+  await writeFile(path, JSON.stringify({ version: 1, commands: disk.commands }));
+
+  try {
+    await savePeerSyncRecords(
+      {
+        state,
+        vault: { unlocked: false },
+        save: async () => {},
+        savedCommands: store,
+      },
+      { [savedId]: staleSaved, "machine:nas": machine },
+      { [savedId]: { value: saved } },
+    );
+
+    const commands = await store.listWithIssues();
+    const preservedDisk = JSON.parse(await readFile(path, "utf8")) as {
+      commands: Record<string, Record<string, unknown>>;
+    };
+    expect(commands.invalid.map((issue) => issue.id)).toContain(saved.id);
+    expect(preservedDisk.commands[saved.id]?.name).toBe("x".repeat(81));
+    expect(state.records[savedId]).toEqual(previousSaved);
+    expect(state.records[savedId]?.value).not.toBeNull();
+    expect(state.observed[savedId]).toBe("previous-observation");
+    expect(state.records["machine:nas"]).toEqual(machine);
+  } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });

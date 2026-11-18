@@ -19,7 +19,6 @@ export const schemas = {
   operationRecord: definition("operationRecord"),
   operationView: definition("operationView"),
   approvalView: definition("approvalView"),
-  auditEvent: definition("auditEvent"),
   auditEntry: definition("auditEntry"),
 };
 

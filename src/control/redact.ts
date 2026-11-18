@@ -27,6 +27,10 @@ export function containsSecretMaterial(text: string): boolean {
   return SECRET_PATTERNS.some((pattern) => pattern.test(withoutPlaceholders));
 }
 
+export function containsControlAuditSecretMaterial(text: string): boolean {
+  return SECRET_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 export function containsRedactionMarker(argv: readonly string[]): boolean {
   return argv.some(
     (arg) =>

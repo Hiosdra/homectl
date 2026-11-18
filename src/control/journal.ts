@@ -1,12 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, chown, readFile, stat, writeFile } from "node:fs/promises";
-import { atomicReplace, protect } from "../platform";
+import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
 import { canonicalJson, sha256 } from "./canonical";
-import { controlStateDirectory } from "./paths";
-import { containsSecretMaterial, normalizeAuditArgv } from "./redact";
+import { containsControlAuditSecretMaterial } from "./redact";
 import { schemas } from "./schema";
-import { ControlStore } from "./store";
 import type { AuditEntry, AuditEvent } from "./types";
 
 export const GENESIS = "0".repeat(64);
@@ -30,39 +28,6 @@ export interface AuditAnchor {
 }
 
 type EntryBody = Omit<AuditEntry, "hash">;
-
-type VerifiedTail = {
-  journalSignature: string;
-  anchorSignature: string;
-  seq: number;
-  hash: string;
-};
-
-const verifiedTails = new Map<string, VerifiedTail>();
-const protectedAnchors = new Set<string>();
-
-async function fileSignature(path: string): Promise<string> {
-  try {
-    const metadata = await stat(path);
-    return `${metadata.size}:${metadata.mtimeMs}`;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
-    throw error;
-  }
-}
-
-function normalizeAuditEvent(event: AuditEvent): AuditEvent {
-  const normalized = { ...event };
-  if (typeof normalized.argv !== "undefined" && Array.isArray(normalized.argv))
-    normalized.argv = normalizeAuditArgv(normalized.argv).map((argument) =>
-      containsSecretMaterial(argument) ? "[REDACTED]" : argument,
-    );
-  if (typeof normalized.reason === "string")
-    normalized.reason = normalized.reason.slice(0, 120);
-  if (typeof normalized.deviceName === "string")
-    normalized.deviceName = normalized.deviceName.slice(0, 100);
-  return normalized;
-}
 
 function chainHash(body: EntryBody): string {
   return sha256(canonicalJson(body));
@@ -151,65 +116,12 @@ export class AuditJournal {
   private async writeAnchor(anchor: AuditAnchor): Promise<void> {
     const temp = `${this.anchorPath}.${randomUUID()}.tmp`;
     await writeFile(temp, JSON.stringify(anchor), { mode: 0o600, flag: "wx" });
-    const protectAnchor = !protectedAnchors.has(this.anchorPath);
-    if (protectAnchor) await protect(temp);
-    if (process.platform !== "win32") {
-      let owner: { uid: number; gid: number } | undefined;
-      for (const path of [this.anchorPath, this.path]) {
-        try {
-          owner = await stat(path);
-          break;
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        }
-      }
-      if (owner) {
-        const temporary = await stat(temp);
-        if (temporary.uid !== owner.uid || temporary.gid !== owner.gid)
-          await chown(temp, owner.uid, owner.gid);
-      }
-    }
     await atomicReplace(temp, this.anchorPath);
-    if (protectAnchor) protectedAnchors.add(this.anchorPath);
-  }
-
-  private cacheKey(): string {
-    return `${this.path}\0${this.anchorPath}`;
-  }
-
-  private async signatures() {
-    const [journalSignature, anchorSignature] = await Promise.all([
-      fileSignature(this.path),
-      fileSignature(this.anchorPath),
-    ]);
-    return { journalSignature, anchorSignature };
-  }
-
-  private rememberTail(
-    entries: AuditEntry[],
-    signatures: { journalSignature: string; anchorSignature: string },
-  ) {
-    const last = entries.at(-1);
-    verifiedTails.set(this.cacheKey(), {
-      ...signatures,
-      seq: last?.seq ?? 0,
-      hash: last?.hash ?? GENESIS,
-    });
   }
 
   // Chain check plus anchor check.
   async verify(): Promise<ChainCheck> {
-    const before = await this.signatures();
-    const entries = await this.read();
-    const check = await this.check(entries);
-    const after = await this.signatures();
-    if (
-      check.ok &&
-      before.journalSignature === after.journalSignature &&
-      before.anchorSignature === after.anchorSignature
-    )
-      this.rememberTail(entries, after);
-    return check;
+    return this.check(await this.read());
   }
 
   private async check(entries: AuditEntry[]): Promise<ChainCheck> {
@@ -244,72 +156,30 @@ export class AuditJournal {
   }
 
   async append(event: AuditEvent): Promise<AuditEntry> {
-    const normalizedEvent = normalizeAuditEvent(event);
-    if (!schemas.auditEvent(normalizedEvent))
-      throw new HomectlError(
-        5,
-        "Audit event refused: schema validation failed",
-      );
-    // Inspect each event string independently; JSON quoting can make ordinary
-    // argv such as password: look like an assignment with a value.
-    if (
-      Object.entries(normalizedEvent).some(
-        ([key, value]) =>
-          key !== "argv" &&
-          typeof value === "string" &&
-          containsSecretMaterial(value),
-      )
-    )
+    // Fail closed: never write a payload that looks like secret material.
+    if (containsControlAuditSecretMaterial(JSON.stringify(event)))
       throw new HomectlError(
         5,
         "Audit event refused: secret-like material detected",
       );
-    const signatures = await this.signatures();
-    const key = this.cacheKey();
-    let tail = verifiedTails.get(key);
-    if (
-      !tail ||
-      tail.journalSignature !== signatures.journalSignature ||
-      tail.anchorSignature !== signatures.anchorSignature
-    ) {
-      const entries = await this.read();
-      const check = await this.check(entries);
-      const after = await this.signatures();
-      if (
-        !check.ok ||
-        after.journalSignature !== signatures.journalSignature ||
-        after.anchorSignature !== signatures.anchorSignature
-      )
-        throw new HomectlError(
-          5,
-          "Audit journal failed verification; run home-ctl control audit verify",
-        );
-      this.rememberTail(entries, after);
-      tail = verifiedTails.get(key);
-    }
+    const entries = await this.read();
+    const check = await this.check(entries);
+    if (!check.ok)
+      throw new HomectlError(
+        5,
+        "Audit journal failed verification; run home-ctl control audit verify",
+      );
+    const last = entries.at(-1);
     const body: EntryBody = {
       v: 1,
-      seq: (tail?.seq ?? 0) + 1,
+      seq: (last?.seq ?? 0) + 1,
       at: new Date(this.clock()).toISOString(),
-      prev: tail?.hash ?? GENESIS,
-      event: normalizedEvent,
+      prev: last?.hash ?? GENESIS,
+      event,
     };
     const entry: AuditEntry = { ...body, hash: chainHash(body) };
     await appendFile(this.path, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
     await this.writeAnchor({ v: 1, seq: entry.seq, hash: entry.hash });
-    this.rememberTail([entry], await this.signatures());
     return entry;
   }
-}
-
-// Normal CLI, panel and peer operations share the control plane's existing
-// journal. The audit file is deliberately absent from peer snapshots.
-export async function appendLocalAudit(
-  inventoryPath: string,
-  event: AuditEvent,
-): Promise<AuditEntry> {
-  const store = new ControlStore(controlStateDirectory(inventoryPath));
-  await store.ensureDirectory();
-  const journal = new AuditJournal(store.auditPath, store.anchorPath);
-  return store.withLock(() => journal.append(event));
 }

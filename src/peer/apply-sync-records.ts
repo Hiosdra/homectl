@@ -11,7 +11,10 @@ type ApplyContext = {
       expectedSavedCommands:
         | Record<string, { value: unknown | null }>
         | undefined,
-      apply: (savedCommandsAvailable: boolean) => Promise<void>,
+      apply: (
+        savedCommandsAvailable: boolean,
+        preservedInvalidIds: string[],
+      ) => Promise<void>,
     ): Promise<boolean>;
   };
 };
@@ -28,10 +31,10 @@ export async function savePeerSyncRecords(
     await context.savedCommands.replaceFromRecordsWith(
       records,
       expectedSavedCommands,
-      async (savedCommandsAvailable) => {
+      async (savedCommandsAvailable, preservedInvalidIds) => {
         await applyFiles();
-        const nextRecords = savedCommandsAvailable
-          ? records
+        const nextRecords: typeof records = savedCommandsAvailable
+          ? { ...records }
           : {
               ...Object.fromEntries(
                 Object.entries(records).filter(
@@ -44,11 +47,17 @@ export async function savePeerSyncRecords(
                 ),
               ),
             };
+        if (savedCommandsAvailable)
+          for (const id of preservedInvalidIds) {
+            if (previousRecords[id]) nextRecords[id] = previousRecords[id];
+            else delete nextRecords[id];
+          }
         context.state.records = nextRecords;
         context.state.observed = { ...previousObserved };
         for (const [key, version] of Object.entries(nextRecords)) {
           if (!savedCommandsAvailable && key.startsWith("saved-command:"))
             continue;
+          if (preservedInvalidIds.includes(key)) continue;
           if (!key.startsWith("credential:") || context.vault.unlocked)
             context.state.observed[key] = hash(version.value);
         }

@@ -10,8 +10,7 @@ import { isIP } from "node:net";
 import { dirname, join } from "node:path";
 import { type DeviceKey, loadOrCreateDeviceKey } from "../control/device-key";
 import { controlStateDirectory } from "../control/engine";
-import { appendLocalAudit } from "../control/journal";
-import { normalizeAuditArgv } from "../control/redact";
+import { recordLocalCommand } from "../command-history";
 import { loadInventory, parseInventory, saveInventory } from "../inventory";
 import { execute, writeSSHConfig } from "../operations";
 import { privateDirectory, protect } from "../platform";
@@ -894,23 +893,17 @@ export class Hub {
     if (!approved) {
       o.state = "rejected";
       const peer = this.state.peers[o.peerId];
-      try {
-        await appendLocalAudit(this.inventoryPath, {
-          event: "command.refused",
-          op: "execute",
-          operationId: o.operationId,
-          client: "local-operator",
-          ...(peer ? { device: peer.id, deviceName: peer.name } : {}),
-          host: o.host,
-          argv: normalizeAuditArgv(o.argv),
-          policyDecision: "refused",
-          reason: "peer-operation-rejected",
-        });
-      } catch {
-        console.warn(
-          "Could not record the rejected peer operation in the audit journal.",
-        );
-      }
+      recordLocalCommand({
+        inventoryPath: this.inventoryPath,
+        host: o.host,
+        argv: o.argv,
+        phase: "outcome",
+        status: "refused",
+        policyDecision: "refused",
+        operationId: o.operationId,
+        ...(peer ? { requester: peer.id, requesterName: peer.name } : {}),
+        reason: "peer-operation-rejected",
+      });
       return { rejected: true };
     }
     const peer = this.state.peers[o.peerId];

@@ -3,7 +3,7 @@ import type { AuditEvent } from "./types";
 
 type RejectionContext = Pick<
   AuditEvent,
-  "host" | "argv" | "operationId" | "policyDecision" | "reason"
+  "host" | "argv" | "operationId" | "reason"
 >;
 
 export function rejectedRequestContext(
@@ -49,7 +49,6 @@ export function rejectedRequestContext(
     ...(host ? { host } : {}),
     ...(argv ? { argv } : {}),
     ...(operationId ? { operationId } : {}),
-    policyDecision: code === 4 ? "needs-approval" : "refused",
     reason:
       code === 4
         ? "approval-required"

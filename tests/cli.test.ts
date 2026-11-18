@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readLocalCommandHistory } from "../src/command-history";
 import { cleanEnv } from "../src/credentials";
 import { saveInventory } from "../src/inventory";
 import { planExecution } from "../src/policies";
@@ -244,8 +245,19 @@ test("commands CLI saves, lists and refuses a mutating run without approval", as
     const journal = await readFile(
       join(path, "..", "control-plane", "audit.jsonl"),
       "utf8",
-    );
-    expect(journal).toContain("command.approval-required");
+    ).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+    expect(journal).not.toContain("command.");
+    const history = await readLocalCommandHistory(path);
+    if (process.getuid?.() === 0) {
+      expect(history).toEqual([]);
+    } else {
+      expect(history.map((entry) => entry.status)).toContain(
+        "approval-required",
+      );
+    }
   } finally {
     await rm(templatePath, { force: true });
   }

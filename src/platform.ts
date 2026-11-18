@@ -97,6 +97,44 @@ try {
         : `Cannot secure Windows permissions (PowerShell ACL operation failed: ${/^[A-Za-z]+Exception$/.test(diagnostic) ? diagnostic : "unknown error"})`,
     );
 }
+
+export async function ownedByCurrentUser(path: string): Promise<boolean> {
+  try {
+    const metadata = await lstat(path);
+    if (metadata.isSymbolicLink()) return false;
+    if (!windows) return metadata.uid === process.getuid?.();
+  } catch {
+    return false;
+  }
+  const script = `$ErrorActionPreference='Stop'
+try {
+  $p=$env:HOMECTL_PROTECT_PATH
+  $identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()
+  $sid=$identity.User
+  $acl=Get-Acl -LiteralPath $p
+  $owner=$acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+  if($owner -eq $sid.Value -or $owner -eq $identity.Owner.Value){exit 0}else{exit 13}
+} catch { exit 1 }
+`;
+  const child = Bun.spawn(
+    [
+      "powershell.exe",
+      "-NoProfile",
+      "-NonInteractive",
+      "-EncodedCommand",
+      Buffer.from(script, "utf16le").toString("base64"),
+    ],
+    {
+      env: { ...process.env, HOMECTL_PROTECT_PATH: path },
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+      windowsHide: true,
+    },
+  );
+  return (await child.exited) === 0;
+}
+
 export async function privateDirectory(path: string) {
   await mkdir(path, { recursive: true, mode: 0o700 });
   const s = await lstat(path);

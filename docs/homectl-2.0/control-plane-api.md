@@ -121,6 +121,7 @@ File: `control-plane/audit.jsonl`, one JSON object per line, append-only.
 - `hash = SHA-256(canonical JSON of {v, seq, at, prev, event})`. `prev` of the first entry is 64 zeros. `seq` starts at 1 and increments by 1.
 - Events: `auth.rejected`, `request.accepted`, `request.rejected`, `client.created`, `client.revoked`, `operation.planned`, `operation.decided`, `operation.executing`, `operation.succeeded`, `operation.failed`, `operation.unknown`.
 - Event payloads contain ids, the fixed reason codes listed above, fingerprints and redacted argv. They never contain tokens, nonces, impact text, stdout or stderr.
+- Ordinary CLI, panel, saved-command and peer command executions are not events in this journal. They are recorded best-effort in the private, unchained sibling file `history/commands.jsonl`; the panel merges both sources, while peer sync and control recovery bundles exclude command history. The local history rotates by age and entry count and can be cleared with `home-ctl history clear`.
 - Before every append the payload is checked for secret-like material; a match aborts the write (fail closed).
 - Verification (`home-ctl control audit verify`) recomputes the chain, then checks it against `control-plane/audit.anchor`. The anchor holds the latest `{seq, hash}` and is rewritten after every append. Verification fails when the journal is shorter than the anchor (tail truncation), diverges from it, or when the anchor is missing for a non-empty journal. Appends refuse in the same conditions. **Limit:** an attacker who can rewrite both files consistently is not detected; see inventory-and-plan R1.
 - Corrupt journal: appends are refused until an operator repairs or moves the file.
@@ -258,7 +259,7 @@ Optional per client. Static `hct_` tokens are unchanged. `control oidc set --iss
 Purpose: restore a lost device with its own identity, from encrypted control state, without relying on any other device still being alive.
 
 - `home-ctl control recovery key --out PATH` writes a random 256-bit key, owner-only, and prints only a key id. The key must not live inside the control state directory. Keep it outside every device, for example on a USB stick in a safe, or in a separate KDBX entry.
-- `home-ctl control recovery export --key PATH --out PATH` writes an AES-256-GCM bundle. It holds `device-key.json`, `replica.json`, `state.json`, `audit.jsonl` and `audit.anchor` (those that exist). The header is authenticated as AAD and carries only the key id.
+- `home-ctl control recovery export --key PATH --out PATH` writes an AES-256-GCM bundle. It holds `device-key.json`, `replica.json`, `state.json`, `audit.jsonl` and `audit.anchor` (those that exist). The sibling `history/commands.jsonl` is intentionally excluded. The header is authenticated as AAD and carries only the key id.
 - `home-ctl control recovery restore --key PATH --bundle PATH` restores onto an empty control state directory. It refuses an existing device, a wrong key, a changed bundle, and any file name outside the list above. It writes through temp files and removes them again on failure.
 
 Limits:

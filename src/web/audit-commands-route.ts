@@ -2,7 +2,12 @@ import {
   type AuditHistoryFilters,
   type AuditStatus,
   auditHistoryFromRows,
+  commandHistoryRows,
 } from "../control/audit-view";
+import {
+  clearLocalCommandHistory,
+  readLocalCommandHistory,
+} from "../command-history";
 import type { ControlPlane } from "../control/engine";
 import { loadInventory } from "../inventory";
 import { executeWithSSHConfig } from "../operations";
@@ -28,6 +33,8 @@ export async function auditCommandsRoute(
   },
 ): Promise<Response | undefined> {
   const { control, hub, inventoryPath, configPath } = options;
+  if (req.method === "POST" && url.pathname === "/api/audit/clear")
+    return response({ cleared: await clearLocalCommandHistory(inventoryPath) });
   if (req.method === "GET" && url.pathname === "/api/commands") {
     const inventory = await loadInventory(inventoryPath);
     try {
@@ -89,7 +96,9 @@ export async function auditCommandsRoute(
         throw new HomectlError(2, `Audit ${label} must be a positive integer`);
       return number;
     };
-    const cursor = positiveInteger(cursorText, "cursor");
+    if (cursorText && cursorText.length > 1024)
+      throw new HomectlError(2, "Audit cursor is too long");
+    const cursor = cursorText || undefined;
     const limit = positiveInteger(limitText, "limit");
     const filters: AuditHistoryFilters = {
       ...(host ? { host } : {}),
@@ -102,8 +111,15 @@ export async function auditCommandsRoute(
     const names = Object.fromEntries(
       clients.map((client) => [client.id, client.name]),
     );
+    const [controlRows, history] = await Promise.all([
+      control.auditRows(names),
+      readLocalCommandHistory(inventoryPath),
+    ]);
     return response(
-      auditHistoryFromRows(await control.auditRows(names), filters),
+      auditHistoryFromRows(
+        [...controlRows, ...commandHistoryRows(history)],
+        filters,
+      ),
     );
   }
   if (

@@ -692,13 +692,7 @@
             "peer.suspended",
             "peer.resumed",
             "auth.oidc",
-            "oidc.configured",
-            "command.started",
-            "command.succeeded",
-            "command.failed",
-            "command.unknown",
-            "command.refused",
-            "command.approval-required"
+            "oidc.configured"
           ]
         },
         "client": {
@@ -722,19 +716,8 @@
         "classification": {
           "$ref": "#/definitions/classification"
         },
-        "device": {
-          "type": "string",
-          "maxLength": 128
-        },
-        "deviceName": {
-          "type": "string",
-          "maxLength": 100
-        },
         "decision": {
           "enum": ["approve", "reject"]
-        },
-        "approver": {
-          "$ref": "#/definitions/clientId"
         },
         "reason": {
           "$ref": "#/definitions/reason"
@@ -743,9 +726,6 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 255
-        },
-        "policyDecision": {
-          "enum": ["allowed", "needs-approval", "refused"]
         }
       }
     },

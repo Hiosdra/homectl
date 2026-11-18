@@ -26,6 +26,7 @@ const pages: Record<string, Page> = {
             "Update the checkout, dependencies and local installation.",
           ],
           ["setup", "Install the CLI links, skills and SSH configuration."],
+          ["history clear", "Clear local ordinary-command history."],
           [
             "serve",
             "Run the local panel, LAN pairing and peer synchronization.",
@@ -433,6 +434,18 @@ pages.sync = {
 };
 pages.peer = peerHelp;
 pages.commands = commandsHelp;
+pages.history = {
+  usage: "home-ctl history clear [--inventory PATH] [--json]",
+  intro:
+    "Permanently clear this device's separate ordinary-command history. This does not change the control-plane audit journal.",
+  sections: [
+    {
+      title: "Actions",
+      rows: [["clear", "Remove retained local command-history entries."]],
+    },
+    globalOptions,
+  ],
+};
 pages["serve-mcp"] = {
   usage:
     "home-ctl serve-mcp [--host 127.0.0.1] [--port 7449] [--inventory PATH]",

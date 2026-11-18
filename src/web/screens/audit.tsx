@@ -43,6 +43,7 @@ function AuditCard({ row }: { row: AuditHistoryRow }) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Tag>{row.source === "command-history" ? "Local command" : "Control-plane"}</Tag>
           <Tag tone={row.policyDecision === "allowed" ? "success" : row.policyDecision === "refused" ? "danger" : "warning"}>
             {row.policyDecision === "needs-approval" ? "Needed approval" : row.policyDecision}
           </Tag>
@@ -79,8 +80,8 @@ export function AuditScreen() {
     <>
       <PageHeading
         title="Audit history"
-        description="Local operation history from the existing audit journal. Arguments are redacted; output is never included. This history stays on this device."
-        actions={<Action action="audit-refresh" label="Refresh" />}
+        description="Read-only control-plane entries are joined with ordinary command runs from private local history. Arguments are redacted; command output is never included."
+        actions={<><Action action="audit-refresh" label="Refresh" /><Action action="audit-clear" label="Clear command history" kind="quiet-danger" /></>}
       />
       <Section>
         <form id="audit-filter-form" className="grid gap-4 md:grid-cols-4 md:items-end">
@@ -111,7 +112,7 @@ export function AuditScreen() {
           <div className="grid gap-3">{page.entries.map((row) => <AuditCard key={row.id} row={row} />)}</div>
         ) : page ? <p className="text-sm text-muted-foreground">No audit entries match these filters.</p> : null}
         {page?.nextCursor ? <div className="mt-4"><Action action="audit-more" label="Load 50 more" /></div> : null}
-        <Note>Audit entries are read from the local hash chained journal and are not included in peer sync.</Note>
+        <Note>The control-plane journal remains hash-chained and unchanged. Command history is local, rotates by age and entry count, is not included in recovery bundles or peer sync, and can be cleared separately.</Note>
       </Section>
     </>
   );
