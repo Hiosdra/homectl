@@ -184,7 +184,7 @@ export function handler(options: BrokerServerOptions) {
       const session = await owner.login(input.password, surface);
       return json(
         {
-          token: session.token,
+          ...(surface === "cli" ? { token: session.token } : {}),
           expiresAt: new Date(session.expiresAt).toISOString(),
         },
         200,
