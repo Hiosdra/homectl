@@ -5,6 +5,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { renderEmbeddedModule } from "../src/web/embed";
+import { buildOwnerScript } from "../src/web/owner/server";
 import { buildPanelCss } from "../src/web/panel-css";
 
 const web = resolve(import.meta.dir, "../src/web");
@@ -23,6 +24,6 @@ const html = await readFile(resolve(web, "index.html"), "utf8");
 const css = await buildPanelCss();
 await writeFile(
   resolve(web, "embedded.ts"),
-  renderEmbeddedModule({ html, css, script }),
+  renderEmbeddedModule({ html, css, script }, await buildOwnerScript()),
 );
 console.log(`Embedded the web panel: ${script.length} bytes of script`);
