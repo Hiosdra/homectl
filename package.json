@@ -16,7 +16,7 @@
     "lint": "bun scripts/check-file-length.ts && biome check src tests scripts schema package.json tsconfig.json biome.json",
     "format": "biome check --write src tests scripts schema package.json tsconfig.json biome.json",
     "check": "bun run typecheck && bun run lint && bun test",
-    "test:ui": "bun scripts/ui-smoke.ts"
+    "test:ui": "bun scripts/ui-smoke.ts && bun scripts/owner-ui-smoke.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",
