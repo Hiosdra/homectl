@@ -13,6 +13,7 @@ export const EXCLUDE_PATTERNS: readonly RegExp[] = [
   /\.lock$/i,
   /(^|\/)secrets-ephemeral\//i,
   /(^|\/)approvals-pending\//i,
+  /(^|\/)(device-key\.json|owner\.json|endpoint\.json|broker-state\.json|consumed-approvals\.json)$/i,
 ];
 
 // Snapshot paths are relative, POSIX-style and never escape the snapshot root.

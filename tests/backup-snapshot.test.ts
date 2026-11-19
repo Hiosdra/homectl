@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { buildSnapshot, CHUNK_SIZE, newClientKey } from "../src/backup";
+import { parseManifest } from "../src/backup/types";
 import {
   CLIENT,
   codeOf,
@@ -84,13 +85,26 @@ describe("backup snapshots", () => {
       "secrets-ephemeral/token.bin",
       "data/approvals-pending/req-1.json",
       "STATE/Upper.SESSION",
+      "broker/keys/device-key.json",
+      "broker/owner.json",
+      "broker/runtime/endpoint.json",
+      "broker/consumed-approvals.json",
+      "broker/broker-state.json",
     ];
-    for (const path of excluded)
+    const valid = buildSnapshot([fileOf("state/allowed.db", 1, 1)], base);
+    const [file] = valid.manifest.files;
+    for (const path of excluded) {
+      expect(
+        await codeOf(() =>
+          parseManifest({ ...valid.manifest, files: [{ ...file, path }] }),
+        ),
+      ).toBe(3);
       expect(
         await codeOf(() =>
           buildSnapshot([{ path, data: new Uint8Array(1) }], base),
         ),
       ).toBe(3);
+    }
   });
 
   test("duplicate paths are refused", () => {
