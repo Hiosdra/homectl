@@ -4,6 +4,7 @@
 // allowed Origin (CSRF). Approving anything that needs step-up requires the
 // owner secret again in the same request.
 import type { ClientIdentity } from "../control/types";
+import { type EventLog, pollHandler, sseHandler } from "../events";
 import { HomectlError } from "../types";
 import type { ClientAdmin } from "./clients-admin";
 import type { Broker } from "./engine";
@@ -21,6 +22,21 @@ export type Listen =
   | { kind: "unix"; path: string }
   | { kind: "tcp"; hostname: "127.0.0.1"; port: number };
 
+// Extra route groups (secrets, events, vault). Each returns undefined for a
+// path it does not own. Owner routes run only after owner authentication.
+export interface RouteExtension {
+  agent?(
+    path: string,
+    input: Record<string, unknown>,
+    client: ClientIdentity,
+  ): Promise<unknown>;
+  owner?(
+    path: string,
+    input: Record<string, unknown>,
+    stepUp: (password: unknown) => Promise<void>,
+  ): Promise<unknown>;
+}
+
 export interface BrokerServerOptions {
   broker: Broker;
   clients: ClientAuth;
@@ -29,6 +45,9 @@ export interface BrokerServerOptions {
   // Exact origins allowed to use the owner cookie (the panel).
   allowedOrigins: string[];
   admin?: ClientAdmin;
+  extensions?: RouteExtension[];
+  // Live stream (SSE) and catch-up poll, filtered by audience.
+  events?: EventLog;
 }
 
 const STATUS: Record<number, number> = { 2: 400, 3: 403, 4: 409, 5: 503 };
@@ -149,6 +168,10 @@ export function handler(options: BrokerServerOptions) {
       case "/v1/task/close":
         return broker.closeTask(client, str(input.id, "id"));
       default:
+        for (const extension of options.extensions ?? []) {
+          const result = await extension.agent?.(path, input, client);
+          if (result !== undefined) return result;
+        }
         return undefined;
     }
   }
@@ -230,6 +253,10 @@ export function handler(options: BrokerServerOptions) {
         );
       }
       default:
+        for (const extension of options.extensions ?? []) {
+          const result = await extension.owner?.(path, input, requireStepUp);
+          if (result !== undefined) return json(result);
+        }
         return json({ error: { code: 2, message: "Not found" } }, 404);
     }
   }
@@ -255,9 +282,34 @@ export function handler(options: BrokerServerOptions) {
       );
   }
 
+  // Agents see only events addressed to them; the owner sees everything.
+  // EventSource cannot set headers, so the panel relies on the SameSite=Strict
+  // cookie, which a cross-site page cannot send; no CORS headers are served.
+  const authenticateStream = async (req: Request) => {
+    const path = new URL(req.url).pathname;
+    if (path.startsWith("/v1/owner/"))
+      return owner.resolve(bearer(req, "Owner") ?? cookie(req))
+        ? { owner: true as const }
+        : null;
+    const client = await clients.authenticate(bearer(req, "Bearer"));
+    return client ? { client: client.id } : null;
+  };
+  const streams = options.events
+    ? {
+        sse: sseHandler(options.events, { authenticate: authenticateStream }),
+        poll: pollHandler(options.events, { authenticate: authenticateStream }),
+      }
+    : undefined;
+
   return async (req: Request): Promise<Response> => {
     const path = new URL(req.url).pathname;
     try {
+      if (req.method === "GET" && streams) {
+        if (path === "/v1/events" || path === "/v1/owner/events")
+          return await streams.sse(req);
+        if (path === "/v1/events/poll" || path === "/v1/owner/events/poll")
+          return await streams.poll(req);
+      }
       if (req.method !== "POST")
         return json({ error: { code: 2, message: "Use POST" } }, 405);
       if (path.startsWith("/v1/owner/")) return await ownerRoute(path, req);

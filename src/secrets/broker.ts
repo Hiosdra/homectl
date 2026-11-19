@@ -359,6 +359,15 @@ export class SecretBroker {
     return values;
   }
 
+  // Requests waiting for the owner, oldest first. Views carry no values.
+  pending(): BrokerRequestView[] {
+    this.sweep();
+    return [...this.entries.values()]
+      .filter((entry) => entry.state === "pending")
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((entry) => this.view(entry));
+  }
+
   // Metadata only. Records never carry values, purpose text or destinations.
   history(): SecretHistoryRecord[] {
     return this.journal.map((item) => ({ ...item }));

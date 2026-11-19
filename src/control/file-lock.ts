@@ -50,8 +50,14 @@ export async function withFileLock<T>(
       });
       break;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST")
-        throw new HomectlError(5, `${label} cannot be locked`);
+      const code = (error as NodeJS.ErrnoException).code;
+      // Windows reports EPERM/EACCES while another holder's lock file is
+      // being deleted; that is contention, not a permission problem.
+      const contended =
+        code === "EEXIST" ||
+        (process.platform === "win32" &&
+          (code === "EPERM" || code === "EACCES"));
+      if (!contended) throw new HomectlError(5, `${label} cannot be locked`);
       try {
         const info = await stat(lockPath);
         if (Date.now() - info.mtimeMs > staleMs)

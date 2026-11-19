@@ -122,6 +122,38 @@ test("agent and owner flows through the running daemon", async () => {
   expect(done.state).toBe("succeeded");
   expect(ran.length).toBe(2);
 
+  // Event catch-up: the owner sees every event, an agent only its own, and
+  // a request without a token sees nothing.
+  const poll = async (path: string, authorization?: string) => {
+    const unix = endpoint.transport === "unix";
+    const response = await fetch(
+      unix ? `http://localhost${path}` : `${endpoint.address}${path}`,
+      {
+        ...(authorization ? { headers: { authorization } } : {}),
+        ...(unix ? { unix: endpoint.address } : {}),
+      } as RequestInit,
+    );
+    return {
+      status: response.status,
+      events:
+        response.status === 200
+          ? ((await response.json()) as { events: { audience: string[] }[] })
+              .events
+          : [],
+    };
+  };
+  const ownerView = await poll("/v1/owner/events/poll", `Owner ${owner}`);
+  expect(ownerView.events.length).toBeGreaterThan(0);
+  const agentView = await poll("/v1/events/poll", `Bearer ${created.token}`);
+  expect(agentView.events.length).toBe(ownerView.events.length);
+  expect(agentView.events.every((e) => e.audience.includes("codex-pc"))).toBe(
+    true,
+  );
+  expect((await poll("/v1/events/poll")).status).toBe(401);
+  expect(
+    (await poll("/v1/owner/events/poll", `Bearer ${created.token}`)).status,
+  ).toBe(401);
+
   // Revocation takes effect on the next request.
   await callBroker("/v1/owner/clients/revoke", { id: "codex-pc" }, asOwner);
   await expect(callBroker("/v1/whoami", {}, asAgent)).rejects.toThrow(

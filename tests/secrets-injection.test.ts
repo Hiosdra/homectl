@@ -141,7 +141,7 @@ describe("secret injection: http-header", () => {
 });
 
 describe("secret injection: target-file", () => {
-  test("two steps: dd writes the value on stdin, chmod sets the mode; no value in argv", () => {
+  test("two steps: install creates the file with its mode, then dd writes the value on stdin; no value in argv", () => {
     const plan = injectionPlan(
       {
         kind: "target-file",
@@ -155,11 +155,11 @@ describe("secret injection: target-file", () => {
     if (plan.kind !== "target-file") return;
     expect(plan.host).toBe("ext-host-01");
     expect(plan.steps[0]).toEqual({
-      argv: ["dd", "of=/etc/app/secret", "status=none"],
-      stdin: CANARY,
+      argv: ["install", "-m", "0600", "/dev/null", "/etc/app/secret"],
     });
     expect(plan.steps[1]).toEqual({
-      argv: ["chmod", "0600", "/etc/app/secret"],
+      argv: ["dd", "of=/etc/app/secret", "status=none"],
+      stdin: CANARY,
     });
     const argvText = plan.steps.map((step) => step.argv.join(" ")).join("\n");
     expect(canaryLeaks([argvText], [CANARY])).toEqual([]);

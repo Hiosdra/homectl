@@ -101,6 +101,7 @@ function explainRule(
   if (
     match.kinds !== undefined ||
     match.argvPrefixes !== undefined ||
+    match.argvExact !== undefined ||
     match.classifications !== undefined ||
     match.resources !== undefined
   )

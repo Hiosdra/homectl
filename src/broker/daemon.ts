@@ -8,16 +8,19 @@ import { NonceLedger } from "../approvals/ledger";
 import { ClientRegistry } from "../control/clients";
 import { fingerprintOf, loadOrCreateDeviceKey } from "../control/device-key";
 import { ensurePrivateDirectoryOnce } from "../control/file-lock";
+import { EventLog } from "../events";
 import { loadInventory } from "../inventory";
 import { migrate } from "../migrate";
 import { execute } from "../operations";
 import { atomicReplace, privateDirectory } from "../platform";
 import { planExecution } from "../policies";
-import { BasicPolicy } from "./basic-policy";
+import { SecretBroker } from "../secrets";
+import { AuthzPolicy } from "./authz-policy";
 import { ClientAdmin } from "./clients-admin";
 import { Broker } from "./engine";
 import { FileVerifier, OwnerSessions } from "./owner";
 import type { BrokerMode, Endpoint } from "./paths";
+import { SecretService } from "./secret-service";
 import { type Listen, startBrokerServer } from "./server";
 import { BrokerStore } from "./store";
 import type {
@@ -58,12 +61,13 @@ export function sshExecutor(
   configPath: string,
 ): ExecutorPort {
   return {
-    async run({ host, machine, argv, operationId }) {
+    async run({ host, machine, argv, operationId, stdin }) {
       const approval = planExecution(host, machine, argv).approval;
       const { result } = await execute(host, machine, argv, {
         configPath,
         approval,
         approvalContext: "cli",
+        ...(stdin === undefined ? {} : { stdin }),
         audit: { inventoryPath, operationId, requester: "broker" },
       });
       return result;
@@ -78,20 +82,53 @@ export async function startDaemon(config: DaemonConfig) {
   const keys = join(config.state, "keys");
   const key = await loadOrCreateDeviceKey(keys);
   const verifier = new FileVerifier(join(config.state, "owner.json"));
+  const deviceId = fingerprintOf(key.publicKey).replaceAll(" ", "");
+  const log = new EventLog({
+    directory: join(config.state, "events"),
+    origin: deviceId,
+  });
+  const events: EventsPort = config.events ?? {
+    emit: async (type, subject, audience, data) => {
+      await log.append({ type, subject, audience, data });
+    },
+  };
+  const inventory = inventoryPort(config.inventoryPath);
+  const executor =
+    config.executor ?? sshExecutor(config.inventoryPath, config.sshConfigPath);
+  const hostSet = new Set<string>();
+  const refreshHosts = async () => {
+    const hosts = await inventory.hosts();
+    hostSet.clear();
+    for (const host of hosts) hostSet.add(host);
+  };
+  await refreshHosts();
+  const secrets = new SecretService({
+    secrets: new SecretBroker({
+      now: Date.now,
+      knownHost: (host) => hostSet.has(host),
+    }),
+    inventory,
+    executor,
+    refreshHosts,
+    events,
+  });
   const broker = new Broker({
     store: new BrokerStore(config.state),
     ledger: new NonceLedger(config.state),
     key,
     device: {
-      id: fingerprintOf(key.publicKey).replaceAll(" ", ""),
+      id: deviceId,
       name: "this device",
     },
-    policy: config.policy ?? new BasicPolicy(),
-    inventory: inventoryPort(config.inventoryPath),
-    executor:
-      config.executor ??
-      sshExecutor(config.inventoryPath, config.sshConfigPath),
-    ...(config.events ? { events: config.events } : {}),
+    policy:
+      config.policy ??
+      new AuthzPolicy({
+        path: join(config.state, "policy.json"),
+        now: Date.now,
+      }),
+    inventory,
+    executor,
+    events,
     ...(config.panelOrigin
       ? { approvalSurface: `${config.panelOrigin}/#approvals` }
       : {}),
@@ -113,6 +150,8 @@ export async function startDaemon(config: DaemonConfig) {
     owner,
     listen: config.listen,
     allowedOrigins: config.panelOrigin ? [config.panelOrigin] : [],
+    extensions: [secrets],
+    events: log,
   });
   const endpoint: Endpoint = {
     v: 1,

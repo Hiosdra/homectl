@@ -64,7 +64,19 @@ export class BrokerStore {
 
   // Read-modify-write under the lock. `fn` returns the value to hand back;
   // the state is saved only when `fn` resolves.
+  // In-process updates queue up first, so the file lock only arbitrates
+  // between processes (CLI, panel, a second daemon by mistake).
   async update<T>(fn: (state: BrokerState) => Promise<T> | T): Promise<T> {
+    const run = this.queue.then(() => this.locked(fn));
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private queue: Promise<unknown> = Promise.resolve();
+
+  private async locked<T>(
+    fn: (state: BrokerState) => Promise<T> | T,
+  ): Promise<T> {
     await ensurePrivateDirectoryOnce(this.directory);
     return withFileLock(this.lockPath, "Broker state", async () => {
       const state = await this.load();

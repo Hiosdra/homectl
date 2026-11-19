@@ -145,6 +145,7 @@ function parseMatch(value: unknown, path: string): RuleMatch {
     "hosts",
     "kinds",
     "argvPrefixes",
+    "argvExact",
     "classifications",
     "resources",
     "maxRisk",
@@ -171,6 +172,13 @@ function parseMatch(value: unknown, path: string): RuleMatch {
       fail(`${path}.argvPrefixes`, "must be an array of at most 100 prefixes");
     match.argvPrefixes = (raw.argvPrefixes as unknown[]).map((prefix, i) =>
       list(prefix, `${path}.argvPrefixes[${i}]`, 32, token),
+    );
+  }
+  if (raw.argvExact !== undefined) {
+    if (!Array.isArray(raw.argvExact) || raw.argvExact.length > 100)
+      fail(`${path}.argvExact`, "must be an array of at most 100 argv lists");
+    match.argvExact = (raw.argvExact as unknown[]).map((argv, i) =>
+      list(argv, `${path}.argvExact[${i}]`, 64, token),
     );
   }
   if (raw.classifications !== undefined)

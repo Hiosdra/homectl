@@ -2,6 +2,7 @@
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { withFileLock } from "../control/file-lock";
 import type { PolicyDocument } from "../core/contracts";
 import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
@@ -38,6 +39,18 @@ export async function loadPolicy(path: string): Promise<PolicyDocument> {
 // revision it read; a mismatch means someone else saved first. A corrupt file
 // is reported, never overwritten.
 export async function savePolicy(
+  path: string,
+  doc: PolicyDocument,
+): Promise<PolicyDocument> {
+  // The revision check and the replace must not interleave with another
+  // writer (panel, CLI and broker can all save).
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  return withFileLock(`${path}.lock`, "Policy file", () =>
+    saveUnlocked(path, doc),
+  );
+}
+
+async function saveUnlocked(
   path: string,
   doc: PolicyDocument,
 ): Promise<PolicyDocument> {

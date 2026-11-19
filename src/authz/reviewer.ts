@@ -93,13 +93,16 @@ export function narrowerThan(
   }
   if (match.kinds !== undefined && !match.kinds.every((k) => k === req.kind))
     return false;
-  if (match.argvPrefixes !== undefined && match.argvPrefixes.length > 0) {
+  // A prefix always covers longer commands, so suggestions may only name the
+  // exact argv. An exec allow without an exact argv would cover any command.
+  if (match.argvPrefixes !== undefined) return false;
+  if (match.argvExact !== undefined) {
     const argv = req.argv ?? [];
-    const ok = match.argvPrefixes.every(
-      (p) => p.length <= argv.length && p.every((t, i) => argv[i] === t),
+    const ok = match.argvExact.every(
+      (e) => e.length === argv.length && e.every((t, i) => argv[i] === t),
     );
-    if (!ok) return false;
-  }
+    if (!ok || match.argvExact.length === 0) return false;
+  } else if (effect === "allow" && req.kind === "exec") return false;
   if (
     match.classifications !== undefined &&
     !match.classifications.every((c) => c === req.classification)
