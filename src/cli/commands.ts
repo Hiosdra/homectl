@@ -42,7 +42,7 @@ export async function runCommandsFromCli(
     id: values.id,
     parametersFile: values["parameters-file"],
     target: values.target,
-    approval: values.approval,
+
     impact: values.impact,
     emit,
   });

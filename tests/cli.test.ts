@@ -240,8 +240,8 @@ test("commands CLI saves, lists and refuses a mutating run without approval", as
       "--json",
     ]);
     expect(refused.code).toBe(4);
-    expect(refused.stderr).toContain("Review the exact host");
-    expect(refused.stderr).toContain("--approval <digest>");
+    expect(refused.stderr).toContain("owner's approval");
+    expect(refused.stderr).toContain("homectl broker");
     const journal = await readFile(
       join(path, "..", "control-plane", "audit.jsonl"),
       "utf8",
@@ -262,39 +262,57 @@ test("commands CLI saves, lists and refuses a mutating run without approval", as
     await rm(templatePath, { force: true });
   }
 });
-test("remote failure exits 6 and preserves actual exit status", async () => {
+test("--approval is rejected with a pointer to the broker", async () => {
   const path = await fixture();
-  const argv = [process.execPath, "-e", "process.exit(7)"];
-  const approval = planExecution("example", machine, argv).approval;
   const r = await invoke([
     "exec",
     "example",
-    "--json",
     "--inventory",
     path,
     "--approval",
-    approval,
+    "deadbeef",
     "--",
-    ...argv,
+    "hostname",
+  ]);
+  expect(r.code).toBe(2);
+  expect(r.stderr).toContain("--approval was removed in homectl 0.3.0");
+});
+// The approved execution path below is what the broker daemon drives after the
+// owner signs a grant; it is no longer reachable from the agent's CLI.
+async function approvedRun(path: string, argv: string[]) {
+  const { loadInventory } = await import("../src/inventory");
+  const { hostCommand } = await import("../src/cli/host-commands");
+  const emitted: unknown[] = [];
+  const code = await hostCommand("exec", "example", {
+    inventory: await loadInventory(path),
+    inventoryPath: path,
+    configPath: join(path, "..", "ssh_config"),
+    commandArgs: argv,
+    dryRun: false,
+    approval: planExecution("example", machine, argv).approval,
+    emit: (value) => emitted.push(value),
+  });
+  return { code, emitted };
+}
+test("remote failure exits 6 and preserves actual exit status", async () => {
+  const path = await fixture();
+  const r = await approvedRun(path, [
+    process.execPath,
+    "-e",
+    "process.exit(7)",
   ]);
   expect(r.code).toBe(6);
-  expect(JSON.parse(r.stdout).result.exitCode).toBe(7);
+  expect(
+    (r.emitted[0] as { result: { exitCode: number } }).result.exitCode,
+  ).toBe(7);
 });
 test("spawn failure exits 5 without environment dumping", async () => {
   const path = await fixture();
-  const argv = ["nonexistent-homectl-executable"];
-  const r = await invoke([
-    "exec",
-    "example",
-    "--inventory",
-    path,
-    "--approval",
-    planExecution("example", machine, argv).approval,
-    "--",
-    ...argv,
-  ]);
-  expect(r.code).toBe(5);
-  expect(r.stderr).toContain("details suppressed");
+  const failure = (await approvedRun(path, [
+    "nonexistent-homectl-executable",
+  ]).catch((error: unknown) => error)) as { code: number; message: string };
+  expect(failure.code).toBe(5);
+  expect(failure.message).toContain("details suppressed");
 });
 test("all SSH addresses regenerate from current inventory before diagnostics", async () => {
   const path = await fixture();

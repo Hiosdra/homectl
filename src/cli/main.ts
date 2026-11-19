@@ -26,6 +26,7 @@ import { paths } from "../setup";
 import { transportSpec } from "../transports";
 import { HomectlError, type Machine, type ProcessResult } from "../types";
 import { runUpdate } from "../update";
+import { brokerCli } from "./broker-commands";
 import { runLocalCliCommand } from "./commands";
 import { helpTopics, renderHelp } from "./help";
 import { hostCommand } from "./host-commands";
@@ -82,6 +83,8 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
   const commandArgs = split < 0 ? [] : raw.slice(split + 1);
   let json = cliArgs.includes("--json");
   try {
+    const brokerResult = await brokerCli(raw, json);
+    if (brokerResult !== undefined) return brokerResult;
     const { values: v, positionals } = parseArgs({
       args: cliArgs,
       allowPositionals: true,
@@ -128,7 +131,6 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         host: { type: "string" },
         state: { type: "string" },
         all: { type: "boolean" },
-        approval: { type: "string" },
         impact: { type: "string" },
         "configure-sudo": { type: "boolean" },
         help: { type: "boolean", short: "h" },
@@ -784,7 +786,6 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       configPath,
       commandArgs,
       dryRun,
-      approval: v.approval,
       impact: v.impact,
       emit,
     });

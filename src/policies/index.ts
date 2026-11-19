@@ -296,7 +296,7 @@ export function checkApproval(
         ? "Review the command template and impact, then use Request approval and Accept in the panel"
         : context === "peer"
           ? "Peer approval digest mismatch; request a fresh review from the peer"
-          : "Review the exact host, command and impact, then re-run with --approval <digest>",
+          : "This change needs the owner's approval. Run it through the homectl broker (`home-ctl daemon run`, then `home-ctl agent connect`); the owner approves in the panel or with `home-ctl approve`.",
       {
         host: plan.host,
         argv: plan.argv,
