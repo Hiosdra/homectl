@@ -78,11 +78,10 @@ const pages: Record<string, Page> = {
         rows: [
           ["hosts", "List configured machines."],
           ["inspect <host>", "Show purpose, access tier and cautions."],
-          [
-            "exec <host> -- <argv...>",
-            "Run a command under the host's access policy.",
-          ],
+          ["exec <host> -- <argv...>", "Run a command under host policy."],
           ["ssh <host> -- <argv...>", "Alias for exec."],
+          ["commands <action>", "Save, list and run saved commands."],
+          ["history clear", "Delete this device's local command history."],
           ["enroll <host> --file PATH", "Add an existing machine."],
           ["sudoers <host>", "Print the host's sudo policy."],
           ["provision --file PATH", "Create and enroll a Proxmox VM over SSH."],
