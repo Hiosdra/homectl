@@ -279,17 +279,22 @@ test("B4 against a real daemon: origin refusal, cookie flags, no token in URLs",
   });
 
   // The broker refuses a sign-in from any other origin, directly.
-  const direct = await fetch(`${daemon.endpoint.address}/v1/owner/login`, {
-    method: "POST",
-    headers: {
-      origin: "http://evil.example",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ password: PASSWORD }),
-  });
+  const { address, transport } = daemon.endpoint;
+  const direct = await fetch(
+    `${transport === "unix" ? "http://localhost" : address}/v1/owner/login`,
+    {
+      method: "POST",
+      headers: {
+        origin: "http://evil.example",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ password: PASSWORD }),
+      ...(transport === "unix" ? { unix: address } : {}),
+    } as RequestInit,
+  );
   expect(direct.status).toBe(403);
 
-  // Through the panel: the cookie carries the flags, the body carries the token.
+  // The browser session stays in the HttpOnly cookie.
   const login = await proxy(
     request("/v1/owner/login", {
       method: "POST",
@@ -302,21 +307,21 @@ test("B4 against a real daemon: origin refusal, cookie flags, no token in URLs",
   expect(cookie).toMatch(/^hc_owner=hco_/);
   expect(cookie).toContain("HttpOnly");
   expect(cookie).toContain("SameSite=Strict");
-  const { token } = (await login.json()) as { token: string };
-  expect(token.startsWith("hco_")).toBe(true);
+  const session = cookie.split(";")[0] ?? "";
+  expect(await login.json()).toEqual({ expiresAt: expect.any(String) });
 
   // Sessions travel as cookies only: no query string carries a token.
   const pending = await proxy(
     request("/v1/owner/pending", {
       method: "POST",
-      headers: { origin: PANEL, cookie: `hc_owner=${token}` },
+      headers: { origin: PANEL, cookie: session },
     }),
   );
   expect(pending.status).toBe(200);
   expect(await pending.json()).toEqual([]);
   const events = await proxy(
     request("/v1/owner/events/poll?after=0", {
-      headers: { cookie: `hc_owner=${token}` },
+      headers: { cookie: session },
     }),
   );
   expect(events.status).toBe(200);
@@ -336,7 +341,7 @@ test("B4 against a real daemon: origin refusal, cookie flags, no token in URLs",
       method: "POST",
       headers: {
         origin: PANEL,
-        cookie: `hc_owner=${token}`,
+        cookie: session,
         "content-type": "application/json",
       },
       body: JSON.stringify({ preset: "delegated" }),
@@ -348,7 +353,7 @@ test("B4 against a real daemon: origin refusal, cookie flags, no token in URLs",
       method: "POST",
       headers: {
         origin: PANEL,
-        cookie: `hc_owner=${token}`,
+        cookie: session,
         "content-type": "application/json",
       },
       body: JSON.stringify({
