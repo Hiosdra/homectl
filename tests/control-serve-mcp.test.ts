@@ -8,6 +8,7 @@ import { join } from "node:path";
 import type { ControlCliInput } from "../src/control/cli";
 import { mcpControl } from "../src/control/cli";
 import type { ClientIdentity } from "../src/control/types";
+import { localApi } from "../src/peer/local-api";
 import { serve } from "../src/serve";
 
 // Synthetic local device. serve-mcp must use the running serve as the single
@@ -49,7 +50,7 @@ describe("serve-mcp and a running serve", () => {
     expect(served).toBe(false);
   });
 
-  test("with a running serve, serve-mcp forwards to it: one writer, the same state", async () => {
+  test("with a running serve, serve-mcp authenticates against the running server", async () => {
     const w = await workspace();
     const running = await serve({
       inventoryPath: w.inventoryPath,
@@ -71,13 +72,14 @@ describe("serve-mcp and a running serve", () => {
       token.token as string,
     )) as ClientIdentity;
     expect(client.id).toBe("codex-pc");
-    const planned = (await control.request(
-      { kind: "client", client },
-      { op: "plan", host: "agent-host", argv: ["uname", "-s"] },
-    )) as { operationId: string };
-    // The plan was written by the running serve, which is the only writer.
-    const held = await running.control.listOperations({ all: true });
-    expect(held.some((o) => o.operationId === planned.operationId)).toBe(true);
     expect(await control.authenticate("hct_not-a-real-token")).toBeNull();
+    // B3: the running serve no longer executes or plans for the legacy MCP.
+    await expect(
+      localApi(w.inventoryPath, "/api/control/mcp/request", {
+        token: token.token,
+        request: { op: "plan", host: "agent-host", argv: ["uname", "-s"] },
+      }),
+    ).rejects.toThrow("retired in homectl 0.3.0");
+    expect("request" in control).toBe(false);
   });
 });

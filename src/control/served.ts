@@ -1,51 +1,28 @@
-// serve-mcp's view of a running serve. When serve is up it is the single writer:
-// every MCP call is forwarded to serve's local routes, which check the bearer
-// token against serve's own registry and run the request in serve's plane (with
-// its replicator, so approvals for operations owned elsewhere are forwarded).
+// serve-mcp's view of a running serve. The legacy MCP endpoint (homelab #21
+// B3) only authenticates through a running serve and reads its state. It has no
+// request path: planning, approval and execution are not reachable from it.
 // Reached through the panel gate (launch token, cookie, Origin and Host checks).
 import { localApi } from "../peer/local-api";
-import { HomectlError } from "../types";
 import type { ControlPlane } from "./engine";
-import type { ClientIdentity, ClientView, OperationRequest } from "./types";
+import type { ClientIdentity, ClientView } from "./types";
 
-// What the MCP layer needs from a control plane.
+// What the legacy MCP layer needs from a control plane: authentication and
+// read-only metadata. It never gets a way to act.
 export type McpControl = Pick<
   ControlPlane,
-  | "authenticate"
-  | "request"
-  | "recordAuthRejection"
-  | "oidcView"
-  | "listClients"
+  "authenticate" | "recordAuthRejection" | "oidcView" | "listClients"
 >;
 
 export class ServedControl implements McpControl {
-  // Bearer tokens seen by authenticate(), by client id, for forwarded requests.
-  private readonly tokens = new Map<string, string>();
-
   constructor(private readonly inventoryPath: string) {}
 
   async authenticate(token?: string): Promise<ClientIdentity | null> {
     if (!token) return null;
-    const client = await localApi<ClientIdentity | null>(
+    return localApi<ClientIdentity | null>(
       this.inventoryPath,
       "/api/control/mcp/authenticate",
       { token },
     );
-    if (!client) return null;
-    this.tokens.set(client.id, token);
-    return client;
-  }
-
-  async request(
-    actor: { kind: "client"; client: ClientIdentity },
-    req: OperationRequest,
-  ): Promise<unknown> {
-    const token = this.tokens.get(actor.client.id);
-    if (!token) throw new HomectlError(3, "Client authentication is required");
-    return localApi(this.inventoryPath, "/api/control/mcp/request", {
-      token,
-      request: req,
-    });
   }
 
   async recordAuthRejection(): Promise<void> {
