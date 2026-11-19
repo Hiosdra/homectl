@@ -5,6 +5,7 @@
 // owner secret again in the same request.
 import type { ClientIdentity } from "../control/types";
 import { HomectlError } from "../types";
+import type { ClientAdmin } from "./clients-admin";
 import type { Broker } from "./engine";
 import type { OwnerSessions } from "./owner";
 import type { DecideInput } from "./types";
@@ -27,6 +28,7 @@ export interface BrokerServerOptions {
   listen: Listen;
   // Exact origins allowed to use the owner cookie (the panel).
   allowedOrigins: string[];
+  admin?: ClientAdmin;
 }
 
 const STATUS: Record<number, number> = { 2: 400, 3: 403, 4: 409, 5: 503 };
@@ -177,6 +179,23 @@ export function handler(options: BrokerServerOptions) {
     if (!session) throw new HomectlError(3, "Owner sign-in required");
     const input = await body(req);
     switch (path) {
+      case "/v1/owner/clients/list":
+        return json(await requireAdmin().list());
+      case "/v1/owner/clients/create":
+        await requireStepUp(input.password);
+        return json(
+          await requireAdmin().create({
+            id: input.id,
+            name: input.name,
+            hosts: input.hosts,
+            ...(input.scopes === undefined ? {} : { scopes: input.scopes }),
+          }),
+        );
+      case "/v1/owner/clients/rotate":
+        await requireStepUp(input.password);
+        return json(await requireAdmin().rotate(str(input.id, "id")));
+      case "/v1/owner/clients/revoke":
+        return json(await requireAdmin().revoke(str(input.id, "id")));
       case "/v1/owner/logout":
         owner.logout(token);
         return json({ ok: true }, 200, {
@@ -213,6 +232,18 @@ export function handler(options: BrokerServerOptions) {
       default:
         return json({ error: { code: 2, message: "Not found" } }, 404);
     }
+  }
+
+  function requireAdmin(): ClientAdmin {
+    if (!options.admin)
+      throw new HomectlError(5, "Client management is not available");
+    return options.admin;
+  }
+
+  // Trust and authority changes need the owner password in the same request.
+  async function requireStepUp(password: unknown) {
+    if (!(await owner.check(password)))
+      throw new HomectlError(3, "Confirm with the owner password");
   }
 
   function checkOrigin(req: Request) {
