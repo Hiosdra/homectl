@@ -21,6 +21,7 @@ import { ClientAdmin } from "./clients-admin";
 import { Broker } from "./engine";
 import { FileVerifier, OwnerSessions } from "./owner";
 import type { BrokerMode, Endpoint } from "./paths";
+import { PolicyRoutes } from "./policy-routes";
 import { SecretService } from "./secret-service";
 import { type Listen, startBrokerServer } from "./server";
 import { BrokerStore } from "./store";
@@ -137,6 +138,12 @@ export async function startDaemon(config: DaemonConfig) {
     refreshHosts,
     events,
   });
+  // The owner's policy file. The engine uses it unless a test injects another.
+  const authz = new AuthzPolicy({
+    path: join(config.state, "policy.json"),
+    now: Date.now,
+  });
+  const policy = config.policy ?? authz;
   const broker = new Broker({
     store: new BrokerStore(config.state),
     ledger: new NonceLedger(config.state),
@@ -145,12 +152,7 @@ export async function startDaemon(config: DaemonConfig) {
       id: deviceId,
       name: "this device",
     },
-    policy:
-      config.policy ??
-      new AuthzPolicy({
-        path: join(config.state, "policy.json"),
-        now: Date.now,
-      }),
+    policy,
     inventory,
     executor,
     events,
@@ -181,7 +183,12 @@ export async function startDaemon(config: DaemonConfig) {
     owner,
     listen: config.listen,
     allowedOrigins: config.panelOrigin ? [config.panelOrigin] : [],
-    extensions: [secrets, mcpHttpRoute({ broker, secrets }), ...(hasVault ? [vault] : [])],
+    extensions: [
+      secrets,
+      new PolicyRoutes(authz),
+      mcpHttpRoute({ broker, secrets }),
+      ...(hasVault ? [vault] : []),
+    ],
     events: log,
   });
   const endpoint: Endpoint = {

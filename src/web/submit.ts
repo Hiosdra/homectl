@@ -14,6 +14,10 @@ import {
 } from "./store";
 import type { Preview } from "./types";
 
+// Shown when a local run is requested here: this panel only previews the plan.
+export const OWNER_APPROVAL_NOTICE =
+  "Local commands are approved in the owner panel now (home-ctl daemon panel). This page only shows the plan.";
+
 export function parseSavedCommandArgv(value: string): string[] {
   let parsed: unknown;
   try {
@@ -87,6 +91,9 @@ export function handleSubmit(form: HTMLFormElement) {
       );
       ui.result = plan;
       render();
+      // Local runs no longer use the digest approval flow: the owner approves
+      // through the broker's owner panel. Peer requests keep their own path.
+      if (!id) throw new Error(OWNER_APPROVAL_NOTICE);
       if (
         !(await confirm(
           `Run on ${host}?`,
@@ -95,10 +102,8 @@ export function handleSubmit(form: HTMLFormElement) {
       )
         return;
       const done = await api<{ pending?: boolean; id: string }>(
-        id ? "/api/peer/request" : "/api/exec",
-        id
-          ? { id, action: "exec", payload: { ...payload, dryRun: false } }
-          : { ...payload, dryRun: false, approval: plan.plan.approval },
+        "/api/peer/request",
+        { id, action: "exec", payload: { ...payload, dryRun: false } },
       );
       ui.result = done;
       if (done.pending) ui.operationResult = { id: done.id, peerId: id };
@@ -168,16 +173,8 @@ export function handleSubmit(form: HTMLFormElement) {
       }>("/api/commands/run", { ...payload, dryRun: true });
       ui.result = preview;
       render();
-      const confirmation = savedCommandConfirmation(host, preview.plan);
-      if (!(await confirm(confirmation.title, confirmation.body))) return;
-      ui.result = await api("/api/commands/run", {
-        ...payload,
-        dryRun: false,
-        approval: preview.plan.approval,
-      });
-      ui.savedCommandRun = id;
-      render();
-      return;
+      // Saved commands run only after an owner approval in the owner panel.
+      throw new Error(OWNER_APPROVAL_NOTICE);
     }
     if (formId === "audit-filter-form") {
       ui.auditFilters = {

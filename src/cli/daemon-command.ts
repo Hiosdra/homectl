@@ -84,6 +84,29 @@ export async function daemonCommand(
       });
       return 0;
     }
+    case "panel": {
+      // The owner web panel. It needs the broker started with the same
+      // origin in HOMECTL_PANEL_ORIGIN, or the broker refuses its sign-in.
+      const { startOwnerPanel } = await import("../web/owner/server");
+      const port = Number(process.env.HOMECTL_OWNER_PANEL_PORT ?? 7451);
+      const panel = await startOwnerPanel({
+        inventoryPath: options.inventoryPath,
+        port,
+      });
+      options.emit(
+        { running: true, origin: panel.origin },
+        `Owner panel on ${panel.origin}. Start the broker with HOMECTL_PANEL_ORIGIN=${panel.origin} so it accepts this panel. Press Ctrl+C to stop.`,
+      );
+      await new Promise<void>((resolve) => {
+        const stop = () => {
+          panel.stop();
+          resolve();
+        };
+        process.once("SIGINT", stop);
+        process.once("SIGTERM", stop);
+      });
+      return 0;
+    }
     case "status": {
       const endpoint = await findEndpoint(options.inventoryPath);
       if (!endpoint) {
@@ -188,7 +211,7 @@ export async function daemonCommand(
     default:
       throw new HomectlError(
         2,
-        "Usage: home-ctl daemon run|status|install|uninstall [--mode compat|hardened]",
+        "Usage: home-ctl daemon run|panel|status|install|uninstall [--mode compat|hardened]",
       );
   }
 }
