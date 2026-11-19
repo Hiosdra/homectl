@@ -191,10 +191,22 @@ export class HostPermissionRoutes implements RouteExtension {
   }
 }
 
-// `home-ctl owner <command>` → owner route.
-export const OWNER_HOST_ROUTES: Record<string, string | undefined> = {
+// `home-ctl owner <command> <host> [fingerprint]` → owner route and body.
+// The fingerprint is the reviewed grant or the out-of-band verified host key.
+const OWNER_HOST_ROUTES: Record<string, string | undefined> = {
+  "scan-host-keys": "/v1/owner/hosts/scan-keys",
+  "pin-host-key": "/v1/owner/hosts/pin-key",
   "inspect-host": "/v1/owner/hosts/inspect",
   "preview-host-grant": "/v1/owner/hosts/preview-grant",
   "apply-host-grant": "/v1/owner/hosts/apply-grant",
   "revoke-host-grant": "/v1/owner/hosts/revoke-grant",
 };
+
+export function ownerHostCommand(positionals: string[]) {
+  const [action, host, fingerprint] = positionals;
+  const route = action ? OWNER_HOST_ROUTES[action] : undefined;
+  const arity =
+    action === "apply-host-grant" || action === "pin-host-key" ? 3 : 2;
+  if (!route || !host || positionals.length !== arity) return undefined;
+  return { route, body: { host, ...(fingerprint ? { fingerprint } : {}) } };
+}

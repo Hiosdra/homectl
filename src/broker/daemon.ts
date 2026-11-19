@@ -19,6 +19,7 @@ import { SecretBroker } from "../secrets";
 import { AuthzPolicy } from "./authz-policy";
 import { ClientAdmin } from "./clients-admin";
 import { Broker } from "./engine";
+import { HostKeyRoutes } from "./host-keys";
 import { HostPermissionRoutes } from "./host-permissions";
 import { FileVerifier, OwnerSessions } from "./owner";
 import type { BrokerMode, Endpoint } from "./paths";
@@ -188,6 +189,7 @@ export async function startDaemon(config: DaemonConfig) {
       secrets,
       new PolicyRoutes(authz),
       mcpHttpRoute({ broker, secrets }),
+      new HostKeyRoutes(inventory, config.inventoryPath, undefined, events),
       ...(hasVault
         ? [
             vault,

@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import { callBroker, clientToken, findEndpoint } from "../broker/client";
-import { OWNER_HOST_ROUTES } from "../broker/host-permissions";
+import { ownerHostCommand } from "../broker/host-permissions";
 import type { Endpoint } from "../broker/paths";
 import { compatPaths } from "../broker/paths";
 import { readPassword } from "../session";
@@ -408,32 +408,18 @@ export async function brokerCommand(
       );
     }
     case "owner": {
-      const [action, host, reviewed] = positionals;
-      const hostRoute = action ? OWNER_HOST_ROUTES[action] : undefined;
-      if (
-        hostRoute &&
-        host &&
-        positionals.length === (action === "apply-host-grant" ? 3 : 2) &&
-        argv.length === 0
-      ) {
+      const [action] = positionals;
+      const hostCall = argv.length === 0 && ownerHostCommand(positionals);
+      if (hostCall) {
         const auth = await ownerAuth(inventoryPath);
-        emit(
-          await callBroker(
-            hostRoute,
-            {
-              host,
-              password: auth.password,
-              ...(reviewed ? { fingerprint: reviewed } : {}),
-            },
-            auth,
-          ),
-        );
+        const body = { ...hostCall.body, password: auth.password };
+        emit(await callBroker(hostCall.route, body, auth));
         return 0;
       }
       if (action !== "init")
         throw new HomectlError(
           2,
-          "Usage: home-ctl owner init | inspect-host <host> | preview-host-grant <host> | apply-host-grant <host> <fingerprint> | revoke-host-grant <host>",
+          "Usage: home-ctl owner init | scan-host-keys <host> | pin-host-key <host> <SHA256:…> | inspect-host <host> | preview-host-grant <host> | apply-host-grant <host> <fingerprint> | revoke-host-grant <host>",
         );
       const mode = v.mode ?? "compat";
       if (mode !== "compat")
