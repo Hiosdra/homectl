@@ -196,6 +196,8 @@ export async function startDaemon(config: DaemonConfig) {
               config.inventoryPath,
               config.state,
               vault.gate,
+              undefined,
+              events,
             ),
           ]
         : []),
