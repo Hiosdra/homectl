@@ -80,7 +80,8 @@ test("claude: a foreign 'homectl' MCP server is refused, with the reason and a m
   expect(mcp?.manual?.join("\n")).toContain(
     'already defines an MCP server named "homectl"',
   );
-  await expect(applyAgentConfig(mcp!, TOKEN)).rejects.toThrow(
+  if (!mcp) throw new Error("Expected a Claude MCP configuration plan");
+  await expect(applyAgentConfig(mcp, TOKEN)).rejects.toThrow(
     "needs manual setup",
   );
 });
@@ -100,7 +101,8 @@ test("codex: the managed block carries the token and the MCP table, idempotently
   expect(codex?.after).toContain('args = ["mcp"]');
   expect(codex?.diff.join("\n")).not.toContain(TOKEN);
 
-  await applyAgentConfig(codex!, TOKEN);
+  if (!codex) throw new Error("Expected a Codex configuration plan");
+  await applyAgentConfig(codex, TOKEN);
   const [again] = await planAgentConfig("codex", TOKEN, home);
   expect(again?.after).toBe(codex?.after);
   expect(again?.diff).toEqual([]);
@@ -121,7 +123,8 @@ test("apply refuses when the file changed since the preview", async () => {
   const [codex] = await planAgentConfig("codex", TOKEN, home);
   await mkdir(join(home, ".codex"), { recursive: true });
   await writeFile(join(home, ".codex", "config.toml"), "# changed by hand\n");
-  await expect(applyAgentConfig(codex!, TOKEN)).rejects.toThrow(
+  if (!codex) throw new Error("Expected a Codex configuration plan");
+  await expect(applyAgentConfig(codex, TOKEN)).rejects.toThrow(
     "changed since the preview",
   );
 });

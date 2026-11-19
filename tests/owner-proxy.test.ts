@@ -7,6 +7,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startDaemon } from "../src/broker/daemon";
+import { FileVerifier } from "../src/broker/owner";
 import type { Endpoint } from "../src/broker/paths";
 import { compatPaths } from "../src/broker/paths";
 import { createOwnerProxy } from "../src/web/owner/proxy";
@@ -267,7 +268,11 @@ test("B4 against a real daemon: origin refusal, cookie flags, no token in URLs",
     },
   });
   closers.push(daemon.stop);
-  await daemon.verifier.set(PASSWORD);
+  await new FileVerifier(join(compatPaths(inventoryPath).state, "owner.json"), {
+    iterations: 1,
+    memorySize: 1024,
+    parallelism: 1,
+  }).set(PASSWORD);
   const proxy = createOwnerProxy({
     panelOrigin: PANEL,
     endpoint: async () => daemon.endpoint,
