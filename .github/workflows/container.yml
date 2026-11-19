@@ -14,6 +14,8 @@ on:
       - "bun.lock"
       - "src/**"
       - "schema/**"
+      - "skills/**"
+      - "scripts/container-smoke.sh"
       - ".github/workflows/container.yml"
   workflow_dispatch:
 
@@ -55,6 +57,22 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=sha
+
+      # Build once into the local Docker engine and start it before anything is
+      # pushed. The push step below reuses the same builder cache.
+      - name: Build for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          build-args: |
+            BUN_IMAGE=${{ env.BUN_IMAGE }}
+          load: true
+          push: false
+          tags: homectl-smoke:ci
+
+      - name: Smoke test (serve --container becomes healthy)
+        run: bash scripts/container-smoke.sh homectl-smoke:ci
 
       - name: Build and push
         uses: docker/build-push-action@v6

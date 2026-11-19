@@ -23,6 +23,8 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production --ignore-scripts
 COPY src ./src
 COPY schema ./schema
+# src/skills-bundle.ts imports the skill files; without them every command fails.
+COPY skills ./skills
 
 # Numeric non-root user. /data is the only writable volume; the root filesystem
 # is read-only at run time (compose sets read_only: true).
