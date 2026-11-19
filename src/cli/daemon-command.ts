@@ -155,7 +155,17 @@ export async function daemonCommand(
         const verifier = new FileVerifier(
           join(hardenedPaths().state, "owner.json"),
         );
-        if (!(await verifier.exists())) {
+        // A vault taken into custody makes its master password the owner
+        // password; a separate one is only needed without a vault.
+        const custodyVault = join(
+          hardenedPaths().state,
+          "workspace",
+          "homelab.kdbx",
+        );
+        if (
+          !(await verifier.exists()) &&
+          !(await Bun.file(custodyVault).exists())
+        ) {
           const first = await readPassword("New homectl owner password: ");
           if (first !== (await readPassword("Repeat it: ")))
             throw new HomectlError(2, "The passwords do not match");

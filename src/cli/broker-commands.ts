@@ -399,6 +399,12 @@ export async function brokerCommand(
           2,
           "The hardened service sets the owner password during `home-ctl daemon install`",
         );
+      const { vaultPathFor } = await import("../broker/vault-wiring");
+      if (await Bun.file(await vaultPathFor(inventoryPath, "compat")).exists())
+        throw new HomectlError(
+          3,
+          "This workspace has a homelab vault: its master password is the owner password, so there is nothing to set",
+        );
       const { FileVerifier } = await import("../broker/owner");
       const verifier = new FileVerifier(
         join(compatPaths(inventoryPath).state, "owner.json"),

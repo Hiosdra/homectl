@@ -29,6 +29,8 @@ import type {
   InventoryPort,
   PolicyPort,
 } from "./types";
+import type { KeyAgentPort } from "./vault-service";
+import { createVault, rebindInventory } from "./vault-wiring";
 
 export interface DaemonConfig {
   mode: BrokerMode;
@@ -42,6 +44,8 @@ export interface DaemonConfig {
   policy?: PolicyPort;
   events?: EventsPort;
   executor?: ExecutorPort;
+  // Tests: replaces the session ssh-agent the vault loads keys into.
+  keyAgent?: KeyAgentPort;
 }
 
 export function inventoryPort(inventoryPath: string): InventoryPort {
@@ -81,7 +85,23 @@ export async function startDaemon(config: DaemonConfig) {
   await ensurePrivateDirectoryOnce(config.state);
   const keys = join(config.state, "keys");
   const key = await loadOrCreateDeviceKey(keys);
-  const verifier = new FileVerifier(join(config.state, "owner.json"));
+  // Late-bound: the vault's lock handler needs parts created further down.
+  const onLocked: { run: (reason: string) => Promise<void> } = {
+    run: async () => undefined,
+  };
+  const vault = await createVault({
+    inventoryPath: config.inventoryPath,
+    mode: config.mode,
+    now: Date.now,
+    ...(config.keyAgent ? { agent: config.keyAgent } : {}),
+    onLocked: (reason) => onLocked.run(reason),
+  });
+  // With a vault, its master password is the owner credential (A3);
+  // owner.json is only for workspaces that have no vault yet.
+  const hasVault = await vault.exists();
+  const verifier = hasVault
+    ? vault
+    : new FileVerifier(join(config.state, "owner.json"));
   const deviceId = fingerprintOf(key.publicKey).replaceAll(" ", "");
   const log = new EventLog({
     directory: join(config.state, "events"),
@@ -92,7 +112,10 @@ export async function startDaemon(config: DaemonConfig) {
       await log.append({ type, subject, audience, data });
     },
   };
-  const inventory = inventoryPort(config.inventoryPath);
+  const inventory = rebindInventory(
+    inventoryPort(config.inventoryPath),
+    config.inventoryPath,
+  );
   const executor =
     config.executor ?? sshExecutor(config.inventoryPath, config.sshConfigPath);
   const hostSet = new Set<string>();
@@ -102,11 +125,12 @@ export async function startDaemon(config: DaemonConfig) {
     for (const host of hosts) hostSet.add(host);
   };
   await refreshHosts();
+  const secretBroker = new SecretBroker({
+    now: Date.now,
+    knownHost: (host) => hostSet.has(host),
+  });
   const secrets = new SecretService({
-    secrets: new SecretBroker({
-      now: Date.now,
-      knownHost: (host) => hostSet.has(host),
-    }),
+    secrets: secretBroker,
     inventory,
     executor,
     refreshHosts,
@@ -129,6 +153,7 @@ export async function startDaemon(config: DaemonConfig) {
     inventory,
     executor,
     events,
+    ...(hasVault ? { gate: vault.gate } : {}),
     ...(config.panelOrigin
       ? { approvalSurface: `${config.panelOrigin}/#approvals` }
       : {}),
@@ -137,6 +162,11 @@ export async function startDaemon(config: DaemonConfig) {
   if (config.listen.kind === "unix")
     await rm(config.listen.path, { force: true });
   const owner = new OwnerSessions(verifier);
+  onLocked.run = async (reason) => {
+    secretBroker.lock();
+    owner.clear();
+    await broker.invalidatePending(reason);
+  };
   const registry = new ClientRegistry(join(config.state, "clients.json"));
   const admin = new ClientAdmin(
     registry,
@@ -150,7 +180,7 @@ export async function startDaemon(config: DaemonConfig) {
     owner,
     listen: config.listen,
     allowedOrigins: config.panelOrigin ? [config.panelOrigin] : [],
-    extensions: [secrets],
+    extensions: hasVault ? [secrets, vault] : [secrets],
     events: log,
   });
   const endpoint: Endpoint = {
@@ -174,9 +204,12 @@ export async function startDaemon(config: DaemonConfig) {
     verifier,
     admin,
     endpoint,
+    vault,
     async stop() {
       running.stop();
       await broker.settled();
+      // Without a vault the session agent is the owner's legacy one: leave it.
+      await vault.shutdown(hasVault);
       await rm(config.endpoint, { force: true });
     },
   };

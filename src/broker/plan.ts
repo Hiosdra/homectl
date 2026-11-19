@@ -1,7 +1,7 @@
 // Turning a validated agent request into an immutable plan: classification,
 // risk and fingerprint. Pure.
 import { fingerprint } from "../control/canonical";
-import type { Classification, Risk } from "../core/contracts";
+import type { ActionRequest, Classification, Risk } from "../core/contracts";
 import { innerCommand, planExecution } from "../policies";
 import { HomectlError, type Machine } from "../types";
 import type { BrokerOperation, ExecInput, OperationView } from "./types";
@@ -170,5 +170,19 @@ export function toView(
     ...(op.state === "awaiting-approval" && approvalSurface
       ? { approvalSurface }
       : {}),
+  };
+}
+
+export function actionOf(op: BrokerOperation): ActionRequest {
+  return {
+    client: op.client,
+    ...(op.task ? { task: op.task } : {}),
+    kind: "exec",
+    host: op.host,
+    argv: op.argv,
+    sudo: op.sudo,
+    classification: op.classification,
+    risk: op.risk,
+    ...(op.narrative ? { narrative: op.narrative } : {}),
   };
 }

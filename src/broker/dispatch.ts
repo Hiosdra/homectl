@@ -25,6 +25,9 @@ export interface DispatchContext {
   executor: ExecutorPort;
   now: () => number;
   emit: (op: BrokerOperation) => Promise<void>;
+  // Returns a reason when nothing may start now (vault locked); checked
+  // before the nonce is consumed so a locked vault never burns a grant.
+  gate?: () => string | undefined;
 }
 
 export async function dispatch(
@@ -37,6 +40,19 @@ export async function dispatch(
   const op = await ctx.store.update(async (state) => {
     const live = state.operations[id];
     if (!live) return undefined;
+    const closed = ctx.gate?.();
+    if (
+      closed !== undefined &&
+      (live.state === "dispatching" ||
+        (grant !== undefined && live.state === "awaiting-approval"))
+    ) {
+      const now = ctx.now();
+      live.state = "failed";
+      live.reason = closed;
+      live.finishedAt = now;
+      live.updatedAt = now;
+      return { live, go: false };
+    }
     if (grant) {
       const now = ctx.now();
       const current = await ctx.policy.revision();
