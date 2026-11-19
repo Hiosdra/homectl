@@ -4,6 +4,7 @@
 // allowed Origin (CSRF). Approving anything that needs step-up requires the
 // owner secret again in the same request.
 import type { ClientIdentity } from "../control/types";
+import { type EventLog, pollHandler, sseHandler } from "../events";
 import { HomectlError } from "../types";
 import type { ClientAdmin } from "./clients-admin";
 import type { Broker } from "./engine";
@@ -45,6 +46,8 @@ export interface BrokerServerOptions {
   allowedOrigins: string[];
   admin?: ClientAdmin;
   extensions?: RouteExtension[];
+  // Live stream (SSE) and catch-up poll, filtered by audience.
+  events?: EventLog;
 }
 
 const STATUS: Record<number, number> = { 2: 400, 3: 403, 4: 409, 5: 503 };
@@ -279,9 +282,34 @@ export function handler(options: BrokerServerOptions) {
       );
   }
 
+  // Agents see only events addressed to them; the owner sees everything.
+  // EventSource cannot set headers, so the panel relies on the SameSite=Strict
+  // cookie, which a cross-site page cannot send; no CORS headers are served.
+  const authenticateStream = async (req: Request) => {
+    const path = new URL(req.url).pathname;
+    if (path.startsWith("/v1/owner/"))
+      return owner.resolve(bearer(req, "Owner") ?? cookie(req))
+        ? { owner: true as const }
+        : null;
+    const client = await clients.authenticate(bearer(req, "Bearer"));
+    return client ? { client: client.id } : null;
+  };
+  const streams = options.events
+    ? {
+        sse: sseHandler(options.events, { authenticate: authenticateStream }),
+        poll: pollHandler(options.events, { authenticate: authenticateStream }),
+      }
+    : undefined;
+
   return async (req: Request): Promise<Response> => {
     const path = new URL(req.url).pathname;
     try {
+      if (req.method === "GET" && streams) {
+        if (path === "/v1/events" || path === "/v1/owner/events")
+          return await streams.sse(req);
+        if (path === "/v1/events/poll" || path === "/v1/owner/events/poll")
+          return await streams.poll(req);
+      }
       if (req.method !== "POST")
         return json({ error: { code: 2, message: "Use POST" } }, 405);
       if (path.startsWith("/v1/owner/")) return await ownerRoute(path, req);

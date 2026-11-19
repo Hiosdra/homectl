@@ -8,6 +8,7 @@ import { NonceLedger } from "../approvals/ledger";
 import { ClientRegistry } from "../control/clients";
 import { fingerprintOf, loadOrCreateDeviceKey } from "../control/device-key";
 import { ensurePrivateDirectoryOnce } from "../control/file-lock";
+import { EventLog } from "../events";
 import { loadInventory } from "../inventory";
 import { migrate } from "../migrate";
 import { execute } from "../operations";
@@ -81,6 +82,16 @@ export async function startDaemon(config: DaemonConfig) {
   const keys = join(config.state, "keys");
   const key = await loadOrCreateDeviceKey(keys);
   const verifier = new FileVerifier(join(config.state, "owner.json"));
+  const deviceId = fingerprintOf(key.publicKey).replaceAll(" ", "");
+  const log = new EventLog({
+    directory: join(config.state, "events"),
+    origin: deviceId,
+  });
+  const events: EventsPort = config.events ?? {
+    emit: async (type, subject, audience, data) => {
+      await log.append({ type, subject, audience, data });
+    },
+  };
   const inventory = inventoryPort(config.inventoryPath);
   const executor =
     config.executor ?? sshExecutor(config.inventoryPath, config.sshConfigPath);
@@ -99,14 +110,14 @@ export async function startDaemon(config: DaemonConfig) {
     inventory,
     executor,
     refreshHosts,
-    ...(config.events ? { events: config.events } : {}),
+    events,
   });
   const broker = new Broker({
     store: new BrokerStore(config.state),
     ledger: new NonceLedger(config.state),
     key,
     device: {
-      id: fingerprintOf(key.publicKey).replaceAll(" ", ""),
+      id: deviceId,
       name: "this device",
     },
     policy:
@@ -117,7 +128,7 @@ export async function startDaemon(config: DaemonConfig) {
       }),
     inventory,
     executor,
-    ...(config.events ? { events: config.events } : {}),
+    events,
     ...(config.panelOrigin
       ? { approvalSurface: `${config.panelOrigin}/#approvals` }
       : {}),
@@ -140,6 +151,7 @@ export async function startDaemon(config: DaemonConfig) {
     listen: config.listen,
     allowedOrigins: config.panelOrigin ? [config.panelOrigin] : [],
     extensions: [secrets],
+    events: log,
   });
   const endpoint: Endpoint = {
     v: 1,
