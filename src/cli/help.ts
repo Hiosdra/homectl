@@ -282,8 +282,8 @@ const pages: Record<string, Page> = {
 for (const [name, usage, description] of [
   [
     "update",
-    "home-ctl update [--dry-run] [--json]",
-    "Fast-forward the current branch from its configured upstream, install the frozen dependencies and refresh setup. Git refuses overlapping local changes or divergent history; no automatic stash or reset; never restarts services.",
+    "home-ctl update [--dry-run] [--rollback] [--json]",
+    "Source checkout: fast-forward the current branch from its configured upstream, install the frozen dependencies and refresh setup. Git refuses overlapping local changes or divergent history; no automatic stash or reset; never restarts services. Release build: --rollback points the command files back at the release that ran before the last install (the previous release stays on disk). A release install verifies the signed manifest and refuses unsigned, wrongly signed, wrong-platform and older releases.",
   ],
   [
     "setup",

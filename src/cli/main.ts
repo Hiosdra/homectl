@@ -113,6 +113,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         target: { type: "string" },
         json: { type: "boolean" },
         "dry-run": { type: "boolean" },
+        rollback: { type: "boolean" },
         task: { type: "boolean" },
         "install-deps": { type: "boolean" },
         "configure-firewall": { type: "boolean" },
@@ -240,7 +241,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       );
     await (await import("../skill-install")).refreshManagedSkills();
     if (command === "update") {
-      emit(await runUpdate(positionals, commandArgs, v.inventory, dryRun));
+      emit(await runUpdate(positionals, commandArgs, v.inventory, dryRun, v));
       return 0;
     }
     if (command === "setup") {
