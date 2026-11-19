@@ -6,6 +6,7 @@
 import type { ClientIdentity } from "../control/types";
 import { type EventLog, pollHandler, sseHandler } from "../events";
 import { HomectlError } from "../types";
+import { agentMethod, str } from "./agent-methods";
 import type { ClientAdmin } from "./clients-admin";
 import type { Broker } from "./engine";
 import type { OwnerSessions } from "./owner";
@@ -122,58 +123,18 @@ function cookie(req: Request): string | undefined {
   return undefined;
 }
 
-function str(value: unknown, field: string): string {
-  if (typeof value !== "string" || !value || value.length > 200)
-    throw new HomectlError(2, `${field} is required`);
-  return value;
-}
-
 export function handler(options: BrokerServerOptions) {
   const { broker, clients, owner } = options;
 
   async function agent(path: string, req: Request, client: ClientIdentity) {
     const input = await body(req);
-    switch (path) {
-      case "/v1/whoami":
-        return {
-          id: client.id,
-          name: client.name,
-          scopes: client.scopes,
-          hosts: client.hosts,
-        };
-      case "/v1/exec": {
-        const { waitMs, ...rest } = input;
-        const view = await broker.exec(client, rest);
-        return typeof waitMs === "number" && view.state !== "denied"
-          ? broker.wait(client, view.id, waitMs)
-          : view;
-      }
-      case "/v1/status":
-        return broker.status(client, str(input.id, "id"));
-      case "/v1/list":
-        return broker.list(
-          client,
-          typeof input.limit === "number" ? input.limit : 50,
-        );
-      case "/v1/wait":
-        return broker.wait(
-          client,
-          str(input.id, "id"),
-          typeof input.timeoutMs === "number" ? input.timeoutMs : 60_000,
-        );
-      case "/v1/cancel":
-        return broker.cancel(client, str(input.id, "id"));
-      case "/v1/task/open":
-        return broker.openTask(client, input);
-      case "/v1/task/close":
-        return broker.closeTask(client, str(input.id, "id"));
-      default:
-        for (const extension of options.extensions ?? []) {
-          const result = await extension.agent?.(path, input, client);
-          if (result !== undefined) return result;
-        }
-        return undefined;
+    const direct = await agentMethod(broker, path, input, client);
+    if (direct !== undefined) return direct;
+    for (const extension of options.extensions ?? []) {
+      const result = await extension.agent?.(path, input, client);
+      if (result !== undefined) return result;
     }
+    return undefined;
   }
 
   async function ownerRoute(path: string, req: Request) {
@@ -323,6 +284,8 @@ export function handler(options: BrokerServerOptions) {
       const result = await agent(path, req, client);
       if (result === undefined)
         return json({ error: { code: 2, message: "Not found" } }, 404);
+      // An extension may answer with its own response (MCP's 202 for notifications).
+      if (result instanceof Response) return result;
       return json(result);
     } catch (error) {
       return failure(error);

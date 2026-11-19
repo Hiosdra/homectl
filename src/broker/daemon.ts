@@ -10,6 +10,7 @@ import { fingerprintOf, loadOrCreateDeviceKey } from "../control/device-key";
 import { ensurePrivateDirectoryOnce } from "../control/file-lock";
 import { EventLog } from "../events";
 import { loadInventory } from "../inventory";
+import { mcpHttpRoute } from "../mcp/http";
 import { migrate } from "../migrate";
 import { execute } from "../operations";
 import { atomicReplace, privateDirectory } from "../platform";
@@ -180,7 +181,7 @@ export async function startDaemon(config: DaemonConfig) {
     owner,
     listen: config.listen,
     allowedOrigins: config.panelOrigin ? [config.panelOrigin] : [],
-    extensions: hasVault ? [secrets, vault] : [secrets],
+    extensions: [secrets, mcpHttpRoute({ broker, secrets }), ...(hasVault ? [vault] : [])],
     events: log,
   });
   const endpoint: Endpoint = {
