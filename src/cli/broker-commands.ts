@@ -327,18 +327,21 @@ export async function brokerCommand(
           },
           auth,
         );
-        const change = await onboard.planAgentConfig(kind, created.token);
-        if (!change.supported) {
+        // All reviewed changes apply together, or none does.
+        const changes = await onboard.planAgentConfig(kind, created.token);
+        const blocked = changes.filter((change) => !change.supported);
+        if (blocked.length) {
           await onboard.storeClientToken(created.token);
+          const manual = blocked.flatMap((change) => change.manual ?? []);
           emit(
             {
               id: clientId,
               applied: false,
-              manual: change.manual,
+              manual,
               prompt: onboard.setupPrompt(kind),
             },
             [
-              ...(change.manual ?? []),
+              ...manual,
               "",
               "Setup prompt for the agent:",
               onboard.setupPrompt(kind),
@@ -347,22 +350,35 @@ export async function brokerCommand(
           return 0;
         }
         console.error(
-          `Planned change to ${change.path}:\n${change.diff.join("\n")}`,
+          changes
+            .map(
+              (change) =>
+                `Planned change to ${change.path}:\n${change.diff.join("\n")}`,
+            )
+            .join("\n\n"),
         );
-        if (!(await confirm("Apply this change? [y/N] ")))
+        if (!(await confirm("Apply these changes? [y/N] ")))
           throw new HomectlError(
             3,
             "Cancelled; the client was created but not configured. Revoke it with `home-ctl agent revoke`.",
           );
-        await onboard.applyAgentConfig(change, created.token);
+        for (const change of changes)
+          await onboard.applyAgentConfig(change, created.token);
+        // The MCP server reads this file; the agent config holds the same token.
+        await onboard.storeClientToken(created.token);
         const who = await callBroker<{ id: string }>(
           "/v1/whoami",
           {},
           { endpoint: auth.endpoint, authorization: `Bearer ${created.token}` },
         );
         emit(
-          { id: who.id, applied: true, path: change.path, verified: true },
-          `Connected ${kind} as ${who.id}. Restart the agent so it picks up the change.`,
+          {
+            id: who.id,
+            applied: true,
+            paths: changes.map((change) => change.path),
+            verified: true,
+          },
+          `Connected ${kind} as ${who.id}. Restart the agent so it picks up the change. The MCP server runs \`home-ctl mcp\`, so home-ctl must be on the agent's PATH.`,
         );
         return 0;
       }

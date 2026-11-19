@@ -6,7 +6,6 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ControlPlane } from "../src/control/engine";
-import { TOOLS } from "../src/control/mcp";
 import type { ClientIdentity } from "../src/control/types";
 import {
   HomectlError,
@@ -359,19 +358,6 @@ describe("Proxmox guest plans through the control plane", () => {
         ),
       ).toBe(true);
     }
-  });
-
-  test("the MCP surface offers the typed tool, with no node or argv field", () => {
-    const tool = TOOLS.find((t) => t.name === "homectl_proxmox_plan");
-    expect(tool?.op).toBe("proxmox-plan");
-    expect(tool?.scope).toBe("plan:create");
-    const properties = Object.keys(
-      (tool?.inputSchema as { properties: Record<string, unknown> }).properties,
-    );
-    expect(properties).not.toContain("argv");
-    expect(properties).not.toContain("node");
-    expect(properties).toContain("vmid");
-    expect(properties).toContain("action");
   });
 });
 

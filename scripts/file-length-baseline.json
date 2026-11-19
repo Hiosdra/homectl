@@ -14,7 +14,6 @@
   "tests/control-cli.test.ts": 655,
   "tests/control-engine.test.ts": 1244,
   "tests/control-handoff.test.ts": 520,
-  "tests/control-mcp.test.ts": 711,
   "tests/core.test.ts": 716,
   "tests/proxmox-catalogue.test.ts": 599
 }
