@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callBroker } from "../src/broker/client";
 import { startDaemon } from "../src/broker/daemon";
+import { FileVerifier } from "../src/broker/owner";
 import type { Endpoint } from "../src/broker/paths";
 import { compatPaths } from "../src/broker/paths";
 
@@ -44,7 +45,12 @@ async function boot() {
     },
   });
   stop = daemon.stop;
-  await daemon.verifier.set(PASSWORD);
+  // Keep real password verification and use smaller test-only Argon2 settings.
+  await new FileVerifier(join(compatPaths(inventoryPath).state, "owner.json"), {
+    iterations: 1,
+    memorySize: 1024,
+    parallelism: 1,
+  }).set(PASSWORD);
   const endpoint = daemon.endpoint;
   const { token: owner } = await callBroker<{ token: string }>(
     "/v1/owner/login",

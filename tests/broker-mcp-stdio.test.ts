@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callBroker } from "../src/broker/client";
 import { startDaemon } from "../src/broker/daemon";
+import { FileVerifier } from "../src/broker/owner";
 import { compatPaths } from "../src/broker/paths";
 
 const MAIN = join(import.meta.dir, "..", "src", "cli", "main.ts");
@@ -72,7 +73,12 @@ test("stdio: protocol over newline-delimited JSON, with the agent's own token", 
     },
   });
   stop = daemon.stop;
-  await daemon.verifier.set(PASSWORD);
+  // Keep real password verification and use smaller test-only Argon2 settings.
+  await new FileVerifier(join(paths.state, "owner.json"), {
+    iterations: 1,
+    memorySize: 1024,
+    parallelism: 1,
+  }).set(PASSWORD);
   const { token: owner } = await callBroker<{ token: string }>(
     "/v1/owner/login",
     { password: PASSWORD },
