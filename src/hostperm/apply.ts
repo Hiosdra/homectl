@@ -19,7 +19,8 @@ export type ApplyStatus =
   | "refused"
   | "failed-untouched"
   | "rolled-back"
-  | "restore-failed";
+  | "restore-failed"
+  | "outcome-unknown";
 
 export interface ApplyReport {
   status: ApplyStatus;
@@ -51,11 +52,6 @@ export async function applyGrant(
     return report(
       "refused",
       "existing file has no homectl header; not overwritten",
-    );
-  if (!plan.changed)
-    return report(
-      "unchanged",
-      "live drop-in already matches the desired content",
     );
 
   // 1) Re-read and compare with the reviewed state.
@@ -90,6 +86,12 @@ export async function applyGrant(
     return report(
       "refused",
       "drift: the file changed since the preview; re-run planGrant",
+    );
+
+  if (live === plan.desired)
+    return report(
+      "unchanged",
+      "live drop-in already matches the desired content",
     );
 
   const tmp = dropInTempPath(plan.user);
@@ -156,80 +158,88 @@ export async function applyGrant(
     }
   }
 
-  // 5) Atomic rename within /etc/sudoers.d.
-  const swapped = await runStep(
-    exec,
-    steps,
-    "swap",
-    sudo(["mv", "-f", tmp, plan.path]),
-  );
-  if (!swapped.ok) {
-    await cleanupTemp();
-    return report(
-      "failed-untouched",
-      "could not move the candidate into place",
-    );
-  }
-
-  const rollback = async (why: string): Promise<ApplyReport> => {
-    const restored =
-      plan.current === undefined
-        ? await runStep(
-            exec,
-            steps,
-            "remove-new",
-            sudo(["rm", "-f", plan.path]),
-          )
-        : await runStep(
-            exec,
-            steps,
-            "restore-backup",
-            sudo(["mv", "-f", bak, plan.path]),
-          );
-    const syntax = await runStep(
+  try {
+    // 5) Atomic rename within /etc/sudoers.d.
+    const swapped = await runStep(
       exec,
       steps,
-      "visudo-after-restore",
+      "swap",
+      sudo(["mv", "-f", tmp, plan.path]),
+    );
+    if (!swapped.ok) {
+      await cleanupTemp();
+      return report(
+        "failed-untouched",
+        "could not move the candidate into place",
+      );
+    }
+
+    const rollback = async (why: string): Promise<ApplyReport> => {
+      const restored =
+        plan.current === undefined
+          ? await runStep(
+              exec,
+              steps,
+              "remove-new",
+              sudo(["rm", "-f", plan.path]),
+            )
+          : await runStep(
+              exec,
+              steps,
+              "restore-backup",
+              sudo(["mv", "-f", bak, plan.path]),
+            );
+      const syntax = await runStep(
+        exec,
+        steps,
+        "visudo-after-restore",
+        sudo(["visudo", "-c"]),
+      );
+      if (restored.ok && syntax.ok)
+        return report("rolled-back", `${why}; previous state restored`);
+      return report(
+        "restore-failed",
+        `${why}; restoring the previous state failed; review ${plan.path} and ${bak} manually`,
+      );
+    };
+
+    // 6) Validate the whole configuration as installed.
+    const installed = await runStep(
+      exec,
+      steps,
+      "visudo-check",
       sudo(["visudo", "-c"]),
     );
-    if (restored.ok && syntax.ok)
-      return report("rolled-back", `${why}; previous state restored`);
-    return report(
-      "restore-failed",
-      `${why}; restoring the previous state failed; review ${plan.path} and ${bak} manually`,
+    if (!installed.ok)
+      return await rollback("visudo rejected the installed configuration");
+
+    // 7) Verify the bytes on disk and that sudo loads rules for the user.
+    const sum = await runStep(
+      exec,
+      steps,
+      "verify-hash",
+      sudo(fileHashArgv(plan.os, plan.path)),
     );
-  };
+    if (!sum.ok || firstToken(sum.stdout) !== plan.desiredSha256)
+      return await rollback("the installed file hash did not match");
+    const listed = await runStep(
+      exec,
+      steps,
+      "verify-sudo-list",
+      sudo(["-l", "-U", plan.user]),
+    );
+    if (!listed.ok)
+      return await rollback("sudo could not list the user's privileges");
 
-  // 6) Validate the whole configuration as installed.
-  const installed = await runStep(
-    exec,
-    steps,
-    "visudo-check",
-    sudo(["visudo", "-c"]),
-  );
-  if (!installed.ok)
-    return rollback("visudo rejected the installed configuration");
-
-  // 7) Verify the bytes on disk and that sudo loads rules for the user.
-  const sum = await runStep(
-    exec,
-    steps,
-    "verify-hash",
-    sudo(fileHashArgv(plan.os, plan.path)),
-  );
-  if (!sum.ok || firstToken(sum.stdout) !== plan.desiredSha256)
-    return rollback("the installed file hash did not match");
-  const listed = await runStep(
-    exec,
-    steps,
-    "verify-sudo-list",
-    sudo(["-l", "-U", plan.user]),
-  );
-  if (!listed.ok) return rollback("sudo could not list the user's privileges");
-
-  if (plan.current !== undefined)
-    await runStep(exec, steps, "remove-backup", sudo(["rm", "-f", bak]));
-  return report("applied", `installed ${plan.path}`);
+    if (plan.current !== undefined)
+      await runStep(exec, steps, "remove-backup", sudo(["rm", "-f", bak]));
+    return report("applied", `installed ${plan.path}`);
+  } catch {
+    return report(
+      "outcome-unknown",
+      `Connection or execution failed during the change. Inspect ${plan.path} and ${bak} before retrying.`,
+    );
+  }
 }
 
 export type RevokeStatus =
@@ -238,7 +248,8 @@ export type RevokeStatus =
   | "removed"
   | "failed-untouched"
   | "rolled-back"
-  | "restore-failed";
+  | "restore-failed"
+  | "outcome-unknown";
 
 export interface RevokeReport {
   status: RevokeStatus;
@@ -288,57 +299,67 @@ export async function revokeGrant(
       "failed-untouched",
       "could not back up the drop-in; nothing removed",
     );
-  const removed = await runStep(
-    exec,
-    steps,
-    "remove",
-    sudo(["rm", "-f", path]),
-  );
-  if (!removed.ok)
-    return report("failed-untouched", "could not remove the drop-in");
-
-  const rollback = async (why: string): Promise<RevokeReport> => {
-    const restored = await runStep(
+  try {
+    const removed = await runStep(
       exec,
       steps,
-      "restore-backup",
-      sudo(["mv", "-f", bak, path]),
+      "remove",
+      sudo(["rm", "-f", path]),
     );
-    const syntax = await runStep(
+    if (!removed.ok)
+      return report("failed-untouched", "could not remove the drop-in");
+
+    const rollback = async (why: string): Promise<RevokeReport> => {
+      const restored = await runStep(
+        exec,
+        steps,
+        "restore-backup",
+        sudo(["mv", "-f", bak, path]),
+      );
+      const syntax = await runStep(
+        exec,
+        steps,
+        "visudo-after-restore",
+        sudo(["visudo", "-c"]),
+      );
+      if (restored.ok && syntax.ok)
+        return report("rolled-back", `${why}; drop-in restored`);
+      return report(
+        "restore-failed",
+        `${why}; restoring ${path} failed; review ${bak} manually`,
+      );
+    };
+
+    const validated = await runStep(
       exec,
       steps,
-      "visudo-after-restore",
+      "visudo-check",
       sudo(["visudo", "-c"]),
     );
-    if (restored.ok && syntax.ok)
-      return report("rolled-back", `${why}; drop-in restored`);
-    return report(
-      "restore-failed",
-      `${why}; restoring ${path} failed; review ${bak} manually`,
+    if (!validated.ok)
+      return await rollback(
+        "visudo rejected the configuration without the drop-in",
+      );
+    const gone = await runStep(
+      exec,
+      steps,
+      "verify-absent",
+      sudo(["test", "-e", path]),
     );
-  };
+    if (gone.ok)
+      return await rollback("the drop-in is still present after removal");
 
-  const validated = await runStep(
-    exec,
-    steps,
-    "visudo-check",
-    sudo(["visudo", "-c"]),
-  );
-  if (!validated.ok)
-    return rollback("visudo rejected the configuration without the drop-in");
-  const gone = await runStep(
-    exec,
-    steps,
-    "verify-absent",
-    sudo(["test", "-e", path]),
-  );
-  if (gone.ok) return rollback("the drop-in is still present after removal");
-
-  await runStep(exec, steps, "remove-backup", sudo(["rm", "-f", bak]));
-  return report(
-    "removed",
-    modified
-      ? `removed ${path} (file had been modified since it was installed)`
-      : `removed ${path}`,
-  );
+    await runStep(exec, steps, "remove-backup", sudo(["rm", "-f", bak]));
+    return report(
+      "removed",
+      modified
+        ? `removed ${path} (file had been modified since it was installed)`
+        : `removed ${path}`,
+    );
+  } catch {
+    return report(
+      "outcome-unknown",
+      `Connection or execution failed during the change. Inspect ${path} and ${bak} before retrying.`,
+    );
+  }
 }

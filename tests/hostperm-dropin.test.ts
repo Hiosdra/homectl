@@ -350,7 +350,35 @@ describe("applyGrant", () => {
     host.log.length = 0;
     const report = await applyGrant(host.exec, plan);
     expect(report.status).toBe("unchanged");
-    expect(host.log.length).toBe(0);
+    expect(report.steps.map((step) => step.id)).toEqual(["reread"]);
+  });
+
+  test("an unchanged preview refuses subsequent drift", async () => {
+    const host = new FakeHost();
+    host.put(PATH, desiredGrant(), { mode: "0440" });
+    const plan = await planGrant(host.exec, "oskar", desiredGrant());
+    host.put(PATH, desiredGrant("changed"), { mode: "0440" });
+    const report = await applyGrant(host.exec, plan);
+    expect(report.status).toBe("refused");
+    expect(report.reason).toContain("drift");
+    expect(host.text(PATH)).toBe(desiredGrant("changed"));
+  });
+
+  test("a disconnect during the swap preserves the backup for inspection", async () => {
+    const host = new FakeHost();
+    const previous = desiredGrant("old-id");
+    host.put(PATH, previous, { mode: "0440" });
+    const desired = desiredGrant("new-id");
+    const plan = await planGrant(host.exec, "oskar", desired);
+    const report = await applyGrant(async (argv, options) => {
+      const result = await host.exec(argv, options);
+      if (argv[2] === "mv" && argv.at(-1) === PATH)
+        throw new Error("connection lost");
+      return result;
+    }, plan);
+    expect(report.status).toBe("outcome-unknown");
+    expect(host.text(PATH)).toBe(desired);
+    expect(host.text("/etc/sudoers.d/.homectl-oskar.bak")).toBe(previous);
   });
 
   test("a plan for another path is rejected", async () => {
