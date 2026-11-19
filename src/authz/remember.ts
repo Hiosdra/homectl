@@ -23,8 +23,8 @@ function assertAllowable(req: ActionRequest): void {
     throw new HomectlError(2, "An exec allow rule needs exact argv");
 }
 
-// Exact client, host, kind, argv, risk and sudo. Never a wildcard. The argv
-// prefix is the full argv, so a longer command that starts with it also matches.
+// Exact client, host, kind, argv, risk and sudo. Never a wildcard, and the
+// argv must match completely (a longer command does not match).
 export function exactMatch(req: ActionRequest): RuleMatch {
   const match: RuleMatch = {
     clients: [req.client],
@@ -34,7 +34,7 @@ export function exactMatch(req: ActionRequest): RuleMatch {
   };
   if (req.host !== undefined) match.hosts = [req.host];
   if (req.argv !== undefined && req.argv.length > 0)
-    match.argvPrefixes = [[...req.argv]];
+    match.argvExact = [[...req.argv]];
   if (req.resource !== undefined) match.resources = [req.resource];
   return match;
 }

@@ -131,6 +131,10 @@ export interface RuleMatch {
   // Each entry is an exact argv prefix; ["systemctl","status"] matches
   // systemctl status <anything>. Empty list = no argv constraint.
   argvPrefixes?: string[][];
+  // Each entry is a complete argv; the request must equal one of them.
+  // Remembered and reviewer-suggested rules use this, never prefixes.
+  // Empty list fails closed.
+  argvExact?: string[][];
   classifications?: Classification[];
   resources?: string[];
   // Rule applies only up to this risk (inclusive).

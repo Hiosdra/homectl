@@ -145,7 +145,7 @@ describe("ruleFromDecision", () => {
         clients: ["agent-a"],
         hosts: ["lab-printer"],
         kinds: ["exec"],
-        argvPrefixes: [["systemctl", "status", "klipper"]],
+        argvExact: [["systemctl", "status", "klipper"]],
         maxRisk: "R2",
         sudo: false,
       },
@@ -163,7 +163,29 @@ describe("ruleFromDecision", () => {
       "r-2",
     );
     argv.push("--evil");
-    expect(built.match.argvPrefixes).toEqual([["uptime"]]);
+    expect(built.match.argvExact).toEqual([["uptime"]]);
+  });
+
+  test("a remembered rule does not cover a longer command", () => {
+    const rule = ruleFromDecision(
+      req({ argv: ["systemctl", "restart", "nginx"] }),
+      "allow",
+      NOW,
+      "r-exact",
+    );
+    expect(
+      ruleApplies(rule, req({ argv: ["systemctl", "restart", "nginx"] }), NOW),
+    ).toBe(true);
+    expect(
+      ruleApplies(
+        rule,
+        req({ argv: ["systemctl", "restart", "nginx", "postgres"] }),
+        NOW,
+      ),
+    ).toBe(false);
+    expect(
+      ruleApplies(rule, req({ argv: ["systemctl", "restart"] }), NOW),
+    ).toBe(false);
   });
 
   test("throws for an allow on a human-only kind or on R4", () => {

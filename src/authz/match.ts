@@ -33,6 +33,16 @@ export function matchesScope(match: RuleMatch, req: ActionRequest): boolean {
   )
     return false;
   if (
+    match.argvExact !== undefined &&
+    (req.argv === undefined ||
+      !match.argvExact.some(
+        (e) =>
+          e.length === req.argv?.length &&
+          e.every((t, i) => req.argv?.[i] === t),
+      ))
+  )
+    return false;
+  if (
     match.classifications !== undefined &&
     (req.classification === undefined ||
       !match.classifications.includes(req.classification))

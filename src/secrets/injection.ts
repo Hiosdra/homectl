@@ -26,8 +26,8 @@ export type InjectionPlan =
       kind: "target-file";
       host: string;
       steps: [
-        { argv: string[]; stdin: string },
         { argv: string[]; stdin?: undefined },
+        { argv: string[]; stdin: string },
       ];
     };
 
@@ -107,17 +107,20 @@ export function injectionPlan(
       const host = checkHostShape(destination.host);
       const path = checkAbsolutePath(destination.path);
       const mode = checkFileMode(destination.mode);
-      // Both steps only ever carry the path and mode in argv.
+      // Both steps only ever carry the path and mode in argv. The file is
+      // created empty with its final mode first, so the value is never
+      // readable through a default-umask file; dd then truncates and writes
+      // it, keeping that mode.
       assertNoLeak([path, mode], secrets);
       return {
         kind: "target-file",
         host,
         steps: [
+          { argv: ["install", "-m", mode, "/dev/null", path] },
           {
             argv: ["dd", `of=${path}`, "status=none"],
             stdin: stdinFor(entries),
           },
-          { argv: ["chmod", mode, path] },
         ],
       };
     }

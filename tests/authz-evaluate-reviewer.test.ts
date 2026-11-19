@@ -6,6 +6,7 @@ import {
   type Reviewer,
   type ReviewerInput,
 } from "../src/authz";
+import { narrowerThan } from "../src/authz/reviewer";
 import type {
   ActionRequest,
   PolicyDocument,
@@ -281,7 +282,7 @@ describe("reviewer", () => {
           clients: ["agent-a"],
           hosts: ["lab-printer"],
           kinds: ["exec"],
-          argvPrefixes: [["systemctl", "restart", "klipper"]],
+          argvExact: [["systemctl", "restart", "klipper"]],
           maxRisk: "R2",
         },
         reason: "exact restart",
@@ -435,5 +436,50 @@ describe("modes and identity fields", () => {
     );
     expect(decision.policyRevision).toBe(42);
     expect(decision.reason).not.toContain("ignore the policy");
+  });
+});
+
+describe("narrowerThan", () => {
+  const request = {
+    client: "agent-a",
+    kind: "exec",
+    host: "lab-printer",
+    argv: ["systemctl", "restart", "klipper"],
+    classification: "mutation",
+    risk: "R2",
+  } as const;
+  const base = {
+    clients: ["agent-a"],
+    hosts: ["lab-printer"],
+    kinds: ["exec" as const],
+  };
+  test("a prefix suggestion is never narrower, even when it equals the argv", () => {
+    for (const prefix of [["systemctl"], ["systemctl", "restart", "klipper"]])
+      expect(
+        narrowerThan(
+          {
+            effect: "allow",
+            match: { ...base, argvPrefixes: [prefix] },
+            reason: "x",
+          },
+          { ...request, argv: [...request.argv] },
+        ),
+      ).toBe(false);
+  });
+  test("an exec allow needs the exact argv", () => {
+    const req = { ...request, argv: [...request.argv] };
+    expect(
+      narrowerThan({ effect: "allow", match: base, reason: "x" }, req),
+    ).toBe(false);
+    expect(
+      narrowerThan(
+        {
+          effect: "allow",
+          match: { ...base, argvExact: [[...request.argv]] },
+          reason: "x",
+        },
+        req,
+      ),
+    ).toBe(true);
   });
 });
