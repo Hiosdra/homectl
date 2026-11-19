@@ -210,10 +210,6 @@ const pages: Record<string, Page> = {
             "--impact TEXT",
             "Describe concrete targets and effects for review.",
           ],
-          [
-            "--approval DIGEST",
-            "Use the exact plan digest after human confirmation.",
-          ],
         ],
       },
       globalOptions,
