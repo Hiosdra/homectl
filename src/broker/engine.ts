@@ -21,6 +21,7 @@ import {
 import { HomectlError } from "../types";
 import { type DispatchContext, dispatch } from "./dispatch";
 import {
+  actionOf,
   operationFingerprint,
   planExec,
   toView,
@@ -57,20 +58,8 @@ export interface BrokerOptions {
   now?: () => number;
   // Shown to agents so they can tell the user where to approve.
   approvalSurface?: string;
-}
-
-function actionOf(op: BrokerOperation): ActionRequest {
-  return {
-    client: op.client,
-    ...(op.task ? { task: op.task } : {}),
-    kind: "exec",
-    host: op.host,
-    argv: op.argv,
-    sudo: op.sudo,
-    classification: op.classification,
-    risk: op.risk,
-    ...(op.narrative ? { narrative: op.narrative } : {}),
-  };
+  // See DispatchContext.gate.
+  gate?: () => string | undefined;
 }
 
 export class Broker {
@@ -246,6 +235,7 @@ export class Broker {
       executor: this.options.executor,
       now: this.now,
       emit: (op) => this.emit(op, "operation.updated"),
+      ...(this.options.gate ? { gate: this.options.gate } : {}),
     };
   }
 
@@ -367,6 +357,26 @@ export class Broker {
   }
 
   // ---------------------------------------------------------------- owner
+
+  // Vault lock: nothing queued survives it; agents resubmit after unlock.
+  async invalidatePending(reason: string): Promise<number> {
+    const now = this.now();
+    const changed = await this.options.store.update((state) => {
+      const ops = Object.values(state.operations).filter(
+        (op) => op.state === "awaiting-approval",
+      );
+      for (const op of ops)
+        Object.assign(op, {
+          state: "cancelled",
+          reason,
+          finishedAt: now,
+          updatedAt: now,
+        });
+      return ops;
+    });
+    for (const op of changed) await this.emit(op, "operation.updated");
+    return changed.length;
+  }
 
   async pending(): Promise<BrokerOperation[]> {
     const now = this.now();

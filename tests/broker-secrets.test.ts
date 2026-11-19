@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callBroker } from "../src/broker/client";
 import { startDaemon } from "../src/broker/daemon";
+import type { FileVerifier } from "../src/broker/owner";
 import { compatPaths } from "../src/broker/paths";
 import { canaryLeaks } from "../src/secrets";
 
@@ -44,7 +45,7 @@ test("a secret reaches only its bound destination and never the agent", async ()
     },
   });
   stop = daemon.stop;
-  await daemon.verifier.set(PASSWORD);
+  await (daemon.verifier as FileVerifier).set(PASSWORD);
   const endpoint = daemon.endpoint;
   const { token: owner } = await callBroker<{ token: string }>(
     "/v1/owner/login",
