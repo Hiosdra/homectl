@@ -10,6 +10,7 @@ import {
   ownedByCurrentUser,
   privateDirectory,
   protect,
+  windows,
 } from "./platform";
 
 export type CommandHistoryStatus =
@@ -116,6 +117,11 @@ export class CommandHistoryStore {
   readonly path: string;
   readonly directory: string;
   private chain: Promise<void> = Promise.resolve();
+  // On Windows each ownership or permission check starts PowerShell (about
+  // 250 ms), so successful checks are remembered for this store. Any failed
+  // write forgets them and the next write checks everything again.
+  private directoryReady = false;
+  private fileTrusted = false;
   private readonly maxEntries: number;
   private readonly maxAgeDays: number;
   private readonly getUid: () => number | undefined;
@@ -160,14 +166,15 @@ export class CommandHistoryStore {
     malformedLines: number;
   }> {
     await this.chain;
+    const trusted = this.directoryReady && this.fileTrusted;
     if (
       !(await this.exists(this.directory)) ||
-      !(await ownedByCurrentUser(this.directory))
+      (!trusted && !(await ownedByCurrentUser(this.directory)))
     )
       return { entries: [], malformedLines: 0 };
     if (
       !(await this.exists(this.path)) ||
-      !(await ownedByCurrentUser(this.path))
+      (!trusted && !(await ownedByCurrentUser(this.path)))
     )
       return { entries: [], malformedLines: 0 };
     return parseHistory(await readFile(this.path, "utf8"));
@@ -197,6 +204,7 @@ export class CommandHistoryStore {
         if (!(await this.exists(this.path))) return true;
         if (!(await ownedByCurrentUser(this.path))) return false;
         await unlink(this.path);
+        this.fileTrusted = false;
         return true;
       },
     );
@@ -209,18 +217,27 @@ export class CommandHistoryStore {
       );
       return;
     }
-    if (!(await ownedByCurrentUser(dirname(this.directory)))) {
-      this.warn(
-        "Local command history was not written because the state directory belongs to another user.",
+    try {
+      if (!this.directoryReady) {
+        if (!(await ownedByCurrentUser(dirname(this.directory)))) {
+          this.warn(
+            "Local command history was not written because the state directory belongs to another user.",
+          );
+          return;
+        }
+        await privateDirectory(this.directory);
+        this.directoryReady = true;
+      }
+      await withFileLock(
+        join(this.directory, ".commands.lock"),
+        "Command history",
+        () => this.appendLocked(input),
       );
-      return;
+    } catch (error) {
+      this.directoryReady = false;
+      this.fileTrusted = false;
+      throw error;
     }
-    await privateDirectory(this.directory);
-    await withFileLock(
-      join(this.directory, ".commands.lock"),
-      "Command history",
-      () => this.appendLocked(input),
-    );
   }
 
   private async appendLocked(input: LocalCommandHistoryInput): Promise<void> {
@@ -260,9 +277,11 @@ export class CommandHistoryStore {
     const metadata = await lstat(this.path);
     if (!metadata.isFile() || metadata.isSymbolicLink())
       throw new Error("Command history path is not a regular file");
-    if (!(await ownedByCurrentUser(this.path)))
-      throw new Error("Command history file belongs to another user");
-    await protect(this.path);
+    if (!this.fileTrusted) {
+      if (!(await ownedByCurrentUser(this.path)))
+        throw new Error("Command history file belongs to another user");
+      await protect(this.path);
+    }
     return parseHistory(await readFile(this.path, "utf8")).entries;
   }
 
@@ -271,8 +290,11 @@ export class CommandHistoryStore {
     const text = `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
     try {
       await writeFile(temp, text, { mode: 0o600, flag: "wx" });
-      await protect(temp);
+      // On Windows the temp file inherits the private directory's owner-only
+      // ACL, which privateDirectory set for this store.
+      if (!windows) await protect(temp);
       await atomicReplace(temp, this.path);
+      this.fileTrusted = true;
     } catch (error) {
       await unlink(temp).catch(() => undefined);
       throw error;
