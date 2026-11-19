@@ -1,0 +1,18 @@
+# High-severity advisories accepted until the owner decides on the fix. One GHSA id per line.
+# All 13 are @xmldom/xmldom 0.7.x, pulled in by kdbxweb@2.1.1 (the KeePass vault format),
+# which pins "@xmldom/xmldom": "^0.7.4". Bun cannot upgrade them within that range.
+# The fix is an overrides entry for @xmldom/xmldom 0.8.x; it changes how the vault parses
+# XML and needs a KDBX round-trip test first. Remove a line when its advisory is fixed.
+GHSA-wh4c-j3r5-mjhp  # XML injection via CDATA serialization
+GHSA-2v35-w6hq-6mfw  # recursion in XML serialization (DoS)
+GHSA-f6ww-3ggp-fr8h  # DocumentType serialization injection
+GHSA-x6wf-f3px-wcqx  # processing instruction serialization injection
+GHSA-j759-j44w-7fr8  # comment serialization injection
+GHSA-w2rr-34g9-rvrj  # createElement() bypasses requireWellFormed
+GHSA-4w3w-2rp5-g8jm  # setAttribute() bypasses requireWellFormed
+GHSA-c7q8-3ch8-vqpv  # processing instruction target injection
+GHSA-27p8-2357-5qqv  # DocType name injection
+GHSA-8344-3jmq-59r6  # quadratic attribute deduplication
+GHSA-x4fp-j954-r2f4  # end-tag whitespace regex ReDoS
+GHSA-965w-775f-mr7g  # quadratic memory consumption
+GHSA-93r5-fhx6-vmg9  # quadratic parsing on malformed input
