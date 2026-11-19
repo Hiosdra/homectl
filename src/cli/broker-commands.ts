@@ -409,7 +409,7 @@ export async function brokerCommand(
     case "owner": {
       const [action, host] = positionals;
       if (
-        action === "inspect-host" &&
+        (action === "inspect-host" || action === "preview-host-grant") &&
         host &&
         positionals.length === 2 &&
         argv.length === 0
@@ -417,7 +417,9 @@ export async function brokerCommand(
         const auth = await ownerAuth(inventoryPath);
         emit(
           await callBroker(
-            "/v1/owner/hosts/inspect",
+            action === "inspect-host"
+              ? "/v1/owner/hosts/inspect"
+              : "/v1/owner/hosts/preview-grant",
             { host, password: auth.password },
             auth,
           ),
@@ -427,7 +429,7 @@ export async function brokerCommand(
       if (action !== "init")
         throw new HomectlError(
           2,
-          "Usage: home-ctl owner init | inspect-host <host>",
+          "Usage: home-ctl owner init | inspect-host <host> | preview-host-grant <host>",
         );
       const mode = v.mode ?? "compat";
       if (mode !== "compat")

@@ -58,8 +58,11 @@ function routes(resultCode = 0) {
       .replaceAll("\\\\", "\\");
     expect(await readFile(pinsPath, "utf8")).toBe(`${exactPin}\n${revoked}\n`);
     const command = spec.argv.at(-1);
+    // No drop-in yet: cat fails and the absence check succeeds.
+    const missingDropIn =
+      command === "'sudo' '-n' 'cat' '/etc/sudoers.d/homectl-operator'";
     return {
-      exitCode: resultCode,
+      exitCode: missingDropIn ? 1 : resultCode,
       stderr: "ignored remote detail",
       stdout:
         command === "'uname' '-s' '-m'"
@@ -138,4 +141,36 @@ test("an SSH transport failure stops inspection and removes its temporary pins",
   ).rejects.toThrow("SSH inspection failed");
   expect(calls).toHaveLength(1);
   expect(await readdir(dir)).toEqual(["known_hosts"]);
+});
+
+test("grant preview shows the literal sudo rule from inventory without writing remotely", async () => {
+  await writeFile(join(dir, "known_hosts"), `${exactPin}\n${revoked}\n`);
+  machine.sudo_allow = [["/usr/bin/systemctl", "restart", "fixture.service"]];
+  try {
+    const result = await routes().owner(
+      "/v1/owner/hosts/preview-grant",
+      { host, password: "fixture" },
+      stepUp,
+    );
+    expect(result).toMatchObject({
+      host,
+      grant: {
+        path: "/etc/sudoers.d/homectl-operator",
+        changed: true,
+        foreign: false,
+        diff: expect.stringContaining(
+          "/usr/bin/systemctl restart fixture.service",
+        ),
+        fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+    });
+    // Read-only: nothing that writes, moves or deletes ran on the host.
+    const commands = calls.map((spec) => spec.argv.at(-1) ?? "");
+    expect(commands.some((c) => /'(install|mv|rm|cp|visudo)'/.test(c))).toBe(
+      false,
+    );
+    expect(await readdir(dir)).toEqual(["known_hosts"]);
+  } finally {
+    delete machine.sudo_allow;
+  }
 });

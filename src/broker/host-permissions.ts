@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { detectPlatform } from "../hostperm";
+import { fingerprint } from "../control/canonical";
+import { detectPlatform, planGrant, renderDropIn } from "../hostperm";
 import { collectHostKeys } from "../peer/hostkeys";
 import { run } from "../process";
 import { trustedHostProbeSpec } from "../transports";
@@ -22,7 +23,8 @@ export class HostPermissionRoutes implements RouteExtension {
     input: Record<string, unknown>,
     stepUp: (password: unknown) => Promise<void>,
   ): Promise<unknown> {
-    if (path !== "/v1/owner/hosts/inspect") return undefined;
+    const preview = path === "/v1/owner/hosts/preview-grant";
+    if (path !== "/v1/owner/hosts/inspect" && !preview) return undefined;
     const host = input.host;
     if (
       typeof host !== "string" ||
@@ -33,6 +35,9 @@ export class HostPermissionRoutes implements RouteExtension {
     const machine = await this.inventory.machine(host);
     if (!machine || !(await this.inventory.hosts()).includes(host))
       throw new HomectlError(3, "Host is not in the broker inventory");
+    const desired = preview
+      ? this.desiredGrant(machine.user, machine.sudo_allow)
+      : undefined;
     const knownHosts = join(dirname(this.inventoryPath), "known_hosts");
     const stored = await readFile(knownHosts, "utf8").catch(() => "");
     const pinned = Object.values(
@@ -54,7 +59,7 @@ export class HostPermissionRoutes implements RouteExtension {
         mode: 0o600,
       });
       const deadline = Date.now() + 45_000;
-      const platform = await detectPlatform(async (argv) => {
+      const exec = async (argv: string[]) => {
         const unavailable = this.gate();
         if (unavailable) throw new HomectlError(3, unavailable);
         const remaining = deadline - Date.now();
@@ -71,11 +76,48 @@ export class HostPermissionRoutes implements RouteExtension {
             "SSH inspection failed. Check the pinned host key, broker credential and network.",
           );
         return result;
+      };
+      const platform = await detectPlatform(exec);
+      if (desired === undefined || !platform.supports.dropIns)
+        return { host, platform };
+      const plan = await planGrant(exec, desired.user, desired.content, {
+        os: platform.os,
       });
-      return { host, platform };
+      return {
+        host,
+        platform,
+        grant: {
+          path: plan.path,
+          changed: plan.changed,
+          foreign: plan.foreign,
+          ...(plan.foreign ? {} : { diff: plan.diff }),
+          fingerprint: fingerprint({
+            host,
+            address: machine.address ?? "",
+            port: machine.port ?? 22,
+            pins: pinned,
+            revocations,
+            path: plan.path,
+            current: plan.current ?? null,
+            desired: plan.desired,
+          }),
+        },
+      };
     } finally {
       await rm(pins, { force: true });
       await rmdir(work);
     }
+  }
+
+  private desiredGrant(user: string | undefined, argv: string[][] | undefined) {
+    if (!user || !argv?.length)
+      throw new HomectlError(
+        3,
+        "The inventory host has no literal sudo grants to preview",
+      );
+    return {
+      user,
+      content: renderDropIn(user, { kind: "allow", argv }, "inventory-grant"),
+    };
   }
 }
