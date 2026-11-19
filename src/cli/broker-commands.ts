@@ -24,6 +24,7 @@ export const BROKER_COMMANDS = new Set([
   "cancel",
   "task",
   "agent",
+  "mcp",
 ]);
 
 export const APPROVAL_REMOVED =
@@ -57,7 +58,7 @@ async function agentAuth(inventoryPath: string) {
   if (!token)
     throw new HomectlError(
       3,
-      "This agent has no homectl client token. The owner connects it with `home-ctl agent add`.",
+      "This agent has no homectl client token. The owner connects it with `home-ctl agent connect`.",
     );
   return { endpoint, authorization: `Bearer ${token}` };
 }
@@ -415,6 +416,10 @@ export async function brokerCommand(
       emit({ owner: "set" }, "Owner password set.");
       return 0;
     }
+    case "mcp":
+      // stdio MCP server: stdout carries protocol messages only.
+      await (await import("../mcp/stdio")).runMcpStdio({ inventoryPath });
+      return 0;
     case "daemon":
       return (await import("./daemon-command")).daemonCommand(positionals, {
         inventoryPath,
