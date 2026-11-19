@@ -407,9 +407,28 @@ export async function brokerCommand(
       );
     }
     case "owner": {
-      const [action] = positionals;
+      const [action, host] = positionals;
+      if (
+        action === "inspect-host" &&
+        host &&
+        positionals.length === 2 &&
+        argv.length === 0
+      ) {
+        const auth = await ownerAuth(inventoryPath);
+        emit(
+          await callBroker(
+            "/v1/owner/hosts/inspect",
+            { host, password: auth.password },
+            auth,
+          ),
+        );
+        return 0;
+      }
       if (action !== "init")
-        throw new HomectlError(2, "Usage: home-ctl owner init");
+        throw new HomectlError(
+          2,
+          "Usage: home-ctl owner init | inspect-host <host>",
+        );
       const mode = v.mode ?? "compat";
       if (mode !== "compat")
         throw new HomectlError(
