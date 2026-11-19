@@ -71,7 +71,7 @@ function RunCommand({ command }: { command: SavedCommand }) {
           ))}
           <div className="flex justify-end gap-2.5">
             <Action action="saved-command-cancel-run" label="Back to commands" />
-            <Button type="submit">Review and run</Button>
+            <Button type="submit">Preview command</Button>
           </div>
         </form>
       )}
