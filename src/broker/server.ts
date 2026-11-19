@@ -21,6 +21,21 @@ export type Listen =
   | { kind: "unix"; path: string }
   | { kind: "tcp"; hostname: "127.0.0.1"; port: number };
 
+// Extra route groups (secrets, events, vault). Each returns undefined for a
+// path it does not own. Owner routes run only after owner authentication.
+export interface RouteExtension {
+  agent?(
+    path: string,
+    input: Record<string, unknown>,
+    client: ClientIdentity,
+  ): Promise<unknown>;
+  owner?(
+    path: string,
+    input: Record<string, unknown>,
+    stepUp: (password: unknown) => Promise<void>,
+  ): Promise<unknown>;
+}
+
 export interface BrokerServerOptions {
   broker: Broker;
   clients: ClientAuth;
@@ -29,6 +44,7 @@ export interface BrokerServerOptions {
   // Exact origins allowed to use the owner cookie (the panel).
   allowedOrigins: string[];
   admin?: ClientAdmin;
+  extensions?: RouteExtension[];
 }
 
 const STATUS: Record<number, number> = { 2: 400, 3: 403, 4: 409, 5: 503 };
@@ -149,6 +165,10 @@ export function handler(options: BrokerServerOptions) {
       case "/v1/task/close":
         return broker.closeTask(client, str(input.id, "id"));
       default:
+        for (const extension of options.extensions ?? []) {
+          const result = await extension.agent?.(path, input, client);
+          if (result !== undefined) return result;
+        }
         return undefined;
     }
   }
@@ -230,6 +250,10 @@ export function handler(options: BrokerServerOptions) {
         );
       }
       default:
+        for (const extension of options.extensions ?? []) {
+          const result = await extension.owner?.(path, input, requireStepUp);
+          if (result !== undefined) return json(result);
+        }
         return json({ error: { code: 2, message: "Not found" } }, 404);
     }
   }

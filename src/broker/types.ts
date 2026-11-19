@@ -137,6 +137,7 @@ export interface ExecutorPort {
     machine: Machine;
     argv: string[];
     operationId: string;
+    stdin?: string;
   }): Promise<ProcessResult>;
 }
 
