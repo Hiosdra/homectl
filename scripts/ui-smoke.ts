@@ -23,6 +23,7 @@ import {
   denyReadyRequest,
   editMachine,
   openRequest,
+  verifyLocalCommandPreview,
   verifySavedCommandEditor,
 } from "./ui-smoke-steps";
 
@@ -259,13 +260,7 @@ try {
   await expect(page.getByLabel(/^Program$/)).toHaveValue("uname");
   await expect(page.getByLabel(/^Arguments/)).toHaveValue("-s");
   await page.locator("#command-impact").fill("Inspect the operating system");
-  await page.getByRole("button", { name: "Review command" }).click();
-  await expect(page.locator("#confirm-dialog")).toBeVisible();
-  await expect(
-    page.locator("#confirm-dialog button[value=confirm]"),
-  ).toBeEnabled();
-  await page.locator("#confirm-dialog button[value=cancel]").click();
-  await expect(page.locator("#confirm-dialog")).toHaveCount(0);
+  await verifyLocalCommandPreview(page);
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByRole("link", { name: /^Sync/ }).click();
   await expect(

@@ -16,7 +16,7 @@ import type { Preview } from "./types";
 
 // Shown when a local run is requested here: this panel only previews the plan.
 export const OWNER_APPROVAL_NOTICE =
-  "Local commands are approved in the owner panel now (home-ctl daemon panel). This page only shows the plan.";
+  "This panel previews local commands. Submit the command through the broker to request owner approval.";
 
 export function parseSavedCommandArgv(value: string): string[] {
   let parsed: unknown;
@@ -93,7 +93,7 @@ export function handleSubmit(form: HTMLFormElement) {
       render();
       // Local runs no longer use the digest approval flow: the owner approves
       // through the broker's owner panel. Peer requests keep their own path.
-      if (!id) throw new Error(OWNER_APPROVAL_NOTICE);
+      if (!id) return report(OWNER_APPROVAL_NOTICE, "notice");
       if (
         !(await confirm(
           `Run on ${host}?`,
@@ -174,7 +174,7 @@ export function handleSubmit(form: HTMLFormElement) {
       ui.result = preview;
       render();
       // Saved commands run only after an owner approval in the owner panel.
-      throw new Error(OWNER_APPROVAL_NOTICE);
+      return report(OWNER_APPROVAL_NOTICE, "notice");
     }
     if (formId === "audit-filter-form") {
       ui.auditFilters = {
