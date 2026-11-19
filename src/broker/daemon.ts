@@ -13,7 +13,7 @@ import { migrate } from "../migrate";
 import { execute } from "../operations";
 import { atomicReplace, privateDirectory } from "../platform";
 import { planExecution } from "../policies";
-import { BasicPolicy } from "./basic-policy";
+import { AuthzPolicy } from "./authz-policy";
 import { ClientAdmin } from "./clients-admin";
 import { Broker } from "./engine";
 import { FileVerifier, OwnerSessions } from "./owner";
@@ -86,7 +86,12 @@ export async function startDaemon(config: DaemonConfig) {
       id: fingerprintOf(key.publicKey).replaceAll(" ", ""),
       name: "this device",
     },
-    policy: config.policy ?? new BasicPolicy(),
+    policy:
+      config.policy ??
+      new AuthzPolicy({
+        path: join(config.state, "policy.json"),
+        now: Date.now,
+      }),
     inventory: inventoryPort(config.inventoryPath),
     executor:
       config.executor ??

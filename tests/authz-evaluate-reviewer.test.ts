@@ -405,14 +405,24 @@ describe("task scope, closure and budgets", () => {
   test("the task operation budget stops at taskMaxOperations", async () => {
     const policy = withPolicy();
     policy.rules.push(
-      rule("allow-printer", "allow", { hosts: ["lab-printer"], maxRisk: "R1" }),
+      rule("allow-printer", "allow", { hosts: ["lab-printer"], maxRisk: "R2" }),
     );
     const full = task({ used: { operations: 50, riskPoints: 0 } });
+    const decision = await evaluate(req(), ctx({ policy, task: full }));
+    expect(decision).toMatchObject({ verdict: "ask", source: "budget" });
+  });
+
+  test("reads are exempt from budgets", async () => {
+    const policy = withPolicy();
+    policy.rules.push(
+      rule("allow-printer", "allow", { hosts: ["lab-printer"], maxRisk: "R1" }),
+    );
+    const full = task({ used: { operations: 50, riskPoints: 60 } });
     const decision = await evaluate(
       req({ risk: "R1", classification: "inspect" }),
-      ctx({ policy, task: full }),
+      ctx({ policy, task: full, clientRiskPoints: 10_000 }),
     );
-    expect(decision).toMatchObject({ verdict: "ask", source: "budget" });
+    expect(decision.verdict).toBe("allow");
   });
 });
 

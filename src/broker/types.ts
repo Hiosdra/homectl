@@ -120,6 +120,8 @@ export interface PolicyContext {
 export interface PolicyPort {
   evaluate(req: ActionRequest, ctx: PolicyContext): Promise<PolicyDecision>;
   revision(): Promise<number>;
+  // Rolling window for the per-client risk budget.
+  budgetWindowMs?(): Promise<number>;
   // Install an owner-reviewed narrow rule from a decision. Returns rule id.
   remember?(req: ActionRequest, effect: "allow" | "deny"): Promise<string>;
 }

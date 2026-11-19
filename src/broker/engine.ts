@@ -15,6 +15,7 @@ import {
   type ApprovalGrant,
   type DeviceRef,
   RISK_POINTS,
+  riskAtLeast,
   type TaskRecord,
 } from "../core/contracts";
 import { HomectlError } from "../types";
@@ -147,11 +148,14 @@ export class Broker {
         if (task.state === "open" && now >= task.expiresAt)
           task.state = "expired";
       }
+      const window =
+        (await this.options.policy.budgetWindowMs?.()) ?? CLIENT_WINDOW_MS;
       const clientRiskPoints = Object.values(state.operations)
         .filter(
           (o) =>
             o.client === client.id &&
-            now - o.createdAt < CLIENT_WINDOW_MS &&
+            riskAtLeast(o.risk, "R2") &&
+            now - o.createdAt < window &&
             o.state !== "denied" &&
             o.state !== "cancelled" &&
             o.state !== "expired",
@@ -379,7 +383,7 @@ export class Broker {
   // Called only by an owner surface after it authenticated the owner.
   async decide(input: DecideInput): Promise<DecideResult> {
     const now = this.now();
-    const revision = await this.options.policy.revision();
+    let revision = await this.options.policy.revision();
     const outcome = await this.options.store.update(async (state) => {
       const op = state.operations[input.operationId];
       if (!op) throw new HomectlError(3, "Unknown operation");
@@ -427,6 +431,8 @@ export class Broker {
             actionOf(op),
             "allow",
           );
+          // Saving the rule bumped the policy revision; bind the grant to it.
+          revision = await this.options.policy.revision();
         }
         const grant = issueGrant(this.options.key, {
           operationId: op.id,

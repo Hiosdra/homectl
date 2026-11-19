@@ -6,6 +6,7 @@ import {
   OWNER,
   type PolicyDocument,
   RISK_POINTS,
+  riskAtLeast,
   type TaskRecord,
 } from "../core/contracts";
 import { isHumanOnlyKind } from "./decision";
@@ -90,12 +91,15 @@ export function taskOutcome(
 }
 
 // Checked before rules, so an allow rule cannot be used to split a large
-// change into many small steps that each stay under the thresholds.
+// change into many small steps that each stay under the thresholds. Reads
+// (R0/R1) change nothing, so they neither count against nor hit a budget;
+// otherwise a long troubleshooting session would start prompting for cat.
 export function budgetOutcome(
   req: ActionRequest,
   ctx: Pick<EvaluateContext, "task" | "clientRiskPoints">,
   policy: PolicyDocument,
 ): Outcome | undefined {
+  if (!riskAtLeast(req.risk, "R2")) return undefined;
   const points = RISK_POINTS[req.risk];
   const budgets = policy.budgets;
   const ask = (reason: string): Outcome => ({
