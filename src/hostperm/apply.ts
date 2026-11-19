@@ -344,10 +344,13 @@ export async function revokeGrant(
       exec,
       steps,
       "verify-absent",
-      sudo(["test", "-e", path]),
+      sudo(["test", "!", "-e", path, "-a", "!", "-L", path]),
     );
-    if (gone.ok)
-      return await rollback("the drop-in is still present after removal");
+    if (!gone.ok)
+      return report(
+        "outcome-unknown",
+        `Could not verify that ${path} is absent. Inspect it and the backup at ${bak} before retrying.`,
+      );
 
     await runStep(exec, steps, "remove-backup", sudo(["rm", "-f", bak]));
     return report(

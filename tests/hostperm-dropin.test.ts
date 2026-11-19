@@ -157,6 +157,14 @@ describe("planGrant", () => {
     );
   });
 
+  test("a failed absence probe cannot establish that the drop-in is missing", async () => {
+    const host = new FakeHost();
+    host.failIf = (argv) => argv[2] === "test" && argv[3] === "!";
+    await expect(planGrant(host.exec, "oskar", desiredGrant())).rejects.toThrow(
+      "verify its absence",
+    );
+  });
+
   test("a live file that cannot be read is an error, not an assumed absence", async () => {
     const host = new FakeHost();
     host.put(PATH, desiredGrant());
@@ -398,6 +406,15 @@ describe("revokeGrant", () => {
     expect(report.status).toBe("removed");
     expect(host.files.has(PATH)).toBe(false);
     expect(host.files.has(BAK)).toBe(false);
+  });
+
+  test("a failed absence probe preserves the backup and reports uncertainty", async () => {
+    const host = new FakeHost();
+    host.put(PATH, desiredGrant(), { mode: "0440" });
+    host.failIf = (argv) => argv[2] === "test" && argv[3] === "!";
+    const report = await revokeGrant(host.exec, "oskar");
+    expect(report.status).toBe("outcome-unknown");
+    expect(host.text(BAK)).toBe(desiredGrant());
   });
 
   test("never removes a file without the homectl header", async () => {
