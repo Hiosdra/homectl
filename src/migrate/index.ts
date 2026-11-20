@@ -1,37 +1,54 @@
-// Versioned, transactional data migration (0.3.0, homelab #21 §3).
+// Versioned, transactional workspace migration (0.3.0, homelab #21 §3).
 //
-// A workspace is the directory holding the inventory. Its data version is kept
-// in `homectl-data.json`. A workspace without the marker but with legacy files
-// is version 2 (homectl 0.2.x). Migration:
-//   1. takes the workspace migration lock,
-//   2. copies every known workspace entry into a private, hash-verified backup,
-//   3. runs each pending step once (progress is recorded, so a re-run resumes),
-//   4. verifies every step, then writes the marker atomically.
-// Any failure restores the backup and leaves the workspace at its old version.
-import { createHash, randomUUID } from "node:crypto";
-import {
-  cp,
-  lstat,
-  mkdir,
-  readdir,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+// A workspace is the directory holding the inventory. Its data version lives
+// in `homectl-data.json`; a workspace without it but with 0.2 files is version
+// 2. A migration:
+//   1. takes the workspace migration lock and re-checks the version,
+//   2. backs up every file the chain declares it may touch (private, hashed),
+//   3. records progress, then runs and verifies each step in order,
+//   4. checks that no undeclared file changed,
+//   5. writes the version marker last.
+// Any failure restores the backup, so the workspace is either fully migrated
+// or exactly as it was. An interrupted run is rolled back before the next try.
+import { randomUUID } from "node:crypto";
+import { readFile, rm } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { compatPaths } from "../broker/paths";
 import { withFileLock } from "../control/file-lock";
-import { atomicReplace, privateDirectory } from "../platform";
+import { privateDirectory } from "../platform";
 import { HomectlError } from "../types";
+import {
+  BACKUP_DIRECTORY,
+  backupPaths,
+  captureWorkspace,
+  isInside,
+  PROGRESS_FILE,
+  restoreBackup,
+  toPosix,
+  writeFileAtomic,
+} from "./files";
 import { STEPS } from "./steps";
+import type {
+  Marker,
+  MigrationContext,
+  MigrationResult,
+  MigrationStep,
+  PlannedStep,
+} from "./types";
+
+export type {
+  Marker,
+  MarkerHistory,
+  MigrationContext,
+  MigrationResult,
+  MigrationStep,
+  PlannedStep,
+} from "./types";
 
 export const DATA_VERSION = 3;
 export const MARKER_FILE = "homectl-data.json";
-const PROGRESS_FILE = "migration-progress.json";
-const BACKUP_DIRECTORY = "backups";
 
-// Workspace entries that belong to homectl. Anything else in the directory is
-// left alone and is never copied. Runtime-only state (session sockets, locks)
-// is excluded on purpose: migration never resurrects sessions.
+// Workspace entries that identify a 0.2 install when no marker exists.
 export const WORKSPACE_ENTRIES = [
   MARKER_FILE,
   "control-plane",
@@ -46,59 +63,20 @@ export const WORKSPACE_ENTRIES = [
   "ssh_config",
 ] as const;
 
-export interface MigrationContext {
-  workspace: string;
-  inventoryPath: string;
-  now: number;
-  // Free-form notes a step reports to the owner (no secret values).
-  note(message: string): void;
+export interface MigrateOptions {
+  dryRun?: boolean;
+  clock?: () => number;
+  steps?: readonly MigrationStep[];
+  // Broker state directory. Defaults to the compat location beside the
+  // inventory; the daemon passes its own state directory.
+  brokerState?: string;
 }
-
-export interface MigrationStep {
-  id: string;
-  from: number;
-  to: number;
-  description: string;
-  run(context: MigrationContext): Promise<void>;
-  // Must throw when the step's result is not in place.
-  verify(context: MigrationContext): Promise<void>;
-}
-
-export interface MarkerHistory {
-  from: number;
-  to: number;
-  at: string;
-  backup: string;
-  steps: string[];
-}
-
-export interface Marker {
-  data_version: number;
-  history: MarkerHistory[];
-}
-
-export type MigrationResult =
-  | { status: "current"; version: number }
-  | { status: "initialized"; version: number }
-  | {
-      status: "planned";
-      from: number;
-      to: number;
-      steps: { id: string; description: string }[];
-    }
-  | {
-      status: "migrated";
-      from: number;
-      to: number;
-      backup: string;
-      steps: string[];
-      notes: string[];
-    };
 
 interface Progress {
   from: number;
   to: number;
   backup: string;
+  touched: string[];
   completed: string[];
 }
 
@@ -108,7 +86,7 @@ export function workspaceOf(inventoryPath: string): string {
 
 async function present(path: string): Promise<boolean> {
   try {
-    await lstat(path);
+    await readFile(path);
     return true;
   } catch {
     return false;
@@ -130,14 +108,8 @@ async function readJson<T>(path: string): Promise<T | undefined> {
   }
 }
 
-async function writeJson(path: string, value: unknown): Promise<void> {
-  const temp = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, {
-    mode: 0o600,
-    flag: "wx",
-  });
-  await atomicReplace(temp, path);
-}
+const writeJson = (path: string, value: unknown) =>
+  writeFileAtomic(path, `${JSON.stringify(value, null, 2)}\n`);
 
 function entriesFor(inventoryPath: string): string[] {
   const inventory = basename(resolve(inventoryPath));
@@ -158,99 +130,33 @@ export async function detectVersion(inventoryPath: string): Promise<number> {
   return 0;
 }
 
-async function hashTree(root: string): Promise<Record<string, string>> {
-  const result: Record<string, string> = {};
-  async function walk(path: string) {
-    const info = await lstat(path);
-    if (info.isSymbolicLink() || info.isSocket() || info.isFIFO()) return;
-    if (info.isDirectory()) {
-      for (const name of (await readdir(path)).sort())
-        await walk(join(path, name));
-      return;
-    }
-    const digest = createHash("sha256")
-      .update(await readFile(path))
-      .digest("hex");
-    result[relative(root, path).split("\\").join("/")] = digest;
-  }
-  if (await present(root)) await walk(root);
-  return result;
-}
-
-async function backupWorkspace(
-  inventoryPath: string,
-  from: number,
-  now: number,
-): Promise<string> {
-  const workspace = workspaceOf(inventoryPath);
-  const root = join(workspace, BACKUP_DIRECTORY);
-  await privateDirectory(root);
-  const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
-  const target = join(root, `migration-v${from}-${stamp}`);
-  await mkdir(target, { mode: 0o700 });
-  const manifest: Record<string, string> = {};
-  for (const entry of entriesFor(inventoryPath)) {
-    const source = join(workspace, entry);
-    if (!(await present(source))) continue;
-    await cp(source, join(target, entry), {
-      recursive: true,
-      // Never copy sockets or session state into a backup.
-      filter: async (path) => {
-        const info = await lstat(path);
-        return !info.isSocket() && !info.isFIFO() && !path.endsWith(".lock");
-      },
-    });
-    for (const [file, digest] of Object.entries(
-      await hashTree(join(target, entry)),
-    ))
-      manifest[file === "" ? entry : `${entry}/${file}`] = digest;
-  }
-  // Verify the copy against the source before any step runs.
-  for (const [file, digest] of Object.entries(manifest)) {
-    const copy = createHash("sha256")
-      .update(await readFile(join(workspace, file)))
-      .digest("hex");
-    if (copy !== digest)
-      throw new HomectlError(
-        5,
-        `Backup verification failed for ${file}; nothing was changed`,
-      );
-  }
-  await writeJson(join(target, "manifest.json"), { from, files: manifest });
-  return target;
-}
-
-async function restoreBackup(
-  inventoryPath: string,
-  backup: string,
-): Promise<void> {
-  const workspace = workspaceOf(inventoryPath);
-  for (const entry of entriesFor(inventoryPath)) {
-    const live = join(workspace, entry);
-    const saved = join(backup, entry);
-    if (await present(saved)) {
-      await rm(live, { recursive: true, force: true });
-      await cp(saved, live, { recursive: true });
-    } else if (entry === MARKER_FILE) {
-      await rm(live, { force: true });
-    }
-  }
-}
-
+// The chain runs hop by hop. Steps with the same from/to form one hop, and
+// hops must connect (each starts where the previous one ended). Steps of
+// hops before `from` are skipped.
 export function pendingSteps(
   from: number,
   steps: readonly MigrationStep[] = STEPS,
 ): MigrationStep[] {
   const chain: MigrationStep[] = [];
-  let version = from;
+  let hopFrom = from;
+  let hopTo: number | undefined;
   for (const step of steps) {
-    if (step.from < version) continue;
-    if (step.from !== version && step.to !== version)
-      throw new HomectlError(5, `Migration chain has a gap at v${version}`);
-    chain.push(step);
-    version = step.to;
+    if (step.from === hopFrom && (hopTo === undefined || step.to === hopTo)) {
+      chain.push(step);
+      hopTo = step.to;
+    } else if (hopTo !== undefined && step.from === hopTo) {
+      hopFrom = hopTo;
+      hopTo = step.to;
+      chain.push(step);
+    } else if (step.from >= hopFrom) {
+      throw new HomectlError(
+        5,
+        `Migration chain has a gap at v${hopTo ?? hopFrom}`,
+      );
+    }
+    // Otherwise the step belongs to a hop before `from`: already applied.
   }
-  if (from > 0 && from < DATA_VERSION && version !== DATA_VERSION)
+  if (from > 0 && from < DATA_VERSION && (hopTo ?? from) !== DATA_VERSION)
     throw new HomectlError(
       5,
       `No migration path from data version ${from} to ${DATA_VERSION}`,
@@ -258,17 +164,241 @@ export function pendingSteps(
   return chain;
 }
 
+function makeContext(
+  inventoryPath: string,
+  brokerState: string,
+  now: number,
+  notes: string[],
+): MigrationContext {
+  return {
+    workspace: workspaceOf(inventoryPath),
+    inventoryPath: resolve(inventoryPath),
+    brokerState,
+    now,
+    note: (message) => notes.push(message),
+  };
+}
+
+// Display name for a path a step touches: workspace-relative, or under the
+// broker state directory when it lives elsewhere.
+function displayName(context: MigrationContext, path: string): string {
+  if (isInside(context.workspace, path))
+    return toPosix(relative(context.workspace, path));
+  if (isInside(context.brokerState, path))
+    return `broker-state/${toPosix(relative(context.brokerState, path))}`;
+  return basename(path);
+}
+
+async function touchedBy(
+  chain: readonly MigrationStep[],
+  context: MigrationContext,
+): Promise<string[]> {
+  const paths: string[] = [];
+  for (const step of chain)
+    for (const path of await step.touches(context))
+      if (!paths.includes(path)) paths.push(path);
+  return paths;
+}
+
+function declaredSet(
+  workspace: string,
+  touched: readonly string[],
+): Set<string> {
+  return new Set(
+    touched
+      .filter((path) => isInside(workspace, path))
+      .map((path) => toPosix(relative(workspace, path))),
+  );
+}
+
+// Files outside the declared set that differ from `before`, changed or new.
+async function undeclaredChanges(
+  workspace: string,
+  before: Record<string, Buffer>,
+  touched: readonly string[],
+): Promise<{ changed: string[]; created: string[] }> {
+  const after = await captureWorkspace(workspace);
+  const declared = declaredSet(workspace, touched);
+  return {
+    changed: Object.entries(before)
+      .filter(
+        ([rel, bytes]) => !declared.has(rel) && !after[rel]?.equals(bytes),
+      )
+      .map(([rel]) => rel),
+    created: Object.keys(after).filter(
+      (rel) => !(rel in before) && !declared.has(rel),
+    ),
+  };
+}
+
+// Fails when a file outside the declared set changed, appeared or vanished.
+async function checkUntouched(
+  workspace: string,
+  before: Record<string, Buffer>,
+  touched: readonly string[],
+): Promise<void> {
+  const { changed, created } = await undeclaredChanges(
+    workspace,
+    before,
+    touched,
+  );
+  const names = [...changed, ...created];
+  if (names.length)
+    throw new HomectlError(
+      5,
+      `Migration changed files it does not declare: ${names.join(", ")}`,
+    );
+}
+
+// Undoes writes outside the declared set: changed files get their captured
+// bytes back, new files are removed. Declared files come from the backup.
+async function restoreUndeclared(
+  workspace: string,
+  before: Record<string, Buffer>,
+  touched: readonly string[],
+): Promise<void> {
+  const { changed, created } = await undeclaredChanges(
+    workspace,
+    before,
+    touched,
+  );
+  for (const rel of changed) {
+    const original = before[rel];
+    if (original) await writeFileAtomic(join(workspace, rel), original);
+  }
+  for (const rel of created) await rm(join(workspace, rel), { force: true });
+}
+
+// Rolls back a run that was interrupted (its progress file is still there).
+async function rollbackInterrupted(
+  workspace: string,
+  progressPath: string,
+): Promise<void> {
+  const progress = await readJson<Progress>(progressPath);
+  if (progress) {
+    const backups = join(workspace, BACKUP_DIRECTORY);
+    if (!isInside(backups, progress.backup))
+      throw new HomectlError(
+        5,
+        `${PROGRESS_FILE} points outside the workspace backups; check it before continuing`,
+      );
+    await restoreBackup(progress.backup);
+  }
+  await rm(progressPath, { force: true });
+}
+
+async function runLocked(
+  inventoryPath: string,
+  brokerState: string,
+  clock: () => number,
+  steps: readonly MigrationStep[],
+): Promise<MigrationResult> {
+  const workspace = workspaceOf(inventoryPath);
+  const now = clock();
+  // Re-check under the lock: another process may have finished first.
+  const version = await detectVersion(inventoryPath);
+  if (version === DATA_VERSION) return { status: "current", version };
+  const markerPath = join(workspace, MARKER_FILE);
+  if (version === 0) {
+    await writeJson(markerPath, { data_version: DATA_VERSION, history: [] });
+    return { status: "initialized", version: DATA_VERSION };
+  }
+  const notes: string[] = [];
+  const progressPath = join(workspace, PROGRESS_FILE);
+  if (await present(progressPath)) {
+    await rollbackInterrupted(workspace, progressPath);
+    notes.push("An interrupted migration was rolled back before this run");
+  }
+  const context = makeContext(inventoryPath, brokerState, now, notes);
+  const chain = pendingSteps(version, steps);
+  const touched = [markerPath, ...(await touchedBy(chain, context))];
+  const before = await captureWorkspace(workspace);
+  const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
+  const backup = join(
+    workspace,
+    BACKUP_DIRECTORY,
+    `migration-v${version}-${stamp}-${randomUUID().slice(0, 8)}`,
+  );
+  await backupPaths(backup, touched, {
+    from: version,
+    to: DATA_VERSION,
+    created: new Date(now).toISOString(),
+  });
+  const progress: Progress = {
+    from: version,
+    to: DATA_VERSION,
+    backup,
+    touched,
+    completed: [],
+  };
+  await writeJson(progressPath, progress);
+  let failedStep: string | undefined;
+  try {
+    for (const step of chain) {
+      failedStep = step.id;
+      await step.run(context);
+      await step.verify(context);
+      progress.completed.push(step.id);
+      await writeJson(progressPath, progress);
+    }
+    await checkUntouched(workspace, before, touched);
+    const previous = await readJson<Marker>(markerPath);
+    await writeJson(markerPath, {
+      data_version: DATA_VERSION,
+      history: [
+        ...(previous?.history ?? []),
+        {
+          from: version,
+          to: DATA_VERSION,
+          at: new Date(now).toISOString(),
+          backup: toPosix(relative(workspace, backup)),
+          steps: chain.map((step) => step.id),
+        },
+      ],
+    } satisfies Marker);
+  } catch (error) {
+    try {
+      await restoreUndeclared(workspace, before, touched);
+      await restoreBackup(backup);
+    } catch {
+      // Keep the progress file: the next run restores from the same backup.
+      throw new HomectlError(
+        5,
+        `Migration failed and the rollback did not verify; keep ${backup} and restore it before using homectl`,
+        { step: failedStep },
+      );
+    }
+    await rm(progressPath, { force: true });
+    throw new HomectlError(
+      5,
+      `Migration to data version ${DATA_VERSION} failed and was rolled back; the workspace is unchanged (backup: ${toPosix(relative(workspace, backup))})`,
+      {
+        step: failedStep,
+        reason: error instanceof Error ? error.message : undefined,
+      },
+    );
+  }
+  await rm(progressPath, { force: true });
+  return {
+    status: "migrated",
+    from: version,
+    to: DATA_VERSION,
+    backup,
+    steps: chain.map((step) => step.id),
+    notes,
+  };
+}
+
 export async function migrate(
   inventoryPath: string,
-  options: {
-    dryRun?: boolean;
-    clock?: () => number;
-    steps?: readonly MigrationStep[];
-  } = {},
+  options: MigrateOptions = {},
 ): Promise<MigrationResult> {
   const workspace = workspaceOf(inventoryPath);
   const clock = options.clock ?? Date.now;
   const steps = options.steps ?? STEPS;
+  const brokerState = resolve(
+    options.brokerState ?? compatPaths(inventoryPath).state,
+  );
   const from = await detectVersion(inventoryPath);
   if (from > DATA_VERSION)
     throw new HomectlError(
@@ -279,105 +409,23 @@ export async function migrate(
   if (options.dryRun) {
     if (from === 0)
       return { status: "planned", from, to: DATA_VERSION, steps: [] };
-    return {
-      status: "planned",
-      from,
-      to: DATA_VERSION,
-      steps: pendingSteps(from, steps).map(({ id, description }) => ({
-        id,
-        description,
-      })),
-    };
+    const context = makeContext(inventoryPath, brokerState, clock(), []);
+    const planned: PlannedStep[] = [];
+    for (const step of pendingSteps(from, steps))
+      planned.push({
+        id: step.id,
+        description: step.description,
+        touches: (await step.touches(context)).map((path) =>
+          displayName(context, path),
+        ),
+      });
+    return { status: "planned", from, to: DATA_VERSION, steps: planned };
   }
   await privateDirectory(workspace);
   return withFileLock(
     join(workspace, ".migrate.lock"),
     "Workspace migration",
-    async () => {
-      const now = clock();
-      // Re-check under the lock: another process may have finished first.
-      const version = await detectVersion(inventoryPath);
-      if (version === DATA_VERSION) return { status: "current", version };
-      const markerPath = join(workspace, MARKER_FILE);
-      if (version === 0) {
-        await writeJson(markerPath, {
-          data_version: DATA_VERSION,
-          history: [],
-        });
-        return { status: "initialized", version: DATA_VERSION };
-      }
-      const chain = pendingSteps(version, steps);
-      const progressPath = join(workspace, PROGRESS_FILE);
-      let progress = await readJson<Progress>(progressPath);
-      if (
-        progress &&
-        (progress.from !== version ||
-          progress.to !== DATA_VERSION ||
-          !(await present(progress.backup)))
-      )
-        throw new HomectlError(
-          5,
-          `${PROGRESS_FILE} does not match this workspace; restore from backups/ or remove it after checking`,
-        );
-      if (!progress) {
-        const backup = await backupWorkspace(inventoryPath, version, now);
-        progress = { from: version, to: DATA_VERSION, backup, completed: [] };
-        await writeJson(progressPath, progress);
-      }
-      const notes: string[] = [];
-      const context: MigrationContext = {
-        workspace,
-        inventoryPath: resolve(inventoryPath),
-        now,
-        note: (message) => notes.push(message),
-      };
-      try {
-        for (const step of chain) {
-          if (progress.completed.includes(step.id)) continue;
-          await step.run(context);
-          progress.completed.push(step.id);
-          await writeJson(progressPath, progress);
-        }
-        for (const step of chain) await step.verify(context);
-        const previous = await readJson<Marker>(markerPath);
-        await writeJson(markerPath, {
-          data_version: DATA_VERSION,
-          history: [
-            ...(previous?.history ?? []),
-            {
-              from: version,
-              to: DATA_VERSION,
-              at: new Date(now).toISOString(),
-              backup: relative(workspace, progress.backup)
-                .split("\\")
-                .join("/"),
-              steps: chain.map((step) => step.id),
-            },
-          ],
-        } satisfies Marker);
-        await rm(progressPath, { force: true });
-        return {
-          status: "migrated",
-          from: version,
-          to: DATA_VERSION,
-          backup: progress.backup,
-          steps: chain.map((step) => step.id),
-          notes,
-        };
-      } catch (error) {
-        await restoreBackup(inventoryPath, progress.backup);
-        await rm(progressPath, { force: true });
-        throw new HomectlError(
-          5,
-          `Migration to data version ${DATA_VERSION} failed and was rolled back; the workspace is unchanged (backup: ${progress.backup})`,
-          {
-            step: chain.find((step) => !progress?.completed.includes(step.id))
-              ?.id,
-            reason: error instanceof HomectlError ? error.message : undefined,
-          },
-        );
-      }
-    },
+    () => runLocked(inventoryPath, brokerState, clock, steps),
   );
 }
 

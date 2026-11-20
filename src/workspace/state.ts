@@ -1,13 +1,13 @@
 // Persisted workspace state (homelab #21 §6). The server keeps its identity,
-// a custody key that wraps client backup keys (D6A), the linked clients and
-// their mirrored status. A client keeps its link to at most one server. Both
-// files live in the broker's private state directory and hold link keys, so
-// they are written atomically with owner-only permissions.
+// a custody key that wraps client backup keys (D6A), the linked clients, their
+// mirrored status and the retired clients' evidence. A client keeps its link to
+// at most one server. Both files live in the broker's private state directory
+// and hold link keys, so they are written atomically with owner-only permissions.
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import type { EventEnvelope } from "../core/contracts";
+import type { DecisionSource, EventEnvelope } from "../core/contracts";
 import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
 
@@ -19,12 +19,52 @@ export interface PendingSummary {
   host: string;
   argv: string[];
   risk: string;
+  // Short description of the effect, built from host, argv and classification.
+  impact: string;
   fingerprint: string;
   reason: string;
+  // Where the decision stands: "review" while the Auto Mode reviewer decides.
+  // Absent from summaries sent by clients before this field existed.
+  source?: DecisionSource;
   stepUp: boolean;
   humanOnly: boolean;
   expiresAt: number;
   narrative?: { untrusted: string };
+}
+
+// The backup status a client reports with each sync (server-side lag view).
+export interface BackupReport {
+  seq: number;
+  lastAt?: number;
+  lastError?: string;
+}
+
+// A host key the client's known_hosts lists as @revoked.
+export interface HostKeyRef {
+  type: string;
+  blob: string;
+}
+
+// The revocations a client reports, taken at `at` on the client's clock.
+// policyRules is absent when the client could not read its policy, so an
+// unknown policy is never read as "every rule was revoked".
+export interface Revocations {
+  at: number;
+  hostKeys: HostKeyRef[];
+  policyRules?: string[];
+}
+
+// A restore delivered to a fresh client at pairing. Metadata only: the
+// plaintext is decrypted and sent on each delivery and never stored. The grant
+// is consumed only when the client acknowledges that it wrote the files.
+export interface RestoreGrant {
+  source: string; // the reset client's id (now revoked)
+  seq: number;
+  reason: string;
+  issuedAt: number;
+  expiresAt: number;
+  // The source's revocations at the time it was reset, reapplied on delivery.
+  revocations?: Revocations;
 }
 
 export type IntentDecision = "approve-once" | "deny-once";
@@ -58,6 +98,32 @@ export interface LinkedClient {
   mirror: { lastSeq: number; events: EventEnvelope[]; gaps?: number };
   pending: PendingSummary[];
   intents: Intent[];
+  backupReport?: BackupReport;
+  // Set by an owner; delivered once in the next sync reply.
+  backupRequested?: boolean;
+  revocations?: Revocations;
+  restore?: RestoreGrant;
+}
+
+// Why a client left the server. Each one keeps the client's evidence.
+export type RetireCause = "removed" | "restore" | "declined";
+
+// A client that left the server: read-only evidence of its last mirror, and
+// its wrapped backup key so its history stays restorable. Its id is in
+// `removed`, so it can never link again.
+export interface RetiredClient {
+  name: string;
+  platform: string;
+  joinedAt: number;
+  retiredAt: number;
+  cause: RetireCause;
+  wrappedBackupKey?: string;
+  revocations?: Revocations;
+  // False once the mirror was dropped to keep the history bounded. The key
+  // is kept either way.
+  historyKept: boolean;
+  mirror: { lastSeq: number; events: EventEnvelope[]; gaps: number };
+  pending: PendingSummary[];
 }
 
 export interface ServerState {
@@ -68,6 +134,7 @@ export interface ServerState {
   clients: Record<string, LinkedClient>;
   // Removed clients are remembered so a stale link can never come back.
   removed: string[];
+  retired?: Record<string, RetiredClient>;
 }
 
 export interface ClientLink {
@@ -94,6 +161,10 @@ export interface ClientLink {
   };
   // The server confirmed it holds this link's wrapped backup key.
   backupKeyRegistered?: boolean;
+  // A restore was written to this device but the server has not confirmed it.
+  restore?: { seq: number; files: string[] };
+  // The server may still hold a restore for this device: check again on sync.
+  restorePending?: boolean;
   lastSyncAt?: number;
   lastSyncError?: string;
 }
@@ -160,18 +231,39 @@ export function serverStateFile(state: string) {
   );
 }
 
+// A link identity: a new id and a new backup key. A device gets a new one when
+// its old identity must never be used again (a declined restore).
+export function freshIdentity(): Pick<ClientLink, "id" | "backup"> {
+  return {
+    id: randomUUID(),
+    backup: {
+      key: randomBytes(32).toString("hex"),
+      seq: 0,
+      parent: null,
+    },
+  };
+}
+
 export function clientLinkFile(state: string) {
   return new JsonFile<ClientLink>(join(state, "workspace-link.json"), () => ({
     version: 1,
-    id: randomUUID(),
     name: hostname().slice(0, 100) || "homectl client",
     eventsAcked: 0,
     seenIntents: [],
-    backup: { key: randomBytes(32).toString("hex"), seq: 0, parent: null },
+    ...freshIdentity(),
   }));
 }
 
 export type ServerStateFile = ReturnType<typeof serverStateFile>;
+
+// Client ids are link UUIDs; lookups use own properties only, so a name such
+// as "constructor" can never resolve to an object prototype.
+export function linked(
+  state: ServerState,
+  id: string,
+): LinkedClient | undefined {
+  return Object.hasOwn(state.clients, id) ? state.clients[id] : undefined;
+}
 export type ClientLinkFile = ReturnType<typeof clientLinkFile>;
 
 // Appends in-order events to a client's mirror. Returns the new last seq, or

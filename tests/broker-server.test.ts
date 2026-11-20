@@ -174,6 +174,68 @@ describe("owner routes", () => {
     ).toBe(200);
   });
 
+  test("the session cookie is Secure only when the panel origin is https", async () => {
+    const httpsPanel = "https://homectl.lan.example.test";
+    const verifier = new FileVerifier(join(dir, "owner.json"), {
+      iterations: 1,
+      memorySize: 1024,
+      parallelism: 1,
+    });
+    const secureFetch = handler({
+      broker,
+      clients: { authenticate: async () => null },
+      owner: new OwnerSessions(verifier),
+      listen: { kind: "tcp", hostname: "127.0.0.1", port: 0 },
+      allowedOrigins: [PANEL, httpsPanel],
+    });
+    const post = (
+      path: string,
+      body: unknown,
+      headers: Record<string, string>,
+    ) =>
+      secureFetch(
+        new Request(`http://broker${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify(body),
+        }),
+      );
+
+    const plain = await post(
+      "/v1/owner/login",
+      { password: PASSWORD },
+      { origin: PANEL },
+    );
+    const plainCookie = plain.headers.get("set-cookie") ?? "";
+    expect(plainCookie).toContain("HttpOnly");
+    expect(plainCookie).toContain("SameSite=Strict");
+    expect(plainCookie).toContain("Path=/v1/owner");
+    expect(plainCookie).toContain("Max-Age=900");
+    expect(plainCookie).not.toContain("Secure");
+
+    const tls = await post(
+      "/v1/owner/login",
+      { password: PASSWORD },
+      { origin: httpsPanel },
+    );
+    const tlsCookie = tls.headers.get("set-cookie") ?? "";
+    expect(tlsCookie).toContain("HttpOnly");
+    expect(tlsCookie).toContain("SameSite=Strict");
+    expect(tlsCookie).toContain("Secure");
+
+    // Logout clears the cookie with the same attributes, Secure included.
+    const token = tlsCookie.split(";")[0] ?? "";
+    const out = await post(
+      "/v1/owner/logout",
+      {},
+      { origin: httpsPanel, cookie: token },
+    );
+    const cleared = out.headers.get("set-cookie") ?? "";
+    expect(cleared).toContain("Max-Age=0");
+    expect(cleared).toContain("Secure");
+    expect(cleared).toContain("HttpOnly");
+  });
+
   test("approve flow: pending -> decide -> dispatched once", async () => {
     const planned = (await (
       await call(

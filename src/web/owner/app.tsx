@@ -11,6 +11,14 @@ import {
   OwnerApiError,
   ownerCall,
 } from "./api";
+import {
+  AlertTracker,
+  alertPermission,
+  approvalAlert,
+  secretAlert,
+  showAlert,
+  workspaceApprovalAlert,
+} from "./alerts";
 import { ApprovalScreen } from "./approval";
 import { useOwnerLive } from "./live";
 import { OverviewScreen } from "./overview";
@@ -18,7 +26,17 @@ import { PolicyScreen } from "./policy";
 import { type Route, parseRoute } from "./route";
 import { SecretScreen } from "./secret";
 import { SignInScreen } from "./signin";
+import { SystemScreen } from "./system";
 import { Badge, Notice } from "./ui";
+import {
+  listWorkspaceClients,
+  listWorkspacePending,
+  probeWorkspace,
+  type WorkspaceClient,
+  type WorkspacePending,
+  type WorkspaceServerInfo,
+} from "./workspace-api";
+import { WorkspaceScreen } from "./workspace";
 
 type Session =
   | { state: "checking" }
@@ -29,10 +47,23 @@ type Session =
 interface Data {
   operations: PendingOperation[];
   secrets: PendingSecret[];
+  // Present only when this broker is a workspace server.
+  workspace?: { clients: WorkspaceClient[]; pending: WorkspacePending[] };
   loadedAt: number;
 }
 
 const SIGNED_OUT_NOTICE = "Your owner session ended. Sign in again.";
+// Linked clients reach the server by sync, not by this broker's stream, so the
+// workspace is re-read on a timer while the panel is open.
+const WORKSPACE_POLL_MS = 10_000;
+
+async function readWorkspace(): Promise<Data["workspace"]> {
+  const [clients, pending] = await Promise.all([
+    listWorkspaceClients(),
+    listWorkspacePending(),
+  ]);
+  return { clients, pending };
+}
 
 function useRoute(): [Route, (hash: string) => void] {
   const [route, setRoute] = useState(() => parseRoute(location.hash));
@@ -57,18 +88,31 @@ function App() {
     secrets: [],
     loadedAt: 0,
   });
+  // undefined: not asked yet. null: this broker is not a workspace server.
+  const [server, setServer] = useState<
+    WorkspaceServerInfo | null | undefined
+  >();
+  // One tracker per panel session: each new request alerts once.
+  const [alerts] = useState(
+    () => new AlertTracker(showAlert, () => alertPermission() === "granted"),
+  );
   const [route, go] = useRoute();
   const [flash, setFlash] = useState<string | undefined>();
   const signedIn = session.state === "signed-in";
 
   // A notice explains a sign-out only when a session was actually running.
-  const signOut = useCallback((notice?: string) => {
-    setSession((previous) => ({
-      state: "signed-out",
-      ...(notice && previous.state === "signed-in" ? { notice } : {}),
-    }));
-    setData({ operations: [], secrets: [], loadedAt: 0 });
-  }, []);
+  const signOut = useCallback(
+    (notice?: string) => {
+      setSession((previous) => ({
+        state: "signed-out",
+        ...(notice && previous.state === "signed-in" ? { notice } : {}),
+      }));
+      setData({ operations: [], secrets: [], loadedAt: 0 });
+      setServer(undefined);
+      alerts.reset();
+    },
+    [alerts],
+  );
 
   const handle = useCallback(
     (error: unknown) => {
@@ -83,23 +127,59 @@ function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [operations, secrets] = await Promise.all([
+      // A failed workspace read does not hide local approvals: the last
+      // workspace data stays on screen until the next read succeeds.
+      const [operations, secrets, workspace] = await Promise.all([
         ownerCall<PendingOperation[]>("/v1/owner/pending"),
         ownerCall<PendingSecret[]>("/v1/owner/secrets/pending"),
+        server ? readWorkspace().catch(() => undefined) : undefined,
       ]);
-      setData({ operations, secrets, loadedAt: Date.now() });
+      setData((previous) => ({
+        operations,
+        secrets,
+        ...(server ? { workspace: workspace ?? previous.workspace } : {}),
+        loadedAt: Date.now(),
+      }));
+      // Alerts come from these lists, never from the stream payload.
+      alerts.observe([
+        ...operations.map(approvalAlert),
+        ...secrets.map(secretAlert),
+        ...(workspace?.pending ?? []).map(workspaceApprovalAlert),
+      ]);
       setSession((current) =>
         current.state === "signed-in" ? current : { state: "signed-in" },
       );
     } catch (error) {
       handle(error);
     }
-  }, [handle]);
+  }, [handle, server, alerts]);
 
   // On load, the pending read tells whether the cookie session is still valid.
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Whether this broker is a workspace server is asked once per session.
+  useEffect(() => {
+    if (!signedIn) return;
+    let current = true;
+    probeWorkspace()
+      .then((info) => {
+        if (current) setServer(info ?? null);
+      })
+      .catch((error) => {
+        if (current) handle(error);
+      });
+    return () => {
+      current = false;
+    };
+  }, [signedIn, handle]);
+
+  useEffect(() => {
+    if (!signedIn || !server) return;
+    const timer = setInterval(() => void refresh(), WORKSPACE_POLL_MS);
+    return () => clearInterval(timer);
+  }, [signedIn, server, refresh]);
 
   // The broker session lasts 15 minutes; the panel ends with it.
   useEffect(() => {
@@ -117,7 +197,22 @@ function App() {
     onSignedOut: () => signOut(SIGNED_OUT_NOTICE),
   });
 
-  const attention = data.operations.length + data.secrets.length;
+  const workspaceWaiting = data.workspace?.pending.length ?? 0;
+  const attention =
+    data.operations.length + data.secrets.length + workspaceWaiting;
+  const nav = [
+    ...NAV,
+    ...(server
+      ? [
+          {
+            label: "Workspace",
+            hash: "#/workspace",
+            name: "workspace" as const,
+          },
+        ]
+      : []),
+    { label: "System", hash: "#/system", name: "system" as const },
+  ];
   useEffect(() => {
     document.title =
       attention > 0 ? `(${attention}) homectl owner` : "homectl owner";
@@ -206,7 +301,7 @@ function App() {
         </div>
       </header>
       <nav aria-label="Owner sections">
-        {NAV.map((item) => (
+        {nav.map((item) => (
           <button
             key={item.hash}
             type="button"
@@ -216,6 +311,9 @@ function App() {
           >
             {item.label}
             {item.name === "overview" && attention > 0 ? ` (${attention})` : ""}
+            {item.name === "workspace" && workspaceWaiting > 0
+              ? ` (${workspaceWaiting})`
+              : ""}
           </button>
         ))}
       </nav>
@@ -229,7 +327,11 @@ function App() {
           </Notice>
         ) : null}
         {route.name === "overview" && (
-          <OverviewScreen data={data} onOpen={go} />
+          <OverviewScreen
+            data={data}
+            workspaceWaiting={workspaceWaiting}
+            onOpen={go}
+          />
         )}
         {route.name === "approval" && !operation && data.loadedAt === 0 ? (
           <p className="muted">Loading…</p>
@@ -261,6 +363,25 @@ function App() {
         ) : null}
         {route.name === "agents" && <AgentsScreen onError={handle} />}
         {route.name === "policy" && <PolicyScreen onError={handle} />}
+        {route.name === "workspace" && server === null && (
+          <Notice>This broker is not a workspace server.</Notice>
+        )}
+        {route.name === "workspace" && server === undefined ? (
+          <p className="muted">Checking…</p>
+        ) : null}
+        {route.name === "workspace" && server && !data.workspace ? (
+          <p className="muted">Loading…</p>
+        ) : null}
+        {route.name === "workspace" && server && data.workspace ? (
+          <WorkspaceScreen
+            server={server}
+            clients={data.workspace.clients}
+            pending={data.workspace.pending}
+            onChanged={refresh}
+            onError={handle}
+          />
+        ) : null}
+        {route.name === "system" && <SystemScreen onError={handle} />}
       </main>
     </>
   );

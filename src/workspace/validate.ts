@@ -1,17 +1,27 @@
 // Shape and size checks for everything a workspace peer sends (homelab #21
 // §6). Nothing that crosses the link is trusted for type, length or range
 // before it is stored or acted on.
-import type { EventEnvelope, EventType } from "../core/contracts";
+import {
+  DECISION_SOURCES,
+  type DecisionSource,
+  type EventEnvelope,
+  type EventType,
+} from "../core/contracts";
 import { MAX_EVENT_DATA_BYTES } from "../events/log";
 import { HomectlError } from "../types";
-import type { PendingSummary } from "./state";
+import type { BackupReport, PendingSummary, Revocations } from "./state";
 
 export const MAX_SYNC_EVENTS = 500;
+export const MAX_REVOKED_KEYS = 256;
+export const MAX_POLICY_RULES = 2048;
+const KEY_TYPE = /^[A-Za-z0-9@.+-]{1,64}$/;
 export const MAX_PENDING = 200;
 export const MAX_RESULTS = 200;
 export const MAX_MISSING_IDS = 4096;
 export const MAX_CHUNK_BYTES = 2 * 1024 * 1024;
 export const MAX_SEALED_CHARS = 1_500_000;
+// A restore carries at most 8 MiB of plaintext, base64 encoded.
+export const MAX_RESTORE_CHARS = Math.ceil((8 * 1024 * 1024) / 3) * 4;
 const MAX_ARGV = 256;
 const MAX_ARG = 4096;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
@@ -37,7 +47,12 @@ export interface SyncRequest {
   events: EventEnvelope[];
   pending: PendingSummary[];
   intentResults: IntentResult[];
-  status: { remoteApproval: boolean; vaultUnlocked: boolean };
+  status: {
+    remoteApproval: boolean;
+    vaultUnlocked: boolean;
+    backup?: BackupReport;
+    revocations?: Revocations;
+  };
 }
 
 export function fail(message: string): never {
@@ -134,6 +149,12 @@ export function parseEvents(value: unknown): EventEnvelope[] {
   });
 }
 
+function decisionSource(value: unknown): DecisionSource | undefined {
+  return (DECISION_SOURCES as readonly unknown[]).includes(value)
+    ? (value as DecisionSource)
+    : undefined;
+}
+
 export function parsePending(value: unknown): PendingSummary[] {
   return list(value, "pending", MAX_PENDING, (item) => {
     const pending = record(item, "pending operation");
@@ -145,12 +166,17 @@ export function parsePending(value: unknown): PendingSummary[] {
         text(entry, "argument", MAX_ARG),
       ),
       risk: text(pending.risk, "risk", 64),
+      impact: text(pending.impact, "impact", 256),
       fingerprint: text(pending.fingerprint, "fingerprint", 256),
       reason: text(pending.reason, "reason", 512),
       stepUp: flag(pending.stepUp, "stepUp"),
       humanOnly: flag(pending.humanOnly, "humanOnly"),
       expiresAt: finite(pending.expiresAt, "expiry"),
     };
+    // Optional and display-only: an unknown source is dropped, never a reason to
+    // refuse the whole sync, so one unfamiliar value cannot hide every approval.
+    const source = decisionSource(pending.source);
+    if (source !== undefined) summary.source = source;
     if (pending.narrative !== undefined)
       summary.narrative = {
         untrusted: text(
@@ -184,7 +210,115 @@ export function parseStatus(value: unknown): SyncRequest["status"] {
   return {
     remoteApproval: flag(status.remoteApproval, "remoteApproval"),
     vaultUnlocked: flag(status.vaultUnlocked, "vaultUnlocked"),
+    ...(status.backup === undefined
+      ? {}
+      : { backup: parseBackupReport(status.backup) }),
+    ...(status.revocations === undefined
+      ? {}
+      : { revocations: parseRevocations(status.revocations) }),
   };
+}
+
+// A client's revocations: @revoked host keys and, when it could read its
+// policy, the ids of the rules it holds.
+export function parseRevocations(value: unknown): Revocations {
+  const report = record(value, "revocations");
+  return {
+    at: finite(report.at, "revocation time"),
+    hostKeys: list(
+      report.hostKeys,
+      "revoked host keys",
+      MAX_REVOKED_KEYS,
+      (item) => {
+        const key = record(item, "revoked host key");
+        const type = text(key.type, "key type", 64);
+        const blob = text(key.blob, "key blob", 16384);
+        if (!KEY_TYPE.test(type) || !BASE64.test(blob) || blob.length === 0)
+          fail("revoked host key is malformed");
+        return { type, blob };
+      },
+    ),
+    ...(report.policyRules === undefined
+      ? {}
+      : {
+          policyRules: list(
+            report.policyRules,
+            "policy rules",
+            MAX_POLICY_RULES,
+            (item) => text(item, "rule id", 128),
+          ),
+        }),
+  };
+}
+
+export function parseBackupReport(value: unknown): BackupReport {
+  const report = record(value, "backup report");
+  return {
+    seq: integer(report.seq, "backup seq"),
+    ...(report.lastAt === undefined
+      ? {}
+      : { lastAt: finite(report.lastAt, "last backup time") }),
+    ...(report.lastError === undefined
+      ? {}
+      : { lastError: text(report.lastError, "last backup error", 300) }),
+  };
+}
+
+// Restore messages (homelab #21 §6, W5). The files are base64 under the
+// channel seal; each path is checked again by the client before it is written.
+export interface RestoreFileWire {
+  path: string;
+  data: string;
+}
+
+export function parseRestoreStatus(value: unknown): {
+  pending: boolean;
+  seq?: number;
+  expiresAt?: number;
+} {
+  const reply = record(value, "restore status");
+  const pending = flag(reply.pending, "pending");
+  if (!pending) return { pending };
+  return {
+    pending,
+    seq: integer(reply.seq, "restore seq", 1),
+    expiresAt: finite(reply.expiresAt, "restore expiry"),
+  };
+}
+
+export function parseRestoreDelivery(value: unknown): {
+  status: "none" | "restored";
+  seq?: number;
+  files?: RestoreFileWire[];
+  notes: string[];
+} {
+  const reply = record(value, "restore delivery");
+  if (reply.status === "none") return { status: "none", notes: [] };
+  if (reply.status !== "restored") fail("restore delivery status is invalid");
+  return {
+    status: "restored",
+    seq: integer(reply.seq, "restore seq", 1),
+    files: list(reply.files, "restore files", 16, (item) => {
+      const file = record(item, "restore file");
+      return {
+        path: text(file.path, "restore path", 128),
+        data: text(file.data, "restore data", MAX_RESTORE_CHARS),
+      };
+    }),
+    notes: list(reply.notes, "restore notes", 16, (item) =>
+      text(item, "restore note", 300),
+    ),
+  };
+}
+
+export function parseRestoreAck(value: unknown): void {
+  if (flag(record(value, "restore ack").acknowledged, "acknowledged") !== true)
+    fail("restore was not acknowledged");
+}
+
+export function parseRestoreDecline(value: unknown): void {
+  if (flag(record(value, "restore decline").declined, "declined") !== true)
+    fail("restore was not declined");
 }
 
 export function parseSync(value: unknown): SyncRequest {
@@ -205,11 +339,13 @@ export function parseReply(value: unknown): {
   ack: number;
   gap: boolean;
   intents: ServerIntent[];
+  backupRequested: boolean;
 } {
   const reply = record(value, "sync reply");
   return {
     ack: integer(reply.ack, "ack"),
     gap: flag(reply.gap, "gap"),
+    backupRequested: reply.backupRequested === true,
     intents:
       reply.intents === undefined
         ? []

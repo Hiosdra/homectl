@@ -25,8 +25,18 @@ Three parties matter: the **owner** (you), the **broker** (`home-ctl daemon run`
 Enforced in the broker (`src/broker/server.ts`):
 
 - Owner tokens are never accepted on agent routes, and client tokens are never accepted on owner routes.
-- Panel sign-in sets an `HttpOnly`, `SameSite=Strict` cookie scoped to `/v1/owner`, valid for 15 minutes. Cookie-authenticated owner requests must come from an allowed origin (the panel's `HOMECTL_PANEL_ORIGIN`).
+- Panel sign-in sets an `HttpOnly`, `SameSite=Strict` cookie scoped to `/v1/owner`, valid for 15 minutes. The cookie also carries `Secure` when the panel origin is `https`. Cookie-authenticated owner requests must come from an allowed origin (the panel's `HOMECTL_PANEL_ORIGIN`).
 - Five failed owner sign-ins lock sign-in for 60 seconds.
+
+**Where the panel listens.** The owner panel (`daemon panel`, `src/web/owner/`) listens on `127.0.0.1` by default. `HOMECTL_PANEL_LISTEN=<IP address>` moves it to another address. Then `HOMECTL_PANEL_ORIGIN` must name the exact browser origin, and the broker must be started with that same origin. The Host and Origin checks stay as strict on every address. Anything that can route to a non-loopback address can open the sign-in page, so keep it behind a firewall that admits only your LAN or VPN, or behind a reverse proxy you run.
+
+**Plain http is refused by default.** A non-loopback panel whose origin is `http://` does not start unless `HOMECTL_PANEL_INSECURE_HTTP=1` is also set. Without `https`, the owner password and the session cookie cross the LAN in clear text, and the cookie is not `Secure`. Use one of the supported ways instead:
+
+- an `https` reverse proxy you run, with `HOMECTL_PANEL_ORIGIN` set to the `https` origin users open; or
+- an SSH tunnel to loopback, with the panel left on `127.0.0.1`.
+
+The opt-in is for a network you trust. The panel prints a warning when it starts this way. The refusal is made by the panel process; the broker accepts the origin it was started with.
+
 - Request bodies are limited to 64 KiB.
 - Agents only see events addressed to them. The owner sees all events.
 
@@ -112,11 +122,38 @@ Changing a preset or removing a rule needs your owner password in the same reque
 
 ### Auto Mode and the reviewer
 
-Auto Mode (`mode: auto`) lets a reviewer decide requests that no rule covers. The reviewer adapter (`src/authz/http-reviewer.ts`) sends only the kind, risk, host, argv, classification, sudo flag, resource and the untrusted requester narrative. It requires an `https` endpoint, or plain `http` on loopback.
+Auto Mode (`mode: auto`) lets a reviewer decide requests that no owner rule covers. The reviewer is off until you set it up. The conservative preset uses `rules` mode, and the reviewer is never called in `manual` or `rules` mode.
 
-Even when a reviewer allows something, `delegated` authority never allows above R2. R3 and R4 always reach you.
+Settings:
 
-<!-- verify: the daemon currently constructs AuthzPolicy without a reviewer (src/broker/daemon.ts); httpReviewer() is defined but not called from the daemon. In this build, Auto Mode therefore asks the owner for requests no rule covers. Confirm before relying on the reviewer. -->
+| Setting            | Where                                                        | Values                                                 |
+| ------------------ | ------------------------------------------------------------ | ------------------------------------------------------ |
+| Mode               | `policy.json`, `mode`                                        | `manual`, `rules` (default), `auto`                    |
+| Reviewer authority | `policy.json`, `reviewer.authority`                          | `recommend` (default), `routine`, `delegated`          |
+| Endpoint and model | `reviewer.json` in the broker state directory (0600)         | `https` URL, or plain `http` on loopback; a model name |
+| API key            | The daemon's `HOMECTL_REVIEWER_API_KEY` environment variable | Never written to a file, and never shown back          |
+
+`home-ctl owner init` asks for the reviewer authority after you set the owner password. Enter keeps `recommend`. Without a terminal, `recommend` is kept. Change it later with `home-ctl owner auto-mode set --authority <value>`, or with the `/v1/owner/auto-mode/set` route.
+
+**Authority.** The authority only matters once Auto mode and an endpoint are set.
+
+- `recommend` (default): the reviewer's verdict is recorded but never acted on. You decide every request that reaches the reviewer.
+- `routine`: a reviewer `allow` is honoured for routine requests at R2 or below (inspection or change, never destructive or opaque, never with sudo).
+- `delegated`: a reviewer `allow` is honoured for any request at R2 or below. This is the wider scope, and it still stops at R2.
+
+A reviewer `deny` denies the request, and a reviewer `ask` asks you, whatever the authority. R3, R4 and human-only kinds never reach the reviewer. The hard gates answer them first, so they always need you.
+
+**Order.** The reviewer is asked only after the invariants, hard gates, task scope, budgets and owner rules have made no decision. A request that an owner rule resolves makes zero model calls. The decision records how many model calls it made.
+
+**A verdict is not an approval.** A reviewer `allow` dispatches the operation with `source: reviewer`. No owner approval is recorded (`approvedBy` stays empty), and the audit event `operation.updated` carries the decision source, verdict and model call count. The reviewer's own reason text is model output and is not stored in the operation record.
+
+**What the reviewer sees.** Only the kind, risk, host, argv, classification, sudo flag, resource and the requester's narrative, which is marked untrusted and cut to 1000 characters. It does not see the client identity, the task text, the parameters or the policy.
+
+**Failure.** A timeout (8 seconds), a network error, a non-OK status, a redirect, or output that is not exactly `{verdict, reason, suggestion?}` is treated as no answer. The policy's `reviewer.fallback` then applies: `ask` by default, or `deny`. A broken reviewer configuration (for example an unreadable `reviewer.json`) also asks the owner.
+
+**Step-up.** A change needs the owner password in the same request when it raises the reviewer authority, turns Auto Mode on, or sends the reviewer to a new endpoint. Lowering the authority, clearing the endpoint, and changing only the model name do not need it. Auto mode needs both an endpoint and a model. Every saved change emits `settings.updated` for the owner only, with the endpoint origin and never its path.
+
+**Limits (not verified against a live model provider).** The adapter is tested against a loopback fake, covering allow, malformed, slow and key-header cases. The reviewer is called with the broker's state lock released: the operation waits as "under review", the owner can decide it meanwhile (the owner's decision wins), and the verdict is committed only if the operation, policy revision and budgets did not change. The owner panel has an Auto Mode settings section under Permissions (`src/web/owner/auto-mode.tsx`). It shows the mode, the reviewer's authority and the reviewer connection, and changes them through `/v1/owner/auto-mode/get` and `/v1/owner/auto-mode/set`, the same routes as `home-ctl owner auto-mode`. It asks for the owner password only when the broker says the change needs it. The hardened `daemon install` asks for the authority when it sets a new owner password; on the custody-vault path it keeps `recommend`.
 
 ### Owner decisions
 
@@ -154,7 +191,7 @@ Destination kinds:
 
 Retention is `ephemeral` (the value lives for 1 hour in memory) or `saved` (stored in the vault under a name you choose). The broker refuses a secret request for a host the client may not use, with the same error exec gives, so a client cannot probe which hosts exist.
 
-<!-- verify: the owner secret provide route (/v1/owner/secrets/provide) does not check a fresh owner password in this build (src/broker/secret-service.ts); it requires an owner session only. -->
+Providing a value (`/v1/owner/secrets/provide`) is a step-up route: the owner password must be sent in the same request, and an owner session alone is refused before anything is stored. The panel must send the password too.
 
 The agent never receives the value. A raw hand-off to the agent is a human-only kind and is not part of the agent's tools.
 
@@ -219,7 +256,7 @@ Backups are encrypted on the client before upload. The server stores ciphertext,
 
 Server custody and the cryptography are described in [workspace](workspace.md#incremental-encrypted-backups).
 
-Workspace clients run these backups (see [workspace](workspace.md#incremental-encrypted-backups)). Restore of a reset client is not implemented yet.
+Workspace clients run these backups (see [workspace](workspace.md#incremental-encrypted-backups)). A reset client is restored with `workspace restore`, which also revokes the old client identity; see [workspace](workspace.md#restore). A live restore between two machines has not been verified yet.
 
 ## Residual risks
 

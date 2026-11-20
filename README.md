@@ -73,6 +73,8 @@ Then ask your agent to work on the machine:
 
 The full walkthrough, with the host-key checks and platform steps, is in [setup](docs/setup.md).
 
+Upgrading from 0.2 migrates the workspace data when the broker starts. `home-ctl migrate --dry-run` previews that migration, and `home-ctl migrate` runs it without starting the broker. See [upgrade](docs/setup.md#upgrade-from-02). The container image runs the broker and its owner panel; see [Docker and NAS containers](docs/setup.md#docker-and-nas-containers).
+
 ## Approvals
 
 Safe reads run without a prompt. Anything that changes state waits for your decision:

@@ -5,6 +5,7 @@ import { callBroker, findEndpoint } from "../broker/client";
 import { hardenedSupport } from "../broker/hardened-support";
 import { assertRoot, installPlan, uninstallPlan } from "../broker/install";
 import { compatPaths, hardenedPaths } from "../broker/paths";
+import type { ReviewerAuthority } from "../core/contracts";
 import { run } from "../process";
 import { readPassword } from "../session";
 import { HomectlError } from "../types";
@@ -190,6 +191,7 @@ export async function daemonCommand(
             },
           );
       }
+      let reviewerAuthority: ReviewerAuthority | undefined;
       if (action === "install") {
         const { FileVerifier } = await import("../broker/owner");
         const verifier = new FileVerifier(
@@ -210,18 +212,23 @@ export async function daemonCommand(
           if (first !== (await readPassword("Repeat it: ")))
             throw new HomectlError(2, "The passwords do not match");
           await verifier.set(first);
+          // The same reviewer authority choice as `owner init`; recommend is the default.
+          const { chooseReviewerAuthority, saveReviewerAuthority } =
+            await import("./owner-commands");
+          reviewerAuthority = await chooseReviewerAuthority();
+          const state = hardenedPaths().state;
+          if (await saveReviewerAuthority(state, reviewerAuthority))
+            await run({
+              argv: ["chown", "homectl:homectl", join(state, "policy.json")],
+            });
           await run({
-            argv: [
-              "chown",
-              "homectl:homectl",
-              join(hardenedPaths().state, "owner.json"),
-            ],
+            argv: ["chown", "homectl:homectl", join(state, "owner.json")],
           });
         }
       }
       options.emit(
-        { done: action },
-        `homectl broker ${action === "install" ? "installed and started" : "removed"}.`,
+        { done: action, ...(reviewerAuthority ? { reviewerAuthority } : {}) },
+        `homectl broker ${action === "install" ? "installed and started" : "removed"}.${reviewerAuthority ? ` Reviewer authority: ${reviewerAuthority}.` : ""}`,
       );
       return 0;
     }

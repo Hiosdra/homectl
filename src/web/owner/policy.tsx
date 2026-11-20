@@ -9,6 +9,7 @@ import {
   type PolicyRule,
   ownerCall,
 } from "./api";
+import { AutoModeSection } from "./auto-mode";
 import { Badge, Dialog, Field, Notice, PasswordStep, fmtTime } from "./ui";
 
 const PRESETS: { id: string; label: string; hint: string }[] = [
@@ -140,6 +141,8 @@ export function PolicyScreen({
           }
         />
       </section>
+
+      <AutoModeSection onError={onError} />
 
       <section aria-labelledby="rules-title">
         <h3 id="rules-title">Rules ({policy.rules.length})</h3>

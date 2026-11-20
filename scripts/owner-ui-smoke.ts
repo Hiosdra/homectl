@@ -12,6 +12,7 @@ import { startDaemon } from "../src/broker/daemon";
 import type { FileVerifier } from "../src/broker/owner";
 import { compatPaths } from "../src/broker/paths";
 import { startOwnerPanel } from "../src/web/owner/server";
+import { runOwnerExtensionScenarios } from "./owner-ui-workspace";
 
 const PASSWORD = "owner smoke password";
 const root = await mkdtemp(join(tmpdir(), "hcowner-"));
@@ -78,15 +79,18 @@ async function requestApproval(label: string) {
   );
 }
 
-async function requestSecret() {
+// A label makes the request distinct: the broker returns the existing pending
+// request for an identical one.
+async function requestSecret(label = "") {
+  const suffix = label ? `-${label}` : "";
   return callBroker<{ id: string }>(
     "/v1/secret/request",
     {
-      purpose: "Store the smoke API token for the smoke tool",
+      purpose: `Store the smoke API token for the smoke tool${suffix}`,
       destination: {
         kind: "ssh-stdin",
         host: "pc",
-        argv: ["tee", "/tmp/smoke-token"],
+        argv: ["tee", `/tmp/smoke-token${suffix}`],
       },
       fields: [{ name: "token", label: "API token", kind: "token" }],
     },
@@ -170,6 +174,8 @@ async function runScenario(
     const token = page.getByLabel(/API token/);
     await expect(token).toHaveAttribute("type", "password");
     await token.fill("smoke-token-value");
+    // Providing a value is a step-up: the owner password is required.
+    await page.getByLabel(/Owner password/).fill(PASSWORD);
     await page.getByRole("button", { name: "Provide secret" }).click();
     await expect(page.getByText(/Provided for one hour in memory/)).toBeVisible(
       { timeout: 15_000 },
@@ -202,6 +208,14 @@ async function runScenario(
 try {
   await runScenario("desktop", { width: 1280, height: 860 }, false);
   await runScenario("phone", { width: 390, height: 844 }, true);
+  // Workspace, decisions (step-up included), updates and notifications.
+  await runOwnerExtensionScenarios({
+    browser,
+    panelOrigin,
+    password: PASSWORD,
+    requestApproval,
+    requestSecret,
+  });
   console.log("Owner panel browser smoke passed (desktop and phone).");
 } finally {
   await browser.close();

@@ -8,20 +8,30 @@ import type { SnapshotInput } from "../backup";
 import { isExcluded } from "../backup/policy";
 import type { Broker } from "../broker/engine";
 import type { RouteExtension } from "../broker/server";
+import type { EventsPort } from "../broker/types";
 import type { EventLog } from "../events/log";
 import { HomectlError } from "../types";
 import { WorkspaceClient } from "./client";
+import { fileRestoreTarget } from "./restore-files";
+import { readRevocations } from "./revocations";
 import { WorkspaceServer } from "./server";
 
 export interface WorkspaceConfig {
-  server?: { listen: { hostname: string; port: number } };
+  server?: {
+    listen: { hostname: string; port: number };
+    // Per-client chunk storage limit in bytes; the server default applies when unset.
+    quotaBytes?: number;
+  };
 }
 
 export interface WorkspaceWiringOptions {
   state: string;
   inventoryPath: string;
   broker: Pick<Broker, "pending" | "decide">;
-  log: Pick<EventLog, "since">;
+  log: Pick<EventLog, "since" | "append">;
+  // The server broker's event port, for live owner events. Unset, the port is
+  // built from the log exactly as the daemon's default port is.
+  events?: Pick<EventsPort, "emit">;
   vaultUnlocked?: () => boolean;
   config?: WorkspaceConfig;
 }
@@ -71,13 +81,23 @@ export async function startWorkspace(
     decide: (input) => options.broker.decide(input),
     events: { since: (after) => options.log.since(after) },
     backupFiles: () => backupFiles(options.inventoryPath, options.state),
+    restore: fileRestoreTarget(options.inventoryPath, options.state),
+    revocations: () =>
+      readRevocations(
+        join(dirname(options.inventoryPath), "known_hosts"),
+        join(options.state, "policy.json"),
+      ),
     ...(options.vaultUnlocked ? { vaultUnlocked: options.vaultUnlocked } : {}),
   });
   const extensions: RouteExtension[] = [client];
   let listener: { stop(closeActive?: boolean): void } | undefined;
-  const listen = options.config?.server?.listen;
-  if (listen) {
-    const server = new WorkspaceServer(options.state);
+  const serverConfig = options.config?.server;
+  if (serverConfig) {
+    const { quotaBytes, listen } = serverConfig;
+    const server = new WorkspaceServer(options.state, {
+      ...(quotaBytes === undefined ? {} : { quotaBytes }),
+      events: options.events ?? logEvents(options.log),
+    });
     extensions.push(server);
     listener = Bun.serve({
       hostname: listen.hostname,
@@ -91,6 +111,17 @@ export async function startWorkspace(
     async stop() {
       client.stop();
       listener?.stop(true);
+    },
+  };
+}
+
+// The daemon's default event port: each event is appended to the broker's log.
+export function logEvents(
+  log: Pick<EventLog, "append">,
+): Pick<EventsPort, "emit"> {
+  return {
+    emit: async (type, subject, audience, data) => {
+      await log.append({ type, subject, audience, data });
     },
   };
 }
@@ -160,8 +191,11 @@ function reply(body: unknown, status: number): Response {
 
 // HOMECTL_WORKSPACE_LISTEN="host:port" turns this broker into the workspace
 // server and opens the pairing/sync listener there. Unset: client only.
+// HOMECTL_WORKSPACE_QUOTA_MB sets the per-client backup storage limit (whole
+// MiB). It applies only to a server; unset means the server default.
 export function workspaceFromEnv(
   value = process.env.HOMECTL_WORKSPACE_LISTEN,
+  quotaMb = process.env.HOMECTL_WORKSPACE_QUOTA_MB,
 ): WorkspaceConfig | undefined {
   if (!value) return undefined;
   const match = /^(\[[0-9a-fA-F:]+\]|[A-Za-z0-9.-]+):(\d{1,5})$/.exec(value);
@@ -171,7 +205,21 @@ export function workspaceFromEnv(
       2,
       "HOMECTL_WORKSPACE_LISTEN must be host:port, e.g. 0.0.0.0:7450",
     );
+  const listen = { hostname: match[1].replace(/^\[|\]$/g, ""), port };
   return {
-    server: { listen: { hostname: match[1].replace(/^\[|\]$/g, ""), port } },
+    server: {
+      listen,
+      ...(quotaMb ? { quotaBytes: quotaFromMb(quotaMb) } : {}),
+    },
   };
+}
+
+function quotaFromMb(value: string): number {
+  const mb = Number(value);
+  if (!Number.isInteger(mb) || mb < 1 || mb > 1024 * 1024)
+    throw new HomectlError(
+      2,
+      "HOMECTL_WORKSPACE_QUOTA_MB must be a whole number of MiB from 1 to 1048576",
+    );
+  return mb * 1024 * 1024;
 }

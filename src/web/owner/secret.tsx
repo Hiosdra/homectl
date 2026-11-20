@@ -10,7 +10,7 @@ import {
   ownerCall,
   untrustedText,
 } from "./api";
-import { Argv, Field, Notice, Untrusted, Badge } from "./ui";
+import { Argv, Badge, Field, Notice, PasswordStep, Untrusted } from "./ui";
 
 type Retention = "ephemeral" | "saved";
 
@@ -105,18 +105,23 @@ export function SecretScreen({
   const [values, setValues] = useState<Record<string, string>>({});
   const [retention, setRetention] = useState<Retention>("ephemeral");
   const [saveName, setSaveName] = useState("");
+  // Providing a value is a step-up: the owner password goes with the request.
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
   const complete =
     request.fields.every((field) => (values[field.name] ?? "").length > 0) &&
-    (retention === "ephemeral" || saveName.trim().length > 0);
+    (retention === "ephemeral" || saveName.trim().length > 0) &&
+    password.length > 0;
 
   const provide = async () => {
     if (busy || !complete) return;
     // Copy out, then clear the form before the request leaves.
     const payload = { ...values };
+    const secret = password;
     setValues({});
+    setPassword("");
     setBusy(true);
     setError(undefined);
     try {
@@ -124,6 +129,7 @@ export function SecretScreen({
         id: request.id,
         values: payload,
         retention,
+        password: secret,
         ...(retention === "saved" ? { saveName: saveName.trim() } : {}),
       });
       setSaveName("");
@@ -229,6 +235,11 @@ export function SecretScreen({
           ) : null}
         </fieldset>
 
+        <PasswordStep
+          value={password}
+          onChange={setPassword}
+          hint="required to provide"
+        />
         {error ? <Notice tone="bad">{error}</Notice> : null}
         <div className="row">
           <button

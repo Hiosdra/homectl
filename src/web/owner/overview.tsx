@@ -6,6 +6,7 @@ import { Badge, fmtTime, Notice } from "./ui";
 
 export function OverviewScreen({
   data,
+  workspaceWaiting = 0,
   onOpen,
 }: {
   data: {
@@ -13,9 +14,11 @@ export function OverviewScreen({
     secrets: PendingSecret[];
     loadedAt: number;
   };
+  // Approvals waiting on linked clients (workspace server only).
+  workspaceWaiting?: number;
   onOpen: (hash: string) => void;
 }) {
-  const total = data.operations.length + data.secrets.length;
+  const total = data.operations.length + data.secrets.length + workspaceWaiting;
   return (
     <>
       <h2>{total === 0 ? "Nothing needs you" : "Needs you"}</h2>
@@ -24,6 +27,31 @@ export function OverviewScreen({
           No approvals or secret requests are waiting. Agents keep working
           within their permissions; this page updates live.
         </Notice>
+      ) : null}
+
+      {workspaceWaiting > 0 ? (
+        <section aria-labelledby="workspace-waiting-heading">
+          <h3 id="workspace-waiting-heading">
+            Linked clients <Badge tone="count">{workspaceWaiting}</Badge>
+          </h3>
+          <div className="item">
+            <div>
+              {workspaceWaiting === 1
+                ? "One approval is"
+                : `${workspaceWaiting} approvals are`}{" "}
+              waiting on a linked client.
+            </div>
+            <div>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => onOpen("#/workspace")}
+              >
+                Review in Workspace
+              </button>
+            </div>
+          </div>
+        </section>
       ) : null}
 
       {data.operations.length > 0 ? (

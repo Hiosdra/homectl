@@ -52,6 +52,8 @@ bun src/cli/main.ts setup
 
 Setup then links the skills from `skills/` instead of copying them, so edits take effect at once. Keep the checkout at a stable path. Update it with `home-ctl update`, which fast-forwards the current branch from its upstream and reinstalls dependencies. A compiled release refuses `home-ctl update`; install the newer release instead.
 
+The owner panel can update a Windows x64 release build of the broker. It shows the offered version and whether its release signature verifies; applying asks for the owner password, installs only that exact version after its signature checks, and stages it beside the running one, so it takes effect on the next start. It cannot update a source checkout (use `home-ctl update`), a container (redeploy the image), an install owned by a package manager such as Scoop, WinGet, Chocolatey or Homebrew (use that manager), or other platforms (install the release from the release page). The update status carries the reason.
+
 ### What `setup` does
 
 Run `home-ctl setup --dry-run` first. It lists every change before it makes one.
@@ -94,12 +96,13 @@ home-ctl session lock
 The broker is the process that holds the vault and SSH keys and runs commands for agents. Start it before connecting an agent.
 
 ```sh
-home-ctl owner init          # only if you have no vault yet: sets the owner password
+home-ctl owner init          # only if you have no vault yet: sets the owner password, then the reviewer authority (Enter keeps recommend)
 home-ctl daemon run          # compatibility mode (default); keep this terminal open
 home-ctl daemon status
 ```
 
 - If you created a vault with `session init`, its master password is the owner password, and `owner init` refuses to set another one.
+- The reviewer authority is only used once Auto Mode and a reviewer endpoint are set. `recommend` (the default) only recommends. Change it later with `home-ctl owner auto-mode set --authority routine|delegated`, which asks for the owner password.
 - Without an owner password, `daemon run` starts but warns that approvals are impossible until you set one.
 - `daemon run` prints where it listens. The address is also written to an endpoint file in the broker's state directory.
 
@@ -113,7 +116,7 @@ HOMECTL_PANEL_ORIGIN=http://127.0.0.1:7451 home-ctl daemon run   # in another te
 Hardened mode (Linux with systemd only) installs the broker as a service under its own account:
 
 ```sh
-sudo home-ctl daemon install     # creates the homectl account and unit; asks for the owner password if no vault exists
+sudo home-ctl daemon install     # creates the homectl account and unit; if no vault exists, asks for the owner password and then the reviewer authority (Enter keeps recommend)
 sudo home-ctl daemon uninstall
 ```
 
@@ -178,8 +181,8 @@ Proxmox VMs can be created over SSH with `home-ctl provision --file <vm.json> --
 
 ## Upgrade from 0.2
 
-- **Data.** A 0.2 workspace has no `homectl-data.json` marker. When `daemon run` or `daemon install` starts, the broker migrates it. Migration copies every workspace entry into a private backup, checks the copy's hashes, runs each step once, verifies the result, and only then writes the marker. If any step fails, it restores the backup and the workspace stays at 0.2. Migration progress is recorded, so an interrupted run resumes.
-- **No `migrate` command.** The error text for an old workspace mentions `home-ctl migrate`, but no CLI command routes to it in this build, and migration runs only when the broker starts. <!-- verify: src/migrate/index.ts:requireCurrent is never called; confirm before documenting a command. -->
+- **Data.** A 0.2 workspace has no `homectl-data.json` marker. The broker migrates it automatically when `daemon run` or `daemon install` starts. You can also run the same migration without starting the broker: `home-ctl migrate --dry-run` lists the steps and changes nothing, and `home-ctl migrate` runs them. A migration copies every workspace entry into `backups/`, checks the copy's hashes, runs each step once, verifies the result, and only then writes the marker. If a step fails, it restores the backup and the workspace stays at 0.2. Progress is recorded, so an interrupted run resumes. Running it on current data changes nothing.
+- **What the migration changes in this build.** Its one step closes open 0.2 operations: pending and approved operations become `failed`, and `executing` becomes `unknown`. Their history is kept, and the agent must plan them again. Other 0.2 files are copied into the backup and not changed. Migration of host trust, credentials, agent connections and settings is not implemented in this build; check those after you upgrade.
 - **Approvals.** `--approval <digest>` was removed in 0.3.0. Scripts that pass it fail with a message. Approve with `home-ctl approve <operation>` through the broker instead.
 - **Peer sync.** The 0.2 pairing and sync commands (`pair`, `sync`, `peer`, `peers`) still exist. The new server and client workspace is described in [workspace](workspace.md).
 - **Keep the old database** until you have run the new broker once and checked it with `home-ctl doctor`.
@@ -213,11 +216,23 @@ Proxmox VMs can be created over SSH with `home-ctl provision --file <vm.json> --
 
 ### Docker and NAS containers
 
-- `Dockerfile` builds a containerized homectl. Pass a digest-pinned base image with `--build-arg BUN_IMAGE=oven/bun@sha256:<digest>`. There is no default, on purpose. The image installs `openssh-client` and `keepassxc`, and runs as a non-root user (uid 10001).
-- Run it with `home-ctl serve --container --interface <LAN-IP>`. Container mode requires an explicit `--interface`, runs startup recovery, serves `/healthz`, stops cleanly on SIGTERM, and turns discovery off.
-- Examples: `examples/container/compose.example.yaml` and `compose.project.yaml`. Both set `read_only: true`, mount one writable volume at `/data`, and publish the peer port (7448) on an address you set through `HOMECTL_LAN_IP`. Publish the panel (7447) only on a loopback or LAN address you choose.
-- Keep keys and the database in the `/data` volume. Do not bake them into the image.
-- The `container.yml` workflow builds the image, smoke-tests it with `scripts/container-smoke.sh` (`serve --container` must become healthy), and pushes it to GitHub Container Registry.
+- `Dockerfile` builds the 0.3 broker image. Pass a digest-pinned base image with `--build-arg BUN_IMAGE=oven/bun@sha256:<digest>`. There is no default, on purpose. The image installs `openssh-client` and `keepassxc`, and runs as a non-root user (uid 10001). Example: `docker build --build-arg BUN_IMAGE=oven/bun@sha256:<digest> -t homectl-broker:0.3-local .`
+- With no arguments, the container runs the broker (`daemon run`) and the owner panel (`daemon panel`) together, from `docker/entrypoint.ts`. If either one stops, the container stops with an error. `docker stop` stops both cleanly.
+- With arguments, the container runs `home-ctl` with them, for example `owner init`, `daemon status`, or the legacy `serve --container --interface <LAN-IP> --no-discovery` peer.
+- On first start the entrypoint creates an empty `inventory.yaml` (owner-only) in `/data/home/.config/homectl/`, because the broker refuses to start without one. An existing file is never changed.
+- The image's health check (`docker/healthcheck.ts`) passes when the broker answers on its endpoint and the owner panel answers `/healthz` on loopback. For the legacy `serve` command it passes when its `/healthz` reports `ok`.
+- UGOS Docker Compose project: `examples/container/compose.broker.yaml`. It keeps state in one private named volume at `/data`, uses a read-only root filesystem, drops all capabilities, sets `no-new-privileges`, and contains no secret. It uses a bridge network and publishes the panel on `127.0.0.1:7451` of the NAS by default (`HOMECTL_PANEL_PUBLISH` changes it). Inside the container the panel listens on `0.0.0.0` (`HOMECTL_PANEL_LISTEN`), so `HOMECTL_PANEL_ORIGIN` is required. Put the exact browser origin in the project's `.env`; the example name `homectl.lan.example.test` is a placeholder. Compose stops when it is missing. There are two supported ways to reach the panel:
+  - an `https` reverse proxy you run, forwarding to the published port, with `HOMECTL_PANEL_ORIGIN` set to the `https` origin your browser opens. The proxy must pass the `Host` and `Origin` headers through unchanged.
+  - an SSH tunnel, `ssh -L 7451:127.0.0.1:7451 <nas>`, with `HOMECTL_PANEL_ORIGIN=http://127.0.0.1:7451` and `HOMECTL_PANEL_INSECURE_HTTP=1`. SSH encrypts the traffic, but the panel sees plain http. Without the opt-in the panel refuses to start on a non-loopback address.
+
+  Plain http on a LAN address is refused by default. With `HOMECTL_PANEL_INSECURE_HTTP=1` the owner password and session cookie cross the LAN in clear text, so prefer the proxy or the tunnel. Set `HOMECTL_WORKSPACE_LISTEN` only on the NAS that is the workspace server; inside the container use `0.0.0.0:7450`, and publish it with `HOMECTL_WORKSPACE_PUBLISH`.
+
+- Set the owner password inside the container, in a private terminal, with `docker exec -it homectl-broker bun /app/src/cli/main.ts owner init`. Never put it in a compose file or an environment variable.
+- Older examples `examples/container/compose.example.yaml` and `compose.project.yaml` run the 0.2 `serve --container` peer. They still work with this image, because the entrypoint passes their command through. They publish the peer port (7448) on an address you set, and the panel (7447) only on a loopback or LAN address you choose.
+- Keep keys, the inventory and backups in the `/data` volume. Do not bake them into the image.
+- The `container.yml` workflow builds the image and smoke-tests it with `scripts/container-smoke.sh`, which starts `serve --container` and waits for it to be healthy. That path still passes. The workflow does not yet test the default broker command.
+- **Container verification.** On a local Docker Desktop (Windows host) on 2026-11-20, with the base image `oven/bun:1.4.5-debian` pinned by digest (`oven/bun@sha256:3dddea58…`, which reports Bun 1.4.5): the image builds, and `scripts/container-smoke.sh` passes both the default command (broker and owner panel become healthy) and `serve --container`. An earlier check on the previous Bun 1.4.4 digest also confirmed the owner panel `/healthz`, `daemon status`, a clean `docker stop`, a restart that keeps the inventory, and a valid and an invalid `HOMECTL_WORKSPACE_LISTEN`; those were not re-run on 1.4.5. Not verified: UGOS itself, host networking on UGOS, a real NAS, the SSH tunnel to the panel, interactive `owner init` inside the container, and backup and restore from the container.
+- **Bridge-network check (2026-11-20, local Docker Desktop, Linux engine).** The image built from the `Dockerfile` with `BUN_IMAGE=oven/bun:1.4.5-debian`, a tag and not a digest, and the compose project ran on its bridge network with the panel published on loopback. The panel answered `/healthz`. A request whose `Host` and `Origin` matched `HOMECTL_PANEL_ORIGIN` reached the broker. A foreign `Origin`, a missing `Origin` and a wrong `Host` were refused with 403. Login set `HttpOnly; SameSite=Strict; Max-Age=900; Secure`, and logout cleared it with the same attributes. A non-loopback plain-http origin without the opt-in exited with status 2, and so did a non-loopback listen address without an origin. The owner password for this check was a throwaway value set inside a disposable container, not through `owner init`. Not verified: a real browser, UGOS, a reverse proxy, the SSH tunnel.
 - **Ugreen UGOS**: create Docker Compose projects from the UGOS app. Before an SSH key can be installed for a user on UGOS, enable **Personal Folder** for that account. <!-- verify: carried from the 0.2 user guide; not re-tested on UGOS. -->
 
 ### WSL

@@ -34,7 +34,10 @@ import {
 } from "./release-trust";
 import { HomectlError, type Runner } from "./types";
 
-const RELEASES = "https://github.com/Hiosdra/homectl/releases/download";
+// Where release archives and manifests are downloaded from. The broker's update routes
+// (src/broker/update-routes.ts) read this same constant.
+export const RELEASE_DOWNLOAD_BASE =
+  "https://github.com/Hiosdra/homectl/releases/download";
 // Command files are small text shims; anything larger is never read.
 const SHIM_LIMIT = 64 * 1024;
 // Which release was running before the last install, for --rollback.
@@ -101,7 +104,7 @@ export async function installRelease(
   const version = latest.replace(/^v/, "");
   const folder = `homectl-${version}-windows-x64`;
   const archive = `${folder}.zip`;
-  const base = `${RELEASES}/v${version}`;
+  const base = `${RELEASE_DOWNLOAD_BASE}/v${version}`;
 
   // Nothing from the release is used until its signature has been checked.
   const manifestBytes = await download(`${base}/${MANIFEST_NAME}`, fetcher);

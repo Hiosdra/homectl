@@ -18,16 +18,20 @@ import {
   type Post,
   workspaceAddress,
 } from "./channel";
+import { type RestoreOutcome, takeRestore } from "./client-restore";
+import { ClientDecisions, type DecisionOutcome } from "./client-decisions";
+import type { RestoreTarget } from "./restore-files";
+import type { RevocationSet } from "./revocations";
 import {
   backupClientId,
   type ClientLink,
   type ClientLinkFile,
   clientLinkFile,
-  MAX_SEEN_INTENTS,
+  type Revocations,
 } from "./state";
 import {
+  backupReport,
   errorText,
-  type LinkedServer,
   peerOf,
   summarize,
   takeBatch,
@@ -41,7 +45,10 @@ export interface WorkspaceClientDeps {
   decide(input: DecideInput): Promise<unknown>;
   events: { since(after: number): Promise<SinceResult> };
   backupFiles(): Promise<SnapshotInput[]>;
+  restore: RestoreTarget;
   vaultUnlocked?: () => boolean;
+  // The revocations this device holds now, reported with each sync.
+  revocations?: () => Promise<RevocationSet | undefined>;
   // Transport per server address; tests route it in process.
   post?: (address: string) => Post;
   now?: () => number;
@@ -54,20 +61,16 @@ export interface BackupRun {
   baseline: boolean;
 }
 
-interface Outcome {
-  id: string;
-  status: "applied" | "refused";
-  reason?: string;
-}
-
 export class WorkspaceClient implements RouteExtension {
   private readonly file: ClientLinkFile;
   private readonly ready: Promise<void>;
   private readonly now: () => number;
   private readonly post: (address: string) => Post;
-  private outcomes: Outcome[] = [];
+  private readonly decisions: ClientDecisions;
+  private outcomes: DecisionOutcome[] = [];
   private syncRun: Promise<void> | undefined;
   private backupRun: Promise<BackupRun | undefined> | undefined;
+  private restoreRun: Promise<RestoreOutcome> | undefined;
   private timers: ReturnType<typeof setInterval>[] = [];
 
   constructor(
@@ -79,6 +82,12 @@ export class WorkspaceClient implements RouteExtension {
     this.ready = this.file.update(() => undefined);
     this.now = deps.now ?? Date.now;
     this.post = deps.post ?? httpPost;
+    this.decisions = new ClientDecisions(
+      this.file,
+      () => this.load(),
+      deps.decide,
+      this.now,
+    );
   }
 
   private async load(): Promise<ClientLink> {
@@ -162,10 +171,17 @@ export class WorkspaceClient implements RouteExtension {
       backupKey = "pending";
       await this.noteError(error);
     }
+    // Owed until the check settles: a device that could not reach the server
+    // now retries on each sync while the grant lasts.
+    await this.file.update((next) => {
+      next.restorePending = true;
+    });
+    const restore = await this.restoreCheck();
     return {
       server: { id: remote.id, name: remote.name },
       sas: pair.sas,
       backupKey,
+      restore,
     };
   }
 
@@ -215,9 +231,50 @@ export class WorkspaceClient implements RouteExtension {
       next.backupKeyRegistered = false;
       next.lastSyncAt = undefined;
       next.lastSyncError = undefined;
+      next.restorePending = undefined;
+      next.restore = undefined;
     });
     this.outcomes = [];
     return this.status();
+  }
+
+  // One restore check at a time. A device that was never reached (or whose
+  // write failed) checks again on each sync until the server settles it.
+  private restoreCheck(): Promise<RestoreOutcome> {
+    this.restoreRun ??= this.runRestore().finally(() => {
+      this.restoreRun = undefined;
+    });
+    return this.restoreRun;
+  }
+
+  private async runRestore(): Promise<RestoreOutcome> {
+    const link = await this.load();
+    const outcome = await takeRestore(
+      this.post,
+      link,
+      this.deps.restore,
+      (mutate) => this.file.update(mutate),
+    );
+    const settled =
+      outcome.status === "none" ||
+      outcome.status === "refused" ||
+      (outcome.status === "restored" && outcome.acknowledged);
+    await this.file.update((next) => {
+      next.restorePending = settled ? undefined : true;
+    });
+    return outcome;
+  }
+
+  // What this device holds now, stamped with its own clock. Missing when the
+  // report cannot be taken: the server then reapplies nothing.
+  private async revocationReport(): Promise<Revocations | undefined> {
+    if (!this.deps.revocations) return undefined;
+    try {
+      const report = await this.deps.revocations();
+      return report ? { at: this.now(), ...report } : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private async syncNow() {
@@ -248,6 +305,8 @@ export class WorkspaceClient implements RouteExtension {
     const link = await this.load();
     if (!link.server) return;
     try {
+      if (link.restorePending || link.restore)
+        await this.restoreCheck().catch(() => undefined);
       // A second round sends the outcomes of decisions applied in the first.
       for (let round = 0; round < 2; round++)
         if (!(await this.exchange())) break;
@@ -266,6 +325,7 @@ export class WorkspaceClient implements RouteExtension {
       .slice(0, MAX_CLIENT_PENDING)
       .map(summarize);
     const sent = this.outcomes.slice();
+    const revocations = await this.revocationReport();
     const reply = v.parseReply(
       await channelRequest(
         this.post(server.address),
@@ -280,6 +340,8 @@ export class WorkspaceClient implements RouteExtension {
           status: {
             remoteApproval: server.remoteApproval,
             vaultUnlocked: this.deps.vaultUnlocked?.() ?? false,
+            backup: backupReport(link.backup),
+            ...(revocations ? { revocations } : {}),
           },
         },
       ),
@@ -293,8 +355,14 @@ export class WorkspaceClient implements RouteExtension {
       next.lastSyncError = batch.note;
     });
     let applied = false;
-    for (const intent of reply.intents)
-      if (await this.applyIntent(intent, server.id)) applied = true;
+    for (const intent of reply.intents) {
+      const outcome = await this.decisions.apply(intent, server.id);
+      if (!outcome) continue;
+      this.outcomes.push(outcome);
+      applied = true;
+    }
+    // The owner asked for a backup now; it runs in the background.
+    if (reply.backupRequested) this.backupOnce().catch(() => undefined);
     return applied;
   }
 
@@ -317,60 +385,6 @@ export class WorkspaceClient implements RouteExtension {
       events: isGap(retained) ? [] : takeBatch(retained),
       note: "Local events were pruned before they were mirrored; the server copy has a gap",
     };
-  }
-
-  // Applies one queued decision at most once. The intent id is recorded
-  // before the decision runs, so a crash cannot apply it twice.
-  private async applyIntent(
-    intent: v.ServerIntent,
-    serverId: string,
-  ): Promise<boolean> {
-    const link = await this.load();
-    const server = link.server;
-    if (!server || server.id !== serverId) return false;
-    if (link.seenIntents.includes(intent.id)) return false;
-    await this.file.update((next) => {
-      next.seenIntents.push(intent.id);
-      next.seenIntents.splice(
-        0,
-        Math.max(0, next.seenIntents.length - MAX_SEEN_INTENTS),
-      );
-    });
-    const outcome = await this.decideIntent(intent, server);
-    this.outcomes.push({ id: intent.id, ...outcome });
-    return true;
-  }
-
-  private async decideIntent(
-    intent: v.ServerIntent,
-    server: LinkedServer,
-  ): Promise<{ status: "applied" | "refused"; reason?: string }> {
-    if (!server.remoteApproval)
-      return {
-        status: "refused",
-        reason: "remote approval not granted on this client",
-      };
-    if (intent.expiresAt < this.now())
-      return { status: "refused", reason: "expired" };
-    try {
-      await this.deps.decide({
-        operationId: intent.operationId,
-        fingerprint: intent.fingerprint,
-        decision: intent.decision,
-        surface: `workspace-server:${server.id}`,
-        // A server's re-authentication never satisfies local step-up.
-        stepUp: false,
-      });
-      return { status: "applied" };
-    } catch (error) {
-      return {
-        status: "refused",
-        reason:
-          error instanceof HomectlError
-            ? error.message.slice(0, 300)
-            : "The local decision failed",
-      };
-    }
   }
 
   // One backup run at a time. Errors are recorded and rethrown.

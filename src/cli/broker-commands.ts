@@ -3,16 +3,15 @@
 // (approvals, approve, deny, agent, owner) ask for the owner password in a
 // private terminal every time; nothing the agent can read grants approval.
 import { hostname } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import { callBroker, clientToken, findEndpoint } from "../broker/client";
-import { ownerHostCommand } from "../broker/host-permissions";
 import type { Endpoint } from "../broker/paths";
-import { compatPaths } from "../broker/paths";
 import { readPassword } from "../session";
 import { paths } from "../setup";
 import { HomectlError } from "../types";
+import { ownerCommand } from "./owner-commands";
 import { workspaceCommand } from "./workspace-commands";
 
 export const BROKER_COMMANDS = new Set([
@@ -140,9 +139,13 @@ export async function brokerCommand(
       hosts: { type: "string" },
       name: { type: "string" },
       mode: { type: "string" },
+      authority: { type: "string" },
+      endpoint: { type: "string" },
+      model: { type: "string" },
       ttl: { type: "string" },
       "dry-run": { type: "boolean" },
       "remote-approval": { type: "boolean" },
+      reason: { type: "string" },
     },
   });
   const { inventoryPath, emit } = options;
@@ -410,53 +413,20 @@ export async function brokerCommand(
         "Usage: home-ctl agent connect|list|rotate|revoke",
       );
     }
-    case "owner": {
-      const [action] = positionals;
-      const hostCall = argv.length === 0 && ownerHostCommand(positionals);
-      if (hostCall) {
-        const auth = await ownerAuth(inventoryPath);
-        const body = { ...hostCall.body, password: auth.password };
-        emit(await callBroker(hostCall.route, body, auth));
-        return 0;
-      }
-      if (action !== "init")
-        throw new HomectlError(
-          2,
-          "Usage: home-ctl owner init | scan-host-keys <host> | pin-host-key <host> <SHA256:…> | inspect-host <host> | preview-host-grant <host> | apply-host-grant <host> <fingerprint> | revoke-host-grant <host>",
-        );
-      const mode = v.mode ?? "compat";
-      if (mode !== "compat")
-        throw new HomectlError(
-          2,
-          "The hardened service sets the owner password during `home-ctl daemon install`",
-        );
-      const { vaultPathFor } = await import("../broker/vault-wiring");
-      if (await Bun.file(await vaultPathFor(inventoryPath, "compat")).exists())
-        throw new HomectlError(
-          3,
-          "This workspace has a homelab vault: its master password is the owner password, so there is nothing to set",
-        );
-      const { FileVerifier } = await import("../broker/owner");
-      const verifier = new FileVerifier(
-        join(compatPaths(inventoryPath).state, "owner.json"),
-      );
-      if (await verifier.exists())
-        throw new HomectlError(3, "An owner password is already set");
-      const first = await readPassword("New homectl owner password: ");
-      const second = await readPassword("Repeat it: ");
-      if (first !== second)
-        throw new HomectlError(2, "The passwords do not match");
-      const { privateDirectory } = await import("../platform");
-      await privateDirectory(compatPaths(inventoryPath).state);
-      await verifier.set(first);
-      emit({ owner: "set" }, "Owner password set.");
-      return 0;
-    }
+    case "owner":
+      return ownerCommand(positionals, {
+        inventoryPath,
+        flags: v,
+        argv,
+        emit,
+        auth: () => ownerAuth(inventoryPath),
+      });
     case "workspace":
       return workspaceCommand(positionals, {
         auth: () => ownerAuth(inventoryPath),
         emit,
         remoteApproval: v["remote-approval"] ?? false,
+        reason: v.reason,
       });
     case "mcp":
       // stdio MCP server: stdout carries protocol messages only.

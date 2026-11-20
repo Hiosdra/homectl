@@ -1,14 +1,20 @@
-// In-process fixtures for the workspace tests: one server, one client, and a
-// transport that routes straight to the server's network paths.
+// In-process fixtures for the workspace tests: one server, one or more clients,
+// and a transport that routes straight to the server's network paths.
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SnapshotInput } from "../src/backup";
-import type { BrokerOperation, DecideInput } from "../src/broker/types";
+import type { RestoredFile, SnapshotInput } from "../src/backup";
+import type {
+  BrokerOperation,
+  DecideInput,
+  EventsPort,
+} from "../src/broker/types";
 import type { EventEnvelope } from "../src/core/contracts";
 import { HomectlError } from "../src/types";
 import type { Post } from "../src/workspace/channel";
 import { WorkspaceClient } from "../src/workspace/client";
+import type { RestoreTarget } from "../src/workspace/restore-files";
+import type { RevocationSet } from "../src/workspace/revocations";
 import { WorkspaceServer } from "../src/workspace/server";
 import {
   type ClientLink,
@@ -26,12 +32,43 @@ export async function stepUp(password: unknown): Promise<void> {
     throw new HomectlError(3, "Confirm with the owner password");
 }
 
+// In-memory restore target: records what a fresh device would write. Like the
+// real target, it refuses when any restorable file exists, and what it wrote
+// counts as existing. failWrites makes the next writes fail (a failed delivery).
+export interface MemoryRestore extends RestoreTarget {
+  written: Map<string, Uint8Array>;
+  taken: string[];
+  failWrites: number;
+}
+
+export function memoryRestore(taken: string[] = []): MemoryRestore {
+  const target: MemoryRestore = {
+    written: new Map(),
+    taken: [...taken],
+    failWrites: 0,
+    async existing() {
+      return [...new Set([...target.taken, ...target.written.keys()])];
+    },
+    async write(files: RestoredFile[]) {
+      if (target.failWrites > 0) {
+        target.failWrites -= 1;
+        throw new HomectlError(5, "Disk write failed");
+      }
+      if ((await target.existing()).length > 0)
+        throw new HomectlError(3, "Refusing to overwrite existing files");
+      for (const file of files) target.written.set(file.path, file.data);
+    },
+  };
+  return target;
+}
+
 export interface Harness {
   dir: string;
   serverDir: string;
   clientDir: string;
   server: WorkspaceServer;
   client: WorkspaceClient;
+  restore: MemoryRestore;
   // Every request from the client goes through here; tests may replace it.
   post: Post;
   events: EventEnvelope[];
@@ -41,13 +78,30 @@ export interface Harness {
   files: SnapshotInput[];
   // Client-side clock override for expiry checks.
   clientClock: { now: number } | undefined;
+  // What the client reports as its revocations with each sync.
+  revocations: RevocationSet | undefined;
   serverState(): Promise<ServerState>;
   clientLink(): Promise<ClientLink>;
+  // A second device with its own state directory, for fresh-identity tests.
+  freshDevice(name: string): Promise<FreshDevice>;
   cleanup(): Promise<void>;
 }
 
+export interface FreshDevice {
+  dir: string;
+  client: WorkspaceClient;
+  restore: MemoryRestore;
+  clientLink(): Promise<ClientLink>;
+}
+
 export async function fixture(
-  options: { serverNow?: () => number; clientNow?: () => number } = {},
+  options: {
+    serverNow?: () => number;
+    clientNow?: () => number;
+    quotaBytes?: number;
+    // The server's live event port; tests record what it emits.
+    events?: Pick<EventsPort, "emit">;
+  } = {},
 ): Promise<Harness> {
   const dir = await mkdtemp(join(tmpdir(), "hc-workspace-"));
   const serverDir = join(dir, "server");
@@ -56,6 +110,10 @@ export async function fixture(
   await mkdir(clientDir, { recursive: true });
   const server = new WorkspaceServer(serverDir, {
     now: options.serverNow ?? Date.now,
+    ...(options.quotaBytes === undefined
+      ? {}
+      : { quotaBytes: options.quotaBytes }),
+    ...(options.events ? { events: options.events } : {}),
   });
   const harness: Harness = {
     dir,
@@ -63,6 +121,7 @@ export async function fixture(
     clientDir,
     server,
     client: undefined as unknown as WorkspaceClient,
+    restore: memoryRestore(),
     post: (path, value) => server.network(path, value),
     events: [],
     gapFrom: undefined,
@@ -70,8 +129,32 @@ export async function fixture(
     decisions: [],
     files: [],
     clientClock: undefined,
+    revocations: undefined,
     serverState: () => serverStateFile(serverDir).read(),
     clientLink: () => clientLinkFile(clientDir).read(),
+    freshDevice: async (name) => {
+      const deviceDir = join(dir, name);
+      await mkdir(deviceDir, { recursive: true });
+      const restore = memoryRestore();
+      const client = new WorkspaceClient(deviceDir, {
+        pending: async () => harness.ops,
+        decide: async (input) => {
+          harness.decisions.push(input);
+          return { applied: true };
+        },
+        events: { since: async () => [] },
+        backupFiles: async () => harness.files,
+        restore,
+        post: () => (path, value) => harness.post(path, value),
+        now: options.clientNow ?? Date.now,
+      });
+      return {
+        dir: deviceDir,
+        client,
+        restore,
+        clientLink: () => clientLinkFile(deviceDir).read(),
+      };
+    },
     cleanup: () => rm(dir, { recursive: true, force: true }),
   };
   harness.client = new WorkspaceClient(clientDir, {
@@ -88,6 +171,8 @@ export async function fixture(
       },
     },
     backupFiles: async () => harness.files,
+    restore: harness.restore,
+    revocations: async () => harness.revocations,
     post: () => (path, value) => harness.post(path, value),
     now: options.clientNow ?? Date.now,
   });
@@ -145,16 +230,18 @@ export function op(
     stepUp: boolean;
     expiresAt: number;
     narrative: string;
+    argv: string[];
+    sudo: boolean;
   }> = {},
 ): BrokerOperation {
   return {
     id: overrides.id ?? "op-1",
     client: "laptop-a",
     host: "lab",
-    argv: ["systemctl", "status", "nginx"],
+    argv: overrides.argv ?? ["systemctl", "status", "nginx"],
     impact: "Read service status",
-    classification: { kind: "read" },
-    sudo: false,
+    classification: "inspect",
+    sudo: overrides.sudo ?? false,
     risk: "low",
     machineHash: "machine",
     fingerprint: overrides.fingerprint ?? "fp-1",

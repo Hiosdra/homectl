@@ -18,6 +18,7 @@ import { planExecution } from "../policies";
 import { SecretBroker } from "../secrets";
 import { startWorkspace, type WorkspaceConfig } from "../workspace/wiring";
 import { AuthzPolicy } from "./authz-policy";
+import { AutoModeRoutes } from "./auto-mode-routes";
 import { ClientAdmin } from "./clients-admin";
 import { Broker } from "./engine";
 import { HostKeyRoutes } from "./host-keys";
@@ -25,6 +26,7 @@ import { HostPermissionRoutes } from "./host-permissions";
 import { FileVerifier, OwnerSessions } from "./owner";
 import type { BrokerMode, Endpoint } from "./paths";
 import { PolicyRoutes } from "./policy-routes";
+import { loadReviewerSettings, reviewerFrom } from "./reviewer-settings";
 import { SecretService } from "./secret-service";
 import { type Listen, startBrokerServer } from "./server";
 import { BrokerStore } from "./store";
@@ -34,6 +36,7 @@ import type {
   InventoryPort,
   PolicyPort,
 } from "./types";
+import { UpdateRoutes } from "./update-routes";
 import type { KeyAgentPort } from "./vault-service";
 import { createVault, rebindInventory } from "./vault-wiring";
 
@@ -87,7 +90,7 @@ export function sshExecutor(
 }
 
 export async function startDaemon(config: DaemonConfig) {
-  await migrate(config.inventoryPath);
+  await migrate(config.inventoryPath, { brokerState: config.state });
   await privateDirectory(config.state);
   await ensurePrivateDirectoryOnce(config.state);
   const keys = join(config.state, "keys");
@@ -144,9 +147,17 @@ export async function startDaemon(config: DaemonConfig) {
     events,
   });
   // The owner's policy file. The engine uses it unless a test injects another.
+  // The reviewer is built from the Auto Mode settings on every evaluation;
+  // it is consulted only in Auto mode, after the owner's rules.
+  const reviewerSettingsPath = join(config.state, "reviewer.json");
   const authz = new AuthzPolicy({
     path: join(config.state, "policy.json"),
     now: Date.now,
+    reviewer: async () =>
+      reviewerFrom(
+        await loadReviewerSettings(reviewerSettingsPath),
+        process.env,
+      ),
   });
   const policy = config.policy ?? authz;
   const broker = new Broker({
@@ -186,6 +197,7 @@ export async function startDaemon(config: DaemonConfig) {
     inventoryPath: config.inventoryPath,
     broker,
     log,
+    events,
     ...(hasVault ? { vaultUnlocked: () => vault.unlocked() } : {}),
     ...(config.workspace ? { config: config.workspace } : {}),
   });
@@ -199,6 +211,13 @@ export async function startDaemon(config: DaemonConfig) {
     extensions: [
       secrets,
       new PolicyRoutes(authz),
+      new UpdateRoutes({ events }),
+      new AutoModeRoutes({
+        store: authz,
+        settingsPath: reviewerSettingsPath,
+        env: process.env,
+        events,
+      }),
       mcpHttpRoute({ broker, secrets }),
       new HostKeyRoutes(inventory, config.inventoryPath, undefined, events),
       ...workspace.extensions,

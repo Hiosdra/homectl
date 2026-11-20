@@ -106,7 +106,11 @@ export class SecretService implements RouteExtension {
     }
   }
 
-  async owner(path: string, input: Record<string, unknown>): Promise<unknown> {
+  async owner(
+    path: string,
+    input: Record<string, unknown>,
+    stepUp: (password: unknown) => Promise<void>,
+  ): Promise<unknown> {
     const { secrets } = this.options;
     switch (path) {
       case "/v1/owner/secrets/pending":
@@ -116,6 +120,9 @@ export class SecretService implements RouteExtension {
           purpose: { untrusted: view.purpose },
         }));
       case "/v1/owner/secrets/provide":
+        // Providing a value approves one use path, so the owner password is
+        // checked again in the same request, like other step-up routes.
+        await stepUp(input.password);
         return secrets.provide(str(input.id, "id"), input.values, {
           retention: input.retention === "saved" ? "saved" : "ephemeral",
           ...(typeof input.saveName === "string"

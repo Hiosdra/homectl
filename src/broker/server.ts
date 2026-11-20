@@ -15,6 +15,19 @@ import type { DecideInput } from "./types";
 export const MAX_BODY = 64 * 1024;
 const COOKIE = "hc_owner";
 
+// The owner session cookie. HttpOnly and SameSite=Strict always. Secure is added
+// when the panel origin is https, so the browser never sends the session over
+// plain http. The origin is the one checkOrigin already accepted (or the panel's
+// exact origin, which the proxy substitutes), never a value the caller chose.
+function sessionCookie(
+  value: string,
+  maxAge: number,
+  origin: string | null,
+): string {
+  const secure = origin?.startsWith("https://") ? "; Secure" : "";
+  return `${COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/v1/owner; Max-Age=${maxAge}${secure}`;
+}
+
 export interface ClientAuth {
   authenticate(token: string | undefined): Promise<ClientIdentity | null>;
 }
@@ -151,7 +164,11 @@ export function handler(options: BrokerServerOptions) {
         200,
         surface === "panel"
           ? {
-              "set-cookie": `${COOKIE}=${session.token}; HttpOnly; SameSite=Strict; Path=/v1/owner; Max-Age=900`,
+              "set-cookie": sessionCookie(
+                session.token,
+                900,
+                req.headers.get("origin"),
+              ),
             }
           : {},
       );
@@ -183,7 +200,7 @@ export function handler(options: BrokerServerOptions) {
       case "/v1/owner/logout":
         owner.logout(token);
         return json({ ok: true }, 200, {
-          "set-cookie": `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/v1/owner; Max-Age=0`,
+          "set-cookie": sessionCookie("", 0, req.headers.get("origin")),
         });
       case "/v1/owner/pending":
         return json(

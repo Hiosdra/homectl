@@ -66,7 +66,10 @@ export interface BrokerOperation {
     | "humanOnly"
     | "policyRevision"
     | "ruleId"
-  >;
+  > & {
+    // Reviewer (model) calls made for this decision; absent on older records.
+    modelCalls?: number;
+  };
   state: BrokerOperationState;
   createdAt: number;
   expiresAt: number;
