@@ -133,9 +133,9 @@ export async function runContextScenario(harness: Harness, viewport: Viewport) {
     expect(page.url()).not.toMatch(/client:|ws-nas/);
 
     // The workspace follows the same choice: NAS rows, NAS machine, NAS history.
-    await page.getByRole("button", { name: /^Workspace/ }).click();
+    await page.getByRole("button", { name: /^Devices & backup/ }).click();
     await expect(
-      page.getByRole("heading", { name: "Workspace" }),
+      page.getByRole("heading", { name: "Devices & backup" }),
     ).toBeVisible();
     await expect(
       page.getByRole("article", { name: "Approval from NAS" }),
@@ -254,9 +254,9 @@ export async function runNoWorkspaceContext(
     await expect(page.getByRole("combobox", { name: "Devices" })).toHaveCount(
       0,
     );
-    await expect(page.getByRole("button", { name: /^Workspace/ })).toHaveCount(
-      0,
-    );
+    await expect(
+      page.getByRole("button", { name: /^Devices & backup/ }),
+    ).toHaveCount(0);
     await expect(page.getByText(/^Showing /)).toHaveCount(0);
     await expect(page.getByRole("alert")).toHaveCount(0);
     await noOverflow(page);

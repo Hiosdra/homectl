@@ -20,11 +20,15 @@ type Viewport = (typeof VIEWPORTS)[number];
 
 async function openWorkspace(page: Page, harness: Harness) {
   await signIn(page, harness);
-  await expect(page.getByRole("button", { name: "Workspace (5)" })).toBeVisible(
-    { timeout: 10_000 },
-  );
-  await page.getByRole("button", { name: "Review in Workspace" }).click();
-  await expect(page.getByRole("heading", { name: "Workspace" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Devices & backup 5" }),
+  ).toBeVisible({ timeout: 10_000 });
+  await page
+    .getByRole("button", { name: "Review in Devices & backup" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Devices & backup" }),
+  ).toBeVisible();
 }
 
 export async function runRestoreScenario(harness: Harness, viewport: Viewport) {

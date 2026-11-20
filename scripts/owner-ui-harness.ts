@@ -448,12 +448,20 @@ export async function signIn(page: Page, harness: Harness) {
 }
 
 export async function noOverflow(page: Page) {
-  const overflow = await page.evaluate(
-    () =>
-      document.documentElement.scrollWidth -
-      document.documentElement.clientWidth,
-  );
-  expect(overflow).toBeLessThanOrEqual(0);
+  const overflow = await page.evaluate(() => {
+    const width = document.documentElement.clientWidth;
+    // Names the elements that reach past the screen, so a failure says where.
+    const past = Array.from(document.querySelectorAll<HTMLElement>("body *"))
+      .filter((el) => el.getBoundingClientRect().right > width + 1)
+      .slice(0, 4)
+      .map((el) => `${el.tagName.toLowerCase()}.${el.className}`);
+    return { overflow: document.documentElement.scrollWidth - width, past };
+  });
+  expect(
+    overflow.past,
+    `past the screen edge: ${overflow.past.join(", ")}`,
+  ).toEqual([]);
+  expect(overflow.overflow).toBeLessThanOrEqual(0);
 }
 
 // Opens a context at one viewport. `init` runs in the page before its scripts.

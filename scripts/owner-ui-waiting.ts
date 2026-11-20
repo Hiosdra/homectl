@@ -12,7 +12,7 @@ export function waitingFromTitle(title: string): number {
 }
 
 export function needsYouName(count: number): string {
-  return count > 0 ? `Needs you (${count})` : "Needs you";
+  return count > 0 ? `Needs you ${count}` : "Needs you";
 }
 
 // The overview lists an approval as one item: "<argv> on <host>". Each scenario

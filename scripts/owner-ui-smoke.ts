@@ -14,6 +14,7 @@ import { compatPaths } from "../src/broker/paths";
 import { startOwnerPanel } from "../src/web/owner/server";
 import type { Agent } from "./owner-ui-harness";
 import { runOwnerFlowScenarios } from "./owner-ui-flows";
+import { runDesignScenarios } from "./owner-ui-design";
 import { approvalItem, openSecret } from "./owner-ui-waiting";
 import { runOwnerExtensionScenarios } from "./owner-ui-workspace";
 
@@ -219,7 +220,7 @@ async function runScenario(
     );
 
     // Agents: create one; the token is shown once.
-    await page.getByRole("button", { name: /^Agents/ }).click();
+    await page.getByRole("button", { name: /^Assistants/ }).click();
     await page.getByLabel("Identifier").fill(`smoke-${name}`);
     await page.getByLabel("Name").fill(`Smoke ${name}`);
     await page.getByLabel(/Hosts/).fill("pc");
@@ -261,6 +262,9 @@ try {
   await runOwnerExtensionScenarios(harness);
   // Remembered rules, the attention inbox, the stream dropping and returning.
   await runOwnerFlowScenarios(harness);
+  // Design: information architecture, accessible names and headings, one-tap
+  // approval from the list, and the remembered section.
+  await runDesignScenarios(harness);
   console.log("Owner panel browser smoke passed (desktop and phone).");
 } finally {
   await browser.close();
