@@ -21,8 +21,7 @@ export function assertRestoreAuthorization(
 ): asserts authorization is RestoreAuthorization {
   const a = authorization as Partial<RestoreAuthorization> | undefined;
   if (
-    !a ||
-    a.kind !== "owner" ||
+    a?.kind !== "owner" ||
     a.stepUp !== true ||
     typeof a.reason !== "string" ||
     a.reason.trim().length === 0

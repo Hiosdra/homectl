@@ -2,6 +2,7 @@
 import { chmod } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { callBroker, findEndpoint } from "../broker/client";
+import { hardenedSupport } from "../broker/hardened-support";
 import { assertRoot, installPlan, uninstallPlan } from "../broker/install";
 import { compatPaths, hardenedPaths } from "../broker/paths";
 import { run } from "../process";
@@ -123,11 +124,24 @@ export async function daemonCommand(
       )
         .then(() => true)
         .catch((error: HomectlError) => /Client token/.test(error.message));
+      // Says per platform what hardened mode gives here, whichever mode is running.
+      const hardened = hardenedSupport(
+        process.platform,
+        process.platform === "linux" && (await systemdRunning()),
+      );
       options.emit(
-        { running: reachable, mode: endpoint.mode, address: endpoint.address },
-        reachable
-          ? `homectl broker is running (${endpoint.mode}${endpoint.mode === "compat" ? ", weaker: same user as the owner" : ""}).`
-          : "The endpoint file exists but the broker does not answer.",
+        {
+          running: reachable,
+          mode: endpoint.mode,
+          address: endpoint.address,
+          hardened,
+        },
+        [
+          reachable
+            ? `homectl broker is running (${endpoint.mode}${endpoint.mode === "compat" ? ", weaker: same user as the owner" : ""}).`
+            : "The endpoint file exists but the broker does not answer.",
+          hardened.statement,
+        ].join("\n"),
       );
       return reachable ? 0 : 5;
     }

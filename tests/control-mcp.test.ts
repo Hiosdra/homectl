@@ -289,7 +289,8 @@ describe("MCP methods", () => {
       },
     });
     expect(
-      (older.json?.result as { protocolVersion: string }).protocolVersion,
+      (older.json?.result as { protocolVersion?: string } | undefined)
+        ?.protocolVersion,
     ).toBe("2025-03-26");
     const unknown = await rpc(f, token, {
       jsonrpc: "2.0",

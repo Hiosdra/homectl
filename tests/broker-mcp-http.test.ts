@@ -149,11 +149,16 @@ test("tools/list offers the catalogue with closed schemas, and notifications get
     { jsonrpc: "2.0", id: 1, method: "tools/list" },
     `Bearer ${agent}`,
   );
-  const tools = (
-    listed.json?.result as {
-      tools: { name: string; inputSchema: { additionalProperties: boolean } }[];
-    }
-  ).tools;
+  const result = listed.json?.result as
+    | {
+        tools: {
+          name: string;
+          inputSchema: { additionalProperties: boolean };
+        }[];
+      }
+    | undefined;
+  const tools = result?.tools ?? [];
+  expect(tools.length).toBeGreaterThan(0);
   expect(tools.map((t) => t.name)).toEqual([
     "hosts",
     "exec",
