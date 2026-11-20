@@ -22,7 +22,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -92,11 +92,11 @@ jobs:
 
       # Build provenance: a signed statement that these archives came from this workflow run.
       - name: Attest the build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest@v4
         with:
           subject-path: "dist/*.tar.gz, dist/*.zip, dist/*.deb, dist/*.rpm, dist/*.apk, dist/*.pkg.tar.zst"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release
           path: dist/*
@@ -108,7 +108,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release
           path: dist
