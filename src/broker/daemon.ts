@@ -16,6 +16,7 @@ import { execute } from "../operations";
 import { atomicReplace, privateDirectory } from "../platform";
 import { planExecution } from "../policies";
 import { SecretBroker } from "../secrets";
+import { startWorkspace, type WorkspaceConfig } from "../workspace/wiring";
 import { AuthzPolicy } from "./authz-policy";
 import { ClientAdmin } from "./clients-admin";
 import { Broker } from "./engine";
@@ -50,6 +51,8 @@ export interface DaemonConfig {
   executor?: ExecutorPort;
   // Tests: replaces the session ssh-agent the vault loads keys into.
   keyAgent?: KeyAgentPort;
+  // Workspace mode: a server listener is opt-in; the client always exists.
+  workspace?: WorkspaceConfig;
 }
 
 export function inventoryPort(inventoryPath: string): InventoryPort {
@@ -178,6 +181,14 @@ export async function startDaemon(config: DaemonConfig) {
     inventoryPort(config.inventoryPath),
     config.state,
   );
+  const workspace = await startWorkspace({
+    state: config.state,
+    inventoryPath: config.inventoryPath,
+    broker,
+    log,
+    ...(hasVault ? { vaultUnlocked: () => vault.unlocked() } : {}),
+    ...(config.workspace ? { config: config.workspace } : {}),
+  });
   const running = startBrokerServer({
     broker,
     clients: registry,
@@ -190,6 +201,7 @@ export async function startDaemon(config: DaemonConfig) {
       new PolicyRoutes(authz),
       mcpHttpRoute({ broker, secrets }),
       new HostKeyRoutes(inventory, config.inventoryPath, undefined, events),
+      ...workspace.extensions,
       ...(hasVault
         ? [
             vault,
@@ -230,6 +242,7 @@ export async function startDaemon(config: DaemonConfig) {
     vault,
     async stop() {
       running.stop();
+      await workspace.stop();
       await broker.settled();
       // Without a vault the session agent is the owner's legacy one: leave it.
       await vault.shutdown(hasVault);

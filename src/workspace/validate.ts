@@ -1,0 +1,243 @@
+// Shape and size checks for everything a workspace peer sends (homelab #21
+// §6). Nothing that crosses the link is trusted for type, length or range
+// before it is stored or acted on.
+import type { EventEnvelope, EventType } from "../core/contracts";
+import { MAX_EVENT_DATA_BYTES } from "../events/log";
+import { HomectlError } from "../types";
+import type { PendingSummary } from "./state";
+
+export const MAX_SYNC_EVENTS = 500;
+export const MAX_PENDING = 200;
+export const MAX_RESULTS = 200;
+export const MAX_MISSING_IDS = 4096;
+export const MAX_CHUNK_BYTES = 2 * 1024 * 1024;
+export const MAX_SEALED_CHARS = 1_500_000;
+const MAX_ARGV = 256;
+const MAX_ARG = 4096;
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+
+export interface IntentResult {
+  id: string;
+  status: "applied" | "refused";
+  reason?: string;
+}
+
+export interface ServerIntent {
+  id: string;
+  operationId: string;
+  fingerprint: string;
+  decision: "approve-once" | "deny-once";
+  stepUp: boolean;
+  expiresAt: number;
+}
+
+export interface SyncRequest {
+  events: EventEnvelope[];
+  pending: PendingSummary[];
+  intentResults: IntentResult[];
+  status: { remoteApproval: boolean; vaultUnlocked: boolean };
+}
+
+export function fail(message: string): never {
+  throw new HomectlError(2, message);
+}
+
+export function record(value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    fail(`${label} must be an object`);
+  return value as Record<string, unknown>;
+}
+
+export function text(value: unknown, label: string, max: number): string {
+  if (typeof value !== "string" || value.length > max)
+    fail(`${label} is missing or longer than ${max} characters`);
+  return value;
+}
+
+export function flag(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") fail(`${label} must be true or false`);
+  return value;
+}
+
+export function finite(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value))
+    fail(`${label} must be a number`);
+  return value;
+}
+
+export function integer(value: unknown, label: string, min = 0): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min)
+    fail(`${label} must be an integer of at least ${min}`);
+  return value;
+}
+
+export function list<T>(
+  value: unknown,
+  label: string,
+  max: number,
+  item: (entry: unknown) => T,
+): T[] {
+  if (!Array.isArray(value) || value.length > max)
+    fail(`${label} must be a list of at most ${max} entries`);
+  return value.map(item);
+}
+
+// Lowercase hex of a fixed length: 64 chars is 32 bytes (keys, chunk ids).
+export function hex(value: unknown, label: string, chars = 64): string {
+  if (
+    typeof value !== "string" ||
+    value.length !== chars ||
+    !/^[0-9a-f]+$/.test(value)
+  )
+    fail(`${label} must be ${chars} lowercase hex characters`);
+  return value;
+}
+
+// Decodes a base64 chunk blob with a size bound checked before decoding.
+export function blob(value: unknown, label: string): Uint8Array {
+  const maxChars = Math.ceil(MAX_CHUNK_BYTES / 3) * 4;
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maxChars
+  )
+    fail(`${label} is missing or too large`);
+  const encoded = value as string;
+  if (!BASE64.test(encoded) || encoded.length % 4 !== 0)
+    fail(`${label} must be base64`);
+  const bytes = Buffer.from(encoded, "base64");
+  if (bytes.length === 0 || bytes.length > MAX_CHUNK_BYTES)
+    fail(`${label} is empty or larger than 2 MiB`);
+  return new Uint8Array(bytes);
+}
+
+export function parseEvents(value: unknown): EventEnvelope[] {
+  return list(value, "events", MAX_SYNC_EVENTS, (item) => {
+    const event = record(item, "event");
+    const seq = integer(event.seq, "event seq", 1);
+    if (JSON.stringify(event.data ?? null).length > MAX_EVENT_DATA_BYTES)
+      fail("event data is too large");
+    return {
+      id: text(event.id, "event id", 128),
+      origin: text(event.origin, "event origin", 128),
+      seq,
+      at: finite(event.at, "event time"),
+      type: text(event.type, "event type", 64) as EventType,
+      subject: text(event.subject, "event subject", 256),
+      audience: list(event.audience, "event audience", 64, (entry) =>
+        text(entry, "audience", 128),
+      ),
+      data: event.data,
+    };
+  });
+}
+
+export function parsePending(value: unknown): PendingSummary[] {
+  return list(value, "pending", MAX_PENDING, (item) => {
+    const pending = record(item, "pending operation");
+    const summary: PendingSummary = {
+      id: text(pending.id, "operation id", 128),
+      client: text(pending.client, "client", 128),
+      host: text(pending.host, "host", 255),
+      argv: list(pending.argv, "argv", MAX_ARGV, (entry) =>
+        text(entry, "argument", MAX_ARG),
+      ),
+      risk: text(pending.risk, "risk", 64),
+      fingerprint: text(pending.fingerprint, "fingerprint", 256),
+      reason: text(pending.reason, "reason", 512),
+      stepUp: flag(pending.stepUp, "stepUp"),
+      humanOnly: flag(pending.humanOnly, "humanOnly"),
+      expiresAt: finite(pending.expiresAt, "expiry"),
+    };
+    if (pending.narrative !== undefined)
+      summary.narrative = {
+        untrusted: text(
+          record(pending.narrative, "narrative").untrusted,
+          "narrative",
+          4096,
+        ),
+      };
+    return summary;
+  });
+}
+
+export function parseResults(value: unknown): IntentResult[] {
+  return list(value, "intent results", MAX_RESULTS, (item) => {
+    const result = record(item, "intent result");
+    const status = result.status;
+    if (status !== "applied" && status !== "refused")
+      fail("intent result status is invalid");
+    const parsed: IntentResult = {
+      id: text(result.id, "intent id", 64),
+      status: status as IntentResult["status"],
+    };
+    if (result.reason !== undefined)
+      parsed.reason = text(result.reason, "reason", 300);
+    return parsed;
+  });
+}
+
+export function parseStatus(value: unknown): SyncRequest["status"] {
+  const status = record(value, "status");
+  return {
+    remoteApproval: flag(status.remoteApproval, "remoteApproval"),
+    vaultUnlocked: flag(status.vaultUnlocked, "vaultUnlocked"),
+  };
+}
+
+export function parseSync(value: unknown): SyncRequest {
+  const body = record(value, "sync");
+  return {
+    events: parseEvents(body.events),
+    pending: parsePending(body.pending),
+    intentResults: parseResults(body.intentResults),
+    status: parseStatus(body.status),
+  };
+}
+
+// The server's answer to a sync: its mirror position and queued decisions.
+export function parseReply(value: unknown): {
+  ack: number;
+  gap: boolean;
+  intents: ServerIntent[];
+} {
+  const reply = record(value, "sync reply");
+  return {
+    ack: integer(reply.ack, "ack"),
+    gap: flag(reply.gap, "gap"),
+    intents:
+      reply.intents === undefined
+        ? []
+        : list(reply.intents, "intents", MAX_RESULTS, (item) => {
+            const intent = record(item, "intent");
+            const decision = intent.decision;
+            if (decision !== "approve-once" && decision !== "deny-once")
+              fail("intent decision is invalid");
+            return {
+              id: text(intent.id, "intent id", 64),
+              operationId: text(intent.operationId, "operation id", 128),
+              fingerprint: text(intent.fingerprint, "fingerprint", 256),
+              decision: decision as ServerIntent["decision"],
+              stepUp: flag(intent.stepUp, "stepUp"),
+              expiresAt: finite(intent.expiresAt, "expiry"),
+            };
+          }),
+  };
+}
+
+export function parseCommit(value: unknown) {
+  const commit = record(value, "commit result");
+  const status = commit.status;
+  if (status === "committed" || status === "unchanged")
+    return { status, seq: integer(commit.seq, "seq", 1) } as const;
+  if (status === "gap")
+    return {
+      status,
+      latestSeq: integer(commit.latestSeq, "latestSeq"),
+      latestHash:
+        commit.latestHash === null
+          ? null
+          : hex(commit.latestHash, "latestHash"),
+    } as const;
+  return fail("commit result status is invalid");
+}

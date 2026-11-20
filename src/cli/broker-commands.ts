@@ -13,6 +13,7 @@ import { compatPaths } from "../broker/paths";
 import { readPassword } from "../session";
 import { paths } from "../setup";
 import { HomectlError } from "../types";
+import { workspaceCommand } from "./workspace-commands";
 
 export const BROKER_COMMANDS = new Set([
   "daemon",
@@ -26,6 +27,7 @@ export const BROKER_COMMANDS = new Set([
   "task",
   "agent",
   "mcp",
+  "workspace",
 ]);
 
 export const APPROVAL_REMOVED =
@@ -140,6 +142,7 @@ export async function brokerCommand(
       mode: { type: "string" },
       ttl: { type: "string" },
       "dry-run": { type: "boolean" },
+      "remote-approval": { type: "boolean" },
     },
   });
   const { inventoryPath, emit } = options;
@@ -449,6 +452,12 @@ export async function brokerCommand(
       emit({ owner: "set" }, "Owner password set.");
       return 0;
     }
+    case "workspace":
+      return workspaceCommand(positionals, {
+        auth: () => ownerAuth(inventoryPath),
+        emit,
+        remoteApproval: v["remote-approval"] ?? false,
+      });
     case "mcp":
       // stdio MCP server: stdout carries protocol messages only.
       await (await import("../mcp/stdio")).runMcpStdio({ inventoryPath });

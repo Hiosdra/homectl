@@ -68,6 +68,10 @@ export class VaultService implements OwnerVerifier, RouteExtension {
     return Bun.file(this.options.vaultPath).exists();
   }
 
+  // Read-only status for the workspace sync: unlike gate(), it never touches
+  // the idle timer, so polling cannot keep the vault open.
+  unlocked = (): boolean => this.options.session.check();
+
   // Dispatch gate: a reason while locked, undefined when work may start.
   // Checking never extends the idle timer; starting work does.
   gate = (): string | undefined => {

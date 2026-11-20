@@ -90,6 +90,8 @@ export interface ClientLink {
     lastAt?: number;
     lastError?: string;
   };
+  // The server confirmed it holds this link's wrapped backup key.
+  backupKeyRegistered?: boolean;
   lastSyncAt?: number;
   lastSyncError?: string;
 }
