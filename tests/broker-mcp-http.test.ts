@@ -165,6 +165,7 @@ test("tools/list offers the catalogue with closed schemas, and notifications get
     "status",
     "list",
     "wait",
+    "verify",
     "cancel",
     "task_open",
     "task_close",
@@ -276,4 +277,53 @@ test("invalid arguments are a tool error, and a revoked client is refused", asyn
     `Bearer ${agent}`,
   );
   expect(after.status).toBe(401);
+});
+
+test("verify over MCP records the agent's own check once and leaves the state alone", async () => {
+  const { endpoint, agent } = await boot();
+  const run = dataOf(
+    await tool(endpoint, agent, "exec", {
+      host: "pc",
+      argv: ["hostname"],
+      waitMs: 5000,
+    }),
+  );
+  expect(run.state).toBe("succeeded");
+
+  // The verdict is closed: anything but passed, failed or inconclusive is refused.
+  const bad = await tool(endpoint, agent, "verify", {
+    id: run.id,
+    status: "ok",
+    summary: "looks fine",
+  });
+  expect(bad.isError).toBe(true);
+  expect(bad.content[0]?.text).toContain("Invalid arguments for verify");
+  const noSummary = await tool(endpoint, agent, "verify", {
+    id: run.id,
+    status: "passed",
+  });
+  expect(noSummary.isError).toBe(true);
+
+  const report = {
+    id: run.id,
+    status: "failed",
+    summary: "hostname answers, but the wrong name",
+  };
+  const recorded = dataOf(await tool(endpoint, agent, "verify", report));
+  expect(recorded).toMatchObject({
+    id: run.id,
+    state: "succeeded",
+    result: { exitCode: 0 },
+    verification: { status: "failed", summary: report.summary },
+  });
+  expect(
+    dataOf(await tool(endpoint, agent, "status", { id: run.id })),
+  ).toMatchObject({ state: "succeeded", verification: { status: "failed" } });
+
+  const again = await tool(endpoint, agent, "verify", {
+    ...report,
+    status: "passed",
+  });
+  expect(again.isError).toBe(true);
+  expect(again.content[0]?.text).toContain("already verified");
 });

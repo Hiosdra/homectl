@@ -12,6 +12,7 @@ This page describes what homectl 0.3.0 enforces, what it only advises, and what 
 - [Host access tiers](#host-access-tiers)
 - [Backup custody](#backup-custody)
 - [Residual risks](#residual-risks)
+- [Limitations](#limitations)
 
 ## Trust boundaries
 
@@ -258,6 +259,10 @@ Server custody and the cryptography are described in [workspace](workspace.md#in
 
 Workspace clients run these backups (see [workspace](workspace.md#incremental-encrypted-backups)). A reset client is restored with `workspace restore`, which also revokes the old client identity; see [workspace](workspace.md#restore). A live restore between two machines has not been verified yet.
 
+### Backup server compromise (D6A)
+
+**The backup server can decrypt every client backup it holds.** Anyone who gets the server's custody key (`workspace-server.json`) and its backup store (`workspace-backups`) can open all of them. The owner authorization and verification checks above are the server's own software, so a compromised server does not have to pass them. Treat the server's state directory as the most sensitive data in a workspace, and keep off-server copies as described in [lost server](workspace.md#lost-server).
+
 ## Residual risks
 
 - **Confirmation is a safeguard, not a sandbox.** An approved command runs with the privileges its account already has.
@@ -269,3 +274,14 @@ Workspace clients run these backups (see [workspace](workspace.md#incremental-en
 - **Host keys are only as good as your verification.** A pin is only as trustworthy as the out-of-band fingerprint you compared.
 - **Memory.** Keys and the database password pass through the CLI's memory during unlock. Clearing buffers is best effort. Swap, hibernation files, VM snapshots, root access and hypervisor access can expose them.
 - **Untested platforms.** The Windows and macOS runtime, Windows named pipes and ACLs, and WSL networking are not verified on real hardware yet. See [setup](setup.md#verification-status).
+- **Backup server compromise.** Anyone holding the server's custody key and backup store can decrypt client backups. See [backup server compromise](#backup-server-compromise-d6a).
+
+## Limitations
+
+- **A passing test suite is not a security guarantee.** Most tests run against fakes: a fake remote host, a loopback reviewer, a fake executor, and stubbed workspace and update routes in the browser checks. They show that the checked behaviour holds under those conditions, and nothing more.
+- **Not verified live:**
+  - the compiled executable on the Windows PC (CI runs the compiled Windows executable on a Windows runner, not on that PC);
+  - the container image on the Ugreen NAS (CI runs it on Linux runners only);
+  - a workspace across two real machines, including pairing and restore (in-process tests only);
+  - a real model reviewer (the tests use a loopback fake and make no provider call);
+  - migration from a real 0.2 install (fixture data only).

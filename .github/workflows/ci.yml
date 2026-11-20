@@ -59,7 +59,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run lint
-      - run: bun test --timeout 30000 tests/platform.test.ts tests/peer.test.ts tests/update.test.ts tests/dependencies.test.ts tests/interactive-pair.test.ts tests/output.test.ts tests/firewall.test.ts tests/setup-flow.test.ts tests/workspace-session.test.ts tests/session-lifetime.test.ts
+      - run: bun test --timeout 30000 tests/platform.test.ts tests/peer.test.ts tests/update.test.ts tests/dependencies.test.ts tests/interactive-pair.test.ts tests/output.test.ts tests/firewall.test.ts tests/setup-flow.test.ts tests/workspace-session.test.ts tests/session-lifetime.test.ts tests/migrate.test.ts tests/migrate-clients.test.ts tests/migrate-command.test.ts tests/migrate-output.test.ts tests/migrate-steps.test.ts
       - name: PowerShell CLI smoke
         shell: pwsh
         run: |
@@ -77,6 +77,18 @@ jobs:
       - name: Git Bash CLI smoke
         shell: bash
         run: bun src/cli/main.ts help
+      # The compiled executable is what users install. Build the Windows target and run it:
+      # help must exit 0 and an unknown command must exit 2, as release.yml checks on linux-x64.
+      - name: Compiled executable smoke
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:RUNNER_TEMP 'home-ctl.exe'
+          bun build --compile --target=bun-windows-x64 src/cli/main.ts --outfile $exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $exe help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $exe __internal bogus
+          if ($LASTEXITCODE -ne 2) { throw "expected exit 2 for an unknown command, got $LASTEXITCODE" }
 
   # macOS runs the portable subset: no keepassxc-backed session tests, no Playwright UI smoke,
   # no container job. Hardened mode is not available on macOS yet (src/broker/hardened-support.ts).
@@ -90,9 +102,22 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run lint
-      - run: bun test --timeout 30000 tests/platform.test.ts tests/update.test.ts tests/update-apply.test.ts tests/update-release.test.ts tests/output.test.ts tests/dependencies.test.ts tests/hardened-support.test.ts tests/broker-daemon.test.ts tests/broker-server.test.ts tests/broker-engine.test.ts
+      - run: bun test --timeout 30000 tests/platform.test.ts tests/update.test.ts tests/update-apply.test.ts tests/update-release.test.ts tests/output.test.ts tests/dependencies.test.ts tests/hardened-support.test.ts tests/broker-daemon.test.ts tests/broker-server.test.ts tests/broker-engine.test.ts tests/migrate.test.ts tests/migrate-clients.test.ts tests/migrate-command.test.ts tests/migrate-output.test.ts tests/migrate-steps.test.ts
       - name: CLI smoke
         run: bun src/cli/main.ts help
+      # The compiled executable is what users install. Build this runner's target and run it:
+      # help must exit 0 and an unknown command must exit 2, as release.yml checks on linux-x64.
+      - name: Compiled executable smoke
+        run: |
+          case "$(uname -m)" in
+            arm64) target=bun-darwin-arm64 ;;
+            *) target=bun-darwin-x64 ;;
+          esac
+          bun build --compile --target="$target" src/cli/main.ts --outfile "$RUNNER_TEMP/home-ctl"
+          "$RUNNER_TEMP/home-ctl" help
+          status=0
+          "$RUNNER_TEMP/home-ctl" __internal bogus || status=$?
+          test "$status" -eq 2
 
   # B1: real OS users. Creates the homectl service account and an unprivileged agent
   # account, runs the broker as the service account and checks what the agent can reach.

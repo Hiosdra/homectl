@@ -78,6 +78,32 @@ export const agentHelp: Record<string, Page> = {
       "Cancels an operation that is still awaiting approval. An operation that the owner already decided cannot be cancelled.",
     sections: [globalOptions],
   },
+  verify: {
+    usage:
+      "home-ctl verify <operation> passed|failed|inconclusive --summary TEXT",
+    intro:
+      "Records your own check of an operation after it has run: whether the outcome you checked (for example, a service answering) passed, failed or stayed inconclusive. A zero exit status is not proof of health, so check the result yourself. This is the agent's report, not homectl's. It never changes the operation's state or its exit status, and homectl never sets it. It can be recorded once, only by the client that ran the operation, and only after the run.",
+    sections: [
+      {
+        title: "Command options",
+        rows: [
+          [
+            "--summary TEXT",
+            "Required. One sentence on what you checked and what you saw, at most 500 characters. Shown as untrusted text.",
+          ],
+        ],
+      },
+      {
+        title: "Verdicts",
+        rows: [
+          ["passed", "The outcome you checked is as intended."],
+          ["failed", "The outcome you checked is not as intended."],
+          ["inconclusive", "You could not tell. Say why in the summary."],
+        ],
+      },
+      globalOptions,
+    ],
+  },
   task: {
     usage: 'home-ctl task open "<title>" [--ttl MINUTES] | task close <id>',
     intro:

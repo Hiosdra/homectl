@@ -12,6 +12,7 @@ import { startDaemon } from "../src/broker/daemon";
 import type { FileVerifier } from "../src/broker/owner";
 import { compatPaths } from "../src/broker/paths";
 import { startOwnerPanel } from "../src/web/owner/server";
+import { runOwnerFlowScenarios } from "./owner-ui-flows";
 import { runOwnerExtensionScenarios } from "./owner-ui-workspace";
 
 const PASSWORD = "owner smoke password";
@@ -75,6 +76,15 @@ async function requestApproval(label: string) {
       argv: ["smoke-tool", "--apply", label],
       narrative: `Apply ${label}. I checked the dry run first.`,
     },
+    asAgent,
+  );
+}
+
+// Any argv, as the smoke agent on host "pc". The default policy decides it.
+async function requestCommand(argv: string[]) {
+  return callBroker<{ id: string; state: string }>(
+    "/v1/exec",
+    { host: "pc", argv },
     asAgent,
   );
 }
@@ -209,13 +219,18 @@ try {
   await runScenario("desktop", { width: 1280, height: 860 }, false);
   await runScenario("phone", { width: 390, height: 844 }, true);
   // Workspace, decisions (step-up included), updates and notifications.
-  await runOwnerExtensionScenarios({
+  const harness = {
     browser,
     panelOrigin,
     password: PASSWORD,
     requestApproval,
     requestSecret,
-  });
+    requestCommand,
+    ranCommands: () => ran,
+  };
+  await runOwnerExtensionScenarios(harness);
+  // Remembered rules, the attention inbox, the stream dropping and returning.
+  await runOwnerFlowScenarios(harness);
   console.log("Owner panel browser smoke passed (desktop and phone).");
 } finally {
   await browser.close();

@@ -194,7 +194,7 @@ export async function ownerCommand(
   if (action !== "init")
     throw new HomectlError(
       2,
-      "Usage: home-ctl owner init | auto-mode [get|set …] | scan-host-keys <host> | pin-host-key <host> <SHA256:…> | inspect-host <host> | preview-host-grant <host> | apply-host-grant <host> <fingerprint> | revoke-host-grant <host>",
+      "Usage: home-ctl owner init | auto-mode [get|set …] | scan-host-keys <host> | pin-host-key <host> <SHA256:…> | inspect-host <host> | preview-host-grant <host> | apply-host-grant <host> <fingerprint> | revoke-host-grant <host> | repair-host-grant <host> [fingerprint]",
     );
   return initOwner(ctx);
 }

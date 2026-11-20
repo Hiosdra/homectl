@@ -140,6 +140,10 @@ const ownerSections: Section[] = [
         "revoke-host-grant <host>",
         "Removes only homectl's drop-in from the host. Other sudo rules are not touched.",
       ],
+      [
+        "repair-host-grant <host> [fingerprint]",
+        "Repairs homectl's own drop-in when it has drifted from the plan. Without a fingerprint it previews the diff and prints a fingerprint, or reports that nothing changed. With the reviewed fingerprint it applies only if the drop-in still matches: visudo checks the new file, it is swapped in atomically, and the old content returns if a check fails. It never creates a missing drop-in and never touches a file without homectl's header.",
+      ],
     ],
   },
   {
@@ -151,7 +155,7 @@ const ownerSections: Section[] = [
       ],
       [
         "Order",
-        "pin-host-key before inspect, preview, apply or revoke. Apply only what preview showed.",
+        "pin-host-key before inspect, preview, apply, revoke or repair. Apply or repair only what preview showed.",
       ],
     ],
   },
@@ -258,7 +262,7 @@ export const brokerHelp: Record<string, Page> = {
   },
   owner: {
     usage:
-      "home-ctl owner init | auto-mode [get] | auto-mode set [--mode manual|rules|auto] [--authority recommend|routine|delegated] [--endpoint <url>|none] [--model <name>] | scan-host-keys <host> | pin-host-key <host> <SHA256:…> | inspect-host <host> | preview-host-grant <host> | apply-host-grant <host> <fingerprint> | revoke-host-grant <host>",
+      "home-ctl owner init | auto-mode [get] | auto-mode set [--mode manual|rules|auto] [--authority recommend|routine|delegated] [--endpoint <url>|none] [--model <name>] | scan-host-keys <host> | pin-host-key <host> <SHA256:…> | inspect-host <host> | preview-host-grant <host> | apply-host-grant <host> <fingerprint> | revoke-host-grant <host> | repair-host-grant <host> [fingerprint]",
     intro:
       "Owner commands for the broker's inventory and host trust. Each one asks for the owner password privately. Host commands need a running broker.",
     sections: ownerSections,

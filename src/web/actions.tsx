@@ -268,6 +268,8 @@ export async function handleAction(action: string | undefined, id: string) {
       render();
       return;
     case "pair-open-wizard":
+      // The wizard is mounted by the Sync screen, so from Welcome it must open that screen.
+      navigate("peers");
       ui.pairWizard = true;
       ui.pairStep = 1;
       render();

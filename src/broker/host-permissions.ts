@@ -3,8 +3,10 @@ import { dirname, join } from "node:path";
 import { fingerprint } from "../control/canonical";
 import {
   applyGrant,
+  type DropInPlan,
   detectPlatform,
   planGrant,
+  type RemoteExec,
   renderDropIn,
   revokeGrant,
 } from "../hostperm";
@@ -15,12 +17,13 @@ import { HomectlError, type Runner } from "../types";
 import type { RouteExtension } from "./server";
 import type { EventsPort, InventoryPort } from "./types";
 
-type HostAction = "inspect" | "preview" | "apply" | "revoke";
+type HostAction = "inspect" | "preview" | "apply" | "revoke" | "repair";
 const ACTIONS: Record<string, HostAction | undefined> = {
   "/v1/owner/hosts/inspect": "inspect",
   "/v1/owner/hosts/preview-grant": "preview",
   "/v1/owner/hosts/apply-grant": "apply",
   "/v1/owner/hosts/revoke-grant": "revoke",
+  "/v1/owner/hosts/repair-grant": "repair",
 };
 
 export class HostPermissionRoutes implements RouteExtension {
@@ -36,7 +39,7 @@ export class HostPermissionRoutes implements RouteExtension {
   // Owner-only audit trail for every grant write attempt, whatever its outcome.
   private async audit(
     host: string,
-    action: "apply-grant" | "revoke-grant",
+    action: "apply-grant" | "revoke-grant" | "repair-grant",
     report: { status: string; path: string; reason: string },
   ) {
     await this.events?.emit("device.updated", host, [], {
@@ -54,7 +57,8 @@ export class HostPermissionRoutes implements RouteExtension {
   ): Promise<unknown> {
     const action = ACTIONS[path];
     if (!action) return undefined;
-    const preview = action === "preview" || action === "apply";
+    const preview =
+      action === "preview" || action === "apply" || action === "repair";
     const host = input.host;
     if (
       typeof host !== "string" ||
@@ -63,8 +67,11 @@ export class HostPermissionRoutes implements RouteExtension {
       throw new HomectlError(2, "A valid inventory host is required");
     await stepUp(input.password);
     const reviewed = input.fingerprint;
+    // Repair previews without a fingerprint; a fingerprint means apply.
+    const applying =
+      action === "apply" || (action === "repair" && reviewed !== undefined);
     if (
-      action === "apply" &&
+      applying &&
       (typeof reviewed !== "string" || !/^[0-9a-f]{64}$/.test(reviewed))
     )
       throw new HomectlError(2, "The reviewed grant fingerprint is required");
@@ -135,6 +142,8 @@ export class HostPermissionRoutes implements RouteExtension {
       const plan = await planGrant(exec, desired.user, desired.content, {
         os: platform.os,
       });
+      // A repair review carries its own marker, so an apply review cannot
+      // approve a repair (and the other way round).
       const planned = fingerprint({
         host,
         address: machine.address ?? "",
@@ -144,7 +153,11 @@ export class HostPermissionRoutes implements RouteExtension {
         path: plan.path,
         current: plan.current ?? null,
         desired: plan.desired,
+        ...(action === "repair" ? { operation: "repair" } : {}),
       });
+      // `await` keeps the finally block below from running before the repair.
+      if (action === "repair")
+        return await this.repair(host, plan, planned, reviewed, exec);
       if (action === "apply") {
         // The owner approved exactly what they reviewed. Anything that moved
         // since (inventory rule, live file, pins, address) needs a new review.
@@ -178,6 +191,48 @@ export class HostPermissionRoutes implements RouteExtension {
     }
   }
 
+  // Restores a homectl-owned drop-in that no longer matches the inventory
+  // grant. It never creates a drop-in and never touches a file without the
+  // homectl header. Apply goes through applyGrant: visudo validation, an
+  // atomic swap, and a rollback to the drifted content if any check fails.
+  private async repair(
+    host: string,
+    plan: DropInPlan,
+    planned: string,
+    reviewed: unknown,
+    exec: RemoteExec,
+  ): Promise<unknown> {
+    if (plan.foreign)
+      throw new HomectlError(
+        3,
+        "The drop-in has no homectl header; it is not touched",
+      );
+    if (plan.current === undefined)
+      throw new HomectlError(
+        3,
+        "There is no homectl drop-in to repair; apply the grant instead",
+      );
+    if (reviewed === undefined)
+      return {
+        host,
+        repair: {
+          path: plan.path,
+          changed: plan.changed,
+          ...(plan.changed ? { diff: plan.diff, fingerprint: planned } : {}),
+        },
+      };
+    if (planned !== reviewed)
+      throw new HomectlError(
+        3,
+        "The drop-in changed since it was reviewed; preview the repair again",
+      );
+    const repair = await applyGrant(exec, plan, {
+      expectedCurrent: plan.current,
+    });
+    await this.audit(host, "repair-grant", repair);
+    return { host, repair };
+  }
+
   private desiredGrant(user: string | undefined, argv: string[][] | undefined) {
     if (!user || !argv?.length)
       throw new HomectlError(
@@ -200,13 +255,18 @@ const OWNER_HOST_ROUTES: Record<string, string | undefined> = {
   "preview-host-grant": "/v1/owner/hosts/preview-grant",
   "apply-host-grant": "/v1/owner/hosts/apply-grant",
   "revoke-host-grant": "/v1/owner/hosts/revoke-grant",
+  "repair-host-grant": "/v1/owner/hosts/repair-grant",
 };
 
 export function ownerHostCommand(positionals: string[]) {
   const [action, host, fingerprint] = positionals;
   const route = action ? OWNER_HOST_ROUTES[action] : undefined;
-  const arity =
-    action === "apply-host-grant" || action === "pin-host-key" ? 3 : 2;
-  if (!route || !host || positionals.length !== arity) return undefined;
+  // repair-host-grant <host> previews; with a fingerprint it applies.
+  const arities =
+    action === "repair-host-grant"
+      ? [2, 3]
+      : [action === "apply-host-grant" || action === "pin-host-key" ? 3 : 2];
+  if (!route || !host || !arities.includes(positionals.length))
+    return undefined;
   return { route, body: { host, ...(fingerprint ? { fingerprint } : {}) } };
 }

@@ -14,8 +14,9 @@ import type {
   ActionRequest,
   ApprovalGrant,
   DeviceRef,
-  TaskRecord,
 } from "../core/contracts";
+import { closeTask, openTask } from "../core/tasks";
+import { recordVerification } from "../core/verification";
 import { HomectlError } from "../types";
 import { type DispatchContext, dispatch } from "./dispatch";
 import { decisionAudit } from "./decision-record";
@@ -49,7 +50,6 @@ import {
 
 export const PLAN_TTL_MS = 15 * 60_000;
 export const CLIENT_WINDOW_MS = 60 * 60_000;
-export const MAX_TASK_TTL_MS = 24 * 60 * 60_000;
 // Same text for unknown and ungranted hosts: no enumeration.
 const NOT_GRANTED = "Host is not in this client's grants";
 
@@ -197,7 +197,7 @@ export class Broker {
     // An owner decision made during the review has already dispatched.
     if (settled.kind === "settled" && settled.machine)
       this.track(dispatch(this.dispatchContext(), id, settled.machine));
-    return toView(op, this.options.approvalSurface);
+    return this.view(op, this.options.approvalSurface);
   }
 
   private reviewDeps(): ReviewDeps {
@@ -228,6 +228,11 @@ export class Broker {
     void work.finally(() => this.running.delete(work));
   }
 
+  private view(op: BrokerOperation, approvalSurface?: string): OperationView {
+    const view = toView(op, approvalSurface);
+    return op.verification ? { ...view, verification: op.verification } : view;
+  }
+
   async status(client: ClientIdentity, id: string): Promise<OperationView> {
     const state = await this.options.store.load();
     const op = state.operations[id];
@@ -238,7 +243,7 @@ export class Broker {
         const live = s.operations[id];
         if (live) this.expire(live, this.now());
       });
-    return toView(op, this.options.approvalSurface);
+    return this.view(op, this.options.approvalSurface);
   }
 
   async list(client: ClientIdentity, limit = 50): Promise<OperationView[]> {
@@ -247,7 +252,25 @@ export class Broker {
       .filter((op) => op.client === client.id)
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, Math.min(Math.max(limit, 1), 200))
-      .map((op) => toView(op, this.options.approvalSurface));
+      .map((op) => this.view(op, this.options.approvalSurface));
+  }
+
+  // The agent's own check of a finished operation (§7). It records what the
+  // agent found; the exit status, state and reason are never changed by it.
+  async verify(
+    client: ClientIdentity,
+    id: string,
+    raw: unknown,
+  ): Promise<OperationView> {
+    const op = await this.options.store.update((state) => {
+      const live = state.operations[id];
+      if (!live || live.client !== client.id)
+        throw new HomectlError(3, "Unknown operation");
+      recordVerification(live, raw, this.now());
+      return live;
+    });
+    await this.emit(op, "operation.updated");
+    return this.view(op);
   }
 
   // Blocks until the operation is final or the timeout passes. Waiting is not
@@ -294,50 +317,23 @@ export class Broker {
       return live;
     });
     await this.emit(op, "operation.updated");
-    return toView(op);
+    return this.view(op);
   }
 
   async openTask(
     client: ClientIdentity,
     raw: { title?: unknown; ttlMs?: unknown },
-  ): Promise<TaskRecord> {
-    const title = typeof raw.title === "string" ? raw.title.trim() : "";
-    if (!title || title.length > 200)
-      throw new HomectlError(2, "Task title must be 1-200 characters");
-    const ttl =
-      typeof raw.ttlMs === "number" && Number.isSafeInteger(raw.ttlMs)
-        ? Math.min(Math.max(raw.ttlMs, 60_000), MAX_TASK_TTL_MS)
-        : 4 * 60 * 60_000;
+  ) {
     const now = this.now();
-    const task: TaskRecord = {
-      id: `tsk_${randomBytes(12).toString("base64url")}`,
-      client: client.id,
-      title,
-      createdAt: now,
-      expiresAt: now + ttl,
-      state: "open",
-      used: { operations: 0, riskPoints: 0 },
-      operations: [],
-    };
-    await this.options.store.update((state) => {
-      const open = Object.values(state.tasks).filter(
-        (t) => t.client === client.id && t.state === "open",
-      );
-      if (open.length >= 32)
-        throw new HomectlError(3, "Too many open tasks; close some first");
-      state.tasks[task.id] = task;
-    });
-    return task;
+    return this.options.store.update((state) =>
+      openTask(state, client.id, raw, now),
+    );
   }
 
-  async closeTask(client: ClientIdentity, id: string): Promise<TaskRecord> {
-    return this.options.store.update((state) => {
-      const task = state.tasks[id];
-      if (!task || task.client !== client.id)
-        throw new HomectlError(3, "Unknown task");
-      task.state = "closed";
-      return task;
-    });
+  async closeTask(client: ClientIdentity, id: string) {
+    return this.options.store.update((state) =>
+      closeTask(state, client.id, id),
+    );
   }
 
   // ---------------------------------------------------------------- owner
@@ -482,7 +478,7 @@ export class Broker {
       nonce: "",
     };
     return {
-      operation: toView(outcome.op),
+      operation: this.view(outcome.op),
       ...(outcome.grant ? { grant: publicGrant as DecideResult["grant"] } : {}),
     };
   }

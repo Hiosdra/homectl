@@ -66,6 +66,10 @@ const pages: Record<string, Page> = {
           ["approve | deny <operation>", "Owner decision for one operation."],
           ["wait | op <operation>", "Wait for, or check, an operation."],
           [
+            "verify <operation> passed|failed|inconclusive",
+            "Report your own check of a finished operation. Never changes its state or exit status.",
+          ],
+          [
             "cancel <operation>",
             "Cancel an operation still awaiting approval.",
           ],

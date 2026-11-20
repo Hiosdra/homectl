@@ -35,7 +35,7 @@ describe("UpdateChecker", () => {
     new Response(
       JSON.stringify({
         tag_name: tag,
-        html_url: "https://github.com/Hiosdra/homectl/releases/tag/" + tag,
+        html_url: `https://github.com/Hiosdra/homectl/releases/tag/${tag}`,
       }),
       { status: 200 },
     );

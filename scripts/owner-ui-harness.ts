@@ -22,6 +22,10 @@ export interface Harness {
   // Creates a real approval / secret request through the broker (shared daemon).
   requestApproval(label: string): Promise<unknown>;
   requestSecret(label: string): Promise<unknown>;
+  // Asks the broker to run exactly this argv as the smoke agent on host "pc".
+  requestCommand(argv: string[]): Promise<{ id: string; state: string }>;
+  // Commands the fake executor has run, in order.
+  ranCommands(): string[][];
 }
 
 export interface WorkspaceStub {

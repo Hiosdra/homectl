@@ -48,6 +48,10 @@ export async function agentMethod(
       );
     case "/v1/cancel":
       return broker.cancel(client, str(input.id, "id"));
+    // The agent's own check of a finished operation (§7). Recorded once, by
+    // the owning client; it never changes the state or the exit status.
+    case "/v1/verify":
+      return broker.verify(client, str(input.id, "id"), input.verification);
     case "/v1/task/open":
       return broker.openTask(client, input);
     case "/v1/task/close":

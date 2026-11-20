@@ -113,6 +113,44 @@ describe("agent routes", () => {
     });
   });
 
+  test("verify records the agent's check once, after the run, and keeps the state", async () => {
+    const run = (await (
+      await call(
+        "/v1/exec",
+        { host: "nas", argv: ["uptime"], waitMs: 2000 },
+        agentAuth,
+      )
+    ).json()) as { id: string };
+    const report = {
+      id: run.id,
+      verification: { status: "failed", summary: "nginx answers 502" },
+    };
+    // Only the owning client's token reaches the route.
+    expect((await call("/v1/verify", report)).status).toBe(401);
+    const res = await call("/v1/verify", report, agentAuth);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      state: "succeeded",
+      result: { exitCode: 0 },
+      verification: { status: "failed", summary: "nginx answers 502" },
+    });
+    expect(
+      await (await call("/v1/status", { id: run.id }, agentAuth)).json(),
+    ).toMatchObject({ state: "succeeded", verification: { status: "failed" } });
+    // A second report is refused and leaves the first one in place.
+    const again = await call(
+      "/v1/verify",
+      { id: run.id, verification: { status: "passed", summary: "fixed" } },
+      agentAuth,
+    );
+    expect(again.status).toBe(403);
+    expect(JSON.stringify(await again.json())).toContain("already verified");
+    const status = await call("/v1/status", { id: run.id }, agentAuth);
+    expect(await status.json()).toMatchObject({
+      verification: { status: "failed" },
+    });
+  });
+
   test("an owner token is useless on agent routes", async () => {
     const owner = await ownerToken();
     expect(

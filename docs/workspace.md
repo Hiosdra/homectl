@@ -15,6 +15,7 @@ Behaviour below is covered by in-process tests (`tests/workspace-*.test.ts`). A 
 - [Offline behaviour](#offline-behaviour)
 - [Incremental encrypted backups](#incremental-encrypted-backups)
 - [Restore](#restore)
+- [Lost server](#lost-server)
 
 ## Roles and trust
 
@@ -199,3 +200,18 @@ The join output lists what was changed, and always says that revocations made af
 - Effects of operations that ran before the reset are not reconciled automatically. The owner must check them.
 
 **Not verified.** The restore path is covered by in-process tests only: `tests/workspace-restore.test.ts`, `tests/workspace-revocations.test.ts`, `tests/workspace-retired.test.ts` and `tests/workspace-cli.test.ts`. The `--reason` option reaches the workspace commands through the CLI parser (`src/cli/broker-commands.ts`). A full restore between two real machines has not been run; it belongs to the release gate.
+
+## Lost server
+
+If the server is lost, the clients keep working. Each client runs its own broker, vault, policy and approvals and does not wait for the server (see [offline behaviour](#offline-behaviour)). What stops is the shared part: approvals from linked clients, the mirrored status, and new backups.
+
+Backups are held only on the server, so a restore needs two things from it:
+
+- the **custody key**, in `workspace-server.json` in the broker's state directory. It wraps each client's backup key (see [backup custody](security.md#backup-custody));
+- the **backup store**, the sealed chunks and manifests in `workspace-backups` in the same directory.
+
+Without both, the held backups cannot be opened. Keep independent copies of both, off the server. Backing them up belongs to the backup and disaster-recovery work in homelab #3.
+
+Single-server history is not disaster recovery. The server's mirror and `workspace-audit.jsonl` record what happened; they do not hold the backup data or the custody key, so they cannot restore a client.
+
+This release has no command that rebuilds a lost server from those copies, and no procedure for linking clients to a replacement server. No test covers either. Treat that recovery as manual and unverified.

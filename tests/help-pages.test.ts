@@ -32,6 +32,7 @@ const OWNER_ACTIONS = [
   "preview-host-grant",
   "apply-host-grant",
   "revoke-host-grant",
+  "repair-host-grant",
 ];
 const BROKER_TOPICS = [
   "daemon",
@@ -44,6 +45,7 @@ const BROKER_TOPICS = [
   "wait",
   "op",
   "cancel",
+  "verify",
   "task",
   "agent",
   "mcp",
@@ -116,6 +118,30 @@ describe("help pages for 0.3 commands", () => {
     expect(text).toContain("--authority recommend|routine|delegated");
     expect(text).toContain("--endpoint <url>|none");
     expect(text).toContain("checks the password again");
+  });
+
+  test("the owner page documents repair-host-grant: preview, reviewed apply, and what it never touches", () => {
+    const text = flat("owner");
+    expect(text).toContain("repair-host-grant <host> [fingerprint]");
+    expect(text).toContain("Without a fingerprint it previews the diff");
+    expect(text).toContain("visudo checks the new file");
+    expect(text).toContain("the old content returns if a check fails");
+    expect(text).toContain("never creates a missing drop-in");
+    expect(text).toContain("never touches a file without homectl's header");
+  });
+
+  test("the verify page says the agent's report never changes the state or exit status", () => {
+    const text = flat("verify");
+    expect(text).toContain(
+      "home-ctl verify <operation> passed|failed|inconclusive --summary TEXT",
+    );
+    expect(text).toContain(
+      "never changes the operation's state or its exit status",
+    );
+    expect(text).toContain("homectl never sets it");
+    expect(text).toContain("only by the client that ran the operation");
+    expect(text).toContain("only after the run");
+    expect(text).toContain("A zero exit status is not proof of health");
   });
 
   test("the owner page says init asks for the reviewer authority", () => {

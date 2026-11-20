@@ -26,6 +26,7 @@ import {
   verifyLocalCommandPreview,
   verifySavedCommandEditor,
 } from "./ui-smoke-steps";
+import { driveOnboarding, verifyUnlock } from "./ui-smoke-onboarding";
 
 const root = await mkdtemp(join(tmpdir(), "hcui-"));
 const inventory = join(root, "inventory.yaml");
@@ -206,6 +207,7 @@ try {
   const out = process.env.UI_REVIEW_DIR ?? join(root, "review");
   await (await import("node:fs/promises")).mkdir(out, { recursive: true });
   await captureScreens(page, browser, panelOrigin, out);
+  await driveOnboarding(page);
   await verifySavedCommandEditor(page, running.hub.savedCommands);
   await page.getByRole("link", { name: /^Vault/ }).click();
   await expect(
@@ -745,11 +747,6 @@ try {
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
-    ),
-  ).toBe(true);
   await page.getByRole("link", { name: /^Vault/ }).click();
   await page.screenshot({ path: join(out, "mobile.png"), fullPage: true });
   await page.screenshot({ path: join(out, "mobile-viewport.png") });
@@ -761,6 +758,7 @@ try {
   await expect(
     page.getByRole("button", { name: /^More actions for/ }).first(),
   ).toBeVisible();
+  await verifyUnlock(browser, panelOrigin, smokePassword, page);
   expect(errors).toEqual([]);
   console.log(
     "UI smoke passed: desktop/mobile, filtering, machine form, pairing window, private password field, settings, approvals queue and execution, no browser errors.",

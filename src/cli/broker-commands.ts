@@ -1,5 +1,5 @@
 // 0.3.0 CLI surface for the broker. Agent commands (exec, wait, op, cancel,
-// task) talk to the daemon with the agent's client token. Owner commands
+// verify, task) talk to the daemon with the agent's client token. Owner commands
 // (approvals, approve, deny, agent, owner) ask for the owner password in a
 // private terminal every time; nothing the agent can read grants approval.
 import { hostname } from "node:os";
@@ -13,6 +13,7 @@ import { paths } from "../setup";
 import { HomectlError } from "../types";
 import { ownerCommand } from "./owner-commands";
 import { workspaceCommand } from "./workspace-commands";
+import { verificationNote, verifyCommand } from "./verify-command";
 
 export const BROKER_COMMANDS = new Set([
   "daemon",
@@ -23,6 +24,7 @@ export const BROKER_COMMANDS = new Set([
   "wait",
   "op",
   "cancel",
+  "verify",
   "task",
   "agent",
   "mcp",
@@ -100,6 +102,20 @@ function describe(view: {
   result?: { stdout: string; stderr: string };
   reason?: string;
   decision?: { reason: string };
+  verification?: { status: string; summary: string };
+}) {
+  const text = outcome(view);
+  const note = verificationNote(view);
+  return note ? `${text}\n${note}` : text;
+}
+
+function outcome(view: {
+  id: string;
+  state: string;
+  approvalSurface?: string;
+  result?: { stdout: string; stderr: string };
+  reason?: string;
+  decision?: { reason: string };
 }) {
   if (view.state === "awaiting-approval")
     return `Waiting for the owner to approve operation ${view.id}${view.approvalSurface ? ` at ${view.approvalSurface}` : ""}. Ask the user to approve it, then run: home-ctl wait ${view.id}`;
@@ -136,6 +152,7 @@ export async function brokerCommand(
       wait: { type: "string" },
       task: { type: "string" },
       remember: { type: "boolean" },
+      summary: { type: "string" },
       hosts: { type: "string" },
       name: { type: "string" },
       mode: { type: "string" },
@@ -201,6 +218,12 @@ export async function brokerCommand(
       emit(view, describe(view));
       return 0;
     }
+    case "verify":
+      return verifyCommand(positionals, {
+        summary: v.summary,
+        auth: () => agentAuth(inventoryPath),
+        emit,
+      });
     case "task": {
       const [action, ...rest] = positionals;
       const auth = await agentAuth(inventoryPath);

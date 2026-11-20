@@ -6,7 +6,11 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HostPermissionRoutes } from "../src/broker/host-permissions";
+import {
+  HostPermissionRoutes,
+  ownerHostCommand,
+} from "../src/broker/host-permissions";
+import { renderDropIn } from "../src/hostperm";
 import { HomectlError, type Machine, type Runner } from "../src/types";
 import { FakeHost, writeTargets } from "./hostperm-fake-remote";
 
@@ -92,6 +96,14 @@ interface RouteResult {
   };
   apply: { status: string };
   revoke: { status: string };
+  repair: {
+    path: string;
+    changed: boolean;
+    diff?: string;
+    fingerprint?: string;
+    status?: string;
+    reason?: string;
+  };
 }
 const call = (path: string, extra: Record<string, unknown> = {}) =>
   routes().owner(
@@ -178,4 +190,128 @@ test("revoke removes the managed drop-in and is idempotent", async () => {
     [host, [], "removed"],
     [host, [], "absent"],
   ]);
+});
+
+// The inventory grant as the broker renders it, and a drifted homectl file.
+const DESIRED = renderDropIn(
+  "oskar",
+  { kind: "allow", argv: [RULE] },
+  "inventory-grant",
+);
+const DRIFTED = renderDropIn(
+  "oskar",
+  { kind: "allow", argv: [["/usr/bin/systemctl", "stop", "fixture.service"]] },
+  "inventory-grant",
+);
+const MANAGED_ONLY = /^\/etc\/sudoers\.d\/\.?homectl-oskar/;
+
+test("repair previews a drifted homectl drop-in with a fingerprint and writes nothing", async () => {
+  remote.put(DROP_IN, DRIFTED, { mode: "0440" });
+  const preview = await call("repair-grant");
+  expect(preview.repair).toMatchObject({ path: DROP_IN, changed: true });
+  expect(preview.repair.diff).toContain("fixture.service");
+  expect(preview.repair.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+  expect(writes()).toEqual([]);
+  expect(remote.text(DROP_IN)).toBe(DRIFTED);
+});
+
+test("repair applies only the reviewed fingerprint and restores the inventory grant", async () => {
+  remote.put(DROP_IN, DRIFTED, { mode: "0440" });
+  const preview = await call("repair-grant");
+  const repaired = await call("repair-grant", {
+    fingerprint: preview.repair.fingerprint,
+  });
+  expect(repaired.repair.status).toBe("applied");
+  expect(remote.text(DROP_IN)).toBe(DESIRED);
+  expect(writes().every((path) => MANAGED_ONLY.test(path))).toBe(true);
+  const again = await call("repair-grant");
+  expect(again.repair.changed).toBe(false);
+});
+
+test("repair never creates a missing drop-in and never touches a foreign file", async () => {
+  await expect(call("repair-grant")).rejects.toThrow(
+    "no homectl drop-in to repair",
+  );
+  const foreign = "oskar ALL=(ALL) NOPASSWD: ALL\n";
+  remote.put(DROP_IN, foreign, { mode: "0440" });
+  await expect(
+    call("repair-grant", { fingerprint: "a".repeat(64) }),
+  ).rejects.toThrow("it is not touched");
+  expect(writes()).toEqual([]);
+  expect(remote.text(DROP_IN)).toBe(foreign);
+});
+
+test("an apply review cannot approve a repair, and a repair review cannot approve an apply", async () => {
+  remote.put(DROP_IN, DRIFTED, { mode: "0440" });
+  const applyReview = await call("preview-grant");
+  const repairReview = await call("repair-grant");
+  await expect(
+    call("repair-grant", { fingerprint: applyReview.grant.fingerprint }),
+  ).rejects.toThrow("changed since it was reviewed");
+  await expect(
+    call("apply-grant", { fingerprint: repairReview.repair.fingerprint }),
+  ).rejects.toThrow("changed since it was reviewed");
+  expect(writes()).toEqual([]);
+  expect(remote.text(DROP_IN)).toBe(DRIFTED);
+});
+
+test("a repair whose visudo check fails rolls back to the drifted content", async () => {
+  remote.put(DROP_IN, DRIFTED, { mode: "0440" });
+  const preview = await call("repair-grant");
+  // Fail only the whole-configuration check; the rollback's check passes.
+  let tripped = false;
+  remote.failIf = (argv) => {
+    if (tripped || !argv.includes("visudo") || !argv.includes("-c"))
+      return false;
+    tripped = true;
+    return true;
+  };
+  const repaired = await call("repair-grant", {
+    fingerprint: preview.repair.fingerprint,
+  });
+  expect(repaired.repair.status).toBe("rolled-back");
+  expect(remote.text(DROP_IN)).toBe(DRIFTED);
+});
+
+test("owner access is unchanged after a grant and after a revoke", async () => {
+  const keys = "/home/oskar/.ssh/authorized_keys";
+  const mainSudoers = "/etc/sudoers";
+  remote.put(keys, "ssh-ed25519 AAAAowner owner@lab\n", {
+    mode: "0600",
+    owner: "oskar",
+    group: "oskar",
+  });
+  const beforeKeys = structuredClone(remote.files.get(keys));
+  const beforeSudoers = structuredClone(remote.files.get(mainSudoers));
+
+  const preview = await call("preview-grant");
+  expect(
+    (await call("apply-grant", { fingerprint: preview.grant.fingerprint }))
+      .apply.status,
+  ).toBe("applied");
+  expect(remote.files.get(keys)).toEqual(beforeKeys);
+  expect(remote.files.get(mainSudoers)).toEqual(beforeSudoers);
+
+  expect((await call("revoke-grant")).revoke.status).toBe("removed");
+  expect(remote.files.get(keys)).toEqual(beforeKeys);
+  expect(remote.files.get(mainSudoers)).toEqual(beforeSudoers);
+  expect(writes().some((path) => path === keys || path === mainSudoers)).toBe(
+    false,
+  );
+});
+
+test("owner repair-host-grant previews without a fingerprint and applies with one", () => {
+  expect(ownerHostCommand(["repair-host-grant", host])).toEqual({
+    route: "/v1/owner/hosts/repair-grant",
+    body: { host },
+  });
+  const fp = "b".repeat(64);
+  expect(ownerHostCommand(["repair-host-grant", host, fp])).toEqual({
+    route: "/v1/owner/hosts/repair-grant",
+    body: { host, fingerprint: fp },
+  });
+  expect(ownerHostCommand(["repair-host-grant"])).toBeUndefined();
+  expect(
+    ownerHostCommand(["repair-host-grant", host, fp, "extra"]),
+  ).toBeUndefined();
 });
