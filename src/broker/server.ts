@@ -295,6 +295,9 @@ export function handler(options: BrokerServerOptions) {
 
 export function startBrokerServer(options: BrokerServerOptions) {
   const fetch = handler(options);
+  // Loopback TCP streams stay open between heartbeats (15 s); Bun's default
+  // idle timeout of 10 s would cut them first. Bun's unix-socket options take
+  // no idle timeout, so the socket transport keeps its defaults.
   const server =
     options.listen.kind === "unix"
       ? Bun.serve({ unix: options.listen.path, fetch })
@@ -302,6 +305,7 @@ export function startBrokerServer(options: BrokerServerOptions) {
           hostname: options.listen.hostname,
           port: options.listen.port,
           fetch,
+          idleTimeout: 255,
         });
   return {
     server,

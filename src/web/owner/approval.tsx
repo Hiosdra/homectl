@@ -35,6 +35,16 @@ const OUTCOME: Record<string, string> = {
   cancelled: "Sent back for revision. The agent must submit a new plan.",
 };
 
+// Used when the broker's answer is still in flight (for example, an approved
+// command is dispatching). The decision itself is already recorded.
+const DECISION_NOTICE: Record<ApprovalDecision, string> = {
+  "approve-once": "Approved. The command is starting.",
+  "approve-remember": "Approved, and the rule is saved.",
+  "deny-once": "Denied. The agent was told.",
+  "deny-remember": "Denied, and the rule is saved.",
+  revise: "Sent back for revision. The agent must submit a new plan.",
+};
+
 export function ApprovalScreen({
   operation,
   onDone,
@@ -67,7 +77,10 @@ export function ApprovalScreen({
         decision: kind,
         ...(approving(kind) && needsStepUp ? { password: typed } : {}),
       });
-      onDone(OUTCOME[result.operation.state] ?? "Decision recorded.");
+      onDone(
+        OUTCOME[result.operation.state] ??
+          DECISION_NOTICE[kind],
+      );
     } catch (failure) {
       onError(failure);
       setError(describeError(failure));
