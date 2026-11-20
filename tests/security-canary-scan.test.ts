@@ -125,6 +125,13 @@ async function boot(
   });
 }
 
+// The timeout is 20 s on purpose, not a retry. On Windows, every protected file
+// write runs protect() (src/platform.ts), which starts PowerShell to set an
+// owner-only ACL, about 200 ms per file. Each owner-password check runs argon2id
+// at 64 MB (src/broker/owner.ts), about 200 ms per check. This flow does both
+// many times, and measured 3.7-4.2 s on an idle Windows PC and 5.0-5.1 s under
+// load. Those costs are the security behaviour, so they stay; the test is only
+// allowed the time they need.
 test("the full provide -> use flow leaves the canary out of every file, stream and sync payload", async () => {
   const inventoryPath = join(dir, "inventory.yaml");
   await writeFile(
@@ -275,7 +282,7 @@ test("the full provide -> use flow leaves the canary out of every file, stream a
   } finally {
     await h.cleanup();
   }
-});
+}, 20_000);
 
 test("scanner control: each encoded form of a planted canary is found in its file", async () => {
   const forms: Record<string, string> = {

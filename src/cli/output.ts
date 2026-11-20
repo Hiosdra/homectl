@@ -63,6 +63,20 @@ function checks(value: unknown): string {
     )
     .join("\n");
 }
+// The Dependencies block of a setup or update result. Nothing missing reads as
+// "All found" (a dry run reports { missing: [] }); missing tools are named; a
+// list of checks or planned actions is shown as before.
+function dependencySection(dependencies: Record<string, unknown>): string {
+  const detail = dependencies.checks ?? dependencies.actions;
+  if (detail !== undefined && !(Array.isArray(detail) && detail.length === 0))
+    return `Dependencies\n${checks(detail)}`;
+  const missing = Array.isArray(dependencies.missing)
+    ? dependencies.missing
+    : [];
+  return missing.length > 0
+    ? `Dependencies\nMissing: ${missing.map(String).join(", ")}`
+    : "Dependencies\nAll found";
+}
 function table(headers: string[], rows: string[][]): string {
   const widths = headers.map((header, i) =>
     Math.max(header.length, ...rows.map((row) => (row[i] ?? "").length)),
@@ -189,10 +203,7 @@ export function formatHuman(
         ? actions.map((item) => `• ${item}`).join("\n")
         : "",
     ];
-    if (record(dependencies))
-      sections.push(
-        `Dependencies\n${checks(dependencies.checks ?? dependencies.actions)}`,
-      );
+    if (record(dependencies)) sections.push(dependencySection(dependencies));
     if (doctor) sections.push(formatHuman(doctor, "doctor"));
     if (next) sections.push(String(next));
     if (hint) sections.push(String(hint));
