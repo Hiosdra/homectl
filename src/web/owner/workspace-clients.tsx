@@ -111,7 +111,7 @@ export function ClientRow({
       </div>
       <div className="row">
         <Badge tone={client.stale ? "warn" : "good"}>
-          {client.stale ? "Stale" : "Recently synced"}
+          {client.stale ? "Not synced lately" : "Synced recently"}
         </Badge>
         <Badge tone={client.remoteApproval ? "good" : "neutral"}>
           {client.remoteApproval ? "Approvals here" : "Approvals on its device"}
@@ -121,16 +121,17 @@ export function ClientRow({
         </Badge>
         {client.mirror.gaps > 0 ? (
           <Badge tone="bad">
-            {client.mirror.gaps} gap{client.mirror.gaps === 1 ? "" : "s"}
+            {client.mirror.gaps} missed{" "}
+            {client.mirror.gaps === 1 ? "update" : "updates"}
           </Badge>
         ) : null}
       </div>
       <dl className="small">
-        <dt>Mirror</dt>
+        <dt>Last update</dt>
         <dd>
-          Sequence {client.mirror.lastSeq}
+          Update {client.mirror.lastSeq}
           {client.mirror.gaps > 0
-            ? ". Some events were missed and cannot be shown"
+            ? ". Some updates were missed and cannot be shown here."
             : ""}
         </dd>
         <dt>Pending</dt>

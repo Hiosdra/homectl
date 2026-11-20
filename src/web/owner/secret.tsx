@@ -1,15 +1,19 @@
-// Provide or decline one secret request. The destination is shown exactly, so
-// the owner knows where the value will go. Values live only in this form's
-// state: they are never logged, never put in the URL or storage, and cleared as
-// soon as the request is sent.
+// Provide or decline one secret request. The plain sentence says where the value
+// goes; the exact command, file mode and other technical values sit under Details.
+// Values live only in this form's state: they are never logged, never put in the
+// URL or storage, and cleared as soon as the request is sent.
 import { useId, useState } from "react";
 import {
   describeError,
   type PendingSecret,
+  type SecretDestination,
   type SecretField,
   ownerCall,
   untrustedText,
 } from "./api";
+import { RadioRow } from "./radio";
+import { useAssistantNames } from "./assistant-names";
+import { displayName } from "./plain-words";
 import { Argv, Badge, Field, Notice, PasswordStep, Untrusted } from "./ui";
 
 type Retention = "ephemeral" | "saved";
@@ -49,47 +53,77 @@ export function inputFor(
   }
 }
 
-export function DestinationBlock({ request }: { request: PendingSecret }) {
-  const destination = request.destination;
+// One plain sentence for where the value goes. Its technical values (the command,
+// the file mode) are listed under Details, so nothing is hidden.
+export function plainDestination(destination: SecretDestination): string {
   switch (destination.kind) {
     case "ssh-stdin":
-      return (
-        <dl>
-          <dt>Goes to</dt>
-          <dd>stdin of a command on {destination.host}</dd>
-          <dt>Command</dt>
-          <dd>
-            <Argv argv={destination.argv} />
-          </dd>
-        </dl>
-      );
+      return `It will be passed to a command on ${destination.host}.`;
     case "http-header":
-      return (
-        <dl>
-          <dt>Goes to</dt>
-          <dd>
-            HTTPS request header <code>{destination.header}</code> at{" "}
-            <code>{destination.url}</code>
-          </dd>
-        </dl>
-      );
+      return `It will be sent as a header to ${destination.url}.`;
     case "target-file":
-      return (
-        <dl>
-          <dt>Goes to</dt>
-          <dd>
-            File <code>{destination.path}</code> on {destination.host}, mode{" "}
-            <code>{destination.mode}</code>
-          </dd>
-        </dl>
-      );
+      return `It will be saved to a file on ${destination.host}.`;
     case "vault-only":
-      return (
-        <p className="small">
-          Kept in the vault only. Nothing is sent to a host yet.
-        </p>
-      );
+      return "It will be kept in the vault only. Nothing is sent to a machine yet.";
   }
+}
+
+export function DestinationBlock({ request }: { request: PendingSecret }) {
+  const destination = request.destination;
+  const details = (() => {
+    switch (destination.kind) {
+      case "ssh-stdin":
+        return (
+          <dl>
+            <dt>Machine</dt>
+            <dd className="mono">{destination.host}</dd>
+            <dt>Command</dt>
+            <dd>
+              <Argv argv={destination.argv} />
+            </dd>
+          </dl>
+        );
+      case "http-header":
+        return (
+          <dl>
+            <dt>Header</dt>
+            <dd>
+              <code>{destination.header}</code>
+            </dd>
+            <dt>Address</dt>
+            <dd>
+              <code>{destination.url}</code>
+            </dd>
+          </dl>
+        );
+      case "target-file":
+        return (
+          <dl>
+            <dt>Machine</dt>
+            <dd className="mono">{destination.host}</dd>
+            <dt>File</dt>
+            <dd>
+              <code>{destination.path}</code>
+            </dd>
+            <dt>Mode</dt>
+            <dd>
+              <code>{destination.mode}</code>
+            </dd>
+          </dl>
+        );
+      case "vault-only":
+        return <p className="small muted">No machine or address is used.</p>;
+    }
+  })();
+  return (
+    <>
+      <p className="lead">{plainDestination(destination)}</p>
+      <details className="details">
+        <summary>Details</summary>
+        {details}
+      </details>
+    </>
+  );
 }
 
 export function SecretScreen({
@@ -102,6 +136,7 @@ export function SecretScreen({
   onError: (error: unknown) => unknown;
 }) {
   const baseId = useId();
+  const names = useAssistantNames();
   const [values, setValues] = useState<Record<string, string>>({});
   const [retention, setRetention] = useState<Retention>("ephemeral");
   const [saveName, setSaveName] = useState("");
@@ -110,10 +145,13 @@ export function SecretScreen({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
-  const complete =
-    request.fields.every((field) => (values[field.name] ?? "").length > 0) &&
-    (retention === "ephemeral" || saveName.trim().length > 0) &&
-    password.length > 0;
+  const missing: string[] = [];
+  if (!request.fields.every((field) => (values[field.name] ?? "").length > 0))
+    missing.push("fill in every value");
+  if (retention === "saved" && saveName.trim().length === 0)
+    missing.push("name the vault entry");
+  if (password.length === 0) missing.push("enter your owner password");
+  const complete = missing.length === 0;
 
   const provide = async () => {
     if (busy || !complete) return;
@@ -135,7 +173,7 @@ export function SecretScreen({
       setSaveName("");
       onDone(
         retention === "saved"
-          ? "Saved to the vault. The agent can now use it for this destination."
+          ? "Saved to the vault. The assistant can now use it for this destination."
           : "Provided for one hour in memory. It is dropped afterwards.",
       );
     } catch (failure) {
@@ -151,7 +189,7 @@ export function SecretScreen({
     setBusy(true);
     try {
       await ownerCall("/v1/owner/secrets/decline", { id: request.id });
-      onDone("Declined. The agent was told.");
+      onDone("Declined. The assistant was told.");
     } catch (failure) {
       onError(failure);
       setError(describeError(failure));
@@ -165,13 +203,13 @@ export function SecretScreen({
       <section>
         <div className="row between">
           <h2 id="secret-title">Secret request</h2>
-          <Badge>{request.client}</Badge>
+          <Badge>{displayName(request.client, names)}</Badge>
         </div>
         <Untrusted
-          label="Why the agent asks"
+          label="Why the assistant asks"
           text={untrustedText(request.purpose)}
         />
-        <h3>Where the value goes</h3>
+        <h3 className="sub-title">Where the value goes</h3>
         <DestinationBlock request={request} />
       </section>
 
@@ -204,24 +242,24 @@ export function SecretScreen({
 
         <fieldset>
           <legend>How long to keep it</legend>
-          <label>
-            <input
-              type="radio"
-              name="retention"
+          <div className="radio-group">
+            <RadioRow
+              name={`${baseId}-retention`}
+              value="ephemeral"
               checked={retention === "ephemeral"}
               onChange={() => setRetention("ephemeral")}
-            />{" "}
-            One hour in memory only (default). Then it is dropped.
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="retention"
+              title="One hour, in memory only"
+              detail="The default. It is dropped after an hour."
+            />
+            <RadioRow
+              name={`${baseId}-retention`}
+              value="saved"
               checked={retention === "saved"}
               onChange={() => setRetention("saved")}
-            />{" "}
-            Save to the encrypted vault
-          </label>
+              title="Save to the encrypted vault"
+              detail="Kept until you remove it."
+            />
+          </div>
           {retention === "saved" ? (
             <Field id={`${baseId}-save`} label="Vault name">
               <input
@@ -241,7 +279,7 @@ export function SecretScreen({
           hint="required to provide"
         />
         {error ? <Notice tone="bad">{error}</Notice> : null}
-        <div className="row">
+        <div className="request-actions">
           <button
             type="button"
             className="primary"
@@ -259,6 +297,11 @@ export function SecretScreen({
             Decline
           </button>
         </div>
+        {!complete && !busy ? (
+          <p className="small muted" role="note">
+            To provide it: {missing.join(", ")}.
+          </p>
+        ) : null}
         <p className="small muted">
           Values are sent once to your homectl broker and are never shown again.
         </p>

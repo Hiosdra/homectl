@@ -1,8 +1,9 @@
-// "Needs you": everything that waits for the owner, most urgent first. Each card
-// shows the exact command and what it is in plain words. Small, undoable requests
-// can be approved from the list in one tap; anything that needs the owner password
-// (and every big or destructive change) opens its detail screen first. Requester
-// text is never shown here; the detail screens show it, labelled as untrusted.
+// "Needs you": everything that waits for the owner, most urgent first, in one list
+// with a heading per kind. Each card says what the assistant wants in one plain
+// sentence; the exact command sits beside it. Small, undoable requests can be
+// approved from the list in one tap; anything that needs the owner password (and
+// every big or destructive change) opens its detail screen first. Requester text is
+// never shown here; the detail screens show it, labelled as untrusted.
 import { useEffect, useState } from "react";
 import {
   describeError,
@@ -19,6 +20,8 @@ import { canApproveFromList, riskView } from "./risk";
 import { isUnderReview } from "./review";
 import { expiresIn, relativeTime, toEpoch } from "./time";
 import { Badge, Notice } from "./ui";
+import { displayName, plainAction, riskLine } from "./plain-words";
+import { useAssistantNames, type AssistantNames } from "./assistant-names";
 
 export function OverviewScreen({
   data,
@@ -44,6 +47,7 @@ export function OverviewScreen({
 }) {
   // Re-render every half minute so "in 12 minutes" stays true while open.
   const [, setNow] = useState(0);
+  const names = useAssistantNames();
   useEffect(() => {
     const timer = setInterval(() => setNow((tick) => tick + 1), 30_000);
     return () => clearInterval(timer);
@@ -82,20 +86,18 @@ export function OverviewScreen({
       ) : null}
 
       {workspaceWaiting > 0 ? (
-        <section aria-labelledby="workspace-waiting-heading">
-          <div className="row between">
-            <h3 id="workspace-waiting-heading">
-              Linked devices <Badge tone="count">{workspaceWaiting}</Badge>
-            </h3>
-          </div>
-          <div className="item">
+        <div className="group" aria-labelledby="workspace-waiting-heading">
+          <h3 id="workspace-waiting-heading" className="group-title">
+            Linked devices <Badge tone="count">{workspaceWaiting}</Badge>
+          </h3>
+          <div className="request-card">
             <p>
               {workspaceWaiting === 1
                 ? "One approval is"
                 : `${workspaceWaiting} approvals are`}{" "}
               waiting on a linked client. Each one is decided on that device.
             </p>
-            <div>
+            <div className="request-actions">
               <button
                 type="button"
                 className="primary"
@@ -105,41 +107,47 @@ export function OverviewScreen({
               </button>
             </div>
           </div>
-        </section>
+        </div>
       ) : null}
 
       {data.operations.length > 0 ? (
-        <section aria-labelledby="approvals-heading">
-          <h3 id="approvals-heading">
+        <div className="group" aria-labelledby="approvals-heading">
+          <h3 id="approvals-heading" className="group-title">
             Approvals <Badge tone="count">{data.operations.length}</Badge>
           </h3>
-          {data.operations.map((op) => (
-            <ApprovalCard
-              key={op.id}
-              operation={op}
-              onOpen={onOpen}
-              onDone={onQuickDone}
-              onError={onError}
-            />
-          ))}
-        </section>
+          <div className="request-list">
+            {data.operations.map((op) => (
+              <ApprovalCard
+                key={op.id}
+                operation={op}
+                names={names}
+                onOpen={onOpen}
+                onDone={onQuickDone}
+                onError={onError}
+              />
+            ))}
+          </div>
+        </div>
       ) : null}
 
       {data.secrets.length > 0 ? (
-        <section aria-labelledby="secrets-heading">
-          <h3 id="secrets-heading">
+        <div className="group" aria-labelledby="secrets-heading">
+          <h3 id="secrets-heading" className="group-title">
             Secret requests <Badge tone="count">{data.secrets.length}</Badge>
           </h3>
-          {data.secrets.map((request) => (
-            <SecretCard
-              key={request.id}
-              request={request}
-              onOpen={onOpen}
-              onDone={onQuickDone}
-              onError={onError}
-            />
-          ))}
-        </section>
+          <div className="request-list">
+            {data.secrets.map((request) => (
+              <SecretCard
+                key={request.id}
+                request={request}
+                names={names}
+                onOpen={onOpen}
+                onDone={onQuickDone}
+                onError={onError}
+              />
+            ))}
+          </div>
+        </div>
       ) : null}
 
       <p className="small muted">
@@ -151,13 +159,36 @@ export function OverviewScreen({
   );
 }
 
+// The assistant as a name with an icon, so the owner knows who is asking.
+function AssistantTag({ id, names }: { id: string; names: AssistantNames }) {
+  return (
+    <span className="assistant-tag">
+      <Icon name="bot" />
+      {displayName(id, names)}
+    </span>
+  );
+}
+
+// Quiet meta: "Asked just now · expires in 15 minutes".
+function RequestMeta({ asked, expires }: { asked?: number; expires?: number }) {
+  const parts = [
+    asked !== undefined ? `Asked ${relativeTime(asked)}` : undefined,
+    expires !== undefined ? expiresIn(expires) : undefined,
+  ].filter((part): part is string => part !== undefined);
+  return parts.length > 0 ? (
+    <p className="request-meta">{parts.join(" · ")}</p>
+  ) : null;
+}
+
 function ApprovalCard({
   operation: op,
+  names,
   onOpen,
   onDone,
   onError,
 }: {
   operation: PendingOperation;
+  names: AssistantNames;
   onOpen: (hash: string) => void;
   onDone: (message: string) => void;
   onError: (error: unknown) => unknown;
@@ -193,26 +224,26 @@ function ApprovalCard({
   };
 
   return (
-    <div className="item request" data-risk={risk.stripe}>
+    <div className="item request-card" data-risk={risk.stripe}>
       <div className="request-head">
-        <Badge tone={risk.tone} icon={risk.icon}>
-          {risk.label}
-        </Badge>
-        <span className="request-meta">
-          {asked !== undefined ? `Asked ${relativeTime(asked)}` : ""}
-        </span>
+        <AssistantTag id={op.client} names={names} />
+        <div className="row">
+          {isUnderReview(op.decision.source) ? (
+            <Badge tone="warn">Under review</Badge>
+          ) : null}
+          <Badge tone={risk.tone} icon={risk.icon}>
+            {risk.label}
+          </Badge>
+        </div>
       </div>
       <p className="lead">
-        <span className="command">{op.argv.join(" ")}</span> on{" "}
-        <span className="mono">{op.host}</span>
+        {`Wants to ${plainAction(op.argv)} on ${op.host}.`}
       </p>
-      <p className="small muted">
-        From {op.client} · {op.decision.reason}
-        {isUnderReview(op.decision.source) ? " · Under review" : ""}
+      <p className="command-line">
+        <span className="command">{op.argv.join(" ")}</span>
       </p>
-      {expires !== undefined ? (
-        <p className="small muted">{expiresIn(expires)}</p>
-      ) : null}
+      <p className="small muted">{riskLine(risk.stripe, !quick)}</p>
+      <RequestMeta asked={asked} expires={expires} />
       {error ? <Notice tone="bad">{error}</Notice> : null}
       <div className="request-actions">
         {quick ? (
@@ -263,23 +294,19 @@ function ApprovalCard({
           </>
         )}
       </div>
-      {!quick ? (
-        <p className="small muted">
-          Approving this needs your owner password. You will see the exact
-          command first.
-        </p>
-      ) : null}
     </div>
   );
 }
 
 function SecretCard({
   request,
+  names,
   onOpen,
   onDone,
   onError,
 }: {
   request: PendingSecret;
+  names: AssistantNames;
   onOpen: (hash: string) => void;
   onDone: (message: string) => void;
   onError: (error: unknown) => unknown;
@@ -287,13 +314,14 @@ function SecretCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const expires = toEpoch(request.expiresAt);
+  const asked = toEpoch(request.createdAt);
   const decline = async () => {
     if (busy) return;
     setBusy(true);
     setError(undefined);
     try {
       await ownerCall("/v1/owner/secrets/decline", { id: request.id });
-      onDone("Declined. The agent was told.");
+      onDone("Declined. The assistant was told.");
     } catch (failure) {
       onError(failure);
       setError(describeError(failure));
@@ -301,24 +329,23 @@ function SecretCard({
       setBusy(false);
     }
   };
+  const count = request.fields.length;
   return (
-    <div className="item request">
+    <div className="item request-card" data-risk="look">
       <div className="request-head">
+        <AssistantTag id={request.client} names={names} />
         <Badge tone="info" icon="key">
           Secret request
         </Badge>
-        <span className="request-meta">From {request.client}</span>
       </div>
       <p className="lead">
-        {request.fields.length} field
-        {request.fields.length === 1 ? "" : "s"} for{" "}
-        {describeDestination(request)}
+        {`Needs ${count === 1 ? "a value" : `${count} values`} for ${describeDestination(request)}.`}
       </p>
       <p className="small muted">
-        The value is typed here and never shown again. It is not sent unless you
+        It is typed here, is never shown again, and is not sent unless you
         provide it.
-        {expires !== undefined ? ` ${expiresIn(expires)}.` : ""}
       </p>
+      <RequestMeta asked={toEpoch(request.createdAt)} expires={expires} />
       {error ? <Notice tone="bad">{error}</Notice> : null}
       <div className="request-actions">
         <button
@@ -327,7 +354,7 @@ function SecretCard({
           disabled={busy}
           onClick={() => onOpen(`#/secrets/${encodeURIComponent(request.id)}`)}
         >
-          Provide or decline
+          Provide…
         </button>
         <button
           type="button"
@@ -346,7 +373,7 @@ export function describeDestination(request: PendingSecret): string {
   const destination = request.destination;
   switch (destination.kind) {
     case "ssh-stdin":
-      return `${destination.host}`;
+      return destination.host;
     case "target-file":
       return `${destination.host}:${destination.path}`;
     case "http-header":
