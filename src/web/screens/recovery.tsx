@@ -4,17 +4,26 @@ import { Disclosure } from "../disclosure";
 import { ui } from "../store";
 import { Muted, Section, Tag, type Tone } from "../shared";
 
-const EXPORT_COMMAND = "home-ctl control recovery export --key <path> --out <path>";
+const EXPORT_COMMAND =
+  "home-ctl control recovery export --key <path> --out <path>";
 
 export function RecoveryCard() {
   const last = ui.control?.recovery?.lastExportAt;
   // A timestamp ahead of this clock (clock set back) counts as today, not as negative days.
-  const days = last ? Math.max(0, Math.floor((Date.now() - Date.parse(last)) / 86_400_000)) : undefined;
+  const days = last
+    ? Math.max(0, Math.floor((Date.now() - Date.parse(last)) / 86_400_000))
+    : undefined;
   // A week without an export is flagged, as in the approved design.
   const stale = days === undefined || days > 7;
   const tone: Tone = stale ? "warning" : "success";
   const label =
-    days === undefined ? "no backup recorded" : days === 0 ? "backup today" : stale ? `no backup for ${days} days` : `backup ${days} days ago`;
+    days === undefined
+      ? "no backup recorded"
+      : days === 0
+        ? "backup today"
+        : stale
+          ? `no backup for ${days} days`
+          : `backup ${days} days ago`;
   return (
     <Section
       title={
@@ -23,12 +32,17 @@ export function RecoveryCard() {
         </span>
       }
     >
-      <Muted>Stored outside your devices. Created and used in the terminal.</Muted>
+      <Muted>
+        Stored outside your devices. Created and used in the terminal.
+      </Muted>
       <pre className="mt-3 overflow-auto rounded-[7px] border border-border bg-muted p-4 font-mono text-[12px] whitespace-pre-wrap break-words max-[700px]:hidden">
         {EXPORT_COMMAND}
       </pre>
       {/* Phones keep the command behind a button, as in the mobile design. */}
-      <Disclosure title="Show export command" className="mt-3 hidden max-[700px]:block">
+      <Disclosure
+        title="Show export command"
+        className="mt-3 hidden max-[700px]:block"
+      >
         <pre className="overflow-auto rounded-[7px] border border-border bg-muted p-4 font-mono text-[12px] whitespace-pre-wrap break-words">
           {EXPORT_COMMAND}
         </pre>

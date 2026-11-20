@@ -235,7 +235,11 @@ function App() {
           <p className="muted">Loading…</p>
         ) : null}
         {route.name === "approval" && operation ? (
-          <ApprovalScreen operation={operation} onDone={done} onError={handle} />
+          <ApprovalScreen
+            operation={operation}
+            onDone={done}
+            onError={handle}
+          />
         ) : null}
         {route.name === "approval" && !operation && data.loadedAt > 0 ? (
           <Gone

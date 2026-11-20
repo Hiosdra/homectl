@@ -72,7 +72,9 @@ function App() {
 // Delegated handlers for the whole panel. Buttons and links carry data-action,
 // data-view or data-id; form fields are read by id when a form is submitted.
 function onRootClick(event: ReactMouseEvent<HTMLDivElement>) {
-  const target = (event.target as Element).closest<HTMLElement>("[data-action],[data-view]");
+  const target = (event.target as Element).closest<HTMLElement>(
+    "[data-action],[data-view]",
+  );
   if (!target) return;
   if (target.dataset.view) {
     event.preventDefault();
@@ -87,7 +89,8 @@ function onRootClick(event: ReactMouseEvent<HTMLDivElement>) {
 function onRootSubmit(event: FormEvent<HTMLDivElement>) {
   const form = event.target as HTMLFormElement;
   const formId = form.getAttribute("id");
-  if (formId === "connect-form" || formId === "sync-unlock-form" || !formId) return;
+  if (formId === "connect-form" || formId === "sync-unlock-form" || !formId)
+    return;
   event.preventDefault();
   handleSubmit(form);
 }
@@ -121,8 +124,9 @@ async function boot() {
   const hash = location.hash.slice(1);
   // A workspace with no SSH machine and no paired device starts at Welcome.
   const fresh =
-    Object.values(ui.state.inventory.machines).every((m) => m.transport === "local") &&
-    ui.state.peers.length === 0;
+    Object.values(ui.state.inventory.machines).every(
+      (m) => m.transport === "local",
+    ) && ui.state.peers.length === 0;
   ui.view = [
     "dashboard",
     "approvals",

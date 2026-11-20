@@ -2,11 +2,7 @@
 // created or rotated; it is kept only in this component's state and dropped
 // when the owner dismisses it or leaves the screen.
 import { type FormEvent, useEffect, useId, useState } from "react";
-import {
-  type ClientView,
-  describeError,
-  ownerCall,
-} from "./api";
+import { type ClientView, describeError, ownerCall } from "./api";
 import { Badge, Dialog, Field, Notice, PasswordStep, fmtTime } from "./ui";
 
 interface Issued {
@@ -95,8 +91,9 @@ export function AgentsScreen({
             </div>
             <div className="small muted">
               <span className="mono">{client.id}</span> · hosts:{" "}
-              {client.hosts.length > 0 ? client.hosts.join(", ") : "none"} · scopes:{" "}
-              {client.scopes.join(", ") || "none"} · created {fmtTime(client.createdAt)}
+              {client.hosts.length > 0 ? client.hosts.join(", ") : "none"} ·
+              scopes: {client.scopes.join(", ") || "none"} · created{" "}
+              {fmtTime(client.createdAt)}
             </div>
             {!client.revoked ? (
               <RowActions
@@ -146,14 +143,22 @@ function TokenOnce({
         {issued.token}
       </pre>
       <div className="row">
-        <button type="button" className="primary" onClick={() => copy("token", issued.token)}>
+        <button
+          type="button"
+          className="primary"
+          onClick={() => copy("token", issued.token)}
+        >
           Copy token
         </button>
         <button type="button" onClick={onDismiss}>
           I have copied it
         </button>
       </div>
-      {copied ? <p className="small muted" role="status">{copied}</p> : null}
+      {copied ? (
+        <p className="small muted" role="status">
+          {copied}
+        </p>
+      ) : null}
       <h3>Connect the agent</h3>
       <p className="small">
         Use one of these two ways, not both. Each creates its own token.
@@ -167,7 +172,10 @@ function TokenOnce({
           Or, on this computer, let homectl create a token and configure the
           agent itself:
           <pre className="copy">{setups.join("\n")}</pre>
-          <button type="button" onClick={() => copy("setup commands", setups.join("\n"))}>
+          <button
+            type="button"
+            onClick={() => copy("setup commands", setups.join("\n"))}
+          >
             Copy setup commands
           </button>
         </li>
@@ -224,7 +232,11 @@ function CreateAgent({
     <section aria-labelledby={`${baseId}-title`}>
       <h3 id={`${baseId}-title`}>Add an agent</h3>
       <form className="stack" onSubmit={submit}>
-        <Field id={`${baseId}-id`} label="Identifier" hint="lowercase, no spaces">
+        <Field
+          id={`${baseId}-id`}
+          label="Identifier"
+          hint="lowercase, no spaces"
+        >
           <input
             id={`${baseId}-id`}
             value={id}
@@ -251,7 +263,11 @@ function CreateAgent({
         </Field>
         <PasswordStep value={password} onChange={setPassword} />
         {error ? <Notice tone="bad">{error}</Notice> : null}
-        <button type="submit" className="primary" disabled={busy || !password || !id || !name}>
+        <button
+          type="submit"
+          className="primary"
+          disabled={busy || !password || !id || !name}
+        >
           Create agent
         </button>
       </form>
@@ -278,10 +294,19 @@ function RowActions({
   return (
     <div className="stack">
       <div className="row">
-        <button type="button" disabled={busy} onClick={() => setRotating((v) => !v)}>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setRotating((v) => !v)}
+        >
           Rotate token…
         </button>
-        <button type="button" className="danger" disabled={busy} onClick={() => setRevoking(true)}>
+        <button
+          type="button"
+          className="danger"
+          disabled={busy}
+          onClick={() => setRevoking(true)}
+        >
           Revoke…
         </button>
       </div>
@@ -294,22 +319,32 @@ function RowActions({
             setPassword("");
             setRotating(false);
             void onRun(async () => {
-              const result = await ownerCall<Issued>("/v1/owner/clients/rotate", {
-                id: client.id,
-                password: secret,
-              });
+              const result = await ownerCall<Issued>(
+                "/v1/owner/clients/rotate",
+                {
+                  id: client.id,
+                  password: secret,
+                },
+              );
               onRotated(result);
             });
           }}
         >
-          <PasswordStep value={password} onChange={setPassword} hint="rotating invalidates the old token" />
+          <PasswordStep
+            value={password}
+            onChange={setPassword}
+            hint="rotating invalidates the old token"
+          />
           <button type="submit" className="primary" disabled={!password}>
             Rotate {client.name}
           </button>
         </form>
       ) : null}
       {revoking ? (
-        <Dialog title={`Revoke ${client.name}?`} onClose={() => setRevoking(false)}>
+        <Dialog
+          title={`Revoke ${client.name}?`}
+          onClose={() => setRevoking(false)}
+        >
           <p>Its token stops working immediately.</p>
           <div className="row">
             <button
@@ -318,7 +353,9 @@ function RowActions({
               onClick={() => {
                 setRevoking(false);
                 void onRun(async () => {
-                  await ownerCall("/v1/owner/clients/revoke", { id: client.id });
+                  await ownerCall("/v1/owner/clients/revoke", {
+                    id: client.id,
+                  });
                 });
               }}
             >

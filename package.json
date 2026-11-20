@@ -7,17 +7,18 @@
     "home-ctl": "src/cli/main.ts"
   },
   "engines": {
-    "bun": ">=1.4.4"
+    "bun": ">=1.4.5"
   },
   "scripts": {
     "test": "bun test",
     "build:panel": "bun scripts/build-panel.ts",
-    "typecheck": "tsc --noEmit",
-    "lint": "bun scripts/check-file-length.ts && bun scripts/check-doc-links.ts && biome check src tests scripts schema package.json tsconfig.json biome.json && bun fmt --check .",
-    "format": "biome check --write src tests scripts schema package.json tsconfig.json biome.json && bun fmt .",
-    "check": "bun run typecheck && bun run lint && bun run lint:other && bun test",
+    "typecheck": "bun check",
+    "lint": "bun scripts/check-file-length.ts && bun scripts/check-doc-links.ts && biome lint src tests scripts schema package.json tsconfig.json biome.json && bun fmt --check .",
+    "format": "biome lint --write src tests scripts schema package.json tsconfig.json biome.json && bun fmt .",
     "test:ui": "bun scripts/ui-smoke.ts && bun scripts/owner-ui-smoke.ts",
-    "lint:other": "sh scripts/lint-other.sh"
+    "lint:other": "sh scripts/lint-other.sh",
+    "prepare": "bun scripts/install-hooks.ts",
+    "verify": "bun check && bun run lint && bun run lint:other && bun test"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",
@@ -45,8 +46,7 @@
     "@types/bun": "1.4.5",
     "@types/multicast-dns": "7.2.4",
     "@types/react": "19.3.0",
-    "@types/react-dom": "19.3.0",
-    "typescript": "7.0.2"
+    "@types/react-dom": "19.3.0"
   },
   "overrides": {
     "@xmldom/xmldom": "0.8.15"

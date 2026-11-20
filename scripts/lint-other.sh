@@ -1,6 +1,6 @@
 #!/bin/sh
-# Lints the non-TypeScript files (homelab #21 supply chain): shell scripts with
-# shellcheck, GitHub workflows with actionlint, the Dockerfile with hadolint.
+# Lints the non-TypeScript files (homelab #21 supply chain): shell scripts,
+# GitHub workflows and the Dockerfile, with the pinned tools below.
 # Uses a local binary when present, otherwise the pinned official image through
 # Docker. Formatting of these files is `bun fmt` (see .prettierignore).
 set -eu
@@ -28,7 +28,7 @@ run() { # run <binary> <image> <args...>
   fi
 }
 
-shell_files="$(git ls-files '*.sh')"
+shell_files="$(git ls-files '*.sh' .githooks)"
 echo "shellcheck: $(echo "$shell_files" | wc -w | tr -d ' ') files"
 # shellcheck disable=SC2086 # word splitting of the file list is intended
 run shellcheck "$SHELLCHECK_IMAGE" $shell_files

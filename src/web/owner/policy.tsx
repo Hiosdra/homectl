@@ -86,7 +86,11 @@ export function PolicyScreen({
   };
 
   if (!policy)
-    return error ? <Notice tone="bad">{error}</Notice> : <p className="muted">Loading…</p>;
+    return error ? (
+      <Notice tone="bad">{error}</Notice>
+    ) : (
+      <p className="muted">Loading…</p>
+    );
 
   const currentPreset = PRESETS.find(
     (preset) => preset.id === presetOf(policy),
@@ -154,11 +158,20 @@ export function PolicyScreen({
                 <td>
                   <span className="mono">{rule.id}</span>
                   <div className="small muted">
-                    {rule.note ?? ""} · {rule.createdBy} · {fmtTime(rule.createdAt)}
+                    {rule.note ?? ""} · {rule.createdBy} ·{" "}
+                    {fmtTime(rule.createdAt)}
                   </div>
                 </td>
                 <td>
-                  <Badge tone={rule.effect === "deny" ? "bad" : rule.effect === "allow" ? "good" : "warn"}>
+                  <Badge
+                    tone={
+                      rule.effect === "deny"
+                        ? "bad"
+                        : rule.effect === "allow"
+                          ? "good"
+                          : "warn"
+                    }
+                  >
                     {rule.effect}
                   </Badge>
                 </td>
@@ -178,16 +191,25 @@ export function PolicyScreen({
           </tbody>
         </table>
         {policy.rules.length === 0 ? (
-          <p className="muted">No rules. Every request is decided one by one.</p>
+          <p className="muted">
+            No rules. Every request is decided one by one.
+          </p>
         ) : null}
       </section>
 
       <EffectiveCheck onError={onError} />
 
       {removing ? (
-        <Dialog title={`Remove rule ${removing.id}?`} onClose={() => setRemoving(undefined)}>
+        <Dialog
+          title={`Remove rule ${removing.id}?`}
+          onClose={() => setRemoving(undefined)}
+        >
           <p>Requests it covered will be decided again from scratch.</p>
-          <PasswordStep value={password} onChange={setPassword} hint="required to remove" />
+          <PasswordStep
+            value={password}
+            onChange={setPassword}
+            hint="required to remove"
+          />
           <div className="row">
             <button
               type="button"
@@ -267,8 +289,16 @@ function PresetChooser({
       {hint ? <p className="small muted">{hint}</p> : null}
       {target && target !== currentId ? (
         <>
-          <PasswordStep value={password} onChange={onPassword} hint="required to change" />
-          <button type="submit" className="primary" disabled={busy || !password}>
+          <PasswordStep
+            value={password}
+            onChange={onPassword}
+            hint="required to change"
+          />
+          <button
+            type="submit"
+            className="primary"
+            disabled={busy || !password}
+          >
             Apply preset
           </button>
         </>
@@ -305,10 +335,19 @@ function EffectiveCheck({ onError }: { onError: (error: unknown) => unknown }) {
         }}
       >
         <Field id={`${baseId}-client`} label="Agent identifier">
-          <input id={`${baseId}-client`} required value={client} onChange={(e) => setClient(e.target.value)} />
+          <input
+            id={`${baseId}-client`}
+            required
+            value={client}
+            onChange={(e) => setClient(e.target.value)}
+          />
         </Field>
         <Field id={`${baseId}-host`} label="Host" hint="optional">
-          <input id={`${baseId}-host`} value={host} onChange={(e) => setHost(e.target.value)} />
+          <input
+            id={`${baseId}-host`}
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
+          />
         </Field>
         <button type="submit" disabled={!client.trim()}>
           Explain

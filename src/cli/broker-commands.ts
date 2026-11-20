@@ -392,9 +392,9 @@ export async function brokerCommand(
           { id, password: auth.password },
           auth,
         );
-        await (await import("../broker/onboard")).storeClientToken(
-          rotated.token,
-        );
+        await (
+          await import("../broker/onboard")
+        ).storeClientToken(rotated.token);
         emit({ id, rotated: true }, `Token for ${id} rotated.`);
         return 0;
       }

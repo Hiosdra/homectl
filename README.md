@@ -22,7 +22,7 @@ The command is `home-ctl`.
 ## Requirements
 
 - OpenSSH client (`ssh`) and the KeePassXC CLI (`keepassxc-cli`). `home-ctl setup` checks for both.
-- Bun 1.4.4 or newer, only if you run from a source checkout.
+- Bun 1.4.5 or newer, only if you run from a source checkout.
 - systemd, only for the hardened broker on Linux.
 
 Windows and macOS run the compatibility broker, which runs as your user. Details are in [setup](docs/setup.md#platform-notes).

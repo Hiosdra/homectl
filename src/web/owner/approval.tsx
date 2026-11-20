@@ -29,7 +29,8 @@ export type ApprovalDecision =
 
 const OUTCOME: Record<string, string> = {
   succeeded: "Approved. The command ran and finished successfully.",
-  failed: "Approved, but the command failed. Its result is in the agent's history.",
+  failed:
+    "Approved, but the command failed. Its result is in the agent's history.",
   dispatching: "Approved. The command is starting.",
   denied: "Denied. The agent was told.",
   cancelled: "Sent back for revision. The agent must submit a new plan.",
@@ -77,10 +78,7 @@ export function ApprovalScreen({
         decision: kind,
         ...(approving(kind) && needsStepUp ? { password: typed } : {}),
       });
-      onDone(
-        OUTCOME[result.operation.state] ??
-          DECISION_NOTICE[kind],
-      );
+      onDone(OUTCOME[result.operation.state] ?? DECISION_NOTICE[kind]);
     } catch (failure) {
       onError(failure);
       setError(describeError(failure));
@@ -96,7 +94,13 @@ export function ApprovalScreen({
       <section>
         <div className="row between">
           <h2 id="approval-title">Approve this command?</h2>
-          <Badge tone={operation.risk === "R3" || operation.risk === "R4" ? "bad" : "warn"}>
+          <Badge
+            tone={
+              operation.risk === "R3" || operation.risk === "R4"
+                ? "bad"
+                : "warn"
+            }
+          >
             Risk {operation.risk}
           </Badge>
         </div>
@@ -170,7 +174,12 @@ export function ApprovalScreen({
               Approve and remember…
             </button>
           ) : null}
-          <button type="button" className="danger" disabled={busy} onClick={() => send("deny-once")}>
+          <button
+            type="button"
+            className="danger"
+            disabled={busy}
+            onClick={() => send("deny-once")}
+          >
             Deny
           </button>
           <button
@@ -194,7 +203,14 @@ export function ApprovalScreen({
       </section>
 
       {confirming ? (
-        <Dialog title={confirming === "approve-remember" ? "Approve and remember?" : "Deny and remember?"} onClose={() => setConfirming(undefined)}>
+        <Dialog
+          title={
+            confirming === "approve-remember"
+              ? "Approve and remember?"
+              : "Deny and remember?"
+          }
+          onClose={() => setConfirming(undefined)}
+        >
           <p>
             {confirming === "approve-remember"
               ? `Future commands exactly like "${operation.argv.join(" ")}" on ${operation.host} from ${operation.client} will run without asking. You can remove the rule in Permissions.`
@@ -203,11 +219,15 @@ export function ApprovalScreen({
           <div className="row">
             <button
               type="button"
-              className={confirming === "approve-remember" ? "primary" : "danger"}
+              className={
+                confirming === "approve-remember" ? "primary" : "danger"
+              }
               disabled={approveBlocked && confirming === "approve-remember"}
               onClick={() => send(confirming)}
             >
-              {confirming === "approve-remember" ? "Approve and remember" : "Deny and remember"}
+              {confirming === "approve-remember"
+                ? "Approve and remember"
+                : "Deny and remember"}
             </button>
             <button type="button" onClick={() => setConfirming(undefined)}>
               Cancel

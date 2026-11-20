@@ -45,9 +45,7 @@ export function Screen() {
       return <Approvals />;
     case "access":
     case "machines":
-      return (
-        <Vault />
-      );
+      return <Vault />;
     case "sync":
     case "peers":
       return ui.preview ? <SyncCompare p={ui.preview} /> : <Devices />;
@@ -67,11 +65,17 @@ export function Screen() {
 export function Workspace() {
   const pendingCount = ui.state.pending.length;
   // Peer and machine views live under Sync and Vault now; highlight their parent.
-  const current = ui.view === "peers" ? "sync" : ui.view === "machines" ? "access" : ui.view;
-  const ready = (ui.control?.operations ?? []).filter((op) => isReady(op) && !op.runsOn).length;
+  const current =
+    ui.view === "peers" ? "sync" : ui.view === "machines" ? "access" : ui.view;
+  const ready = (ui.control?.operations ?? []).filter(
+    (op) => isReady(op) && !op.runsOn,
+  ).length;
   const needYou = pendingCount + ready;
   return (
-    <div id="workspace" className="grid min-h-dvh grid-cols-[208px_minmax(0,1fr)] max-[1000px]:grid-cols-[180px_minmax(0,1fr)] max-[700px]:block">
+    <div
+      id="workspace"
+      className="grid min-h-dvh grid-cols-[208px_minmax(0,1fr)] max-[1000px]:grid-cols-[180px_minmax(0,1fr)] max-[700px]:block"
+    >
       <aside className="relative self-stretch border-r border-border bg-rail max-[700px]:fixed max-[700px]:inset-x-0 max-[700px]:bottom-0 max-[700px]:z-20 max-[700px]:border-t max-[700px]:border-r-0">
         <div className="sticky top-0 flex h-dvh flex-col px-4 py-6 max-[700px]:static max-[700px]:h-auto max-[700px]:p-1.5 max-[700px]:pb-[calc(6px+env(safe-area-inset-bottom,0px))]">
           <a
@@ -81,7 +85,10 @@ export function Workspace() {
             <BrandMark />
             homectl
           </a>
-          <nav aria-label="Main navigation" className="grid gap-1.5 max-[700px]:grid-cols-7 max-[700px]:gap-0.5">
+          <nav
+            aria-label="Main navigation"
+            className="grid gap-1.5 max-[700px]:grid-cols-7 max-[700px]:gap-0.5"
+          >
             {NAV.map(([id, label]) => (
               <a
                 key={id}
@@ -95,15 +102,23 @@ export function Workspace() {
                     {NAV_ICONS[id]}
                   </span>
                   <span className="max-[700px]:hidden">{label}</span>
-                  <span className="hidden max-[700px]:inline">{SHORT_LABEL[id] ?? label}</span>
+                  <span className="hidden max-[700px]:inline">
+                    {SHORT_LABEL[id] ?? label}
+                  </span>
                 </span>
                 {id === "sync" && pendingCount ? (
-                  <span id="pending-count" className="ml-1.5 text-xs tabular-nums">
+                  <span
+                    id="pending-count"
+                    className="ml-1.5 text-xs tabular-nums"
+                  >
                     {pendingCount}
                   </span>
                 ) : null}
                 {id === "approvals" && ready ? (
-                  <span id="approval-count" className="ml-1.5 text-xs tabular-nums">
+                  <span
+                    id="approval-count"
+                    className="ml-1.5 text-xs tabular-nums"
+                  >
                     {ready}
                   </span>
                 ) : null}
@@ -111,7 +126,10 @@ export function Workspace() {
             ))}
           </nav>
           <div className="mt-auto border-t border-border px-3 pt-5 text-xs text-muted-foreground max-[700px]:hidden">
-            <span className="mr-1.5 inline-block size-1.5 rounded-full bg-success align-middle" aria-hidden="true" />
+            <span
+              className="mr-1.5 inline-block size-1.5 rounded-full bg-success align-middle"
+              aria-hidden="true"
+            />
             Local workspace
             <p className="my-2 text-foreground">{ui.state.device.name}</p>
             <span className="text-muted-foreground">CLI + peer sync</span>
@@ -121,14 +139,23 @@ export function Workspace() {
       <div className="min-w-0">
         <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-border bg-rail px-8 py-4 max-[1000px]:px-[22px] max-[700px]:gap-2 max-[700px]:px-3.5 max-[700px]:py-2.5">
           <div className="flex items-center gap-3 font-semibold">
-            <span className="grid size-[34px] place-items-center rounded-lg bg-popover" aria-hidden="true">
-              <svg viewBox="0 0 24 24" className="w-[19px] fill-none stroke-muted-foreground stroke-[1.6]">
+            <span
+              className="grid size-[34px] place-items-center rounded-lg bg-popover"
+              aria-hidden="true"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="w-[19px] fill-none stroke-muted-foreground stroke-[1.6]"
+              >
                 <rect x="3" y="4" width="18" height="13" rx="2" />
                 <path d="M8 21h8M12 17v4" />
               </svg>
             </span>
             <span id="device-name">{ui.state.device.name}</span>
-            <span id="device-platform" className="text-muted-foreground max-[1000px]:hidden">
+            <span
+              id="device-platform"
+              className="text-muted-foreground max-[1000px]:hidden"
+            >
               {ui.state.device.platform}
             </span>
           </div>
@@ -144,7 +171,10 @@ export function Workspace() {
                   : "border-success/40 bg-success/10 text-success",
               )}
             >
-              <span className="size-[7px] rounded-full bg-current" aria-hidden="true" />
+              <span
+                className="size-[7px] rounded-full bg-current"
+                aria-hidden="true"
+              />
               {needYou ? `${needYou} need you` : "All good"}
             </a>
             <span id="session-state">
@@ -210,4 +240,3 @@ export function Connection() {
     />
   );
 }
-

@@ -161,7 +161,10 @@ export function SecretScreen({
           <h2 id="secret-title">Secret request</h2>
           <Badge>{request.client}</Badge>
         </div>
-        <Untrusted label="Why the agent asks" text={untrustedText(request.purpose)} />
+        <Untrusted
+          label="Why the agent asks"
+          text={untrustedText(request.purpose)}
+        />
         <h3>Where the value goes</h3>
         <DestinationBlock request={request} />
       </section>
@@ -174,10 +177,17 @@ export function SecretScreen({
               key={field.name}
               id={id}
               label={field.label}
-              hint={field.kind === "ssh-key" ? "masked; paste the whole key" : field.kind}
+              hint={
+                field.kind === "ssh-key"
+                  ? "masked; paste the whole key"
+                  : field.kind
+              }
             >
-              {inputFor(field, values[field.name] ?? "", (value) =>
-                setValues((current) => ({ ...current, [field.name]: value })),
+              {inputFor(
+                field,
+                values[field.name] ?? "",
+                (value) =>
+                  setValues((current) => ({ ...current, [field.name]: value })),
                 id,
               )}
             </Field>
@@ -229,7 +239,12 @@ export function SecretScreen({
           >
             Provide secret
           </button>
-          <button type="button" className="danger" disabled={busy} onClick={decline}>
+          <button
+            type="button"
+            className="danger"
+            disabled={busy}
+            onClick={decline}
+          >
             Decline
           </button>
         </div>

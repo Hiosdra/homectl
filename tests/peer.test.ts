@@ -390,11 +390,14 @@ test("new keys stage only encrypted PKCS8 and can be reloaded through KeePassXC"
   const inv = await (await import("../src/inventory")).loadInventory(path);
   const created = await createKey("example", inv, path, async () => pass);
   expect(created.reused).toBe(false);
-  const stored = await (await import("../src/session")).databaseCommand(
-    s.hub.vault.path,
-    pass,
-    ["attachment-export", "--stdout", "homectl-example", "id_ed25519"],
-  );
+  const stored = await (
+    await import("../src/session")
+  ).databaseCommand(s.hub.vault.path, pass, [
+    "attachment-export",
+    "--stdout",
+    "homectl-example",
+    "id_ed25519",
+  ]);
   expect(stored.toString()).toContain("BEGIN ENCRYPTED PRIVATE KEY");
   const next = await createKey("example", inv, path, async () => pass);
   expect(next.reused).toBe(true);

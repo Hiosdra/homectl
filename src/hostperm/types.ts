@@ -38,9 +38,7 @@ export interface Platform {
 }
 
 export type AccountModel =
-  | "existing-admin"
-  | "existing-restricted"
-  | "dedicated";
+  "existing-admin" | "existing-restricted" | "dedicated";
 
 export interface PlannedStep {
   id: string;

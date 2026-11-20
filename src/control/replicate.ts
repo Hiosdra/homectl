@@ -276,11 +276,7 @@ export function ownerAt(
 }
 
 export type Outcome =
-  | "applied"
-  | "stale"
-  | "rejected"
-  | "conflict"
-  | "duplicate";
+  "applied" | "stale" | "rejected" | "conflict" | "duplicate";
 
 export function applyOp(
   replica: Replica,

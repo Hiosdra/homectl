@@ -37,7 +37,9 @@ export function OverviewScreen({
                 <strong>
                   {op.argv.join(" ")} on <span className="mono">{op.host}</span>
                 </strong>
-                <Badge tone={op.risk === "R3" || op.risk === "R4" ? "bad" : "warn"}>
+                <Badge
+                  tone={op.risk === "R3" || op.risk === "R4" ? "bad" : "warn"}
+                >
                   {op.risk}
                 </Badge>
               </div>
@@ -49,7 +51,9 @@ export function OverviewScreen({
                 <button
                   type="button"
                   className="primary"
-                  onClick={() => onOpen(`#/approvals/${encodeURIComponent(op.id)}`)}
+                  onClick={() =>
+                    onOpen(`#/approvals/${encodeURIComponent(op.id)}`)
+                  }
                 >
                   Review
                 </button>
@@ -74,12 +78,16 @@ export function OverviewScreen({
                 </strong>
                 <Badge>{request.client}</Badge>
               </div>
-              <div className="small muted">Expires {fmtTime(request.expiresAt)}</div>
+              <div className="small muted">
+                Expires {fmtTime(request.expiresAt)}
+              </div>
               <div>
                 <button
                   type="button"
                   className="primary"
-                  onClick={() => onOpen(`#/secrets/${encodeURIComponent(request.id)}`)}
+                  onClick={() =>
+                    onOpen(`#/secrets/${encodeURIComponent(request.id)}`)
+                  }
                 >
                   Provide or decline
                 </button>

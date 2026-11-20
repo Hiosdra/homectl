@@ -226,9 +226,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           width: process.stdout.columns,
           color: Boolean(
             process.stdout.isTTY &&
-              !json &&
-              process.env.NO_COLOR === undefined &&
-              process.env.TERM !== "dumb",
+            !json &&
+            process.env.NO_COLOR === undefined &&
+            process.env.TERM !== "dumb",
           ),
         }),
       );
@@ -250,7 +250,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           2,
           "setup uses the standard per-user directory; use --inventory on later commands",
         );
-      const result = await (await import("../setup-flow")).setupFlow({
+      const result = await (
+        await import("../setup-flow")
+      ).setupFlow({
         home: p.home,
         json,
         dryRun,
@@ -287,12 +289,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
             2,
             "Interactive pairing does not support --json; use explicit pair subcommands",
           );
-        await (await import("../peer/interactive")).interactivePair(
-          inventoryPath,
-          configPath,
-          v.interface,
-          v.address,
-        );
+        await (
+          await import("../peer/interactive")
+        ).interactivePair(inventoryPath, configPath, v.interface, v.address);
         return 0;
       }
       if (
@@ -316,12 +315,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
             2,
             "Guided pairing is interactive; omit --json so the one-time code stays private",
           );
-        await (await import("../peer/interactive")).interactivePair(
-          inventoryPath,
-          configPath,
-          v.interface,
-          v.address,
-        );
+        await (
+          await import("../peer/interactive")
+        ).interactivePair(inventoryPath, configPath, v.interface, v.address);
         return 0;
       }
       const { localApi } = await import("../peer/local-api");
@@ -464,7 +460,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
     }
     if (command === "service") {
       emit(
-        await (await import("../service")).serviceFromFlags(host, {
+        await (
+          await import("../service")
+        ).serviceFromFlags(host, {
           ...v,
           inventory: inventoryPath,
           dryRun,
@@ -491,19 +489,19 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         );
       let existing: { peerAddress?: string } | undefined;
       try {
-        existing = await (await import("../peer/local-api")).localApi(
-          inventoryPath,
-          "/api/state",
-        );
+        existing = await (
+          await import("../peer/local-api")
+        ).localApi(inventoryPath, "/api/state");
       } catch {
         /* Start a temporary workspace below. */
       }
       let running:
-        | Awaited<ReturnType<typeof import("../serve").serve>>
-        | undefined;
+        Awaited<ReturnType<typeof import("../serve").serve>> | undefined;
       if (!existing) {
         const interfaceIP = await panelInterface(inventoryPath, v.interface);
-        running = await (await import("../serve")).serve({
+        running = await (
+          await import("../serve")
+        ).serve({
           inventoryPath,
           configPath,
           interface: interfaceIP,
@@ -586,7 +584,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
             2,
             "Container mode needs --interface with the container LAN address; wildcard binding is refused",
           );
-        return await (await import("../container/run")).serveContainer({
+        return await (
+          await import("../container/run")
+        ).serveContainer({
           inventoryPath,
           configPath,
           interface: v.interface,
@@ -599,10 +599,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       }
       let existing: { peerAddress?: string } | undefined;
       try {
-        existing = await (await import("../peer/local-api")).localApi(
-          inventoryPath,
-          "/api/state",
-        );
+        existing = await (
+          await import("../peer/local-api")
+        ).localApi(inventoryPath, "/api/state");
       } catch {
         /* No authenticated running workspace. */
       }
@@ -623,7 +622,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         });
         return 0;
       }
-      const running = await (await import("../serve")).serve({
+      const running = await (
+        await import("../serve")
+      ).serve({
         inventoryPath,
         configPath,
         port: port(v.port, 7447),
@@ -659,14 +660,18 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         });
         return 0;
       }
-      await (await import("../control/cli")).serveMcp(
+      await (
+        await import("../control/cli")
+      ).serveMcp(
         { inventoryPath, configPath, positionals, values: v, dryRun, json },
         (value, human) => console.log(json ? JSON.stringify(value) : human),
       );
       return 0;
     }
     if (command === "control") {
-      const result = await (await import("../control/cli")).controlCommand({
+      const result = await (
+        await import("../control/cli")
+      ).controlCommand({
         inventoryPath,
         configPath,
         positionals: positionals.slice(1),
@@ -748,11 +753,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           return 0;
         }
         emit(
-          await (await import("../session/workspace")).sessionWorkspace(
-            host,
-            inv,
-            inventoryPath,
-          ),
+          await (
+            await import("../session/workspace")
+          ).sessionWorkspace(host, inv, inventoryPath),
         );
         return 0;
       }

@@ -18,7 +18,7 @@ This guide covers installing homectl 0.3.0, the first run, connecting agents and
 
 - **OpenSSH client** (`ssh`) on the computer that runs homectl.
 - **KeePassXC CLI** (`keepassxc-cli`). `home-ctl setup` checks for both tools. The session and key commands use the KeePassXC CLI.
-- **Bun 1.4.4 or newer**, only for a source checkout.
+- **Bun 1.4.5 or newer**, only for a source checkout.
 - **systemd**, only for the hardened broker on Linux (see [platform notes](#linux)).
 
 Run `home-ctl doctor` after setup to check the tools.
@@ -41,7 +41,7 @@ Use the file names from the release you download. The Linux packages are built b
 
 ### From a source checkout
 
-For development, or to follow the repository directly (Bun 1.4.4+):
+For development, or to follow the repository directly (Bun 1.4.5+):
 
 ```sh
 git clone https://github.com/Hiosdra/homectl.git

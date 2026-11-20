@@ -246,8 +246,7 @@ export async function runProxmoxApi(
       `/nodes/${encodeURIComponent(node)}/tasks/${upid}/status`,
     );
     const task = status.data as
-      | { status?: string; exitstatus?: string }
-      | undefined;
+      { status?: string; exitstatus?: string } | undefined;
     if (status.ok && task?.status === "stopped") {
       const outcome = String(task.exitstatus ?? "");
       return outcome === "OK"

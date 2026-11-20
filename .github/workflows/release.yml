@@ -26,7 +26,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.5
 
       # The same test tools as ci.yml: the session tests need keepassxc-cli and ssh-agent.
       - run: sudo apt-get update && sudo apt-get install -y zip openssh-client keepassxc

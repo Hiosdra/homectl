@@ -67,7 +67,9 @@ export function PermissionPanel({ id }: { id: string }) {
           <Check name="administer" defaultChecked={p.permissions.administer}>
             Operate on the computer running homectl
           </Check>
-          <h3 className="mt-2 text-[15px] font-semibold">Hosts available for operations</h3>
+          <h3 className="mt-2 text-[15px] font-semibold">
+            Hosts available for operations
+          </h3>
           {Object.entries(ui.state.inventory.machines).map(([name, m]) => (
             <Check
               key={name}
@@ -75,10 +77,15 @@ export function PermissionPanel({ id }: { id: string }) {
               value={name}
               defaultChecked={p.permissions.operations.includes(name)}
             >
-              {name} <span className="text-muted-foreground">{accessLabel(m.access)}</span>
+              {name}{" "}
+              <span className="text-muted-foreground">
+                {accessLabel(m.access)}
+              </span>
             </Check>
           ))}
-          <Note>Changes require additional approval here, on the execution device.</Note>
+          <Note>
+            Changes require additional approval here, on the execution device.
+          </Note>
           <div className="mt-2 flex justify-end gap-2.5">
             <Action action="close-task" label="Cancel" />
             <Button type="submit">Save permissions</Button>
@@ -103,7 +110,11 @@ export function CommandPanel({ host }: { host: string }) {
       <Section>
         <form id="command-form" key={host} className="grid gap-4">
           <div className="grid gap-1.5">
-            <HelpLabel htmlFor="command-peer" label="Run on" help="The machine the command runs on. Pick one from the list." />
+            <HelpLabel
+              htmlFor="command-peer"
+              label="Run on"
+              help="The machine the command runs on. Pick one from the list."
+            />
             <Select name="peer" items={items} defaultValue={ui.commandPeer}>
               <SelectTrigger id="command-peer" className="w-full">
                 <SelectValue />
@@ -118,34 +129,62 @@ export function CommandPanel({ host }: { host: string }) {
             </Select>
           </div>
           <div className="grid gap-1.5">
-            <HelpLabel htmlFor="command-program" label="Program" help="The program to run, for example uname. Only the program name, not the whole command line." />
-            <Input id="command-program" name="program" defaultValue="uname" required />
-          </div>
-          <div className="grid gap-1.5">
-            <HelpLabel htmlFor="command-arguments" label="Arguments (one per line)" help="Each argument on its own line. For example, -s on its own line makes uname -s." />
-            <Textarea id="command-arguments" name="arguments" defaultValue="-s" />
-            <Note>Each line is passed as one argument. Homectl does not run a shell.</Note>
-          </div>
-          <div className="grid gap-1.5">
-            <HelpLabel htmlFor="command-impact" label="What should this do?" help="A plain description for whoever approves the request, for example: Read the system name." />
+            <HelpLabel
+              htmlFor="command-program"
+              label="Program"
+              help="The program to run, for example uname. Only the program name, not the whole command line."
+            />
             <Input
-              id="command-impact"
-              name="impact"
+              id="command-program"
+              name="program"
+              defaultValue="uname"
               required
             />
           </div>
+          <div className="grid gap-1.5">
+            <HelpLabel
+              htmlFor="command-arguments"
+              label="Arguments (one per line)"
+              help="Each argument on its own line. For example, -s on its own line makes uname -s."
+            />
+            <Textarea
+              id="command-arguments"
+              name="arguments"
+              defaultValue="-s"
+            />
+            <Note>
+              Each line is passed as one argument. Homectl does not run a shell.
+            </Note>
+          </div>
+          <div className="grid gap-1.5">
+            <HelpLabel
+              htmlFor="command-impact"
+              label="What should this do?"
+              help="A plain description for whoever approves the request, for example: Read the system name."
+            />
+            <Input id="command-impact" name="impact" required />
+          </div>
           {!ui.commandPeer ? (
             <div className="grid gap-1.5">
-              <HelpLabel htmlFor="template-name" label="Save as a shortcut (optional)" help="Save this argv for this device's selected host. Parameter values and approvals are never saved." />
+              <HelpLabel
+                htmlFor="template-name"
+                label="Save as a shortcut (optional)"
+                help="Save this argv for this device's selected host. Parameter values and approvals are never saved."
+              />
               <div className="flex flex-wrap gap-2">
-                <Input id="template-name" name="template-name" maxLength={80} placeholder="e.g. Check service status" />
+                <Input
+                  id="template-name"
+                  name="template-name"
+                  maxLength={80}
+                  placeholder="e.g. Check service status"
+                />
                 <Action action="save-command-from-form" label="Save command" />
               </div>
             </div>
           ) : null}
           <Note>
-            The other device must grant access to this host. Changes also need approval
-            there.
+            The other device must grant access to this host. Changes also need
+            approval there.
           </Note>
           <div className="mt-2 flex justify-end gap-2.5">
             <Action action="close-task" label="Cancel" />
@@ -157,4 +196,3 @@ export function CommandPanel({ host }: { host: string }) {
     </>
   );
 }
-

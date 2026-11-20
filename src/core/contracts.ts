@@ -261,12 +261,7 @@ export type SecretDestination =
   | { kind: "vault-only" };
 
 export type SecretRequestState =
-  | "pending"
-  | "provided"
-  | "declined"
-  | "cancelled"
-  | "expired"
-  | "revoked";
+  "pending" | "provided" | "declined" | "cancelled" | "expired" | "revoked";
 
 export interface SecretRequestView {
   id: string;

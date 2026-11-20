@@ -73,8 +73,7 @@ export interface ClientIdentity {
 // Who is calling. Clients come only from token authentication; the local
 // operator is the private CLI on the homectl host.
 export type Actor =
-  | { kind: "client"; client: ClientIdentity }
-  | { kind: "local-operator" };
+  { kind: "client"; client: ClientIdentity } | { kind: "local-operator" };
 
 // Typed operation request. Validated against the schema before dispatch.
 export type OperationRequest =

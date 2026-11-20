@@ -110,9 +110,9 @@ export async function setup(home = homedir(), dryRun = false) {
   if (dryRun) return { actions };
   await privateDirectory(p.base);
   if (!(await exists(p.inventory))) await saveInventory(p.inventory, initial);
-  const inventory = await (await import("./inventory")).loadInventory(
-    p.inventory,
-  );
+  const inventory = await (
+    await import("./inventory")
+  ).loadInventory(p.inventory);
   await writeSSHConfig(p.ssh, inventory.machines);
   // A compiled executable carries the skills and copies them, because it has no skill folder
   // to link. A checkout links its skills/ folders, so edits there take effect at once.

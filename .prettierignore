@@ -1,13 +1,5 @@
-# bun fmt formats everything else (Markdown, YAML, CSS, HTML, example JSON).
-# TypeScript and the JSON that biome checks stay with biome: one formatter per file.
-*.ts
-*.tsx
+# bun fmt formats every file in the repository; biome only lints.
 bun.lock
-package.json
-tsconfig.json
-biome.json
-schema/
-tests/
 scripts/file-length-baseline.json
 # Design-tool state, written by its own tooling.
 .impeccable/

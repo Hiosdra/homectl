@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.5
       - run: sudo apt-get update && sudo apt-get install -y openssh-client keepassxc
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
@@ -31,7 +31,7 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.5
       - run: bun install --frozen-lockfile
       # Fails on high or critical advisories not listed in scripts/audit-accepted.txt.
       - run: sh scripts/dependency-audit.sh
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.5
       - run: choco install keepassxc --yes --no-progress
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
@@ -86,7 +86,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.5
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run lint
@@ -102,7 +102,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.5
       - run: bun install --frozen-lockfile
       - name: Compile the Linux executable the broker runs
         run: bun build --compile --target=bun-linux-x64 src/cli/main.ts --outfile "$RUNNER_TEMP/home-ctl"

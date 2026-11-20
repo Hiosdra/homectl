@@ -45,14 +45,20 @@ export function ConfirmDialog() {
     >
       <AlertDialogPopup id="confirm-dialog" className="rounded-dialog">
         <AlertDialogHeader>
-          <AlertDialogTitle id="confirm-title">{request?.title}</AlertDialogTitle>
+          <AlertDialogTitle id="confirm-title">
+            {request?.title}
+          </AlertDialogTitle>
           <AlertDialogDescription id="confirm-description" render={<div />}>
             {request?.body}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogClose render={<Button variant="ghost" value="cancel" />}>Cancel</AlertDialogClose>
-          <Button value="confirm" onClick={() => request?.resolve(true)}>Confirm</Button>
+          <AlertDialogClose render={<Button variant="ghost" value="cancel" />}>
+            Cancel
+          </AlertDialogClose>
+          <Button value="confirm" onClick={() => request?.resolve(true)}>
+            Confirm
+          </Button>
         </AlertDialogFooter>
       </AlertDialogPopup>
     </AlertDialog>
@@ -77,9 +83,9 @@ export function UnlockDialog() {
           <DialogHeader>
             <DialogTitle>Unlock this device&apos;s vault</DialogTitle>
             <DialogDescription>
-              Enter this device&apos;s database password. After unlocking, compare the
-              devices again to review a fresh sync preview. The password is sent to
-              this workspace over the current connection.
+              Enter this device&apos;s database password. After unlocking,
+              compare the devices again to review a fresh sync preview. The
+              password is sent to this workspace over the current connection.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className="grid gap-2">
@@ -148,27 +154,52 @@ export function ClientDialog() {
     render();
   };
   return (
-    <Dialog open={ui.clientDialog} onOpenChange={(next) => (next ? undefined : close())}>
+    <Dialog
+      open={ui.clientDialog}
+      onOpenChange={(next) => (next ? undefined : close())}
+    >
       <DialogPopup id="client-dialog" className="rounded-dialog">
         <DialogHeader>
           <DialogTitle>Connect an MCP client</DialogTitle>
-          <DialogDescription>Each client gets its own identity, scopes and host grants.</DialogDescription>
+          <DialogDescription>
+            Each client gets its own identity, scopes and host grants.
+          </DialogDescription>
         </DialogHeader>
         <DialogPanel className="grid gap-3">
-          <p>Run this in a private terminal. It writes the token file locally, so the token is never shown here.</p>
-          <Pre>
-            {COMMAND}
-          </Pre>
-          <Button type="button" variant="secondary" onClick={() => void copyClientCommand()}>
+          <p>
+            Run this in a private terminal. It writes the token file locally, so
+            the token is never shown here.
+          </p>
+          <Pre>{COMMAND}</Pre>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void copyClientCommand()}
+          >
             Copy command
           </Button>
           <ol className="list-decimal space-y-2 pl-5 text-sm">
-            <li>Replace the placeholders, then run the command in a private terminal.</li>
-            <li>Start <code>home-ctl serve-mcp</code> in a private terminal and leave it running.</li>
-            <li>Configure the client with <code>http://127.0.0.1:7449/mcp</code> and the header <code>Authorization: Bearer &lt;token file contents&gt;</code>.</li>
-            <li>Inspection plans need no approval. Changes need approval from a different authorized client.</li>
+            <li>
+              Replace the placeholders, then run the command in a private
+              terminal.
+            </li>
+            <li>
+              Start <code>home-ctl serve-mcp</code> in a private terminal and
+              leave it running.
+            </li>
+            <li>
+              Configure the client with <code>http://127.0.0.1:7449/mcp</code>{" "}
+              and the header{" "}
+              <code>Authorization: Bearer &lt;token file contents&gt;</code>.
+            </li>
+            <li>
+              Inspection plans need no approval. Changes need approval from a
+              different authorized client.
+            </li>
           </ol>
-          <Note>Only clients granted approve:decide can approve operations.</Note>
+          <Note>
+            Only clients granted approve:decide can approve operations.
+          </Note>
         </DialogPanel>
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={close}>
@@ -186,8 +217,13 @@ const COMMAND =
 async function copyClientCommand() {
   try {
     await copyText(COMMAND);
-    report("Client command copied. Paste it into a private terminal.", "notice");
+    report(
+      "Client command copied. Paste it into a private terminal.",
+      "notice",
+    );
   } catch (error) {
-    report(error instanceof Error ? error.message : "Could not copy the command.");
+    report(
+      error instanceof Error ? error.message : "Could not copy the command.",
+    );
   }
 }

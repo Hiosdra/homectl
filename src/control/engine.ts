@@ -1755,8 +1755,7 @@ export class ControlPlane {
     let output: ExecuteResult["output"];
     try {
       let result:
-        | { exitCode: number; stdout: string; stderr: string }
-        | undefined;
+        { exitCode: number; stdout: string; stderr: string } | undefined;
       if (prepared.api !== undefined) {
         // From here the request may reach the host, so an error is `unknown`, never a retry.
         spawned = true;

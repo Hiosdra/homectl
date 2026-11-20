@@ -150,8 +150,7 @@ export async function loadReplicaFile(
   stateDirectory: string,
 ): Promise<ReplicaFile | undefined> {
   return (await readPersisted(join(stateDirectory, "replica.json"))) as
-    | ReplicaFile
-    | undefined;
+    ReplicaFile | undefined;
 }
 
 // Missing file: nothing replicated yet. Any other read or parse problem is an
