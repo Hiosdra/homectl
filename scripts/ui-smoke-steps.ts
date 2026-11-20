@@ -156,14 +156,18 @@ export async function captureDarkAndPhone(page: Page, out: string) {
       fullPage: true,
     });
   }
+  // Phone width in both themes, so a layout fault shows in either.
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const [file, link, heading] of screens) {
-    await open(link, heading);
-    await page.screenshot({
-      path: join(out, `${file}-phone.png`),
-      fullPage: true,
-    });
-    await closeRequestDrawer(page);
+  for (const scheme of ["dark", "light"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    for (const [file, link, heading] of screens) {
+      await open(link, heading);
+      await page.screenshot({
+        path: join(out, `${file}-phone-${scheme}.png`),
+        fullPage: true,
+      });
+      await closeRequestDrawer(page);
+    }
   }
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.emulateMedia({ colorScheme: "light" });

@@ -10,6 +10,7 @@ import {
   shellArgv,
 } from "./format";
 import { cn } from "./lib/utils";
+import { MachineName } from "./machine-name";
 import { Action, PageHeading, Tag, type Tone } from "./shared";
 import type { ControlOp, ControlOverview, State } from "./types";
 
@@ -190,7 +191,7 @@ export function Dashboard({
             tone={op.classification === "inspect" ? "neutral" : "warning"}
             title={
               <>
-                <b>{op.host}</b>
+                <MachineName name={op.host} />
                 <code className="font-mono text-[12px]">
                   {shellArgv(op.argv)}
                 </code>
@@ -213,7 +214,7 @@ export function Dashboard({
             tone="warning"
             title={
               <>
-                <b>{op.host}</b>
+                <MachineName name={op.host} />
                 <code className="font-mono text-[12px]">
                   {shellArgv(op.argv)}
                 </code>
@@ -274,7 +275,7 @@ export function Dashboard({
                 {shellArgv(op.argv)}
               </code>
               <span className="text-sm text-muted-foreground">
-                on {op.host}
+                on <MachineName name={op.host} />
               </span>
             </div>
             <time

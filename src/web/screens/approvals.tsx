@@ -12,6 +12,7 @@ import {
   shortHash,
 } from "../format";
 import { cn } from "../lib/utils";
+import { MachineName } from "../machine-name";
 import { render, ui } from "../store";
 import {
   Action,
@@ -92,7 +93,7 @@ export function Approvals() {
     <>
       <PageHeading
         title="Accept requests"
-        description="Plans from MCP clients. This panel runs only ready plans. Another client approves them."
+        description="Requests from your AI assistants. Ready ones run here; another device approves the rest."
       />
       <div
         className={cn(
@@ -122,7 +123,7 @@ export function Approvals() {
           </p>
           {visible.length ? (
             <DataTable
-              head={["State", "Host", "Command", "Requested by", "When", ""]}
+              head={["State", "Machine", "Command", "Requested by", "When", ""]}
             >
               {visible.map((op) => (
                 <OperationRow
@@ -187,8 +188,8 @@ function OperationRow({
           )}
         </div>
       </Cell>
-      <Cell label="Host">
-        <b>{op.host}</b>
+      <Cell label="Machine">
+        <MachineName name={op.host} />
         {other ? (
           <p className="text-xs text-muted-foreground">
             owned by {op.ownerName ?? op.runsOn}
