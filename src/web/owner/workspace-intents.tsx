@@ -31,7 +31,9 @@ export function IntentHistory({
       <ul className="plain-list-bare" aria-label="Recent decisions">
         {intents.map((row) => {
           const status = STATUS[row.status];
-          const from = names.get(row.client) ?? row.client;
+          // A device that was cut off or removed has left the list; its id is not
+          // shown in a sentence, so the row says what it is instead.
+          const from = names.get(row.client) ?? "a device no longer linked";
           return (
             <li key={row.id} className="intent-row">
               <div className="row between">
