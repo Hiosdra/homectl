@@ -39,7 +39,10 @@ import { type Route, parseRoute } from "./route";
 import { SecretScreen } from "./secret";
 import { SignInScreen } from "./signin";
 import { SystemScreen } from "./system";
-import { Badge, Notice } from "./ui";
+import { Gone, MainNav, NAV, type NavItem, TopBar } from "./app-chrome";
+import type { IconName } from "./icons";
+import { readLastSection, writeLastSection } from "./last-section";
+import { Notice, Toast } from "./ui";
 import {
   listWorkspaceClients,
   listWorkspaceIntents,
@@ -93,12 +96,6 @@ function useRoute(): [Route, (hash: string) => void] {
   }, []);
   return [route, (hash) => (location.hash = hash)];
 }
-
-const NAV: { label: string; hash: string; name: Route["name"] }[] = [
-  { label: "Needs you", hash: "#/", name: "overview" },
-  { label: "Agents", hash: "#/agents", name: "agents" },
-  { label: "Permissions", hash: "#/policy", name: "policy" },
-];
 
 function App() {
   const [session, setSession] = useState<Session>({ state: "checking" });
@@ -234,19 +231,42 @@ function App() {
   const workspaceWaiting = data.workspace?.pending.length ?? 0;
   const attention =
     data.operations.length + data.secrets.length + workspaceWaiting;
-  const nav = [
+  const nav: NavItem[] = [
     ...NAV,
     ...(server
       ? [
           {
-            label: "Workspace",
+            label: "Devices & backup",
             hash: "#/workspace",
             name: "workspace" as const,
+            icon: "devices" as const,
           },
         ]
       : []),
-    { label: "System", hash: "#/system", name: "system" as const },
+    {
+      label: "System",
+      hash: "#/system",
+      name: "system" as const,
+      icon: "sliders" as const,
+    },
   ];
+  // The section a viewer used last is remembered (section only, never a secret),
+  // but never over something that waits: "Needs you" opens first while attention
+  // is above zero. Only the first load of a session restores it.
+  // The decision is made once per session, after the first load. Only then
+  // does what is shown get remembered, so the stored section is read first.
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    if (restored || !signedIn || data.loadedAt === 0) return;
+    setRestored(true);
+    const last = readLastSection();
+    if (!location.hash && attention === 0 && last) go(last);
+  }, [restored, signedIn, data.loadedAt, attention, go]);
+  useEffect(() => {
+    if (!restored || !signedIn) return;
+    if (route.name === "approval" || route.name === "secret") return;
+    writeLastSection(route.name);
+  }, [restored, route.name, signedIn]);
   useEffect(() => {
     document.title =
       attention > 0 ? `(${attention}) homectl owner` : "homectl owner";
@@ -341,54 +361,28 @@ function App() {
           ? "Offline"
           : "Connecting";
 
+  const liveIcon: IconName =
+    mode === "live" ? "signal" : mode === "offline" ? "alert" : "refresh";
+
   return (
-    <>
-      <header>
-        <h1>
-          homectl owner{" "}
-          {attention > 0 ? (
-            <Badge tone="count">{attention} waiting</Badge>
-          ) : null}
-        </h1>
-        <div className="row">
-          <Badge tone={liveTone}>{liveLabel}</Badge>
-          <button
-            type="button"
-            onClick={async () => {
-              await ownerCall("/v1/owner/logout").catch(() => undefined);
-              signOut();
-            }}
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
-      <nav aria-label="Owner sections">
-        {nav.map((item) => (
-          <button
-            key={item.hash}
-            type="button"
-            className={route.name === item.name ? "active" : ""}
-            aria-current={route.name === item.name ? "page" : undefined}
-            onClick={() => go(item.hash)}
-          >
-            {item.label}
-            {item.name === "overview" && attention > 0 ? ` (${attention})` : ""}
-            {item.name === "workspace" && workspaceWaiting > 0
-              ? ` (${workspaceWaiting})`
-              : ""}
-          </button>
-        ))}
-      </nav>
-      <main>
-        {flash ? (
-          <Notice tone="good">
-            {flash}{" "}
-            <button type="button" onClick={() => setFlash(undefined)}>
-              Dismiss
-            </button>
-          </Notice>
-        ) : null}
+    <div className="shell">
+      <TopBar
+        attention={attention}
+        liveTone={liveTone}
+        liveLabel={liveLabel}
+        liveIcon={liveIcon}
+        onSignOut={async () => {
+          await ownerCall("/v1/owner/logout").catch(() => undefined);
+          signOut();
+        }}
+      />
+      <MainNav
+        items={nav}
+        current={route.name}
+        counts={{ overview: attention, workspace: workspaceWaiting }}
+        onGo={go}
+      />
+      <main className="main">
         {server &&
         data.workspace &&
         (route.name === "overview" || route.name === "workspace") ? (
@@ -408,6 +402,12 @@ function App() {
             workspaceWaiting={shownPending.length}
             scope={scope}
             onOpen={go}
+            // A one-tap decision stays on this screen; the list refreshes.
+            onQuickDone={(message) => {
+              setFlash(message);
+              void refresh();
+            }}
+            onError={handle}
           />
         )}
         {route.name === "approval" && !operation && data.loadedAt === 0 ? (
@@ -418,6 +418,7 @@ function App() {
             operation={operation}
             onDone={done}
             onError={handle}
+            onBack={() => go("#/")}
           />
         ) : null}
         {route.name === "approval" && !operation && data.loadedAt > 0 ? (
@@ -462,18 +463,10 @@ function App() {
         ) : null}
         {route.name === "system" && <SystemScreen onError={handle} />}
       </main>
-    </>
-  );
-}
-
-function Gone({ what, onBack }: { what: string; onBack: () => void }) {
-  return (
-    <section className="stack">
-      <Notice>{what} It may have been decided, cancelled or expired.</Notice>
-      <button type="button" onClick={onBack}>
-        Back to what needs you
-      </button>
-    </section>
+      {flash ? (
+        <Toast message={flash} onDismiss={() => setFlash(undefined)} />
+      ) : null}
+    </div>
   );
 }
 

@@ -1,6 +1,7 @@
 // One operation waiting for the owner. The screen shows what will run (exact
-// host and argv), the broker's policy reason, and the agent's own story as
-// untrusted text. The fingerprint goes back exactly as the broker sent it.
+// host and argv) in plain words, the broker's policy reason, and the agent's own
+// story as untrusted text. Technical values sit under Details. The fingerprint
+// goes back exactly as the broker sent it.
 import { useState } from "react";
 import {
   describeError,
@@ -10,11 +11,14 @@ import {
   ownerCall,
   untrustedText,
 } from "./api";
+import { Icon } from "./icons";
+import { riskView } from "./risk";
 import {
   approveRememberOffered,
   isUnderReview,
   UNDER_REVIEW_NOTE,
 } from "./review";
+import { expiresIn, relativeTime, toEpoch } from "./time";
 import {
   Argv,
   Badge,
@@ -32,7 +36,7 @@ export type ApprovalDecision =
   | "deny-remember"
   | "revise";
 
-const OUTCOME: Record<string, string> = {
+export const OUTCOME: Record<string, string> = {
   succeeded: "Approved. The command ran and finished successfully.",
   failed:
     "Approved, but the command failed. Its result is in the agent's history.",
@@ -43,7 +47,7 @@ const OUTCOME: Record<string, string> = {
 
 // Used when the broker's answer is still in flight (for example, an approved
 // command is dispatching). The decision itself is already recorded.
-const DECISION_NOTICE: Record<ApprovalDecision, string> = {
+export const DECISION_NOTICE: Record<ApprovalDecision, string> = {
   "approve-once": "Approved. The command is starting.",
   "approve-remember": "Approved, and the rule is saved.",
   "deny-once": "Denied. The agent was told.",
@@ -55,10 +59,12 @@ export function ApprovalScreen({
   operation,
   onDone,
   onError,
+  onBack,
 }: {
   operation: PendingOperation;
   onDone: (message: string) => void;
   onError: (error: unknown) => unknown;
+  onBack?: () => void;
 }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -67,6 +73,9 @@ export function ApprovalScreen({
   const decision: Decision = operation.decision;
   const needsStepUp = decision.stepUp === true;
   const approving = (kind: ApprovalDecision) => kind.startsWith("approve");
+  const risk = riskView(operation.risk);
+  const expires = toEpoch(operation.expiresAt);
+  const asked = toEpoch(operation.createdAt);
 
   const send = async (kind: ApprovalDecision) => {
     if (busy) return;
@@ -96,43 +105,81 @@ export function ApprovalScreen({
 
   return (
     <article className="stack" aria-labelledby="approval-title">
-      <section>
-        <div className="row between">
-          <h2 id="approval-title">Approve this command?</h2>
-          <Badge
-            tone={
-              operation.risk === "R3" || operation.risk === "R4"
-                ? "bad"
-                : "warn"
-            }
-          >
-            Risk {operation.risk}
-          </Badge>
+      {onBack ? (
+        <div>
+          <button type="button" className="quiet" onClick={onBack}>
+            <Icon name="back" />
+            Back to Needs you
+          </button>
         </div>
+      ) : null}
+      <section data-risk={risk.stripe}>
+        <div className="row between">
+          <Badge tone={risk.tone} icon={risk.icon}>
+            {risk.label}
+          </Badge>
+          {expires !== undefined ? (
+            <span className="request-meta">{expiresIn(expires)}</span>
+          ) : null}
+        </div>
+        <h2 id="approval-title" className="approval-title">
+          Approve this command?
+        </h2>
+        <p className="lead">
+          From <strong>{operation.client}</strong>
+          {operation.task ? ` · task ${operation.task}` : ""}, on{" "}
+          <span className="mono">{operation.host}</span>.
+        </p>
+        <div className="command-block" role="group" aria-label="Exact command">
+          <Argv argv={operation.argv} />
+        </div>
+        <p className="small muted">
+          This is {risk.phrase}
+          {operation.sudo ? ", run with administrator rights (sudo)" : ""}.
+        </p>
         <dl>
           <dt>Host</dt>
           <dd className="mono">{operation.host}</dd>
-          <dt>Command</dt>
-          <dd>
-            <Argv argv={operation.argv} />
-          </dd>
-          <dt>Classification</dt>
-          <dd>
-            {operation.classification}
-            {operation.sudo ? " · runs with sudo" : ""}
-          </dd>
-          <dt>Requested by</dt>
-          <dd>
-            {operation.client}
-            {operation.task ? ` · task ${operation.task}` : ""}
-          </dd>
-          <dt>Policy says</dt>
-          <dd>
-            {decision.verdict} ({decision.source}): {decision.reason}
-          </dd>
-          <dt>Expires</dt>
-          <dd>{fmtTime(operation.expiresAt)}</dd>
+          <dt>Why it waits</dt>
+          <dd>{decision.reason}</dd>
+          {asked !== undefined ? (
+            <>
+              <dt>Asked</dt>
+              <dd title={fmtTime(operation.createdAt)}>
+                {relativeTime(asked)}
+              </dd>
+            </>
+          ) : null}
         </dl>
+        <details className="details">
+          <summary>Details</summary>
+          <dl>
+            <dt>Risk level</dt>
+            <dd>
+              <span className="mono">{operation.risk}</span> · {risk.label}
+            </dd>
+            <dt>Classification</dt>
+            <dd>
+              {operation.classification}
+              {operation.sudo ? " · runs with sudo" : ""}
+            </dd>
+            <dt>Requested by</dt>
+            <dd>
+              {operation.client}
+              {operation.task ? ` · task ${operation.task}` : ""}
+            </dd>
+            <dt>Policy says</dt>
+            <dd>
+              {decision.verdict} ({decision.source}): {decision.reason}
+            </dd>
+            <dt>Expires</dt>
+            <dd title={fmtTime(operation.expiresAt)}>
+              {expires !== undefined
+                ? expiresIn(expires)
+                : fmtTime(operation.expiresAt)}
+            </dd>
+          </dl>
+        </details>
       </section>
 
       <section className="stack">
@@ -144,6 +191,7 @@ export function ApprovalScreen({
       </section>
 
       <section className="stack" aria-label="Decide">
+        <h3>Your decision</h3>
         <p className="small muted">
           Approving allows this exact command once. It does not create a
           reusable permission unless you choose "remember".
@@ -164,7 +212,7 @@ export function ApprovalScreen({
           />
         ) : null}
         {error ? <Notice tone="bad">{error}</Notice> : null}
-        <div className="row">
+        <div className="request-actions">
           <button
             type="button"
             className="primary"
@@ -198,7 +246,12 @@ export function ApprovalScreen({
           >
             Deny and remember…
           </button>
-          <button type="button" disabled={busy} onClick={() => send("revise")}>
+          <button
+            type="button"
+            className="quiet"
+            disabled={busy}
+            onClick={() => send("revise")}
+          >
             Ask to revise
           </button>
         </div>

@@ -3,6 +3,7 @@
 // the browser keeps (HttpOnly, SameSite=Strict); no token is stored here.
 import { type FormEvent, useState } from "react";
 import { describeError, ownerCall } from "./api";
+import { Icon } from "./icons";
 import { Field, Notice } from "./ui";
 
 export function SignInScreen({
@@ -39,10 +40,16 @@ export function SignInScreen({
   return (
     <div className="center">
       <section>
-        <h2>Owner sign-in</h2>
+        <div className="brand-large">
+          <span className="brand-mark" aria-hidden="true">
+            <Icon name="shield" />
+          </span>
+          <h1>homectl owner</h1>
+        </div>
+        <h2>Sign in to decide</h2>
         <p className="small muted">
-          Approvals, secrets and agent access are decided here. Your session
-          lasts 15 minutes.
+          Approvals, secrets and assistant access are decided here, by you. For
+          safety your session ends after 15 minutes of use.
         </p>
         {notice ? <Notice tone="warn">{notice}</Notice> : null}
         <form className="stack" method="post" onSubmit={submit}>
