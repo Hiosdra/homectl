@@ -5,7 +5,7 @@
 // this check creates is decided through the panel again, so it leaves nothing waiting.
 
 import { expect, type Page } from "@playwright/test";
-import { type Harness, open, signIn, VIEWPORTS } from "./owner-ui-harness";
+import { type Harness, open, signIn, type VIEWPORTS } from "./owner-ui-harness";
 
 type Viewport = (typeof VIEWPORTS)[number];
 
