@@ -3,6 +3,7 @@
 // other broker answers 404 here, and the panel then hides the whole section.
 // Requester text stays untrusted (`narrative`), and no password is kept after
 // a request is sent.
+import type { DecisionSource } from "../../core/contracts";
 import { OwnerApiError, ownerCall, type Untrusted } from "./api";
 
 export interface WorkspaceServerInfo {
@@ -37,7 +38,22 @@ export interface WorkspaceClient {
   backupRequested?: boolean;
 }
 
+export type WorkspaceDecision = "approve-once" | "deny-once";
+export type WorkspaceIntentStatus =
+  "queued" | "delivered" | "applied" | "refused";
+
+// The newest decision queued for a pending operation, as the server reports it
+// on /pending. Null when none was queued.
+export interface WorkspacePendingIntent {
+  id: string;
+  decision: WorkspaceDecision;
+  status: WorkspaceIntentStatus;
+  reason?: string;
+  expiresAt: number;
+}
+
 // One operation waiting on a linked client. `origin` is the linked client id.
+// `source` is "review" while the Auto Mode reviewer has not decided.
 export interface WorkspacePending {
   origin: string;
   originName: string;
@@ -48,15 +64,16 @@ export interface WorkspacePending {
   risk: string;
   fingerprint: string;
   reason: string;
+  source?: DecisionSource;
   stepUp: boolean;
   humanOnly: boolean;
   expiresAt: number;
   narrative?: Untrusted;
+  intent: WorkspacePendingIntent | null;
 }
 
-export type WorkspaceDecision = "approve-once" | "deny-once";
-
-// The server's record of a decision it queued for a client.
+// The server's record of a decision it queued for a client (the response to
+// a decide request).
 export interface WorkspaceIntent {
   id: string;
   operationId: string;
@@ -65,8 +82,76 @@ export interface WorkspaceIntent {
   stepUp: boolean;
   createdAt: number;
   expiresAt: number;
-  status: "queued" | "delivered" | "applied" | "refused";
+  status: WorkspaceIntentStatus;
   reason?: string;
+}
+
+// One row of the decision history, newest first.
+export interface WorkspaceIntentRow {
+  id: string;
+  operationId: string;
+  client: string;
+  decision: WorkspaceDecision;
+  status: WorkspaceIntentStatus;
+  reason?: string;
+  expiresAt: number;
+}
+
+// How the panel describes a queued decision. Queued and delivered decisions
+// block the buttons: the client has not applied them yet.
+export interface IntentState {
+  text: string;
+  tone: "neutral" | "warn" | "bad" | "good";
+  blocks: boolean;
+  applied: boolean;
+  refused: boolean;
+}
+
+export function intentState(
+  intent:
+    | Pick<
+        WorkspacePendingIntent,
+        "decision" | "status" | "reason" | "expiresAt"
+      >
+    | null
+    | undefined,
+): IntentState | undefined {
+  if (!intent) return undefined;
+  const word = intent.decision === "approve-once" ? "Approval" : "Denial";
+  switch (intent.status) {
+    case "queued":
+      return {
+        text: `${word} queued for the client. It applies at the client's next sync.`,
+        tone: "warn",
+        blocks: true,
+        applied: false,
+        refused: false,
+      };
+    case "delivered":
+      return {
+        text: `${word} delivered to the client. Waiting for it to apply.`,
+        tone: "warn",
+        blocks: true,
+        applied: false,
+        refused: false,
+      };
+    case "applied":
+      return {
+        text: `${word} applied by the client.`,
+        tone: "good",
+        blocks: false,
+        applied: true,
+        refused: false,
+      };
+    case "refused":
+      return {
+        text: `${word} refused by the client${intent.reason ? `: ${intent.reason}` : "."}`,
+        tone: "bad",
+        blocks: false,
+        applied: false,
+        refused: true,
+      };
+  }
 }
 
 export interface WorkspaceInvite {
@@ -95,6 +180,14 @@ export function listWorkspaceClients(): Promise<WorkspaceClient[]> {
 
 export function listWorkspacePending(): Promise<WorkspacePending[]> {
   return ownerCall<WorkspacePending[]>("/v1/owner/workspace/pending");
+}
+
+// The newest decisions across linked clients, bounded by the server.
+export async function listWorkspaceIntents(): Promise<WorkspaceIntentRow[]> {
+  const result = await ownerCall<{ intents: WorkspaceIntentRow[] }>(
+    "/v1/owner/workspace/intents",
+  );
+  return result.intents;
 }
 
 // The owner password is needed only for a step-up decision. The caller clears

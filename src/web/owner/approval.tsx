@@ -11,6 +11,11 @@ import {
   untrustedText,
 } from "./api";
 import {
+  approveRememberOffered,
+  isUnderReview,
+  UNDER_REVIEW_NOTE,
+} from "./review";
+import {
   Argv,
   Badge,
   Dialog,
@@ -143,6 +148,9 @@ export function ApprovalScreen({
           Approving allows this exact command once. It does not create a
           reusable permission unless you choose "remember".
         </p>
+        {isUnderReview(decision.source) ? (
+          <Notice tone="warn">{UNDER_REVIEW_NOTE}</Notice>
+        ) : null}
         {needsStepUp ? (
           <Notice tone="warn">
             This needs you to confirm with your owner password.
@@ -165,7 +173,7 @@ export function ApprovalScreen({
           >
             Approve once
           </button>
-          {!decision.humanOnly ? (
+          {approveRememberOffered(decision) ? (
             <button
               type="button"
               disabled={approveBlocked}

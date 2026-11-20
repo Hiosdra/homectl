@@ -1,14 +1,17 @@
 // Operations waiting on linked clients, across all of them. Each row shows what
 // will run, the risk, the fingerprint the decision is bound to, and the agent's
 // narrative as untrusted text. A step-up operation gets no approve button: the
-// owner approves it on its own device.
+// owner approves it on its own device. The row also shows the newest decision
+// the server queued for it: while that is queued or delivered the buttons are
+// disabled, and a refused decision shows its reason and can be decided again.
 import { untrustedText } from "./api";
+import { UNDER_REVIEW_NOTE, isUnderReview } from "./review";
 import {
   decisionKey,
   decisionOffer,
+  intentState,
   type WorkspaceClient,
   type WorkspaceDecision,
-  type WorkspaceIntent,
   type WorkspacePending,
 } from "./workspace-api";
 import { Argv, Badge, fmtTime, Notice, Untrusted } from "./ui";
@@ -16,13 +19,11 @@ import { Argv, Badge, fmtTime, Notice, Untrusted } from "./ui";
 export function PendingSection({
   pending,
   clients,
-  intents,
   busy,
   onDecide,
 }: {
   pending: WorkspacePending[];
   clients: WorkspaceClient[];
-  intents: Record<string, WorkspaceIntent>;
   busy: boolean;
   onDecide: (
     operation: WorkspacePending,
@@ -47,7 +48,6 @@ export function PendingSection({
           key={decisionKey(operation.origin, operation.id)}
           operation={operation}
           client={byId.get(operation.origin)}
-          intent={intents[decisionKey(operation.origin, operation.id)]}
           busy={busy}
           onDecide={onDecide}
         />
@@ -59,13 +59,11 @@ export function PendingSection({
 function PendingItem({
   operation,
   client,
-  intent,
   busy,
   onDecide,
 }: {
   operation: WorkspacePending;
   client: WorkspaceClient | undefined;
-  intent: WorkspaceIntent | undefined;
   busy: boolean;
   onDecide: (
     operation: WorkspacePending,
@@ -74,8 +72,11 @@ function PendingItem({
 }) {
   const offer = decisionOffer(operation, client);
   const risky = operation.risk === "R3" || operation.risk === "R4";
-  // A decision already on its way blocks a second one on this server.
-  const decided = intent !== undefined;
+  const state = intentState(operation.intent);
+  // A queued or delivered decision blocks new ones; an applied one ends the item.
+  const locked = state?.blocks === true;
+  const done = state?.applied === true;
+  const underReview = isUnderReview(operation.source);
   return (
     <article
       className="item"
@@ -85,7 +86,10 @@ function PendingItem({
         <strong>
           Command on <span className="mono">{operation.host}</span>
         </strong>
-        <Badge tone={risky ? "bad" : "warn"}>Risk {operation.risk}</Badge>
+        <div className="row">
+          {underReview ? <Badge tone="warn">Under review</Badge> : null}
+          <Badge tone={risky ? "bad" : "warn"}>Risk {operation.risk}</Badge>
+        </div>
       </div>
       <div className="small muted">
         From {operation.originName} · agent {operation.client} · expires{" "}
@@ -97,6 +101,7 @@ function PendingItem({
         {operation.stepUp ? " · needs step-up" : ""}
         {operation.humanOnly ? " · human only" : ""}
       </div>
+      {underReview ? <p className="small">{UNDER_REVIEW_NOTE}</p> : null}
       <div className="small mono">Fingerprint {operation.fingerprint}</div>
       <Untrusted
         text={untrustedText(operation.narrative)}
@@ -105,21 +110,15 @@ function PendingItem({
       {operation.narrative ? null : (
         <p className="small muted">The agent gave no explanation.</p>
       )}
-      {intent ? (
-        <Notice>
-          {intent.decision === "approve-once" ? "Approval" : "Denial"} sent to
-          the client. It applies the decision at its next sync. This page cannot
-          show later progress yet.
-        </Notice>
-      ) : null}
+      {state ? <Notice tone={state.tone}>{state.text}</Notice> : null}
       {offer.note ? <p className="small muted">{offer.note}</p> : null}
-      {!decided && (offer.approve || offer.deny) ? (
+      {!done && (offer.approve || offer.deny) ? (
         <div className="row">
           {offer.approve ? (
             <button
               type="button"
               className="primary"
-              disabled={busy}
+              disabled={busy || locked}
               onClick={() => void onDecide(operation, "approve-once")}
             >
               Approve once
@@ -129,7 +128,7 @@ function PendingItem({
             <button
               type="button"
               className="danger"
-              disabled={busy}
+              disabled={busy || locked}
               onClick={() => void onDecide(operation, "deny-once")}
             >
               Deny once

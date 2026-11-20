@@ -30,9 +30,11 @@ import { SystemScreen } from "./system";
 import { Badge, Notice } from "./ui";
 import {
   listWorkspaceClients,
+  listWorkspaceIntents,
   listWorkspacePending,
   probeWorkspace,
   type WorkspaceClient,
+  type WorkspaceIntentRow,
   type WorkspacePending,
   type WorkspaceServerInfo,
 } from "./workspace-api";
@@ -48,7 +50,11 @@ interface Data {
   operations: PendingOperation[];
   secrets: PendingSecret[];
   // Present only when this broker is a workspace server.
-  workspace?: { clients: WorkspaceClient[]; pending: WorkspacePending[] };
+  workspace?: {
+    clients: WorkspaceClient[];
+    pending: WorkspacePending[];
+    intents: WorkspaceIntentRow[];
+  };
   loadedAt: number;
 }
 
@@ -58,11 +64,12 @@ const SIGNED_OUT_NOTICE = "Your owner session ended. Sign in again.";
 const WORKSPACE_POLL_MS = 10_000;
 
 async function readWorkspace(): Promise<Data["workspace"]> {
-  const [clients, pending] = await Promise.all([
+  const [clients, pending, intents] = await Promise.all([
     listWorkspaceClients(),
     listWorkspacePending(),
+    listWorkspaceIntents(),
   ]);
-  return { clients, pending };
+  return { clients, pending, intents };
 }
 
 function useRoute(): [Route, (hash: string) => void] {
@@ -377,6 +384,7 @@ function App() {
             server={server}
             clients={data.workspace.clients}
             pending={data.workspace.pending}
+            intents={data.workspace.intents}
             onChanged={refresh}
             onError={handle}
           />

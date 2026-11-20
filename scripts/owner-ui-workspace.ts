@@ -31,7 +31,7 @@ export async function runWorkspaceScenario(
 
     // The workspace is offered because the server answers its routes.
     await expect(
-      page.getByRole("button", { name: "Workspace (2)" }),
+      page.getByRole("button", { name: "Workspace (5)" }),
     ).toBeVisible({ timeout: 10_000 });
     await page.getByRole("button", { name: "Review in Workspace" }).click();
     await expect(
@@ -63,7 +63,7 @@ export async function runWorkspaceScenario(
 
     // Approve once sends exactly the fingerprint and no password.
     await normal.getByRole("button", { name: "Approve once" }).click();
-    await expect(page.getByText(/Approval sent to the client/)).toBeVisible({
+    await expect(page.getByText(/Approval queued for the client/)).toBeVisible({
       timeout: 10_000,
     });
     expect(stub.decisions.at(-1)).toEqual({
@@ -72,14 +72,17 @@ export async function runWorkspaceScenario(
       fingerprint: "fp-normal",
       decision: "approve-once",
     });
-    // A sent decision blocks a second one from this page.
+    // A queued decision holds both buttons until the client applies it.
     await expect(
       normal.getByRole("button", { name: "Approve once" }),
-    ).toHaveCount(0);
+    ).toBeDisabled();
+    await expect(
+      normal.getByRole("button", { name: "Deny once" }),
+    ).toBeDisabled();
 
     // Deny on the step-up operation is allowed and sends no password.
     await stepUp.getByRole("button", { name: "Deny once" }).click();
-    await expect(page.getByText(/Denial sent to the client/)).toBeVisible({
+    await expect(page.getByText(/Denial queued for the client/)).toBeVisible({
       timeout: 10_000,
     });
     expect(stub.decisions.at(-1)).toMatchObject({
@@ -87,6 +90,55 @@ export async function runWorkspaceScenario(
       decision: "deny-once",
     });
     expect(stub.decisions.at(-1)).not.toHaveProperty("password");
+
+    // Under review: no verdict yet. The owner may decide, and nothing is saved.
+    const review = page
+      .getByRole("article", { name: "Approval from Laptop" })
+      .filter({ hasText: "fp-review" });
+    await expect(
+      review.getByText("Under review", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      review.getByText(/approving it does not save a rule/),
+    ).toBeVisible();
+    await expect(
+      review.getByRole("button", { name: "Approve once" }),
+    ).toBeEnabled();
+    await expect(page.getByText(/Approve and remember/)).toHaveCount(0);
+
+    // Refused: the client's reason is shown and the owner may decide again.
+    const refused = page
+      .getByRole("article", { name: "Approval from Laptop" })
+      .filter({ hasText: "fp-refused" });
+    await expect(
+      refused.getByText(/refused by the client: The plan changed/),
+    ).toBeVisible();
+    await expect(
+      refused.getByRole("button", { name: "Approve once" }),
+    ).toBeEnabled();
+
+    // Delivered, not applied: both buttons wait.
+    const delivered = page
+      .getByRole("article", { name: "Approval from Laptop" })
+      .filter({ hasText: "fp-delivered" });
+    await expect(
+      delivered.getByText(/Denial delivered to the client/),
+    ).toBeVisible();
+    await expect(
+      delivered.getByRole("button", { name: "Deny once" }),
+    ).toBeDisabled();
+    await expect(
+      delivered.getByRole("button", { name: "Approve once" }),
+    ).toBeDisabled();
+
+    // The decision history, newest first, across the linked clients.
+    const history = page.getByRole("list", { name: "Recent decisions" });
+    await expect(
+      history.getByText(/Approval for op-normal on Laptop: queued/),
+    ).toBeVisible();
+    await expect(
+      history.getByText(/Approval for op-yesterday on Laptop: applied/),
+    ).toBeVisible();
 
     // Clients: stale, approvals on device, vault, mirror gaps, backups.
     const nas = page.getByRole("article", { name: "Client NAS" });
@@ -136,10 +188,91 @@ export async function runWorkspaceScenario(
   }
 }
 
+// A local operation as the broker lists it on /v1/owner/pending.
+function localOperation(id: string, source: string) {
+  return {
+    id,
+    state: "pending",
+    client: "codex",
+    host: "nas",
+    argv: ["zfs", "list"],
+    classification: "inspection",
+    risk: "R2",
+    fingerprint: `fp-${id}`,
+    decision: {
+      verdict: "ask",
+      source,
+      reason: "No rule matches yet",
+      humanOnly: false,
+    },
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 10 * 60_000,
+    narrative: { untrusted: "List the pool." },
+  };
+}
+
+// The local approvals screen: an operation the Auto Mode reviewer is still
+// deciding says "Under review" and offers no approve-and-remember. A decision
+// that came from a rule still offers it.
+export async function runLocalReviewScenario(
+  harness: Harness,
+  viewport: (typeof VIEWPORTS)[number],
+) {
+  const { context, page } = await open(harness, viewport);
+  try {
+    await page.route("**/v1/owner/pending", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          localOperation("op-review", "review"),
+          localOperation("op-rule", "rule"),
+        ]),
+      }),
+    );
+    await signIn(page, harness);
+    // The overview marks the item still under review.
+    await expect(page.getByText(/· Under review/)).toHaveCount(1);
+
+    await page.evaluate(() => {
+      location.hash = "#/approvals/op-review";
+    });
+    await expect(
+      page.getByRole("heading", { name: "Approve this command?" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        /Under review: the Auto Mode reviewer has not decided yet/,
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Approve once" }),
+    ).toBeEnabled();
+    await expect(
+      page.getByRole("button", { name: "Approve and remember…" }),
+    ).toHaveCount(0);
+
+    await page.evaluate(() => {
+      location.hash = "#/approvals/op-rule";
+    });
+    await expect(
+      page.getByRole("heading", { name: "Approve this command?" }),
+    ).toBeVisible();
+    await expect(page.getByText(/Under review/)).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Approve and remember…" }),
+    ).toBeVisible();
+    await noOverflow(page);
+  } finally {
+    await context.close();
+  }
+}
+
 // Every owner check, at both viewports. Each check starts from its own stubs.
 export async function runOwnerExtensionScenarios(harness: Harness) {
   for (const viewport of VIEWPORTS) {
     await runWorkspaceScenario(harness, viewport);
+    await runLocalReviewScenario(harness, viewport);
     await runRestoreScenario(harness, viewport);
     await runAutoModeScenario(harness, viewport);
     await runSystemScenario(harness, viewport);

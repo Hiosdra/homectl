@@ -81,6 +81,7 @@ describe("Dockerfile", () => {
     );
     const expose = instructions(text).find((i) => i.op === "EXPOSE");
     expect(expose?.rest.split(" ")).toContain("7450");
+    expect(expose?.rest.split(" ")).toContain("7451");
   });
 
   test("the entrypoint and health check are copied into the image", async () => {
@@ -280,7 +281,7 @@ describe("0.3 broker Compose project example", () => {
     expect(service.tmpfs).toEqual(["/tmp:size=64m,mode=1777"]);
   });
 
-  test("uses a bridge network and publishes the panel on loopback by default", async () => {
+  test("uses a bridge network and publishes only the panel, on loopback by default", async () => {
     const text = await read("examples", "container", "compose.broker.yaml");
     const compose = await broker();
     const service = compose.services.homectl ?? {};
@@ -289,8 +290,9 @@ describe("0.3 broker Compose project example", () => {
     expect(compose.networks).toEqual({ homectl: { driver: "bridge" } });
     expect(service.ports).toEqual([
       `${interp("HOMECTL_PANEL_PUBLISH:-127.0.0.1:7451")}:7451`,
-      `${interp("HOMECTL_WORKSPACE_PUBLISH:-127.0.0.1:7450")}:7450`,
     ]);
+    // The workspace port is opt-in: the base file never publishes it.
+    expect(text).not.toContain("HOMECTL_WORKSPACE_PUBLISH");
     expect(text).not.toContain("docker.sock");
   });
 
@@ -315,6 +317,26 @@ describe("0.3 broker Compose project example", () => {
     expect(env.HOMECTL_WORKSPACE_LISTEN).toBe(
       "$" + "{HOMECTL_WORKSPACE_LISTEN:-}",
     );
+  });
+
+  test("the workspace server override publishes only the workspace port and turns the listener on", async () => {
+    const override = parse(
+      await read("examples", "container", "compose.workspace.yaml"),
+    ) as Compose;
+    expect(Object.keys(override.services)).toEqual(["homectl"]);
+    const service = override.services.homectl ?? {};
+    expect(service.ports).toEqual([
+      `${interp("HOMECTL_WORKSPACE_PUBLISH:-127.0.0.1:7450")}:7450`,
+    ]);
+    const env = service.environment as Record<string, string>;
+    expect(env.HOMECTL_WORKSPACE_LISTEN).toBe("0.0.0.0:7450");
+    // The override adds no privilege, no volume and no secret.
+    const text = JSON.stringify(override);
+    expect(text).not.toMatch(
+      /privileged|docker\.sock|PASSWORD|SECRET|TOKEN|KDBX/i,
+    );
+    expect(service).not.toHaveProperty("volumes");
+    expect(service).not.toHaveProperty("privileged");
   });
 
   test("has no secret in the environment, the YAML or any file reference", async () => {

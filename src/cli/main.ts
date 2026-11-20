@@ -130,6 +130,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         "install-deps": { type: "boolean" },
         "configure-firewall": { type: "boolean" },
         inventory: { type: "string" },
+        mode: { type: "string" },
         file: { type: "string" },
         id: { type: "string" },
         "parameters-file": { type: "string" },
@@ -292,7 +293,13 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
     if (peer !== undefined) return peer;
     if (command === "migrate") {
       emit(
-        await migrateCommand(positionals, commandArgs, inventoryPath, dryRun),
+        await migrateCommand(
+          positionals,
+          commandArgs,
+          inventoryPath,
+          dryRun,
+          v.mode,
+        ),
       );
       return 0;
     }

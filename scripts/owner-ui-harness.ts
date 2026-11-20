@@ -27,6 +27,8 @@ export interface Harness {
 export interface WorkspaceStub {
   clients: Json[];
   pending: Json[];
+  // The decision history the server answers on /intents, newest first.
+  intents: Json[];
   decisions: Json[];
   removed: string[];
   invites: number;
@@ -112,6 +114,24 @@ export function workspaceStub(): WorkspaceStub {
         expiresAt: expires,
         // Requester text is plain text: markup stays visible as written.
         narrative: { untrusted: "Start the scrub. <b>not bold</b>" },
+        intent: null,
+      },
+      {
+        // Still with the Auto Mode reviewer: no verdict, so no remembered rule.
+        origin: "ws-laptop",
+        originName: "Laptop",
+        id: "op-review",
+        client: "claude",
+        host: "nas",
+        argv: ["zfs", "list"],
+        risk: "R2",
+        fingerprint: "fp-review",
+        reason: "No rule matches yet",
+        source: "review",
+        stepUp: false,
+        humanOnly: false,
+        expiresAt: expires,
+        intent: null,
       },
       {
         origin: "ws-laptop",
@@ -126,6 +146,78 @@ export function workspaceStub(): WorkspaceStub {
         stepUp: true,
         humanOnly: false,
         expiresAt: expires,
+        intent: null,
+      },
+      {
+        // The client refused the earlier decision: the owner may decide again.
+        origin: "ws-laptop",
+        originName: "Laptop",
+        id: "op-refused",
+        client: "codex",
+        host: "nas",
+        argv: ["docker", "restart", "sonarr"],
+        risk: "R2",
+        fingerprint: "fp-refused",
+        reason: "Matches the maintenance rule",
+        stepUp: false,
+        humanOnly: false,
+        expiresAt: expires,
+        intent: {
+          id: "intent-refused",
+          decision: "approve-once",
+          status: "refused",
+          reason:
+            "The plan changed on the client. Ask the agent to plan again.",
+          expiresAt: expires,
+        },
+      },
+      {
+        // Delivered, not applied yet: both buttons wait.
+        origin: "ws-laptop",
+        originName: "Laptop",
+        id: "op-delivered",
+        client: "codex",
+        host: "nas",
+        argv: ["zfs", "snapshot", "tank@nightly"],
+        risk: "R2",
+        fingerprint: "fp-delivered",
+        reason: "Matches the maintenance rule",
+        stepUp: false,
+        humanOnly: false,
+        expiresAt: expires,
+        intent: {
+          id: "intent-delivered",
+          decision: "deny-once",
+          status: "delivered",
+          expiresAt: expires,
+        },
+      },
+    ],
+    intents: [
+      {
+        id: "intent-refused",
+        operationId: "op-refused",
+        client: "ws-laptop",
+        decision: "approve-once",
+        status: "refused",
+        reason: "The plan changed on the client. Ask the agent to plan again.",
+        expiresAt: expires,
+      },
+      {
+        id: "intent-delivered",
+        operationId: "op-delivered",
+        client: "ws-laptop",
+        decision: "deny-once",
+        status: "delivered",
+        expiresAt: expires,
+      },
+      {
+        id: "intent-yesterday",
+        operationId: "op-yesterday",
+        client: "ws-laptop",
+        decision: "approve-once",
+        status: "applied",
+        expiresAt: now - 86_400_000,
       },
     ],
     decisions: [],
@@ -216,17 +308,37 @@ export async function serveWorkspace(
           return refuse(
             "This operation needs step-up; approve it on its own device",
           );
-        return reply(200, {
+        // Like the server: one decision in flight per operation, refused ones aside.
+        const current = op.intent as Json | null;
+        if (
+          current &&
+          (current.status === "queued" || current.status === "delivered")
+        )
+          return refuse("This operation already has a decision on its way");
+        const intent = {
           id: `intent-${stub.decisions.length}`,
           operationId: body.operationId,
-          fingerprint: body.fingerprint,
+          client: body.client,
           decision: body.decision,
+          status: "queued",
+          expiresAt: Date.now() + 120_000,
+        };
+        op.intent = {
+          id: intent.id,
+          decision: intent.decision,
+          status: intent.status,
+          expiresAt: intent.expiresAt,
+        };
+        stub.intents.unshift(intent);
+        return reply(200, {
+          ...intent,
+          fingerprint: body.fingerprint,
           stepUp: false,
           createdAt: Date.now(),
-          expiresAt: Date.now() + 120_000,
-          status: "queued",
         });
       }
+      case "intents":
+        return reply(200, { intents: stub.intents });
       case "invite":
         if (!ownerOk()) return refuse("Confirm with the owner password");
         stub.invites += 1;

@@ -175,6 +175,10 @@ const workspaceSections: Section[] = [
         "Lists operations waiting on linked clients, with the fingerprint each decision needs.",
       ],
       [
+        "intents [client]",
+        "Lists the decisions you sent from this server, newest first, with their status: queued, delivered, applied or refused (with the client's reason). An optional client id narrows the list.",
+      ],
+      [
         "decide <client> <operationId> <fingerprint> approve|deny",
         "Queues your decision for one client's pending operation. The client applies it at its next sync, through its own policy. A stale fingerprint is refused.",
       ],
@@ -234,6 +238,10 @@ const migrateSections: Section[] = [
         "--dry-run",
         "Lists the migration steps that would run and changes nothing.",
       ],
+      [
+        "--mode compat|hardened",
+        "compat (default) migrates the workspace beside the inventory, as daemon run does. hardened migrates the service state that daemon run --mode hardened starts from; it is owned by the service account, so run it as an administrator. Hardened ignores --inventory.",
+      ],
       ["--inventory PATH", "Use another inventory file."],
       ["--json", "Print machine-readable output."],
     ],
@@ -257,15 +265,16 @@ export const brokerHelp: Record<string, Page> = {
   },
   workspace: {
     usage:
-      "home-ctl workspace invite | join <address> <code> [--remote-approval] | status | clients | pending | decide <client> <operationId> <fingerprint> approve|deny | remove <client> | retired [client] | leave | sync-now | backup-now | request-backup <client> | restore-preview <client> [seq] --reason <text> | restore <client> <seq> --reason <text>",
+      "home-ctl workspace invite | join <address> <code> [--remote-approval] | status | clients | pending | intents [client] | decide <client> <operationId> <fingerprint> approve|deny | remove <client> | retired [client] | leave | sync-now | backup-now | request-backup <client> | restore-preview <client> [seq] --reason <text> | restore <client> <seq> --reason <text>",
     intro:
       "Connects brokers. One broker can be the server; the others are clients. A client keeps working without the server.",
     sections: workspaceSections,
   },
   migrate: {
-    usage: "home-ctl migrate [--dry-run] [--inventory PATH] [--json]",
+    usage:
+      "home-ctl migrate [--dry-run] [--mode compat|hardened] [--inventory PATH] [--json]",
     intro:
-      "Upgrades workspace data to the current version. The broker runs the same migration when it starts, so this command is for a preview or for an upgrade before the daemon starts. A verified backup goes into the workspace's backups folder first; if a step fails, the backup is restored and the workspace stays at its old version. Open 0.2 approvals are closed and must be planned again. Running it on current data changes nothing.",
+      "Upgrades workspace data to the current version. The broker runs the same migration when it starts, so this command is for a preview or for an upgrade before the daemon starts. --dry-run lists the steps that would run and the files each one may touch; it changes nothing. A run locks the workspace, backs up each file the steps may touch into the workspace's backups folder, runs and verifies each step in order, and checks that no other file changed. The version marker is written last. If anything fails, the backup is restored and the workspace stays at its old version; an interrupted run is rolled back before the next one starts. Open 0.2 approvals are closed and must be planned again. Running it on current data changes nothing.",
     sections: migrateSections,
   },
 };

@@ -8,7 +8,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { migrationTarget } from "../src/cli/migrate-command";
 import { cleanEnv } from "../src/credentials";
 import { DATA_VERSION, MARKER_FILE } from "../src/migrate";
 
@@ -126,5 +127,40 @@ describe("home-ctl migrate", () => {
     const result = await invoke(["migrate", "extra", "--inventory", inventory]);
     expect(result.code).toBe(2);
     expect(result.stderr).toContain("Usage: home-ctl migrate");
+  });
+
+  test("an unknown --mode is refused before anything is read", async () => {
+    const { dir, inventory } = await legacyWorkspace();
+    const result = await invoke([
+      "migrate",
+      "--mode",
+      "luna",
+      "--inventory",
+      inventory,
+    ]);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain("--mode is compat or hardened");
+    expect(await readdir(dir)).not.toContain("backups");
+  });
+});
+
+describe("migrationTarget", () => {
+  test("compat keeps the inventory and uses the broker folder beside it", () => {
+    const inventory = resolve("homectl", "inventory.yaml");
+    const target = migrationTarget("compat", inventory, "linux");
+    expect(target.inventoryPath).toBe(inventory);
+    expect(target.brokerState).toBe(join(dirname(inventory), "broker"));
+  });
+
+  test("hardened migrates the service state that daemon run starts from", () => {
+    const target = migrationTarget(
+      "hardened",
+      "/home/owner/.config/homectl/inventory.yaml",
+      "linux",
+    );
+    expect(target.brokerState).toBe("/var/lib/homectl");
+    expect(target.inventoryPath).toBe(
+      join("/var/lib/homectl", "workspace", "inventory.yaml"),
+    );
   });
 });

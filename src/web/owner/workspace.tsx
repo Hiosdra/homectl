@@ -5,14 +5,14 @@ import { useCallback, useState } from "react";
 import { describeError } from "./api";
 import { ClientsSection } from "./workspace-clients";
 import { InviteSection } from "./workspace-invite";
+import { IntentHistory } from "./workspace-intents";
 import { PendingSection } from "./workspace-pending";
 import { RestoreFlow } from "./workspace-restore";
 import {
   decideWorkspace,
-  decisionKey,
   type WorkspaceClient,
   type WorkspaceDecision,
-  type WorkspaceIntent,
+  type WorkspaceIntentRow,
   type WorkspacePending,
   type WorkspaceServerInfo,
 } from "./workspace-api";
@@ -22,17 +22,18 @@ export function WorkspaceScreen({
   server,
   clients,
   pending,
+  intents,
   onChanged,
   onError,
 }: {
   server: WorkspaceServerInfo;
   clients: WorkspaceClient[];
   pending: WorkspacePending[];
+  intents: WorkspaceIntentRow[];
   // Re-reads the server after a change, so every surface shows the same state.
   onChanged: () => Promise<void>;
   onError: (error: unknown) => unknown;
 }) {
-  const [intents, setIntents] = useState<Record<string, WorkspaceIntent>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   // The restore flow is held here, not in a client row: a restore revokes the
@@ -50,16 +51,13 @@ export function WorkspaceScreen({
     setBusy(true);
     setError(undefined);
     try {
-      const intent = await decideWorkspace({
+      // The queued decision comes back on the pending row after the re-read.
+      await decideWorkspace({
         client: operation.origin,
         operationId: operation.id,
         fingerprint: operation.fingerprint,
         decision,
       });
-      setIntents((current) => ({
-        ...current,
-        [decisionKey(operation.origin, operation.id)]: intent,
-      }));
       await onChanged();
     } catch (failure) {
       onError(failure);
@@ -83,10 +81,10 @@ export function WorkspaceScreen({
       <PendingSection
         pending={pending}
         clients={clients}
-        intents={intents}
         busy={busy}
         onDecide={decide}
       />
+      <IntentHistory intents={intents} clients={clients} />
       <ClientsSection
         clients={clients}
         busy={busy}

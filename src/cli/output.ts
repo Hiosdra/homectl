@@ -1,3 +1,4 @@
+import type { MigrationResult } from "../migrate/types";
 import { HomectlError } from "../types";
 
 type RecordValue = Record<string, unknown>;
@@ -75,6 +76,39 @@ function table(headers: string[], rows: string[][]): string {
     )
     .join("\n");
 }
+// `migrate` results: the plan of a dry run, or what a run did. Shows the steps
+// and the files each may touch, the backup taken, and the notes for the owner.
+export function formatMigration(result: MigrationResult): string {
+  switch (result.status) {
+    case "current":
+      return `Data version ${result.version} is current. Nothing to migrate.`;
+    case "initialized":
+      return `No 0.2 data was found. Created an empty workspace at data version ${result.version}.`;
+    case "planned": {
+      if (result.steps.length === 0)
+        return `Dry run: nothing to migrate. A run would only record data version ${result.to}. Nothing was changed.`;
+      const steps = result.steps.flatMap((step, index) => [
+        `${index + 1}. ${step.description} (${step.id})`,
+        `   May touch: ${step.touches.length ? step.touches.join(", ") : "nothing"}`,
+      ]);
+      return [
+        `Dry run: data version ${result.from} would migrate to ${result.to} in ${result.steps.length} step(s). Nothing was changed.`,
+        steps.join("\n"),
+      ].join("\n\n");
+    }
+    case "migrated": {
+      const lines = [
+        `Migrated data version ${result.from} to ${result.to}.`,
+        `Backup: ${result.backup}`,
+        `Steps: ${result.steps.join(", ") || "none"}`,
+      ];
+      if (result.notes.length)
+        lines.push("", "Notes:", ...result.notes.map((note) => `• ${note}`));
+      return lines.join("\n");
+    }
+  }
+}
+
 export function formatHuman(
   value: unknown,
   command?: string,
@@ -112,6 +146,8 @@ export function formatHuman(
       ? tree(value)
       : "No saved commands yet. Use home-ctl commands save --file PATH.";
   if (!record(value)) return tree(value);
+  if (command === "migrate" && typeof value.status === "string")
+    return formatMigration(value as unknown as MigrationResult);
   if (command === "doctor" && Array.isArray(value.checks)) {
     const { checks: entries, ok, note, ...rest } = value;
     return [

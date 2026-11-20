@@ -26,7 +26,7 @@ const pages: Record<string, Page> = {
           ],
           ["setup", "Install the CLI links, skills and SSH configuration."],
           [
-            "migrate [--dry-run]",
+            "migrate [--dry-run] [--mode compat|hardened]",
             "Upgrade workspace data to the current version. The broker also does this on start.",
           ],
           [

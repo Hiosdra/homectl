@@ -2,6 +2,7 @@
 // a quiet status line. Requester text is not shown here; the detail screens
 // show it, labelled as untrusted.
 import { type PendingOperation, type PendingSecret } from "./api";
+import { isUnderReview } from "./review";
 import { Badge, fmtTime, Notice } from "./ui";
 
 export function OverviewScreen({
@@ -73,6 +74,7 @@ export function OverviewScreen({
               </div>
               <div className="small muted">
                 From {op.client} · {op.classification} · {op.decision.reason}
+                {isUnderReview(op.decision.source) ? " · Under review" : ""}
               </div>
               <div className="small muted">Expires {fmtTime(op.expiresAt)}</div>
               <div>

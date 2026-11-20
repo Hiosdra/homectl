@@ -10,12 +10,10 @@
 #                              example name is a placeholder: use your own origin.
 #   HOMECTL_PANEL_PUBLISH      optional; host address:port the panel is published on.
 #                              Default 127.0.0.1:7451 (loopback on the NAS only).
-#   HOMECTL_WORKSPACE_LISTEN   optional; the workspace listener address inside the
-#                              container, for example 0.0.0.0:7450 on the NAS that is
-#                              the workspace server. Leave unset for a client.
-#   HOMECTL_WORKSPACE_PUBLISH  optional; host address:port for the workspace port.
-#                              Default 127.0.0.1:7450. Reaches something only when
-#                              HOMECTL_WORKSPACE_LISTEN is set.
+#   HOMECTL_WORKSPACE_LISTEN   leave unset here. This file does not publish the
+#                              workspace port. Only the NAS that is the workspace
+#                              server adds compose.workspace.yaml, which turns the
+#                              listener on and publishes it (its own .env values).
 #   HOMECTL_PANEL_INSECURE_HTTP  leave unset. Set to 1 only for the SSH-tunnel
 #                              route below, after you accept its trade-off.
 #
@@ -45,8 +43,8 @@ services:
     networks:
       - homectl
     ports:
+      # The workspace port (7450) is opt-in: see compose.workspace.yaml.
       - "${HOMECTL_PANEL_PUBLISH:-127.0.0.1:7451}:7451"
-      - "${HOMECTL_WORKSPACE_PUBLISH:-127.0.0.1:7450}:7450"
     init: true
     user: "10001:10001"
     privileged: false
@@ -75,8 +73,8 @@ services:
       # Empty unless you chose the SSH-tunnel route (plain http) in the header.
       HOMECTL_PANEL_INSECURE_HTTP: ${HOMECTL_PANEL_INSECURE_HTTP:-}
       HOMECTL_OWNER_PANEL_PORT: "7451"
-      # Empty means client only. Inside the container use 0.0.0.0:7450 on the NAS
-      # that is the workspace server.
+      # Empty means client only. compose.workspace.yaml sets 0.0.0.0:7450 for the
+      # NAS that is the workspace server.
       HOMECTL_WORKSPACE_LISTEN: ${HOMECTL_WORKSPACE_LISTEN:-}
     healthcheck:
       test: ["CMD", "bun", "/app/docker/healthcheck.ts"]

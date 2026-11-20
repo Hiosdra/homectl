@@ -19,7 +19,10 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # HOME=/data/home puts the inventory and broker state on the /data volume.
-# HOMECTL_OWNER_PANEL_PORT is the owner panel (loopback inside the container).
+# HOMECTL_OWNER_PANEL_PORT is the owner panel. Its address is HOMECTL_PANEL_LISTEN:
+# this image leaves it unset, so the panel listens on loopback inside the container.
+# The compose example sets HOMECTL_PANEL_LISTEN=0.0.0.0 and HOMECTL_PANEL_ORIGIN so
+# the published port works; see examples/container/compose.broker.yaml.
 # HOMECTL_PANEL_PORT is the legacy serve panel, used only by its health check.
 ENV NODE_ENV=production \
     HOME=/data/home \
@@ -46,10 +49,11 @@ RUN groupadd --system --gid 10001 homectl \
 
 USER 10001:10001
 
-# Documentation only. 7450 is the workspace server listener, used only when
-# HOMECTL_WORKSPACE_LISTEN is set. 7448 is the legacy serve peer port. The owner
-# panel (7451) binds to loopback inside the container and is not published here.
-EXPOSE 7448 7450
+# Documentation only; EXPOSE publishes nothing. 7451 is the owner panel (daemon
+# panel); it is published by compose.broker.yaml, and it listens on loopback
+# unless HOMECTL_PANEL_LISTEN is set. 7450 is the workspace server listener, which
+# runs only when HOMECTL_WORKSPACE_LISTEN is set. 7448 is the legacy serve peer port.
+EXPOSE 7448 7450 7451
 
 # Local, unauthenticated, status-only check (docker/healthcheck.ts). Exits 0 when
 # the broker and its owner panel answer, or when the legacy serve health route does.

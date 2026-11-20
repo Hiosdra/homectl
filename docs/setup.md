@@ -181,11 +181,53 @@ Proxmox VMs can be created over SSH with `home-ctl provision --file <vm.json> --
 
 ## Upgrade from 0.2
 
-- **Data.** A 0.2 workspace has no `homectl-data.json` marker. The broker migrates it automatically when `daemon run` or `daemon install` starts. You can also run the same migration without starting the broker: `home-ctl migrate --dry-run` lists the steps and changes nothing, and `home-ctl migrate` runs them. A migration copies every workspace entry into `backups/`, checks the copy's hashes, runs each step once, verifies the result, and only then writes the marker. If a step fails, it restores the backup and the workspace stays at 0.2. Progress is recorded, so an interrupted run resumes. Running it on current data changes nothing.
-- **What the migration changes in this build.** Its one step closes open 0.2 operations: pending and approved operations become `failed`, and `executing` becomes `unknown`. Their history is kept, and the agent must plan them again. Other 0.2 files are copied into the backup and not changed. Migration of host trust, credentials, agent connections and settings is not implemented in this build; check those after you upgrade.
+This section is written from the migration code in `src/migrate/`. It is **tested on fixtures only**: the migration tests run against synthetic 0.2 workspaces. It has **not been run on a real 0.2 install**. Preview your own workspace before you upgrade it.
+
+### Preview and run
+
+- `home-ctl migrate --dry-run` lists the steps that would run and the files each one may touch. It changes nothing.
+- `home-ctl migrate` runs the migration. Starting the broker also migrates first: `daemon run` calls the same migration before it loads keys. The hardened service that `daemon install` writes runs `daemon run`, so it migrates at start too.
+- A run takes a migration lock, copies each file the steps may touch into the workspace's `backups/` folder, runs and verifies each step in order, and checks that no other file changed. It writes the version marker (`homectl-data.json`) last.
+- If anything fails, the backup is restored and the workspace stays at 0.2. An interrupted run is rolled back before the next run starts again from the backup. It is not resumed.
+- Running it on current data changes nothing.
+
+### What stays the same
+
+These files are not changed. The migration checks that every file outside the declared set is byte-identical after the run, and fails and rolls back if one is not:
+
+- `inventory.yaml`: accounts, tiers and session settings.
+- `known_hosts`, including its `@revoked` lines, so a revoked host key stays revoked.
+- The KeePassXC database (`homelab.kdbx`). The migration checks that it exists but never opens it.
+- `public-keys/`.
+- `peers.json`.
+- `saved-commands.json` and `setup-preferences.json`.
+- `control-plane/audit.jsonl` and `audit.anchor`, and `history/commands.jsonl`.
+
+### What changes
+
+- **Open operations are closed.** Pending and approved 0.2 operations become `failed`, and `executing` becomes `unknown`, all with the reason `retired-by-migration`. Their history is kept. The agent must plan them again.
+- **Agent connections are kept.** Each client keeps its record, token digest, host grants and revocations. The `approve:decide` scope is removed from any client that had it. No client gains a scope or a host grant. The migration reports each dropped scope.
+- **No `policy.json` is written.** The 0.3 default asks for changes that 0.2 ran without approval, so access narrows. The migration's own notes say which: 0.2 ran non-destructive changes without per-command approval on user, sudo-approved and full hosts, and `sudo_allow` commands on sudo-approved hosts; 0.3 asks the owner for these.
+
+### What is not carried over
+
+- **The 0.2 device signing key.** It is not copied. 0.3 creates its own device key on first start. The migration refuses to finish if the broker's key is a copy of the 0.2 key.
+- **Replicated approval authority** (`control-plane/replica.json`). It is retired and kept as read-only evidence.
+- **Sessions.** 0.2 session state is not restored. If the old session agent is still unlocked, lock it with `home-ctl session lock`. 0.3 unlocks with the owner's master password.
+- **Pending approvals.** They are closed, not replayed (see above).
+
+### Owner actions after upgrading
+
+- **`home-ctl owner init`**, if the migration reports that no vault database was found. In 0.3 the vault's master password is the owner password.
+- **`home-ctl agent connect codex|claude|other --hosts a,b`** for each agent whose MCP entry still points at the retired 0.2 control MCP (HTTP with a bearer token). The migration does not rewrite agent configuration. `agent connect` asks for the owner password, creates a new client with its own token, and writes the 0.3 configuration. Then remove the old 0.2 entry, and revoke the old client with `home-ctl agent revoke <id>` once nothing uses it.
+- **`home-ctl setup`** to refresh the bundled agent skills to 0.3.
+- **Hardened mode, state directory not writable.** The broker's state directory belongs to the service account. If a migration cannot write it, the run fails and rolls back, and nothing is changed. Fix the directory's ownership from an administrator terminal (with `sudo` on Linux), then run `home-ctl migrate --mode hardened` again. The hardened install itself needs root once: `daemon install` refuses to run without it.
+- Run `home-ctl doctor` after the first start, and keep the 0.2 database until you have checked it.
+
+### Other changes
+
 - **Approvals.** `--approval <digest>` was removed in 0.3.0. Scripts that pass it fail with a message. Approve with `home-ctl approve <operation>` through the broker instead.
 - **Peer sync.** The 0.2 pairing and sync commands (`pair`, `sync`, `peer`, `peers`) still exist. The new server and client workspace is described in [workspace](workspace.md).
-- **Keep the old database** until you have run the new broker once and checked it with `home-ctl doctor`.
 
 ## Platform notes
 
@@ -225,7 +267,7 @@ Proxmox VMs can be created over SSH with `home-ctl provision --file <vm.json> --
   - an `https` reverse proxy you run, forwarding to the published port, with `HOMECTL_PANEL_ORIGIN` set to the `https` origin your browser opens. The proxy must pass the `Host` and `Origin` headers through unchanged.
   - an SSH tunnel, `ssh -L 7451:127.0.0.1:7451 <nas>`, with `HOMECTL_PANEL_ORIGIN=http://127.0.0.1:7451` and `HOMECTL_PANEL_INSECURE_HTTP=1`. SSH encrypts the traffic, but the panel sees plain http. Without the opt-in the panel refuses to start on a non-loopback address.
 
-  Plain http on a LAN address is refused by default. With `HOMECTL_PANEL_INSECURE_HTTP=1` the owner password and session cookie cross the LAN in clear text, so prefer the proxy or the tunnel. Set `HOMECTL_WORKSPACE_LISTEN` only on the NAS that is the workspace server; inside the container use `0.0.0.0:7450`, and publish it with `HOMECTL_WORKSPACE_PUBLISH`.
+  Plain http on a LAN address is refused by default. With `HOMECTL_PANEL_INSECURE_HTTP=1` the owner password and session cookie cross the LAN in clear text, so prefer the proxy or the tunnel. The workspace port is not published by the base project. Only the NAS that is the workspace server adds `examples/container/compose.workspace.yaml` (`docker compose -f compose.broker.yaml -f compose.workspace.yaml up -d`), which sets the listener to `0.0.0.0:7450` and publishes it on `HOMECTL_WORKSPACE_PUBLISH` (default `127.0.0.1:7450`, reachable from the NAS only; set the NAS's LAN address for clients). UGOS imports one compose file, so there the override must be merged into the project by hand.
 
 - Set the owner password inside the container, in a private terminal, with `docker exec -it homectl-broker bun /app/src/cli/main.ts owner init`. Never put it in a compose file or an environment variable.
 - Older examples `examples/container/compose.example.yaml` and `compose.project.yaml` run the 0.2 `serve --container` peer. They still work with this image, because the entrypoint passes their command through. They publish the peer port (7448) on an address you set, and the panel (7447) only on a loopback or LAN address you choose.
