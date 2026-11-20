@@ -80,15 +80,14 @@ jobs:
       # The compiled executable is what users install. Build the Windows target and run it:
       # help must exit 0 and an unknown command must exit 2, as release.yml checks on linux-x64.
       - name: Compiled executable smoke
-        shell: pwsh
+        shell: bash
         run: |
-          $exe = Join-Path $env:RUNNER_TEMP 'home-ctl.exe'
-          bun build --compile --target=bun-windows-x64 src/cli/main.ts --outfile $exe
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $exe help
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $exe __internal bogus
-          if ($LASTEXITCODE -ne 2) { throw "expected exit 2 for an unknown command, got $LASTEXITCODE" }
+          exe="$RUNNER_TEMP/home-ctl.exe"
+          bun build --compile --target=bun-windows-x64 src/cli/main.ts --outfile "$exe"
+          "$exe" help
+          status=0
+          "$exe" __internal bogus || status=$?
+          test "$status" -eq 2
 
   # macOS runs the portable subset: no keepassxc-backed session tests, no Playwright UI smoke,
   # no container job. Hardened mode is not available on macOS yet (src/broker/hardened-support.ts).
