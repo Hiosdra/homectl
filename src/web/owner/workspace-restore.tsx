@@ -1,13 +1,14 @@
-// Restores a linked client's snapshot to a fresh device: the latest one, or an
-// older version the owner picks by its number. Three steps, each visible: the
-// version, reason and password, then what the snapshot holds, then the revoking
-// confirmation. Only after that does the one-time code appear. The screen owns
-// this component, so the code survives the client's row leaving the list when
-// the restore revokes it.
+// Restores a linked client's backup to a fresh device, as three plain steps: choose the
+// backup and give a reason; read what will happen and accept it; check the backup with
+// the owner password, then confirm with the password again. Only after the restore does
+// the one-time code appear. The screen owns this component, so the code survives the
+// client's row leaving the list when the restore cuts it off.
 import { type FormEvent, useCallback, useId, useState } from "react";
 import { describeError } from "./api";
 import { needsOwnerPassword } from "./auto-mode-api";
+import { PairCode } from "./pair-code";
 import { Badge, Dialog, Field, fmtTime, Notice, PasswordStep } from "./ui";
+import { toEpoch } from "./time";
 import {
   formatBytes,
   parseRestoreSeq,
@@ -16,8 +17,21 @@ import {
   type WorkspaceRestoreIssued,
   type WorkspaceRestorePreview,
 } from "./workspace-restore-api";
+import { FileList } from "./workspace-restore-files";
 
-type Stage = "form" | "preview" | "issued";
+type Stage = "choose" | "explain" | "confirm" | "issued";
+const STEP_COUNT = 3;
+
+function StepHeading({ step, title }: { step: number; title: string }) {
+  return (
+    <>
+      <p className="wizard-step">
+        Step {step} of {STEP_COUNT}
+      </p>
+      <h3 className="wizard-title">{title}</h3>
+    </>
+  );
+}
 
 export function RestoreFlow({
   client,
@@ -28,18 +42,18 @@ export function RestoreFlow({
   // The client as it was when the restore started; the list may drop it later.
   client: { id: string; name: string };
   onClose: () => void;
-  // Re-reads the server: the restored client is revoked and leaves the list.
+  // Re-reads the server: the restored client is cut off and leaves the list.
   onRestored: () => void;
   onError: (error: unknown) => unknown;
 }) {
   const baseId = useId();
-  const [stage, setStage] = useState<Stage>("form");
+  const [stage, setStage] = useState<Stage>("choose");
   const [reason, setReason] = useState("");
   // The version as typed; blank is the latest. Checked before anything is sent.
   const [seqText, setSeqText] = useState("");
+  const [understood, setUnderstood] = useState(false);
   const [password, setPassword] = useState("");
   const [preview, setPreview] = useState<WorkspaceRestorePreview | undefined>();
-  const [understood, setUnderstood] = useState(false);
   const [issued, setIssued] = useState<WorkspaceRestoreIssued | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -59,19 +73,20 @@ export function RestoreFlow({
   };
 
   const seqCheck = parseRestoreSeq(seqText);
+  const reasonText = reason.trim();
 
-  // Going back to the form with another version: the owner enters the password
-  // again, because each request takes it out of the form.
+  // Another version: back to the first step, where the version is typed, and the
+  // owner continues from there. Each request takes the password out of the form.
   const chooseVersion = (seq: number) => {
     setSeqText(String(seq));
     setPreview(undefined);
     setError(undefined);
-    setStage("form");
+    setStage("choose");
   };
 
-  const showPreview = async (event: FormEvent<HTMLFormElement>) => {
+  const check = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (busy || !seqCheck.ok) return;
+    if (busy || !seqCheck.ok || reasonText === "") return;
     // Take the password out of the form before the request leaves.
     const secret = password;
     setPassword("");
@@ -82,12 +97,10 @@ export function RestoreFlow({
         await previewWorkspaceRestore({
           client: client.id,
           ...(seqCheck.seq === undefined ? {} : { seq: seqCheck.seq }),
-          reason: reason.trim(),
+          reason: reasonText,
           password: secret,
         }),
       );
-      setUnderstood(false);
-      setStage("preview");
     } catch (caught) {
       failure(
         caught,
@@ -110,7 +123,7 @@ export function RestoreFlow({
         await restoreWorkspaceClient({
           client: client.id,
           seq: preview.seq,
-          reason: reason.trim(),
+          reason: reasonText,
           password: secret,
         }),
       );
@@ -126,9 +139,6 @@ export function RestoreFlow({
     }
   };
 
-  const title =
-    stage === "issued" ? "Code for the fresh device" : `Restore ${client.name}`;
-
   // The other versions the server holds, oldest first, to choose from.
   const otherVersions = preview
     ? preview.seqs
@@ -137,19 +147,31 @@ export function RestoreFlow({
     : [];
 
   return (
-    <Dialog title={title} onClose={dismiss}>
-      {stage === "form" ? (
-        <form className="stack" onSubmit={(event) => void showPreview(event)}>
-          <Notice tone="warn">
-            Restoring copies a backup of {client.name} to a fresh device and{" "}
-            <strong>revokes {client.name}</strong>. By default it is the latest
-            one; choose an older version by its number. Nothing changes until
-            you confirm the restore after the preview.
-          </Notice>
+    <Dialog
+      title={
+        stage === "issued"
+          ? "Code for the fresh device"
+          : `Restore ${client.name}`
+      }
+      onClose={dismiss}
+    >
+      {stage === "choose" ? (
+        <form
+          className="stack"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (reasonText !== "" && seqCheck.ok) setStage("explain");
+          }}
+        >
+          <StepHeading step={1} title="Choose the backup" />
+          <p>
+            homectl copies a backup of {client.name} to a fresh device. Leave
+            the version blank to use the latest backup.
+          </p>
           <Field
             id={`${baseId}-reason`}
-            label="Reason"
-            hint="kept in the audit history"
+            label="Why are you restoring?"
+            hint="required; kept in the audit history"
           >
             <input
               id={`${baseId}-reason`}
@@ -162,7 +184,7 @@ export function RestoreFlow({
           </Field>
           <Field
             id={`${baseId}-seq`}
-            label="Version"
+            label="Backup version"
             hint="blank is the latest"
           >
             <input
@@ -176,21 +198,13 @@ export function RestoreFlow({
             />
           </Field>
           {seqCheck.ok ? null : <Notice tone="bad">{seqCheck.problem}</Notice>}
-          <PasswordStep
-            value={password}
-            onChange={setPassword}
-            hint="required to preview"
-          />
-          {error ? <Notice tone="bad">{error}</Notice> : null}
           <div className="row">
             <button
               type="submit"
               className="primary"
-              disabled={
-                busy || reason.trim() === "" || !password || !seqCheck.ok
-              }
+              disabled={reasonText === "" || !seqCheck.ok}
             >
-              Preview snapshot
+              Continue
             </button>
             <button type="button" onClick={onClose}>
               Cancel
@@ -199,15 +213,99 @@ export function RestoreFlow({
         </form>
       ) : null}
 
-      {stage === "preview" && preview ? (
+      {stage === "explain" ? (
+        <form
+          className="stack"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (understood) setStage("confirm");
+          }}
+        >
+          <StepHeading step={2} title="What will happen" />
+          <ul className="plain-list">
+            <li>
+              The backup goes to a fresh device. That device gets its own new
+              identity; it does not become {client.name}.
+            </li>
+            <li>
+              {client.name} is cut off from this server. It can no longer sync
+              or send requests here.
+            </li>
+            <li>
+              Files are written only to a device that has none of them yet.
+            </li>
+            <li>
+              You get a one-time code for the fresh device. It is shown once.
+            </li>
+            <li>Your reason is kept in the audit history.</li>
+          </ul>
+          <Notice tone="warn">
+            Nothing changes until you confirm in the last step.
+          </Notice>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={understood}
+              onChange={(event) => setUnderstood(event.target.checked)}
+            />
+            I understand {client.name} will be cut off.
+          </label>
+          <div className="row">
+            <button type="submit" className="primary" disabled={!understood}>
+              Continue
+            </button>
+            <button type="button" onClick={() => setStage("choose")}>
+              Back
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      {stage === "confirm" && preview === undefined ? (
+        <form className="stack" onSubmit={(event) => void check(event)}>
+          <StepHeading step={3} title="Check the backup" />
+          <p>
+            Enter your owner password to read the backup. Reading it changes
+            nothing.
+          </p>
+          <PasswordStep
+            value={password}
+            onChange={setPassword}
+            hint="required to check"
+          />
+          {error ? <Notice tone="bad">{error}</Notice> : null}
+          <div className="row">
+            <button
+              type="submit"
+              className="primary"
+              disabled={busy || !password}
+            >
+              Check the backup
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setError(undefined);
+                setStage("explain");
+              }}
+            >
+              Back
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      {stage === "confirm" && preview !== undefined ? (
         <form className="stack" onSubmit={(event) => void restore(event)}>
+          <StepHeading step={3} title="Confirm the restore" />
           <dl>
-            <dt>Snapshot</dt>
+            <dt>Backup</dt>
             <dd>
               Version {preview.seq}, taken {fmtTime(preview.createdAt)},{" "}
               {formatBytes(preview.bytes)}
             </dd>
-            <dt>Verification</dt>
+            <dt>Check</dt>
             <dd>
               {preview.verified ? (
                 <Badge tone="good">Verified</Badge>
@@ -215,7 +313,7 @@ export function RestoreFlow({
                 <Badge tone="bad">Not verified</Badge>
               )}
             </dd>
-            <dt>Other versions held</dt>
+            <dt>Other backups</dt>
             <dd>
               {otherVersions.length === 0 ? (
                 "None"
@@ -228,7 +326,7 @@ export function RestoreFlow({
                       disabled={busy}
                       onClick={() => chooseVersion(seq)}
                     >
-                      Preview version {seq}
+                      Use version {seq} instead
                     </button>
                   ))}
                 </span>
@@ -237,8 +335,8 @@ export function RestoreFlow({
           </dl>
           {preview.verified ? null : (
             <Notice tone="bad">
-              This snapshot does not verify, so a restore would be refused.
-              Nothing can be restored from it.
+              This backup does not pass its check, so it cannot be restored.
+              Choose another version instead.
             </Notice>
           )}
           {preview.problems.map((problem, index) => (
@@ -247,22 +345,14 @@ export function RestoreFlow({
               {problem}
             </Notice>
           ))}
-          <FileList files={preview.files} />
-
+          <details className="details">
+            <summary>Files in this backup ({preview.files.length})</summary>
+            <FileList files={preview.files} />
+          </details>
           <Notice tone="warn">
-            Restoring revokes {client.name}. Its access to this server ends when
-            you confirm, and the revocations it reported are reapplied to the
-            restored files. Files are written only to a device that has none of
-            them yet.
+            Restoring cuts off {client.name}. Its access to this server ends
+            when you confirm.
           </Notice>
-          <label className="row">
-            <input
-              type="checkbox"
-              checked={understood}
-              onChange={(event) => setUnderstood(event.target.checked)}
-            />
-            I understand {client.name} will be revoked.
-          </label>
           <PasswordStep
             value={password}
             onChange={setPassword}
@@ -275,7 +365,7 @@ export function RestoreFlow({
               className="danger"
               disabled={busy || !preview.verified || !understood || !password}
             >
-              Restore and revoke {client.name}
+              Restore and cut off {client.name}
             </button>
             <button
               type="button"
@@ -283,7 +373,7 @@ export function RestoreFlow({
               onClick={() => {
                 setPreview(undefined);
                 setError(undefined);
-                setStage("form");
+                setStage("explain");
               }}
             >
               Back
@@ -293,54 +383,38 @@ export function RestoreFlow({
       ) : null}
 
       {stage === "issued" && issued ? (
-        <div className="stack">
+        <PairCode
+          code={issued.code}
+          expiresAt={toEpoch(issued.expiresAt) ?? 0}
+          title="One-time code"
+          codeLabel="Restore code"
+          expiredText={`This code has expired, so it cannot be used. ${client.name} stays cut off.`}
+          expiredLabel="Close"
+          doneLabel="I have entered it"
+          onDone={onClose}
+          steps={
+            <ol className="plain-steps">
+              <li>On the fresh device, open a terminal.</li>
+              <li>
+                Run this command. Put the server address where{" "}
+                <span className="mono">&lt;server address&gt;</span> is:
+                <pre className="copy">
+                  home-ctl workspace join &lt;server address&gt; {issued.code}
+                </pre>
+              </li>
+              <li>
+                Check that the verification phrase on the fresh device matches
+                the one it shows.
+              </li>
+            </ol>
+          }
+        >
           <Notice tone="warn">
-            Shown once. It admits one fresh device and expires{" "}
-            {fmtTime(issued.expiresAt)}. {client.name} is revoked.
+            {client.name} is cut off. Restoring to {issued.server.name} writes
+            only files the fresh device does not already have.
           </Notice>
-          <pre className="copy" aria-label="Restore code">
-            {issued.code}
-          </pre>
-          <p className="small">
-            On the fresh device run{" "}
-            <code>
-              home-ctl workspace join &lt;server address&gt; &lt;code&gt;
-            </code>{" "}
-            before the code expires, and compare the verification phrase it
-            shows. Restoring to {issued.server.name} writes only files the
-            device does not already have.
-          </p>
-          <button type="button" onClick={onClose}>
-            I have entered it
-          </button>
-        </div>
+        </PairCode>
       ) : null}
     </Dialog>
-  );
-}
-
-function FileList({ files }: { files: WorkspaceRestorePreview["files"] }) {
-  if (files.length === 0)
-    return <p className="small muted">The snapshot holds no files.</p>;
-  return (
-    <table>
-      <caption className="small">Files in this snapshot</caption>
-      <thead>
-        <tr>
-          <th scope="col">File</th>
-          <th scope="col">Size</th>
-          <th scope="col">On restore</th>
-        </tr>
-      </thead>
-      <tbody>
-        {files.map((file) => (
-          <tr key={file.path}>
-            <td>{file.path}</td>
-            <td>{formatBytes(file.size)}</td>
-            <td>{file.restorable ? "Restored" : "Not restored"}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }

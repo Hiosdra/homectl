@@ -153,7 +153,7 @@ export async function runContextScenario(harness: Harness, viewport: Viewport) {
       page.getByRole("list", { name: "Recent decisions" }),
     ).toHaveCount(0);
     await expect(
-      page.getByRole("button", { name: "Create invite code" }),
+      page.getByRole("button", { name: "Make a pairing code" }),
     ).toHaveCount(0);
     await expect(page.getByText(/^Showing NAS only\./)).toBeVisible();
 

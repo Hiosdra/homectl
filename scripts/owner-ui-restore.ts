@@ -1,9 +1,10 @@
 // Browser checks for backup requests and restores of a linked client (homelab #21
-// §6). A request changes one flag. A restore shows its preview first, needs the
-// password and a reason each time it is sent, revokes the client, and shows the
-// one-time code until the owner confirms it was entered.
+// §6). A request changes one flag. A restore is three steps: the backup and a reason,
+// what will happen (the client is cut off, a fresh identity), then a check of the
+// backup with the owner password and a second password entry to confirm. Only after
+// that does the one-time code appear, and it stays until the owner confirms it.
 
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import {
   type Harness,
   noOverflow,
@@ -31,6 +32,16 @@ async function openWorkspace(page: Page, harness: Harness) {
   ).toBeVisible();
 }
 
+// Step 1 to step 3: the reason (and an optional version), then the cut-off accepted
+// on step 2. Only the first pass through step 2 needs the checkbox; a later pass
+// keeps it, as the owner has already accepted it.
+async function toCheckStep(dialog: Locator, accept: boolean) {
+  await dialog.getByRole("button", { name: "Continue" }).click();
+  if (accept)
+    await dialog.getByLabel(/I understand Laptop will be cut off/).check();
+  await dialog.getByRole("button", { name: "Continue" }).click();
+}
+
 export async function runRestoreScenario(harness: Harness, viewport: Viewport) {
   const stub = workspaceStub();
   const { context, page } = await open(harness, viewport);
@@ -49,18 +60,38 @@ export async function runRestoreScenario(harness: Harness, viewport: Viewport) {
       laptop.getByRole("button", { name: "Request backup" }),
     ).toBeDisabled();
 
-    // Restore: the preview needs a reason and the password.
+    // Step 1: the reason is required before Continue, and no password is asked yet.
     await laptop.getByRole("button", { name: "Restore Laptop…" }).click();
     const dialog = page.getByRole("dialog", { name: "Restore Laptop" });
-    const preview = dialog.getByRole("button", { name: "Preview snapshot" });
-    await expect(preview).toBeDisabled();
-    await dialog.getByLabel("Reason").fill("Laptop disk replaced");
-    await expect(preview).toBeDisabled();
+    await expect(dialog.getByText("Step 1 of 3")).toBeVisible();
+    const next = dialog.getByRole("button", { name: "Continue" });
+    await expect(next).toBeDisabled();
+    await dialog
+      .getByLabel(/Why are you restoring/)
+      .fill("Laptop disk replaced");
+    await expect(next).toBeEnabled();
+    await expect(dialog.getByLabel("Owner password")).toHaveCount(0);
 
-    // A wrong password is refused, nothing is read, and the page says so.
+    // Step 2: what will happen. Continue waits for the cut-off to be accepted.
+    await next.click();
+    await expect(dialog.getByText("Step 2 of 3")).toBeVisible();
+    await expect(
+      dialog.getByText(/The backup goes to a fresh device/),
+    ).toBeVisible();
+    await expect(
+      dialog.getByText(/Laptop is cut off from this server/),
+    ).toBeVisible();
+    await expect(next).toBeDisabled();
+    await dialog.getByLabel(/I understand Laptop will be cut off/).check();
+    await next.click();
+
+    // Step 3: a wrong password is refused, and nothing is read.
+    await expect(dialog.getByText("Step 3 of 3")).toBeVisible();
+    const check = dialog.getByRole("button", { name: "Check the backup" });
+    await expect(check).toBeDisabled();
     await dialog.getByLabel("Owner password").fill("not the owner password");
-    await expect(preview).toBeEnabled();
-    await preview.click();
+    await expect(check).toBeEnabled();
+    await check.click();
     await expect(
       dialog.getByText(
         "That owner password was not accepted. Nothing was read.",
@@ -68,13 +99,15 @@ export async function runRestoreScenario(harness: Harness, viewport: Viewport) {
     ).toBeVisible({ timeout: 10_000 });
     expect(stub.previews).toEqual([]);
 
-    // The right password shows what the snapshot holds, sizes and version.
+    // The right password reads the backup: its version, size and check, and its
+    // files under Details.
     await dialog.getByLabel("Owner password").fill(harness.password);
-    await preview.click();
+    await check.click();
     await expect(dialog.getByText(/Version 7, taken/)).toBeVisible({
       timeout: 10_000,
     });
     await expect(dialog.getByText("Verified", { exact: true })).toBeVisible();
+    await dialog.getByText(/^Files in this backup/).click();
     await expect(
       dialog.getByRole("cell", { name: "settings.json" }),
     ).toBeVisible();
@@ -87,29 +120,24 @@ export async function runRestoreScenario(harness: Harness, viewport: Viewport) {
     ]);
     expect(page.url()).not.toContain(harness.password);
 
-    // The restore is a second, separate confirmation, and it needs the password
-    // again: the preview cleared it.
+    // The restore needs the password again: the check cleared it.
     const restore = dialog.getByRole("button", {
-      name: "Restore and revoke Laptop",
+      name: "Restore and cut off Laptop",
     });
-    await expect(restore).toBeDisabled();
-    await dialog.getByLabel("I understand Laptop will be revoked").check();
     await expect(restore).toBeDisabled();
     await dialog.getByLabel("Owner password").fill(harness.password);
     await expect(restore).toBeEnabled();
     await restore.click();
 
-    // The dialog keeps its place and changes its title to the code. Its name
-    // changes, so the code is read from the one open dialog, not by its old name.
+    // The dialog keeps its place and changes to the one-time code. Its name changes,
+    // so the code is read from the one open dialog, not by its old name.
     const code = page.getByRole("dialog");
     await expect(
       code.getByRole("heading", { name: "Code for the fresh device" }),
     ).toBeVisible({ timeout: 10_000 });
     await expect(code.getByLabel("Restore code")).toHaveText(RESTORE_CODE);
-    await expect(
-      code.getByText(/Shown once\. It admits one fresh device and expires/),
-    ).toBeVisible();
-    await expect(code.getByText(/Laptop is revoked/)).toBeVisible();
+    await expect(code.getByText(/It works once/)).toBeVisible();
+    await expect(code.getByText(/Laptop is cut off/)).toBeVisible();
     expect(stub.restores).toEqual([
       { client: "ws-laptop", seq: 7, reason: "Laptop disk replaced" },
     ]);
@@ -131,9 +159,9 @@ export async function runRestoreScenario(harness: Harness, viewport: Viewport) {
   await runVersionPick(harness, viewport);
 }
 
-// Choosing an older version: a bad number is refused on the page before anything
-// is sent, a number the server does not hold is refused by the server, and the
-// version that is previewed is the one restored.
+// Choosing an older version: a bad number is refused on the page before Continue, a
+// number the server does not hold is refused by the server at the check, and the
+// version that is checked is the one restored.
 async function runVersionPick(harness: Harness, viewport: Viewport) {
   const stub = workspaceStub();
   const { context, page } = await open(harness, viewport);
@@ -145,37 +173,41 @@ async function runVersionPick(harness: Harness, viewport: Viewport) {
       .getByRole("button", { name: "Restore Laptop…" })
       .click();
     const dialog = page.getByRole("dialog", { name: "Restore Laptop" });
-    const preview = dialog.getByRole("button", { name: "Preview snapshot" });
-    const version = dialog.getByLabel("Version");
-    await dialog.getByLabel("Reason").fill("Laptop disk replaced");
+    const next = dialog.getByRole("button", { name: "Continue" });
+    const version = dialog.getByLabel("Backup version");
+    await dialog
+      .getByLabel(/Why are you restoring/)
+      .fill("Laptop disk replaced");
 
     // Only a positive whole number is sent. Anything else is refused on the page.
-    await dialog.getByLabel("Owner password").fill(harness.password);
     for (const bad of ["0", "1.5", "-1", "1e3", "seven"]) {
       await version.fill(bad);
       await expect(
         dialog.getByText(/Version must be a whole number, 1 or more/),
       ).toBeVisible();
-      await expect(preview).toBeDisabled();
+      await expect(next).toBeDisabled();
     }
     expect(stub.previews).toEqual([]);
 
-    // A number the server does not hold is refused by the server, and the page
-    // says so. The password was taken out of the form, so it is typed again.
+    // A number the server does not hold is refused by the server, at the check.
     await version.fill("9");
+    await toCheckStep(dialog, true);
     await dialog.getByLabel("Owner password").fill(harness.password);
-    await expect(preview).toBeEnabled();
-    await preview.click();
+    await dialog.getByRole("button", { name: "Check the backup" }).click();
     await expect(
       dialog.getByText("No backup at seq 9 for that client"),
     ).toBeVisible({ timeout: 10_000 });
     expect(stub.previews).toEqual([]);
 
-    // A held version is previewed: that version, its own size, and the others as
-    // choices.
+    // A held version is checked: that version, its own size, and the others as
+    // choices. Back twice returns to the first step, where the number is typed.
+    // Exact names: "Check the backup" also contains "back".
+    await dialog.getByRole("button", { name: "Back", exact: true }).click();
+    await dialog.getByRole("button", { name: "Back", exact: true }).click();
     await version.fill("6");
+    await toCheckStep(dialog, false);
     await dialog.getByLabel("Owner password").fill(harness.password);
-    await preview.click();
+    await dialog.getByRole("button", { name: "Check the backup" }).click();
     // Older versions in the stub are smaller: 2.0 KB, not the latest's 4.0 KB.
     await expect(dialog.getByText(/Version 6, taken .*2\.0 KB/)).toBeVisible({
       timeout: 10_000,
@@ -184,27 +216,28 @@ async function runVersionPick(harness: Harness, viewport: Viewport) {
       { client: "ws-laptop", reason: "Laptop disk replaced", seq: 6 },
     ]);
 
-    // Another held version goes back to the form with its number filled in.
-    await dialog.getByRole("button", { name: "Preview version 7" }).click();
+    // Another held version goes back to the first step with its number filled in.
+    await dialog.getByRole("button", { name: "Use version 7 instead" }).click();
     await expect(version).toHaveValue("7");
+    await toCheckStep(dialog, false);
     await dialog.getByLabel("Owner password").fill(harness.password);
-    await preview.click();
+    await dialog.getByRole("button", { name: "Check the backup" }).click();
     await expect(dialog.getByText(/Version 7, taken/)).toBeVisible({
       timeout: 10_000,
     });
 
-    // The oldest version is restored, and that is the version that was previewed.
-    await dialog.getByRole("button", { name: "Preview version 5" }).click();
+    // The oldest version is restored, and that is the version that was checked.
+    await dialog.getByRole("button", { name: "Use version 5 instead" }).click();
     await expect(version).toHaveValue("5");
+    await toCheckStep(dialog, false);
     await dialog.getByLabel("Owner password").fill(harness.password);
-    await preview.click();
+    await dialog.getByRole("button", { name: "Check the backup" }).click();
     await expect(dialog.getByText(/Version 5, taken/)).toBeVisible({
       timeout: 10_000,
     });
-    await dialog.getByLabel("I understand Laptop will be revoked").check();
     await dialog.getByLabel("Owner password").fill(harness.password);
     await dialog
-      .getByRole("button", { name: "Restore and revoke Laptop" })
+      .getByRole("button", { name: "Restore and cut off Laptop" })
       .click();
     await expect(
       page.getByRole("heading", { name: "Code for the fresh device" }),
@@ -220,7 +253,7 @@ async function runVersionPick(harness: Harness, viewport: Viewport) {
   }
 }
 
-// A snapshot that does not verify is shown as such, and cannot be restored.
+// A backup that does not verify is shown as such, and cannot be restored.
 async function runUnverifiedRestore(harness: Harness, viewport: Viewport) {
   const stub: WorkspaceStub = { ...workspaceStub(), restoreVerified: false };
   const { context, page } = await open(harness, viewport);
@@ -232,9 +265,12 @@ async function runUnverifiedRestore(harness: Harness, viewport: Viewport) {
       .getByRole("button", { name: "Restore Laptop…" })
       .click();
     const dialog = page.getByRole("dialog", { name: "Restore Laptop" });
-    await dialog.getByLabel("Reason").fill("Checking the snapshot");
+    await dialog
+      .getByLabel(/Why are you restoring/)
+      .fill("Checking the backup");
+    await toCheckStep(dialog, true);
     await dialog.getByLabel("Owner password").fill(harness.password);
-    await dialog.getByRole("button", { name: "Preview snapshot" }).click();
+    await dialog.getByRole("button", { name: "Check the backup" }).click();
 
     await expect(dialog.getByText("Not verified", { exact: true })).toBeVisible(
       {
@@ -242,12 +278,11 @@ async function runUnverifiedRestore(harness: Harness, viewport: Viewport) {
       },
     );
     await expect(
-      dialog.getByText(/does not verify, so a restore would be refused/),
+      dialog.getByText(/does not pass its check, so it cannot be restored/),
     ).toBeVisible();
-    await dialog.getByLabel("I understand Laptop will be revoked").check();
     await dialog.getByLabel("Owner password").fill(harness.password);
     await expect(
-      dialog.getByRole("button", { name: "Restore and revoke Laptop" }),
+      dialog.getByRole("button", { name: "Restore and cut off Laptop" }),
     ).toBeDisabled();
     expect(stub.restores).toEqual([]);
     expect(stub.removed).toEqual([]);

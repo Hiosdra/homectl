@@ -5,7 +5,14 @@
 // this check creates is decided through the panel again, so it leaves nothing waiting.
 
 import { expect, type Page } from "@playwright/test";
-import { type Harness, open, signIn, type VIEWPORTS } from "./owner-ui-harness";
+import {
+  type Harness,
+  open,
+  serveWorkspace,
+  signIn,
+  type VIEWPORTS,
+  workspaceStub,
+} from "./owner-ui-harness";
 
 type Viewport = (typeof VIEWPORTS)[number];
 
@@ -158,6 +165,70 @@ export async function runFocusScenario(harness: Harness, viewport: Viewport) {
       await tabStops(page, 12),
       `${viewport.name} permissions`,
     );
+  } finally {
+    await context.close();
+  }
+  await runDevicesFocus(harness, viewport);
+}
+
+// Devices & backup: pairing and the restore wizard. The password comes before the
+// action it guards, every stop is visible and ringed, and the wizard's Continue
+// waits behind the step's own control.
+async function runDevicesFocus(harness: Harness, viewport: Viewport) {
+  const stub = workspaceStub();
+  const { context, page } = await open(harness, viewport);
+  try {
+    await serveWorkspace(page, stub, harness.password);
+    await signIn(page, harness);
+    await page.getByRole("button", { name: /^Devices & backup/ }).click();
+    await page.getByRole("heading", { name: "Devices & backup" }).waitFor();
+
+    // Pairing: from the password field, the next stop is the make-code button. The
+    // button is disabled until a password is typed, so it takes focus only after.
+    await page.getByLabel("Owner password").focus();
+    await page.getByLabel("Owner password").fill(harness.password);
+    await page.getByLabel("Owner password").focus();
+    const pairing = await tabStops(page, 1);
+    expectRingedAndVisible(pairing, `${viewport.name} pairing`);
+    expect(pairing[0]?.name).toBe("Make a pairing code");
+    await page.getByRole("button", { name: "Make a pairing code" }).click();
+    await expect(page.getByLabel("Invite code")).toBeVisible({
+      timeout: 10_000,
+    });
+    await page.getByRole("button", { name: "I have entered it" }).click();
+
+    // Restore, step 1: the reason comes before Continue, both ringed.
+    await page
+      .getByRole("article", { name: "Client Laptop" })
+      .getByRole("button", { name: "Restore Laptop…" })
+      .click();
+    const dialog = page.getByRole("dialog", { name: "Restore Laptop" });
+    await expect(dialog).toBeVisible();
+    // Typing the reason enables Continue, so it becomes a stop after the version.
+    const reason = dialog.getByLabel(/Why are you restoring/);
+    await reason.fill("Laptop disk replaced");
+    await reason.focus();
+    const first = await tabStops(page, 3);
+    expectRingedAndVisible(first, `${viewport.name} restore step 1`);
+    // A field's name carries its hint after " ·"; the base name is compared.
+    expect(first.map((stop) => stop.name.split(" ·")[0])).toEqual([
+      "Backup version",
+      "Continue",
+      "Cancel",
+    ]);
+    await dialog.getByRole("button", { name: "Continue" }).click();
+
+    // Step 2: the checkbox is set from the keyboard, then Continue is the next stop.
+    await expect(dialog.getByText("Step 2 of 3")).toBeVisible();
+    const accept = dialog.getByLabel(/I understand Laptop will be cut off/);
+    await accept.focus();
+    await page.keyboard.press("Space");
+    await expect(accept).toBeChecked();
+    const second = await tabStops(page, 2);
+    expectRingedAndVisible(second, `${viewport.name} restore step 2`);
+    expect(second.map((stop) => stop.name)).toEqual(["Continue", "Back"]);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
   } finally {
     await context.close();
   }

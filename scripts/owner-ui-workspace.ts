@@ -139,11 +139,13 @@ export async function runWorkspaceScenario(
     // The decision history, newest first, across the linked clients.
     const history = page.getByRole("list", { name: "Recent decisions" });
     await expect(
-      history.getByText(/Approval for op-normal on Laptop: queued/),
+      history.getByText("Approved a request from Laptop").first(),
     ).toBeVisible();
+    // Two decisions are queued by this point: the one above and the earlier denial.
     await expect(
-      history.getByText(/Approval for op-yesterday on Laptop: applied/),
+      history.getByText("Queued", { exact: true }).first(),
     ).toBeVisible();
+    await expect(history.getByText("Applied", { exact: true })).toBeVisible();
 
     // Clients: stale, approvals on device, vault, mirror gaps, backups.
     const nas = page.getByRole("article", { name: "Client NAS" });
@@ -174,14 +176,15 @@ export async function runWorkspaceScenario(
     );
     expect(stub.removed).toEqual(["ws-nas"]);
 
-    // Invite: the one-time code and its expiry are shown once.
+    // Pairing: one large code, its countdown in plain time, and the steps.
     await page.getByLabel("Owner password").fill(harness.password);
-    await page.getByRole("button", { name: "Create invite code" }).click();
+    await page.getByRole("button", { name: "Make a pairing code" }).click();
     await expect(page.getByLabel("Invite code")).toHaveText("K7Q-29X4", {
       timeout: 10_000,
     });
+    await expect(page.getByText(/^Expires in .*It works once\./)).toBeVisible();
     await expect(
-      page.getByText(/Shown once\. It admits one client/),
+      page.getByText("On the other device, open a terminal."),
     ).toBeVisible();
     await page.getByRole("button", { name: "I have entered it" }).click();
     await expect(page.getByLabel("Invite code")).toHaveCount(0);

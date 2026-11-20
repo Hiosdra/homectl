@@ -83,9 +83,10 @@ export function WorkspaceScreen({
       <div className="page-head">
         <h2>Devices &amp; backup</h2>
         <p>
-          {server.name}. Decisions here are sent to the client, which applies
-          them under its own approval policy. A client marked stale has not
-          synced recently, so its state is the last one mirrored here.
+          {server.name}. Decisions you make here go to the linked client, which
+          applies them under its own approval rules. A client marked "Not synced
+          lately" has not checked in recently, so what you see is its last known
+          state.
         </p>
       </div>
       <ContextNote scope={scope} />

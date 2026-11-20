@@ -1,9 +1,13 @@
-// Invites a client to this server. The one-time code is kept only in this
-// component's state; it is dropped when dismissed or when the screen closes.
+// Pairs a new device with this server, the way a phone is paired: a one-time code
+// with a countdown, and the steps for the other device. The code is kept only in this
+// component's state; it is dropped when dismissed, when it expires or when the screen
+// closes.
 import { type FormEvent, useEffect, useState } from "react";
 import { describeError } from "./api";
+import { PairCode } from "./pair-code";
 import { createWorkspaceInvite, type WorkspaceInvite } from "./workspace-api";
-import { fmtTime, Notice, PasswordStep } from "./ui";
+import { Notice, PasswordStep } from "./ui";
+import { toEpoch } from "./time";
 
 export function InviteSection({
   onError,
@@ -37,36 +41,46 @@ export function InviteSection({
 
   return (
     <section aria-labelledby="invite-heading">
-      <h3 id="invite-heading">Add a client</h3>
+      <h3 id="invite-heading">Pair a new device</h3>
       {invite ? (
-        <div className="stack">
-          <Notice tone="warn">
-            Shown once. It admits one client and expires{" "}
-            {fmtTime(invite.expiresAt)}.
-          </Notice>
-          <pre className="copy" aria-label="Invite code">
-            {invite.code}
-          </pre>
-          <p className="small">
-            On the client, run{" "}
-            <code>
-              home-ctl workspace join &lt;server address&gt; &lt;code&gt;
-            </code>{" "}
-            before it expires. Compare the verification phrase it shows.
-          </p>
-          <button type="button" onClick={() => setInvite(undefined)}>
-            I have entered it
-          </button>
-        </div>
+        <PairCode
+          code={invite.code}
+          // An unreadable time counts as expired, so a code is never shown as valid
+          // when its end is unknown.
+          expiresAt={toEpoch(invite.expiresAt) ?? 0}
+          title={`Pairing code for ${invite.server.name}`}
+          codeLabel="Invite code"
+          expiredText="This code has expired, so it cannot be used. Make a new one to pair a device."
+          expiredLabel="Make a new code"
+          doneLabel="I have entered it"
+          onDone={() => setInvite(undefined)}
+          steps={
+            <ol className="plain-steps">
+              <li>On the other device, open a terminal.</li>
+              <li>
+                Run this command. Put the server address where{" "}
+                <span className="mono">&lt;server address&gt;</span> is:
+                <pre className="copy">
+                  home-ctl workspace join &lt;server address&gt; {invite.code}
+                </pre>
+              </li>
+              <li>
+                Check that the other device shows the same verification phrase
+                as its own screen. If it does not match, do not continue.
+              </li>
+            </ol>
+          }
+        />
       ) : (
         <form className="stack" onSubmit={create}>
           <p className="small muted">
-            Creates a one-time code. Nothing is linked until a client enters it.
+            Makes a one-time code that is shown once. Nothing is linked until
+            the other device enters it.
           </p>
           <PasswordStep
             value={password}
             onChange={setPassword}
-            hint="required to invite"
+            hint="required to pair"
           />
           {error ? <Notice tone="bad">{error}</Notice> : null}
           <button
@@ -74,7 +88,7 @@ export function InviteSection({
             className="primary"
             disabled={busy || !password}
           >
-            Create invite code
+            Make a pairing code
           </button>
         </form>
       )}

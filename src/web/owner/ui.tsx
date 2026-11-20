@@ -92,6 +92,48 @@ export function Argv({ argv }: { argv: string[] }) {
   );
 }
 
+// A machine's inventory name, set as a chip wherever it sits. The name itself is
+// never changed, so "nas" reads the same on every screen.
+export function MachineChip({ name }: { name: string }) {
+  return <span className="machine">{name}</span>;
+}
+
+function escapeForPattern(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// A sentence that names machines: each whole-word match is set as a MachineChip, and
+// the rest of the sentence stays plain text.
+export function MachineText({
+  text,
+  machines,
+}: {
+  text: string;
+  machines: readonly string[];
+}) {
+  const names = [...new Set(machines.filter((name) => name !== ""))].sort(
+    (a, b) => b.length - a.length,
+  );
+  if (names.length === 0) return <>{text}</>;
+  const pattern = new RegExp(
+    `\\b(${names.map(escapeForPattern).join("|")})\\b`,
+  );
+  // With one capture group, split puts each machine name at an odd index.
+  return (
+    <>
+      {text
+        .split(pattern)
+        .map((part, index) =>
+          index % 2 === 1 ? (
+            <MachineChip key={`${index}-${part}`} name={part} />
+          ) : (
+            part
+          ),
+        )}
+    </>
+  );
+}
+
 export function Untrusted({
   label = "Written by the assistant",
   text,

@@ -18,7 +18,7 @@ import {
   type WorkspaceDecision,
   type WorkspacePending,
 } from "./workspace-api";
-import { Argv, Badge, fmtTime, Notice, Untrusted } from "./ui";
+import { Argv, Badge, fmtTime, MachineText, Notice, Untrusted } from "./ui";
 import { displayName, plainAction, whyWaits } from "./plain-words";
 import { expiresIn } from "./time";
 
@@ -103,7 +103,12 @@ function PendingItem({
           </Badge>
         </div>
       </div>
-      <p className="lead">{`Wants to ${plainAction(operation.argv)} on ${operation.host}.`}</p>
+      <p className="lead">
+        <MachineText
+          text={`Wants to ${plainAction(operation.argv)} on ${operation.host}.`}
+          machines={[operation.host]}
+        />
+      </p>
       <Argv argv={operation.argv} />
       <p className="small">
         {whyWaits({

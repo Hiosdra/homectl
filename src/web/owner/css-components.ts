@@ -209,5 +209,30 @@ legend { font-weight: 650; padding: 0 6px; }
 .toast button:hover:not(:disabled) { background: rgb(128 128 128 / .2); }
 @media (min-width: 900px) { .toast { bottom: 24px; } }
 
+/* A machine's inventory name inside a sentence: one chip, the same on every screen. */
+.machine { display: inline-block; font-family: var(--mono); font-size: .9em; line-height: 1.6; padding: 0 7px;
+  margin: 0 1px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--ink); white-space: nowrap; font-weight: 600; }
+.assistant-id { color: var(--ink-2); font-weight: 500; font-size: 14px; word-break: break-all; }
+.plain-list-bare { list-style: none; margin: 0; padding: 0; }
+.wizard-step { font-size: 13px; font-weight: 650; color: var(--ink-2); margin: 0 0 2px; }
+.wizard-title { font-size: 17px; margin-bottom: 8px; }
+
+/* Intents: one row per decision, the status word on the right, the rest under it. */
+.intent-row { display: flex; flex-direction: column; gap: 6px; padding: 12px 0; border-top: 1px solid var(--line); }
+.intent-row:first-child { border-top: 0; padding-top: 4px; }
+.intent-row .why { margin-top: 0; }
+
+/* Pairing: one code, large and centred, with the time left under it, like a phone
+   pairing screen. The code is set in the monospace face so each character is clear. */
+.pair-card { text-align: center; background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: var(--r); padding: 20px 16px; }
+.pair-title { font-size: 14px; font-weight: 650; color: var(--ink-2); margin: 0 0 10px; }
+.pair-code { font-family: var(--mono); font-size: 34px; font-weight: 700; line-height: 1.2; letter-spacing: .1em;
+  color: var(--ink); margin: 0; word-break: keep-all; user-select: all; }
+.pair-timer { font-size: 14px; font-weight: 600; color: var(--ink-2); margin: 10px 0 0; }
+.pair .copy { font-size: 14px; }
+@media (max-width: 480px) { .pair-code { font-size: clamp(24px, 9vw, 30px); letter-spacing: .06em; } }
+
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 `;
