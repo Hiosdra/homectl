@@ -459,24 +459,12 @@ export async function serve(options: ServeOptions) {
                   typeof v.token === "string" ? v.token : undefined,
                 )) ?? null,
               );
-            if (url.pathname === "/api/control/mcp/request") {
-              const client = await control.authenticate(
-                typeof v.token === "string" ? v.token : undefined,
+            // The legacy MCP can no longer plan, approve or execute (homelab #21 B3).
+            if (url.pathname === "/api/control/mcp/request")
+              throw new HomectlError(
+                3,
+                "The legacy MCP is retired in homectl 0.3.0; use the broker MCP (home-ctl mcp).",
               );
-              if (!client) throw new HomectlError(3, "Unauthorized");
-              if (
-                !v.request ||
-                typeof v.request !== "object" ||
-                Array.isArray(v.request)
-              )
-                throw new HomectlError(2, "Request object required");
-              return response(
-                await control.request(
-                  { kind: "client", client },
-                  v.request as Parameters<ControlPlane["request"]>[1],
-                ),
-              );
-            }
             if (url.pathname === "/api/control/mcp/auth-rejection") {
               await control.recordAuthRejection();
               return response({ recorded: true });
