@@ -12,6 +12,12 @@ import {
 } from "./auto-mode";
 import type { PolicyDocumentStore } from "./policy-routes";
 import {
+  envKey,
+  keyStatus,
+  type KeyStatus,
+  type ReviewerKeyStore,
+} from "./reviewer-key";
+import {
   loadReviewerSettings,
   type ReviewerSettings,
   saveReviewerSettings,
@@ -23,11 +29,22 @@ export interface AutoModeRoutesOptions {
   store: PolicyDocumentStore;
   settingsPath: string;
   env: Record<string, string | undefined>;
+  // The vault-backed key. Without it, only the environment variable counts.
+  keys?: ReviewerKeyStore;
   events?: EventsPort;
 }
 
 export class AutoModeRoutes implements RouteExtension {
   constructor(private readonly options: AutoModeRoutesOptions) {}
+
+  // Where the key comes from, for the view. Never the key itself.
+  keySource(): KeyStatus {
+    const { env, keys } = this.options;
+    if (keys) return keyStatus(env, keys);
+    return envKey(env) !== undefined
+      ? { source: "environment", locked: false }
+      : { source: "none", locked: false };
+  }
 
   async owner(
     path: string,
@@ -47,8 +64,8 @@ export class AutoModeRoutes implements RouteExtension {
     }
   }
 
-  private view(doc: PolicyDocument, settings: ReviewerSettings) {
-    return autoModeView(doc, settings, this.options.env);
+  view(doc: PolicyDocument, settings: ReviewerSettings) {
+    return autoModeView(doc, settings, this.keySource());
   }
 
   private async set(

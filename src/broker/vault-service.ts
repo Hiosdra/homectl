@@ -16,6 +16,7 @@ import {
   type VaultSession,
 } from "../vault";
 import type { OwnerVerifier } from "./owner";
+import { type ReviewerKeyStore, vaultReviewerKey } from "./reviewer-key";
 import type { RouteExtension } from "./server";
 
 // How keys reach SSH. The default uses the 0.2 session agent; tests inject.
@@ -71,6 +72,12 @@ export class VaultService implements OwnerVerifier, RouteExtension {
   // Read-only status for the workspace sync: unlike gate(), it never touches
   // the idle timer, so polling cannot keep the vault open.
   unlocked = (): boolean => this.options.session.check();
+
+  // The AI helper's API key, kept as one vault entry (0.3). `present` is false
+  // when no vault has been set up yet.
+  reviewerKeys(present: boolean): ReviewerKeyStore {
+    return vaultReviewerKey(this.options.session, present);
+  }
 
   // Dispatch gate: a reason while locked, undefined when work may start.
   // Checking never extends the idle timer; starting work does.

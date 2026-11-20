@@ -8,15 +8,16 @@ import type {
   ReviewerAuthority,
 } from "../core/contracts";
 import { HomectlError } from "../types";
+import { policyProviderId } from "./ai-providers";
 import {
   emptyReviewerSettings,
   normalizeEndpoint,
   normalizeModel,
+  providerOf,
   REVIEWER_API_KEY_ENV,
-  REVIEWER_PROVIDER,
   type ReviewerSettings,
-  reviewerFrom,
 } from "./reviewer-settings";
+import type { KeyStatus } from "./reviewer-key";
 
 export const MODES: readonly PolicyMode[] = ["manual", "rules", "auto"];
 export const AUTHORITIES: readonly ReviewerAuthority[] = [
@@ -106,11 +107,16 @@ export function planAutoMode(
   const nextSettings: ReviewerSettings = emptyReviewerSettings();
   if (endpoint !== undefined) nextSettings.endpoint = endpoint;
   if (model !== undefined) nextSettings.model = model;
+  // A provider survives only while its address is unchanged; a new address
+  // set from the command line is a Custom one.
+  if (settings.provider !== undefined && endpoint === settings.endpoint)
+    nextSettings.provider = settings.provider;
+  const provider = providerOf(nextSettings);
   const reviewer: PolicyDocument["reviewer"] = {
     authority,
     fallback: doc.reviewer.fallback,
     maxRisk: doc.reviewer.maxRisk,
-    ...(endpoint !== undefined ? { provider: REVIEWER_PROVIDER } : {}),
+    ...(provider !== undefined ? { provider: policyProviderId(provider) } : {}),
   };
   const newEndpoint = endpoint !== undefined && endpoint !== settings.endpoint;
   const enablesAuto = mode === "auto" && doc.mode !== "auto";
@@ -129,10 +135,27 @@ export function endpointOrigin(settings: ReviewerSettings): string | undefined {
     : new URL(settings.endpoint).origin;
 }
 
+// Custom works without a key; the hosted providers need one. Ready means the
+// policy and the settings both name a reviewer and any needed key is present.
+export function reviewerReady(
+  doc: PolicyDocument,
+  settings: ReviewerSettings,
+  key: KeyStatus,
+): boolean {
+  const provider = providerOf(settings);
+  const keyNeeded = provider !== undefined && provider !== "custom";
+  return (
+    doc.reviewer.provider !== undefined &&
+    settings.endpoint !== undefined &&
+    settings.model !== undefined &&
+    (!keyNeeded || key.source !== "none")
+  );
+}
+
 export function autoModeView(
   doc: PolicyDocument,
   settings: ReviewerSettings,
-  env: Record<string, string | undefined>,
+  key: KeyStatus,
 ): Record<string, unknown> {
   return {
     revision: doc.revision,
@@ -141,13 +164,13 @@ export function autoModeView(
       authority: doc.reviewer.authority,
       fallback: doc.reviewer.fallback,
       maxRisk: doc.reviewer.maxRisk,
+      provider: providerOf(settings) ?? null,
       endpoint: endpointOrigin(settings),
       model: settings.model,
-      apiKeyConfigured: Boolean(env[REVIEWER_API_KEY_ENV]),
-      // True only when the policy and the settings both name a reviewer.
-      ready:
-        doc.reviewer.provider !== undefined &&
-        reviewerFrom(settings, env) !== undefined,
+      // Where the key comes from. The key itself is never part of any view.
+      apiKey: key,
+      apiKeyConfigured: key.source !== "none",
+      ready: reviewerReady(doc, settings, key),
     },
     choices: { modes: MODES, authorities: AUTHORITIES },
   };

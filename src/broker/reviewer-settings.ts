@@ -8,6 +8,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { httpReviewer, type Reviewer } from "../authz";
 import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
+import { type AiProvider, isAiProvider } from "./ai-providers";
 
 export const REVIEWER_PROVIDER = "openai-compatible";
 export const REVIEWER_API_KEY_ENV = "HOMECTL_REVIEWER_API_KEY";
@@ -15,6 +16,9 @@ const MODEL_MAX = 100;
 
 export interface ReviewerSettings {
   version: 1;
+  // Which provider the helper talks to. Absent in settings saved before 0.3,
+  // which were always an OpenAI-compatible address, so they read as Custom.
+  provider?: AiProvider;
   // Normalized https URL, or loopback http. Never carries credentials.
   endpoint?: string;
   model?: string;
@@ -77,6 +81,10 @@ function parseSettings(value: unknown): ReviewerSettings {
   if (raw.version !== 1) throw corrupt();
   const settings: ReviewerSettings = { version: 1 };
   try {
+    if (raw.provider !== undefined) {
+      if (!isAiProvider(raw.provider)) throw corrupt();
+      settings.provider = raw.provider;
+    }
     if (raw.endpoint !== undefined)
       settings.endpoint = normalizeEndpoint(raw.endpoint);
     if (raw.model !== undefined) settings.model = normalizeModel(raw.model);
@@ -121,18 +129,38 @@ export async function saveReviewerSettings(
   await atomicReplace(temp, path);
 }
 
+// The provider these settings use. Settings saved before 0.3 have an address
+// and no provider; they are Custom, which is what they always were.
+export function providerOf(settings: ReviewerSettings): AiProvider | undefined {
+  if (settings.endpoint === undefined) return undefined;
+  return settings.provider ?? "custom";
+}
+
+export const NO_KEY_MESSAGE =
+  "Add an API key for the AI helper in the owner panel. Until then, you decide each request.";
+
 // The reviewer for these settings, or undefined when no endpoint and model are
-// set. The API key is read from the environment on each call, never stored.
+// set. The key is read on every call and never stored here: the environment
+// variable wins, then readVault (the vault entry, when given). A provider that
+// needs a key and has none fails the review, so the owner decides.
 export function reviewerFrom(
   settings: ReviewerSettings,
   env: Record<string, string | undefined>,
+  readVault?: () => Promise<string | undefined>,
 ): Reviewer | undefined {
   if (settings.endpoint === undefined || settings.model === undefined)
     return undefined;
-  const key = env[REVIEWER_API_KEY_ENV];
+  const provider = providerOf(settings) ?? "custom";
+  const fromEnv = env[REVIEWER_API_KEY_ENV];
   return httpReviewer({
     url: settings.endpoint,
     model: settings.model,
-    getApiKey: async () => (key && key.length > 0 ? key : undefined),
+    protocol: provider === "anthropic" ? "anthropic-messages" : "openai-chat",
+    getApiKey: async () => {
+      const key = fromEnv && fromEnv.length > 0 ? fromEnv : await readVault?.();
+      if (key === undefined && provider !== "custom")
+        throw new HomectlError(5, NO_KEY_MESSAGE);
+      return key;
+    },
   });
 }

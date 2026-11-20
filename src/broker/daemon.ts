@@ -18,6 +18,7 @@ import { planExecution } from "../policies";
 import { SecretBroker } from "../secrets";
 import { startWorkspace, type WorkspaceConfig } from "../workspace/wiring";
 import { AuthzPolicy } from "./authz-policy";
+import { AiHelperRoutes } from "./ai-helper-routes";
 import { AutoModeRoutes } from "./auto-mode-routes";
 import { ClientAdmin } from "./clients-admin";
 import { Broker } from "./engine";
@@ -112,6 +113,8 @@ export async function startDaemon(config: DaemonConfig) {
   const verifier = hasVault
     ? vault
     : new FileVerifier(join(config.state, "owner.json"));
+  // The AI helper's key: the environment first, then one vault entry (0.3).
+  const reviewerKeys = vault.reviewerKeys(hasVault);
   const deviceId = fingerprintOf(key.publicKey).replaceAll(" ", "");
   const log = new EventLog({
     directory: join(config.state, "events"),
@@ -157,6 +160,7 @@ export async function startDaemon(config: DaemonConfig) {
       reviewerFrom(
         await loadReviewerSettings(reviewerSettingsPath),
         process.env,
+        async () => reviewerKeys.read(),
       ),
   });
   const policy = config.policy ?? authz;
@@ -216,6 +220,14 @@ export async function startDaemon(config: DaemonConfig) {
         store: authz,
         settingsPath: reviewerSettingsPath,
         env: process.env,
+        keys: reviewerKeys,
+        events,
+      }),
+      new AiHelperRoutes({
+        store: authz,
+        settingsPath: reviewerSettingsPath,
+        env: process.env,
+        keys: reviewerKeys,
         events,
       }),
       mcpHttpRoute({ broker, secrets }),
