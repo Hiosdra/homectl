@@ -51,17 +51,24 @@ export type AskLine = (question: string) => Promise<string>;
 // The terminal question, or null when stdin is not a terminal.
 export function terminalAsk(): AskLine | null {
   if (!process.stdin.isTTY) return null;
-  return async (question) => {
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stderr,
-    });
-    try {
-      return await rl.question(question);
-    } finally {
-      rl.close();
-    }
-  };
+  return (question) =>
+    readTerminalLine(process.stdin, process.stderr, question);
+}
+
+// One answer from a terminal. End of input (Ctrl-D) answers "" like Enter, so
+// the least-privilege default is kept. Without this the question never settles
+// at end of input and the command blocks. A pipe into `script` does not close
+// the terminal, so scripted callers must still answer every question.
+export function readTerminalLine(
+  input: NodeJS.ReadableStream,
+  output: NodeJS.WritableStream,
+  question: string,
+): Promise<string> {
+  const rl = createInterface({ input, output });
+  return new Promise<string>((resolve, reject) => {
+    rl.once("close", () => resolve(""));
+    rl.question(question).then(resolve, reject);
+  }).finally(() => rl.close());
 }
 
 // Asks during `owner init`. Enter keeps the least-privilege default. With no

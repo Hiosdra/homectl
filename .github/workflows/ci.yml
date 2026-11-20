@@ -1,12 +1,16 @@
 name: CI
+# Pushes run on master and release branches only. A pull request runs the same checks once,
+# from its own branch, so feature branches are not checked twice.
 on:
   push:
+    branches: [master, "release/**"]
   pull_request:
 permissions:
   contents: read
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -24,6 +28,7 @@ jobs:
   # Read-only scans on every push and pull request. Nothing here publishes anything.
   security:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
@@ -45,11 +50,13 @@ jobs:
   # `bun fmt --check` inside `bun run lint`.
   lint-other:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - run: sh scripts/lint-other.sh
   windows:
     runs-on: windows-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -93,6 +100,7 @@ jobs:
   # no container job. Hardened mode is not available on macOS yet (src/broker/hardened-support.ts).
   macos:
     runs-on: macos-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -122,6 +130,7 @@ jobs:
   # account, runs the broker as the service account and checks what the agent can reach.
   hardened-linux:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -130,5 +139,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Compile the Linux executable the broker runs
         run: bun build --compile --target=bun-linux-x64 src/cli/main.ts --outfile "$RUNNER_TEMP/home-ctl"
+      # keepassxc-cli creates the test vault that the check unlocks as the owner.
+      - run: sudo apt-get update && sudo apt-get install -y keepassxc
       - name: Hardened broker checks with real OS users
         run: sudo sh scripts/hardened-linux-check.sh "$RUNNER_TEMP/home-ctl"

@@ -6,16 +6,26 @@
 # Creates the homectl service account and the directories install.ts prepares (state
 # 0700 owned by homectl, workspace with the custody files, runtime directory), starts the
 # broker as that account, then checks as a separate unprivileged agent account that:
-#   - it cannot read broker state, the owner verifier, the vault copy or the key directory;
+#   - it cannot read broker state, the vault copy or the key directory;
 #   - the agent socket answers without a token with 401;
 #   - a client token reaches agent routes, and is refused on owner routes.
 # systemd is not needed: the broker runs under runuser, as the unit would run it.
 # Test-only: the owner password and client are generated here and discarded at the end.
+#
+# Needs keepassxc-cli (apt package keepassxc) to create the test vault. With a vault in the
+# workspace, the vault master password is the owner credential (src/broker/daemon.ts), so the
+# vault is created with the generated owner password instead of through `owner init`.
+# Every wait and network call has its own timeout: a stuck step fails the check instead of
+# holding the CI job.
 set -eu
 
 bin="${1:?usage: sudo sh scripts/hardened-linux-check.sh /path/to/home-ctl}"
 if [ "$(id -u)" -ne 0 ]; then
   echo "run as root (sudo): the check creates OS accounts and starts the broker as one" >&2
+  exit 2
+fi
+if ! command -v keepassxc-cli >/dev/null 2>&1; then
+  echo "install keepassxc first (apt-get install keepassxc): it creates the test vault" >&2
   exit 2
 fi
 
@@ -52,20 +62,16 @@ install -m 0755 "$bin" "$launcher"
 printf 'version: 1\nmachines:\n  pc:\n    description: this computer\n    transport: local\n    access: user\n' \
   > "$state/workspace/inventory.yaml"
 : > "$state/workspace/ssh_config"
-printf 'stand-in for the vault: the agent must not be able to read it\n' \
-  > "$state/workspace/homelab.kdbx"
 
-# 3. Owner password. The hardened CLI sets it only in `daemon install`, which needs
-# systemd, so the verifier is written by the compat `owner init` (same FileVerifier and
-# format) beside a throwaway inventory, then moved into the hardened state directory.
+# 3. Owner password and vault. The vault's master password is the owner password, so one
+# secret signs the owner in, and the agent cannot read the vault file.
 owner_pw="$(head -c 24 /dev/urandom | base64 | tr -d '\n=+/')"
-compat_inventory="$work/inventory.yaml"
-cp "$state/workspace/inventory.yaml" "$compat_inventory"
 printf '%s\n%s\n' "$owner_pw" "$owner_pw" \
-  | script -qec "\"$launcher\" owner init --inventory \"$compat_inventory\"" /dev/null >/dev/null
-mv "$work/broker/owner.json" "$state/owner.json"
+  | timeout 60 keepassxc-cli db-create --quiet --set-password --decryption-time 1000 \
+    "$state/workspace/homelab.kdbx" >/dev/null 2>&1 \
+  || { echo "FAIL  keepassxc-cli could not create the test vault" >&2; exit 1; }
 chown -R "$svc:$svc" "$state"
-chmod 0600 "$state/owner.json"
+chmod 0600 "$state/workspace/homelab.kdbx"
 
 # 4. Start the broker as the service account, from a directory it can enter.
 (cd / && runuser -u "$svc" -- env HOME="$state" "$launcher" daemon run --mode hardened) \
@@ -84,19 +90,17 @@ fi
 pass "broker running as $svc on $sock"
 
 # The broker's own state must exist, or the checks below would prove nothing.
-for present in "$state/owner.json" "$state/workspace/homelab.kdbx" "$state/keys"; do
+for present in "$state/workspace/homelab.kdbx" "$state/keys"; do
   if [ -e "$present" ]; then pass "present (as root): $present"; else fail "missing: $present"; fi
 done
 
-# 5. Filesystem: the agent account cannot read broker state.
-as_agent() { (cd / && runuser -u "$agent" -- sh -c "$1"); }
-for denied in "$state/owner.json" "$state/workspace/homelab.kdbx"; do
-  if as_agent "cat '$denied' >/dev/null 2>&1"; then
-    fail "agent can read $denied"
-  else
-    pass "agent cannot read $denied"
-  fi
-done
+# 5. Filesystem: the agent account cannot read broker state. Each probe has a timeout.
+as_agent() { (cd / && timeout 20 runuser -u "$agent" -- sh -c "$1"); }
+if as_agent "cat '$state/workspace/homelab.kdbx' >/dev/null 2>&1"; then
+  fail "agent can read $state/workspace/homelab.kdbx"
+else
+  pass "agent cannot read $state/workspace/homelab.kdbx"
+fi
 if as_agent "ls '$state/keys' >/dev/null 2>&1"; then
   fail "agent can list the key directory"
 else
@@ -109,14 +113,14 @@ else
 fi
 
 # 6. Socket: an unauthenticated request is refused.
-code="$(as_agent "curl -s -o /dev/null -w '%{http_code}' --unix-socket '$sock' -X POST \
+code="$(as_agent "curl -s --max-time 10 -o /dev/null -w '%{http_code}' --unix-socket '$sock' -X POST \
   -H 'content-type: application/json' -d '{}' http://localhost/v1/whoami")"
 if [ "$code" = "401" ]; then pass "agent socket answers 401 without a token"; else
   fail "agent socket without a token answered $code, expected 401"; fi
 
 # 7. Owner login and a client, through the owner API as root (the operator).
 root_post() {
-  curl -s --unix-socket "$sock" -X POST -H 'content-type: application/json' "$@"
+  curl -s --max-time 20 --unix-socket "$sock" -X POST -H 'content-type: application/json' "$@"
 }
 login="$(root_post -d "{\"password\":\"$owner_pw\"}" http://localhost/v1/owner/login)"
 owner_token="$(printf '%s' "$login" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
@@ -143,7 +147,7 @@ pass "client b1-check created; token stored in the agent's home only"
 # The agent presents its own token, read by its own shell from its own home.
 token_file="$agent_home/.config/homectl/client-token"
 agent_post() {
-  as_agent "curl -s -o /dev/null -w '%{http_code}' --unix-socket '$sock' -X POST \
+  as_agent "curl -s --max-time 10 -o /dev/null -w '%{http_code}' --unix-socket '$sock' -X POST \
     -H 'content-type: application/json' -H \"authorization: Bearer \$(cat '$token_file')\" \
     -d '{}' http://localhost$1"
 }
