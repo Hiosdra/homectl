@@ -23,7 +23,7 @@ export const agentHelp: Record<string, Page> = {
   approve: {
     usage: "home-ctl approve <operation> [--remember]",
     intro:
-      "Approves one waiting operation. The owner approves in the owner panel or with this command. Asks for the owner password privately. --approval was removed in 0.3.0.",
+      "Approves one waiting operation. The owner approves in the owner panel or with this command. Asks for the owner password privately. There is no --approval flag in 0.3.0: approve in the owner panel or here.",
     sections: [
       {
         title: "Command options",

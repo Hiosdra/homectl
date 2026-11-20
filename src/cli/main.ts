@@ -146,6 +146,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         state: { type: "string" },
         all: { type: "boolean" },
         impact: { type: "string" },
+        wait: { type: "string" },
         "configure-sudo": { type: "boolean" },
         help: { type: "boolean", short: "h" },
         ttl: { type: "string" },

@@ -124,7 +124,7 @@ export const machineHelp: Record<string, Page> = {
         rows: [
           [
             "Destructive or opaque commands",
-            "Review --dry-run and --impact first. Confirm the exact host, argv and effect before passing the digest. There is no --yes bypass.",
+            "Review --dry-run and --impact first, and check the exact host, argv and effect. The owner then approves in the owner panel or with `home-ctl approve <operation>`. There is no --approval or --yes flag.",
           ],
           ["ssh", "Uses the same policy as exec; not an interactive shell."],
         ],

@@ -9,6 +9,7 @@ import { parseArgs } from "node:util";
 import { callBroker, clientToken, findEndpoint } from "../broker/client";
 import type { Endpoint } from "../broker/paths";
 import { readPassword } from "../session";
+import { checkLocalExecOptions } from "./exec-local-options";
 import { paths } from "../setup";
 import { HomectlError } from "../types";
 import { ownerCommand } from "./owner-commands";
@@ -139,7 +140,10 @@ export async function brokerCommand(
   // exec/ssh go through the broker whenever the agent is connected to one.
   if (command === "exec" || command === "ssh") {
     const endpoint = await findEndpoint(options.inventoryPath);
-    if (!endpoint || !(await clientToken())) return undefined;
+    if (!endpoint || !(await clientToken())) {
+      checkLocalExecOptions(cliArgs);
+      return undefined;
+    }
   } else if (!BROKER_COMMANDS.has(command)) return undefined;
   const { values: v, positionals } = parseArgs({
     args: cliArgs.slice(1),

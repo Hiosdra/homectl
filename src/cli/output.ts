@@ -238,6 +238,12 @@ export function formatHuman(
       ),
     );
   }
+  // A dry run shows the plan's fingerprint. It is not an approval: the owner's
+  // approval is a separate step in the panel or with `home-ctl approve`.
+  if (command === "exec" && record(value.plan) && !("result" in value)) {
+    const { approval, ...plan } = value.plan;
+    return tree({ ...plan, "plan fingerprint": approval });
+  }
   if ((command === "exec" || command === "peer") && record(value.result)) {
     const { stdout, stderr, exitCode, ...rest } = value.result;
     const lines = [
