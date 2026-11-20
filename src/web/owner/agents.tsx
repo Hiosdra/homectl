@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { type ClientView, describeError, ownerCall } from "./api";
 import { AddAssistant, type Issued, NewKey } from "./agent-form";
+import { sharedNameIds } from "./assistant-labels";
 import { displayName } from "./plain-words";
 import { relativeTime, toEpoch } from "./time";
 import { Badge, Dialog, Notice, PasswordStep } from "./ui";
@@ -62,6 +63,8 @@ export function AgentsScreen({
 
   const active = clients?.filter((client) => !client.revoked) ?? [];
   const removed = clients?.filter((client) => client.revoked) ?? [];
+  // Two assistants with the same name show their id after it, so each row is told apart.
+  const shared = sharedNameIds(clients ?? []);
 
   return (
     <>
@@ -94,6 +97,7 @@ export function AgentsScreen({
             <AssistantRow
               key={client.id}
               client={client}
+              showId={shared.has(client.id)}
               busy={busy}
               onRotated={setIssued}
               onRun={run}
@@ -125,11 +129,14 @@ export function AgentsScreen({
 
 function AssistantRow({
   client,
+  showId,
   busy,
   onRotated,
   onRun,
 }: {
   client: ClientView;
+  // True when another assistant has the same name: the id is then shown quietly.
+  showId: boolean;
   busy: boolean;
   onRotated: (result: Issued) => void;
   onRun: (work: () => Promise<void>) => Promise<void>;
@@ -138,12 +145,19 @@ function AssistantRow({
   const [removing, setRemoving] = useState(false);
   const [password, setPassword] = useState("");
   const name = client.name || displayName(client.id);
+  // Names the row in a dialog title, with the id when the name is shared.
+  const label = showId ? `${name} · ${client.id}` : name;
   const created = toEpoch(client.createdAt);
   return (
     <div className="item request-card assistant-card">
       <div className="request-head">
         <span className="assistant-tag">
-          <span className="assistant-name">{name}</span>
+          <span className="assistant-name">
+            {name}
+            {showId ? (
+              <span className="assistant-id"> · {client.id}</span>
+            ) : null}
+          </span>
         </span>
         <Badge tone="good" icon="check">
           Active
@@ -216,7 +230,7 @@ function AssistantRow({
       ) : null}
       {removing ? (
         <Dialog
-          title={`Remove access for ${name}?`}
+          title={`Remove access for ${label}?`}
           onClose={() => setRemoving(false)}
         >
           <p>

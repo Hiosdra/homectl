@@ -10,28 +10,29 @@ import {
   type PolicyRule,
   ownerCall,
 } from "./api";
+import { assistantLabels } from "./assistant-labels";
 import { effectLabel } from "./permissions-copy";
 import { pairSentence, ruleCovers } from "./policy-sentences";
-import { Badge, Field, Notice } from "./ui";
+import { Badge, Field, MachineText, Notice } from "./ui";
 
 export function activeClients(clients: ClientView[]): ClientView[] {
   return clients.filter((client) => !client.revoked);
 }
 
+// The name each assistant is shown by; a shared name gets its id after it.
 export function namesOf(clients: ClientView[]): Record<string, string> {
-  return Object.fromEntries(
-    clients.map((client) => [client.id, client.name || client.id]),
-  );
+  return assistantLabels(clients);
 }
 
-// Every machine an active assistant is allowed on, one entry per pair.
+// Every machine an active assistant is allowed on, one entry per pair. A machine
+// listed twice for one assistant is still one sentence.
 function pairsOf(clients: ClientView[]) {
   return activeClients(clients).flatMap((client) =>
-    client.hosts.map((machine) => ({ client, machine })),
+    [...new Set(client.hosts)].map((machine) => ({ client, machine })),
   );
 }
 
-type Row = { key: string; text: string };
+type Row = { key: string; text: string; machine: string };
 
 export function WhoCanDo({
   policy,
@@ -47,9 +48,10 @@ export function WhoCanDo({
   useEffect(() => {
     let current = true;
     setRows(undefined);
+    const labels = namesOf(clients);
     Promise.all(
       pairsOf(clients).map(async ({ client, machine }): Promise<Row> => {
-        const name = client.name || client.id;
+        const name = labels[client.id] ?? client.id;
         const key = `${client.id}@${machine}`;
         try {
           const view = await ownerCall<EffectiveView>(
@@ -58,6 +60,7 @@ export function WhoCanDo({
           );
           return {
             key,
+            machine,
             text: pairSentence({
               name,
               machine,
@@ -69,6 +72,7 @@ export function WhoCanDo({
         } catch {
           return {
             key,
+            machine,
             text: `${name} could not be checked on ${machine} just now.`,
           };
         }
@@ -98,7 +102,9 @@ export function WhoCanDo({
   return (
     <ul className="plain-list">
       {rows.map((row) => (
-        <li key={row.key}>{row.text}</li>
+        <li key={row.key}>
+          <MachineText text={row.text} machines={[row.machine]} />
+        </li>
       ))}
     </ul>
   );
@@ -160,7 +166,7 @@ export function CheckRules({
             <option value="">Choose an assistant</option>
             {active.map((client) => (
               <option key={client.id} value={client.id}>
-                {client.name || client.id}
+                {names[client.id] ?? client.id}
               </option>
             ))}
           </select>
