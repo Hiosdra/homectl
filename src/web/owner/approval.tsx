@@ -27,6 +27,8 @@ import {
   Badge,
   Dialog,
   fmtTime,
+  MachineChip,
+  MachineText,
   Notice,
   PasswordStep,
   Untrusted,
@@ -151,7 +153,7 @@ export function ApprovalScreen({
           {meta ? <span className="request-meta">{meta}</span> : null}
         </div>
         <h2 id="approval-title" className="approval-title">
-          {title}
+          <MachineText text={title} machines={[operation.host]} />
         </h2>
         <p className="lead">
           From <strong>{who}</strong>
@@ -178,7 +180,9 @@ export function ApprovalScreen({
           <summary>Details</summary>
           <dl>
             <dt>Machine</dt>
-            <dd className="mono">{operation.host}</dd>
+            <dd>
+              <MachineChip name={operation.host} />
+            </dd>
             <dt>Risk level</dt>
             <dd>
               <span className="mono">{operation.risk}</span> · {risk.label}
@@ -323,9 +327,14 @@ export function ApprovalScreen({
           onClose={() => setConfirming(undefined)}
         >
           <p>
-            {confirming === "approve-remember"
-              ? `Future commands exactly like "${operation.argv.join(" ")}" on ${operation.host} from ${who} will run without asking. You can remove the rule in Permissions.`
-              : `Future commands exactly like "${operation.argv.join(" ")}" on ${operation.host} from ${who} will be refused. You can remove the rule in Permissions.`}
+            <MachineText
+              text={
+                confirming === "approve-remember"
+                  ? `Future commands exactly like "${operation.argv.join(" ")}" on ${operation.host} from ${who} will run without asking. You can remove the rule in Permissions.`
+                  : `Future commands exactly like "${operation.argv.join(" ")}" on ${operation.host} from ${who} will be refused. You can remove the rule in Permissions.`
+              }
+              machines={[operation.host]}
+            />
           </p>
           <div className="row">
             <button

@@ -14,7 +14,16 @@ import {
 import { RadioRow } from "./radio";
 import { useAssistantNames } from "./assistant-names";
 import { displayName } from "./plain-words";
-import { Argv, Badge, Field, Notice, PasswordStep, Untrusted } from "./ui";
+import {
+  Argv,
+  Badge,
+  Field,
+  MachineChip,
+  MachineText,
+  Notice,
+  PasswordStep,
+  Untrusted,
+} from "./ui";
 
 type Retention = "ephemeral" | "saved";
 
@@ -76,7 +85,9 @@ export function DestinationBlock({ request }: { request: PendingSecret }) {
         return (
           <dl>
             <dt>Machine</dt>
-            <dd className="mono">{destination.host}</dd>
+            <dd>
+              <MachineChip name={destination.host} />
+            </dd>
             <dt>Command</dt>
             <dd>
               <Argv argv={destination.argv} />
@@ -100,7 +111,9 @@ export function DestinationBlock({ request }: { request: PendingSecret }) {
         return (
           <dl>
             <dt>Machine</dt>
-            <dd className="mono">{destination.host}</dd>
+            <dd>
+              <MachineChip name={destination.host} />
+            </dd>
             <dt>File</dt>
             <dd>
               <code>{destination.path}</code>
@@ -117,7 +130,17 @@ export function DestinationBlock({ request }: { request: PendingSecret }) {
   })();
   return (
     <>
-      <p className="lead">{plainDestination(destination)}</p>
+      <p className="lead">
+        <MachineText
+          text={plainDestination(destination)}
+          machines={
+            destination.kind === "ssh-stdin" ||
+            destination.kind === "target-file"
+              ? [destination.host]
+              : []
+          }
+        />
+      </p>
       <details className="details">
         <summary>Details</summary>
         {details}

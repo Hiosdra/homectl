@@ -19,7 +19,7 @@ import { Icon } from "./icons";
 import { canApproveFromList, riskView } from "./risk";
 import { isUnderReview } from "./review";
 import { expiresIn, relativeTime, toEpoch } from "./time";
-import { Badge, Notice } from "./ui";
+import { Badge, MachineText, Notice } from "./ui";
 import { displayName, plainAction, riskLine } from "./plain-words";
 import { useAssistantNames, type AssistantNames } from "./assistant-names";
 
@@ -237,7 +237,10 @@ function ApprovalCard({
         </div>
       </div>
       <p className="lead">
-        {`Wants to ${plainAction(op.argv)} on ${op.host}.`}
+        <MachineText
+          text={`Wants to ${plainAction(op.argv)} on ${op.host}.`}
+          machines={[op.host]}
+        />
       </p>
       <p className="command-line">
         <span className="command">{op.argv.join(" ")}</span>
