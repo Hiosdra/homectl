@@ -102,6 +102,9 @@ pre.copy { font-family: var(--mono); font-size: 13px; background: var(--bg); bor
 dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; }
 dt { color: var(--muted); }
 dd { margin: 0; word-break: break-word; }
+.context-switcher { margin-bottom: 12px; }
+.context-switcher label { margin: 0; }
+.context-switcher select { width: auto; flex: 1 1 200px; max-width: 100%; }
 .center { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .center section { width: 100%; max-width: 380px; }
 .dialog-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex;

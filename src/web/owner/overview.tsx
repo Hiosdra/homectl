@@ -2,12 +2,15 @@
 // a quiet status line. Requester text is not shown here; the detail screens
 // show it, labelled as untrusted.
 import { type PendingOperation, type PendingSecret } from "./api";
+import { type ViewScope } from "./context";
+import { ContextNote } from "./context-switcher";
 import { isUnderReview } from "./review";
 import { Badge, fmtTime, Notice } from "./ui";
 
 export function OverviewScreen({
   data,
   workspaceWaiting = 0,
+  scope,
   onOpen,
 }: {
   data: {
@@ -17,12 +20,15 @@ export function OverviewScreen({
   };
   // Approvals waiting on linked clients (workspace server only).
   workspaceWaiting?: number;
+  // The device context this inbox shows; the note names it.
+  scope?: ViewScope;
   onOpen: (hash: string) => void;
 }) {
   const total = data.operations.length + data.secrets.length + workspaceWaiting;
   return (
     <>
       <h2>{total === 0 ? "Nothing needs you" : "Needs you"}</h2>
+      <ContextNote scope={scope} />
       {total === 0 ? (
         <Notice tone="good">
           No approvals or secret requests are waiting. Agents keep working

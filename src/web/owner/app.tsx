@@ -20,6 +20,18 @@ import {
   workspaceApprovalAlert,
 } from "./alerts";
 import { ApprovalScreen } from "./approval";
+import {
+  ALL_DEVICES,
+  type DeviceContext,
+  loadContext,
+  resolveContext,
+  sameContext,
+  saveContext,
+  scopeRows,
+  showsLocal,
+  viewScope,
+} from "./context";
+import { ContextSwitcher } from "./context-switcher";
 import { useOwnerLive } from "./live";
 import { OverviewScreen } from "./overview";
 import { PolicyScreen } from "./policy";
@@ -105,6 +117,13 @@ function App() {
   );
   const [route, go] = useRoute();
   const [flash, setFlash] = useState<string | undefined>();
+  // The device context the inbox and workspace views show. Remembered per
+  // viewer; it filters what is shown and changes no decision.
+  const [context, setContext] = useState<DeviceContext>(loadContext);
+  const chooseContext = useCallback((next: DeviceContext) => {
+    saveContext(next);
+    setContext(next);
+  }, []);
   const signedIn = session.state === "signed-in";
 
   // A notice explains a sign-out only when a session was actually running.
@@ -204,6 +223,14 @@ function App() {
     onSignedOut: () => signOut(SIGNED_OUT_NOTICE),
   });
 
+  // A client that was unlinked while selected falls back to All devices.
+  const clientsLoaded = data.workspace?.clients;
+  useEffect(() => {
+    if (clientsLoaded === undefined) return;
+    const resolved = resolveContext(context, clientsLoaded);
+    if (!sameContext(resolved, context)) chooseContext(resolved);
+  }, [context, clientsLoaded, chooseContext]);
+
   const workspaceWaiting = data.workspace?.pending.length ?? 0;
   const attention =
     data.operations.length + data.secrets.length + workspaceWaiting;
@@ -224,6 +251,35 @@ function App() {
     document.title =
       attention > 0 ? `(${attention}) homectl owner` : "homectl owner";
   }, [attention]);
+
+  // What the views show. Without a workspace server there is nothing to filter,
+  // so every view keeps its whole content and no switcher is offered.
+  const view = server
+    ? resolveContext(context, data.workspace?.clients)
+    : ALL_DEVICES;
+  const shownOperations = showsLocal(view) ? data.operations : [];
+  const shownSecrets = showsLocal(view) ? data.secrets : [];
+  const shownPending = scopeRows(
+    view,
+    data.workspace?.pending ?? [],
+    (row) => row.origin,
+  );
+  const shownClients = scopeRows(
+    view,
+    data.workspace?.clients ?? [],
+    (client) => client.id,
+  );
+  const shownIntents = scopeRows(
+    view,
+    data.workspace?.intents ?? [],
+    (row) => row.client,
+  );
+  const shownAttention =
+    shownOperations.length + shownSecrets.length + shownPending.length;
+  const scope =
+    server && data.workspace
+      ? viewScope(view, data.workspace.clients, attention - shownAttention)
+      : undefined;
 
   if (session.state === "checking")
     return <p className="center muted">Connecting to the homectl broker…</p>;
@@ -333,10 +389,24 @@ function App() {
             </button>
           </Notice>
         ) : null}
+        {server &&
+        data.workspace &&
+        (route.name === "overview" || route.name === "workspace") ? (
+          <ContextSwitcher
+            context={view}
+            clients={data.workspace.clients}
+            onChange={chooseContext}
+          />
+        ) : null}
         {route.name === "overview" && (
           <OverviewScreen
-            data={data}
-            workspaceWaiting={workspaceWaiting}
+            data={{
+              operations: shownOperations,
+              secrets: shownSecrets,
+              loadedAt: data.loadedAt,
+            }}
+            workspaceWaiting={shownPending.length}
+            scope={scope}
             onOpen={go}
           />
         )}
@@ -382,9 +452,10 @@ function App() {
         {route.name === "workspace" && server && data.workspace ? (
           <WorkspaceScreen
             server={server}
-            clients={data.workspace.clients}
-            pending={data.workspace.pending}
-            intents={data.workspace.intents}
+            clients={shownClients}
+            pending={shownPending}
+            intents={shownIntents}
+            scope={scope}
             onChanged={refresh}
             onError={handle}
           />

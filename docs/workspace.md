@@ -99,6 +99,8 @@ A decision you make on the server goes through these states: `queued`, then `del
 
 `workspace intents [client]` lists the decisions queued for linked clients, newest first and bounded (50 by default, 200 at most), each with its status and, when refused, its reason. `workspace pending` shows the newest decision for each operation beside it, so you can see whether one is still on its way.
 
+**Device context.** On a server, the owner panel's one **Devices** switcher (on the Needs you and Workspace screens) picks what those views show: All devices, This device (local approvals and secret requests only), or one linked client. The choice is a view filter only, remembered in this browser's local storage and never in the URL; every decision still goes to the same client and operation id. Without a workspace server there is no switcher.
+
 Each summary also carries the decision `source` on the client. While the Auto Mode reviewer is still deciding, it is `review`: the operation waits for you, and approve-and-remember is refused until the review ends.
 
 The server refuses to queue a decision for a client that has not opted in to remote approval, and the client refuses one again if it arrives anyway. A decision is applied at most once: the client records each decision id before acting on it.

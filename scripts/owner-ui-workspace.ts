@@ -5,6 +5,7 @@
 
 import { expect } from "@playwright/test";
 import { runAutoModeScenario } from "./owner-ui-auto-mode";
+import { runContextScenario, runNoWorkspaceContext } from "./owner-ui-context";
 import { runNotificationScenario } from "./owner-ui-notify";
 import { runRestoreScenario } from "./owner-ui-restore";
 import { runSystemScenario } from "./owner-ui-system";
@@ -272,6 +273,8 @@ export async function runLocalReviewScenario(
 export async function runOwnerExtensionScenarios(harness: Harness) {
   for (const viewport of VIEWPORTS) {
     await runWorkspaceScenario(harness, viewport);
+    await runContextScenario(harness, viewport);
+    await runNoWorkspaceContext(harness, viewport);
     await runLocalReviewScenario(harness, viewport);
     await runRestoreScenario(harness, viewport);
     await runAutoModeScenario(harness, viewport);
