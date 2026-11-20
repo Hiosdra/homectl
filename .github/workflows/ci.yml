@@ -20,6 +20,25 @@ jobs:
       - run: bunx playwright install --with-deps chromium
       - run: bun run test:ui
 
+  # Read-only scans on every push and pull request. Nothing here publishes anything.
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Secret scanning reads the whole history, not only the tip.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      # Fails on high or critical advisories not listed in scripts/audit-accepted.txt.
+      - run: sh scripts/dependency-audit.sh
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   windows:
     runs-on: windows-latest
     steps:
@@ -49,3 +68,34 @@ jobs:
       - name: Git Bash CLI smoke
         shell: bash
         run: bun src/cli/main.ts help
+
+  # macOS runs the portable subset: no keepassxc-backed session tests, no Playwright UI smoke,
+  # no container job. Hardened mode is not available on macOS yet (src/broker/hardened-support.ts).
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun test --timeout 30000 tests/platform.test.ts tests/update.test.ts tests/update-apply.test.ts tests/update-release.test.ts tests/output.test.ts tests/dependencies.test.ts tests/hardened-support.test.ts tests/broker-daemon.test.ts tests/broker-server.test.ts tests/broker-engine.test.ts
+      - name: CLI smoke
+        run: bun src/cli/main.ts help
+
+  # B1: real OS users. Creates the homectl service account and an unprivileged agent
+  # account, runs the broker as the service account and checks what the agent can reach.
+  hardened-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - name: Compile the Linux executable the broker runs
+        run: bun build --compile --target=bun-linux-x64 src/cli/main.ts --outfile "$RUNNER_TEMP/home-ctl"
+      - name: Hardened broker checks with real OS users
+        run: sudo sh scripts/hardened-linux-check.sh "$RUNNER_TEMP/home-ctl"

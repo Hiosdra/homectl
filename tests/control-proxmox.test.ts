@@ -366,7 +366,8 @@ describe("Proxmox guest plans through the control plane", () => {
     expect(tool?.op).toBe("proxmox-plan");
     expect(tool?.scope).toBe("plan:create");
     const properties = Object.keys(
-      (tool?.inputSchema as { properties: Record<string, unknown> }).properties,
+      (tool?.inputSchema as { properties: Record<string, unknown> } | undefined)
+        ?.properties ?? {},
     );
     expect(properties).not.toContain("argv");
     expect(properties).not.toContain("node");

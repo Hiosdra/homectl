@@ -604,7 +604,7 @@ export async function serve(options: ServeOptions) {
                     throw new HomectlError(2, "Use a lowercase machine name");
                   const inv = await loadInventory(options.inventoryPath);
                   const m = v.machine as Machine;
-                  if (!m || m.transport !== "ssh")
+                  if (m?.transport !== "ssh")
                     throw new HomectlError(
                       2,
                       "Panel editing requires an SSH host",

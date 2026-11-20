@@ -1,9 +1,9 @@
-// Installs a newer release for the local panel's "Update" button. A Windows release build
-// downloads the release archive, checks it against the published SHA256SUMS, unpacks it
-// beside the running release, and points the commands at the new one. The previous
-// release stays on disk, and each command file keeps a backup. A source checkout uses
-// `home-ctl update`. Other builds are told what to do instead.
-import { createHash } from "node:crypto";
+// Installs a newer release for the local panel's "Update" button and for `home-ctl update`
+// on a release build. A Windows release build fetches the signed manifest, verifies it
+// (src/release-trust.ts), downloads the archive the manifest names, checks its size and
+// sha256, unpacks it beside the running release and points the commands at the new one.
+// The previous release stays on disk, and `home-ctl update --rollback` points the commands
+// back at it. A source checkout uses `home-ctl update`. Other builds are told what to do.
 import { existsSync } from "node:fs";
 import {
   copyFile,
@@ -12,19 +12,33 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  rename,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { VERSION } from "./container/health";
 import { bundled } from "./internal";
 import { run } from "./process";
+import {
+  checkArchive,
+  checkCandidate,
+  MANIFEST_NAME,
+  parseManifest,
+  SIGNATURE_NAME,
+  selectArtifact,
+  type TrustPolicy,
+  verifySignature,
+} from "./release-trust";
 import { HomectlError, type Runner } from "./types";
 
 const RELEASES = "https://github.com/Hiosdra/homectl/releases/download";
 // Command files are small text shims; anything larger is never read.
 const SHIM_LIMIT = 64 * 1024;
+// Which release was running before the last install, for --rollback.
+const HISTORY_FILE = "release-history.json";
 
 export type UpdateApplyOptions = {
   platform?: NodeJS.Platform;
@@ -33,6 +47,14 @@ export type UpdateApplyOptions = {
   home?: string;
   fetcher?: (url: string) => Promise<Response>;
   runner?: Runner;
+  // The running version; defaults to this build's version.
+  current?: string;
+  // Signers to trust; defaults to the keys embedded in this build.
+  trust?: TrustPolicy;
+  // Test seam: runs after each stage. Throwing here simulates an interrupted apply.
+  onStage?: (
+    stage: "staged" | "installed" | "repointed",
+  ) => void | Promise<void>;
 };
 
 export type UpdateApplied = {
@@ -75,26 +97,28 @@ export async function installRelease(
   const home = options.home ?? homedir();
   const fetcher = options.fetcher ?? ((url: string) => fetch(url));
   const runner = options.runner ?? run;
+  const current = options.current ?? VERSION;
   const version = latest.replace(/^v/, "");
   const folder = `homectl-${version}-windows-x64`;
   const archive = `${folder}.zip`;
+  const base = `${RELEASES}/v${version}`;
 
-  const sums = new TextDecoder().decode(
-    await download(`${RELEASES}/v${version}/SHA256SUMS`, fetcher),
+  // Nothing from the release is used until its signature has been checked.
+  const manifestBytes = await download(`${base}/${MANIFEST_NAME}`, fetcher);
+  const signature = new TextDecoder().decode(
+    await download(`${base}/${SIGNATURE_NAME}`, fetcher),
   );
-  const expected = sums
-    .split(/\r?\n/)
-    .map((line) => line.trim().split(/\s+/))
-    .find(([, name]) => name === archive || name === `*${archive}`)?.[0];
-  if (!expected)
-    throw new HomectlError(5, "The release has no checksum for this build.");
-  const bytes = await download(`${RELEASES}/v${version}/${archive}`, fetcher);
-  const actual = createHash("sha256").update(bytes).digest("hex");
-  if (actual !== expected.toLowerCase())
+  verifySignature(manifestBytes, signature, options.trust);
+  const manifest = parseManifest(manifestBytes);
+  checkCandidate(manifest, { requested: version, current });
+  const artifact = selectArtifact(manifest, { platform, arch });
+  if (artifact.name !== archive)
     throw new HomectlError(
       5,
-      "The downloaded release does not match its checksum. Nothing was installed.",
+      "The release manifest names an unexpected archive. Nothing was installed.",
     );
+  const bytes = await download(`${base}/${archive}`, fetcher);
+  checkArchive(artifact, bytes);
 
   const staging = await mkdtemp(join(tmpdir(), "homectl-update-"));
   try {
@@ -115,16 +139,27 @@ export async function installRelease(
         5,
         "The new homectl does not start. Nothing was changed.",
       );
+    await options.onStage?.("staged");
 
     // The running release lives in <root>\<version>\<folder>; the new one goes beside it.
     const currentFolder = dirname(execPath);
     const root = dirname(dirname(currentFolder));
     const target = join(root, version, folder);
-    if (existsSync(target))
-      throw new HomectlError(5, `Version ${version} is already installed.`);
-    await mkdir(join(root, version), { recursive: true });
-    await cp(built, target, { recursive: true });
+    // A copy is built under a .partial name and renamed into place, so `target` exists only
+    // when it is complete. A rerun after an interruption reuses a complete copy.
+    if (!existsSync(target)) {
+      await mkdir(join(root, version), { recursive: true });
+      const partial = `${target}.partial`;
+      await rm(partial, { recursive: true, force: true });
+      await cp(built, partial, { recursive: true });
+      await rename(partial, target);
+    }
+    await options.onStage?.("installed");
     await repointCommands(join(home, ".local", "bin"), currentFolder, target);
+    await options.onStage?.("repointed");
+    await writeHistory(root, {
+      previous: { version: current, folder: currentFolder },
+    });
     // The new release carries its own skills, so it copies them now. A failure does not undo
     // the update; the note says what to run.
     const skills = await runner({
@@ -134,7 +169,7 @@ export async function installRelease(
     return {
       updated: true,
       version,
-      next: `Restart homectl to run ${version}. The previous release stays in ${currentFolder}.${
+      next: `Restart homectl to run ${version}. The previous release stays in ${currentFolder}; \`home-ctl update --rollback\` switches back to it.${
         skills.exitCode
           ? " Its skills were not refreshed; run home-ctl setup to see why."
           : ""
@@ -143,6 +178,88 @@ export async function installRelease(
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
+}
+
+// Points the command files back at the release that ran before the last install. The
+// earlier release must still be on disk and start; nothing else changes.
+export async function rollbackRelease(
+  options: UpdateApplyOptions = {},
+): Promise<UpdateApplied> {
+  const platform = options.platform ?? process.platform;
+  if (platform !== "win32")
+    throw new HomectlError(
+      2,
+      "Rollback applies to Windows release builds. Install an earlier release from the release page on this platform.",
+    );
+  const execPath = options.execPath ?? process.execPath;
+  const home = options.home ?? homedir();
+  const runner = options.runner ?? run;
+  const currentFolder = dirname(execPath);
+  const root = dirname(dirname(currentFolder));
+  const previous = (await readHistory(root))?.previous;
+  if (!previous)
+    throw new HomectlError(
+      5,
+      "No earlier release is recorded, so there is nothing to roll back to.",
+    );
+  if (previous.folder === currentFolder)
+    throw new HomectlError(
+      5,
+      "This is already the earlier release, so there is nothing to roll back. Nothing was changed.",
+    );
+  const exe = join(previous.folder, "home-ctl.exe");
+  if (!existsSync(exe))
+    throw new HomectlError(
+      5,
+      `The earlier release is no longer on disk (${previous.folder}). Nothing was changed.`,
+    );
+  const started = await runner({ argv: [exe, "help"], timeoutMs: 60_000 });
+  if (started.exitCode)
+    throw new HomectlError(
+      5,
+      "The earlier release does not start. Nothing was changed.",
+    );
+  await repointCommands(
+    join(home, ".local", "bin"),
+    currentFolder,
+    previous.folder,
+  );
+  // Recording the release we leave makes a second rollback switch back again.
+  await writeHistory(root, {
+    previous: { version: options.current ?? VERSION, folder: currentFolder },
+  });
+  return {
+    updated: true,
+    version: previous.version,
+    next: `Restart homectl to run ${previous.version}. Run \`home-ctl update --rollback\` again to switch back.`,
+  };
+}
+
+type History = { previous?: { version: string; folder: string } };
+
+async function readHistory(root: string): Promise<History | undefined> {
+  try {
+    const value = JSON.parse(
+      await readFile(join(root, HISTORY_FILE), "utf8"),
+    ) as History;
+    const previous = value.previous;
+    if (
+      previous &&
+      typeof previous.version === "string" &&
+      typeof previous.folder === "string"
+    )
+      return { previous };
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeHistory(root: string, history: History) {
+  await writeFile(
+    join(root, HISTORY_FILE),
+    `${JSON.stringify(history, null, 2)}\n`,
+  );
 }
 
 // The Windows tar, by full path: a Git-provided tar earlier in PATH cannot read zip archives.
