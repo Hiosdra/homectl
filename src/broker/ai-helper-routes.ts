@@ -126,6 +126,8 @@ export class AiHelperRoutes implements RouteExtension {
         return this.connect(input, stepUp);
       case "/v1/owner/ai-helper/forget-key":
         return this.forgetKey(input, stepUp);
+      case "/v1/owner/ai-helper/set-key":
+        return this.setKey(input, stepUp);
       default:
         return undefined;
     }
@@ -250,6 +252,33 @@ export class AiHelperRoutes implements RouteExtension {
       {
         policyRevision: doc.revision,
         keyRemoved: true,
+        stepUp: true,
+      },
+    );
+    return this.view(doc, settings);
+  }
+
+  // Saves only the key, for `home-ctl owner auto-mode set-key`. The key is read
+  // privately by the CLI and sent once; the mode and the settings do not change.
+  private async setKey(
+    input: Record<string, unknown>,
+    stepUp: (password: unknown) => Promise<void>,
+  ) {
+    refuseUnknown(input, ["apiKey", "password"]);
+    const apiKey = parseApiKey(input.apiKey);
+    if (apiKey === undefined)
+      throw new HomectlError(2, "Paste the key first; it is not empty");
+    await stepUp(input.password);
+    await this.options.keys.save(apiKey);
+    const doc = await this.options.store.document();
+    const settings = await loadReviewerSettings(this.options.settingsPath);
+    await this.options.events?.emit(
+      "settings.updated",
+      "ai-helper",
+      ["owner"],
+      {
+        policyRevision: doc.revision,
+        keyChanged: true,
         stepUp: true,
       },
     );

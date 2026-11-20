@@ -19,7 +19,7 @@ type Flags = Record<string, string | boolean | undefined>;
 type Auth = { endpoint: Endpoint; authorization: string; password: string };
 
 const AUTO_MODE_USAGE =
-  "Usage: home-ctl owner auto-mode [get] | owner auto-mode set [--mode manual|rules|auto] [--authority recommend|routine|delegated] [--endpoint <https-url>|none] [--model <name>]";
+  "Usage: home-ctl owner auto-mode [get] | owner auto-mode set [--mode manual|rules|auto] [--authority recommend|routine|delegated] [--endpoint <https-url>|none] [--model <name>] | owner auto-mode set-key (asks for the key privately)";
 
 // A flag value that must be one of the choices; anything else is a usage error.
 function oneChoice<T extends string>(
@@ -156,10 +156,26 @@ async function autoModeCommand(
   const [sub = "get"] = args;
   const { flags } = ctx;
   // Usage errors are reported before the owner password is asked for.
-  if (sub !== "get" && sub !== "set")
+  if (sub !== "get" && sub !== "set" && sub !== "set-key")
     throw new HomectlError(2, AUTO_MODE_USAGE);
   if (sub === "get" && args.length > 1)
     throw new HomectlError(2, AUTO_MODE_USAGE);
+  if (sub === "set-key") {
+    if (args.length > 1) throw new HomectlError(2, AUTO_MODE_USAGE);
+    // The key is never an argument, so it stays out of shell history and process
+    // lists. The owner password and the key are both typed at a private prompt.
+    const auth = await ctx.auth();
+    const apiKey = await readPassword("AI helper API key (typed privately): ");
+    ctx.emit(
+      await callBroker(
+        "/v1/owner/ai-helper/set-key",
+        { apiKey, password: auth.password },
+        auth,
+      ),
+      "The AI helper key is saved in the encrypted vault.",
+    );
+    return 0;
+  }
   const changes: Record<string, unknown> = {};
   if (sub === "set") {
     if (args.length > 1) throw new HomectlError(2, AUTO_MODE_USAGE);

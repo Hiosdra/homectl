@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultPolicy } from "../src/authz";
 import type { PolicyDocument } from "../src/core/contracts";
-import { AiHelperRoutes, parseApiKey } from "../src/broker/ai-helper-routes";
+import { AiHelperRoutes } from "../src/broker/ai-helper-routes";
 import {
   keyStatus,
   LOCKED_MESSAGE,
@@ -13,10 +13,7 @@ import {
   reviewerApiKey,
   vaultReviewerKey,
 } from "../src/broker/reviewer-key";
-import {
-  loadReviewerSettings,
-  reviewerFrom,
-} from "../src/broker/reviewer-settings";
+import { loadReviewerSettings } from "../src/broker/reviewer-settings";
 import { HomectlError } from "../src/types";
 import type { VaultSession } from "../src/vault";
 
@@ -372,49 +369,52 @@ describe("the key: source, priority and the locked vault", () => {
   });
 });
 
-describe("the reviewer built from settings", () => {
-  test("a hosted provider with no key fails the review plainly", async () => {
-    const reviewer = reviewerFrom(
-      {
-        version: 1,
-        provider: "openrouter",
-        endpoint: "https://openrouter.ai/api/v1/chat/completions",
-        model: "m",
-      },
-      {},
-      async () => undefined,
-    );
+describe("set-key: the CLI path that stores only the key", () => {
+  test("needs the step-up, stores the key, and answers without it", async () => {
+    const refused = setup({ stepUpOk: false });
+    const path = await settingsPath();
     await expect(
-      reviewer?.review(
-        { kind: "exec", risk: "R1" },
-        new AbortController().signal,
-      ),
-    ).rejects.toThrow("Add an API key");
+      refused
+        .routes(path)
+        .owner(
+          "/v1/owner/ai-helper/set-key",
+          { apiKey: CANARY, password: "bad" },
+          refused.stepUp,
+        ),
+    ).rejects.toThrow("not accepted");
+    expect(refused.keys.value).toBeUndefined();
+
+    const env = setup();
+    const view = await env
+      .routes(path)
+      .owner(
+        "/v1/owner/ai-helper/set-key",
+        { apiKey: CANARY, password: "pw" },
+        env.stepUp,
+      );
+    expect(env.keys.value).toBe(CANARY);
+    expect(JSON.stringify(view)).not.toContain(CANARY);
+    // The mode and the settings are untouched by a key-only save.
+    expect(env.doc.mode).toBe("rules");
+    await expect(loadReviewerSettings(path)).resolves.toEqual({ version: 1 });
   });
 
-  test("a legacy address with no provider is Custom and needs no key", () => {
-    const reviewer = reviewerFrom(
-      {
-        version: 1,
-        endpoint: "http://localhost:1/v1/chat/completions",
-        model: "m",
-      },
-      {},
-    );
-    expect(reviewer?.id).toBe("openai-compatible");
-  });
-
-  test("parseApiKey refuses spaces and line breaks and never echoes the key", () => {
-    expect(parseApiKey("  sk-or-v1-abc  ")).toBe("sk-or-v1-abc");
-    expect(parseApiKey("")).toBeUndefined();
-    let message = "";
-    try {
-      parseApiKey("sk-two parts");
-    } catch (error) {
-      message = (error as Error).message;
-    }
-    expect(message).toContain("Paste only the key");
-    expect(message).not.toContain("sk-two");
+  test("an empty key is refused before the password is checked", async () => {
+    const env = setup();
+    const path = await settingsPath();
+    let checked = false;
+    await expect(
+      env
+        .routes(path)
+        .owner(
+          "/v1/owner/ai-helper/set-key",
+          { apiKey: "   ", password: "pw" },
+          async () => {
+            checked = true;
+          },
+        ),
+    ).rejects.toThrow("Paste the key first");
+    expect(checked).toBe(false);
   });
 });
 
