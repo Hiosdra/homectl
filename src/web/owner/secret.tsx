@@ -186,7 +186,9 @@ export function SecretScreen({
               hint={
                 field.kind === "ssh-key"
                   ? "masked; paste the whole key"
-                  : field.kind
+                  : field.kind === "text"
+                    ? undefined
+                    : "hidden as you type"
               }
             >
               {inputFor(
@@ -202,23 +204,21 @@ export function SecretScreen({
 
         <fieldset>
           <legend>How long to keep it</legend>
-          <label className="row">
+          <label>
             <input
               type="radio"
               name="retention"
               checked={retention === "ephemeral"}
               onChange={() => setRetention("ephemeral")}
-              style={{ width: "auto", minHeight: 0 }}
             />{" "}
             One hour in memory only (default). Then it is dropped.
           </label>
-          <label className="row">
+          <label>
             <input
               type="radio"
               name="retention"
               checked={retention === "saved"}
               onChange={() => setRetention("saved")}
-              style={{ width: "auto", minHeight: 0 }}
             />{" "}
             Save to the encrypted vault
           </label>

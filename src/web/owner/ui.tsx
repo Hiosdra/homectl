@@ -2,19 +2,36 @@
 // always rendered through Untrusted, as plain text with a visible label.
 import type { ReactNode } from "react";
 import { useEffect, useId, useRef } from "react";
+import { Icon, type IconName } from "./icons";
 
-export type Tone = "neutral" | "warn" | "bad" | "good" | "count";
+export type Tone = "neutral" | "info" | "warn" | "bad" | "good" | "count";
 
+// A badge always says its meaning in words; the optional icon repeats it, so
+// colour is never the only signal.
 export function Badge({
   tone = "neutral",
+  icon,
   children,
 }: {
   tone?: Tone;
+  icon?: IconName;
   children: ReactNode;
 }) {
   const className = tone === "neutral" ? "badge" : `badge ${tone}`;
-  return <span className={className}>{children}</span>;
+  return (
+    <span className={className}>
+      {icon ? <Icon name={icon} /> : null}
+      {children}
+    </span>
+  );
 }
+
+const NOTICE_ICON: Record<"neutral" | "warn" | "bad" | "good", IconName> = {
+  neutral: "info",
+  warn: "alert",
+  bad: "alert",
+  good: "check-circle",
+};
 
 export function Notice({
   tone = "neutral",
@@ -24,9 +41,40 @@ export function Notice({
   children: ReactNode;
 }) {
   const className = tone === "neutral" ? "notice" : `notice ${tone}`;
+  // Errors interrupt (alert); everything else is announced politely (status).
   return (
     <div className={className} role={tone === "bad" ? "alert" : "status"}>
-      {children}
+      <Icon name={NOTICE_ICON[tone]} />
+      <div className="notice-body">{children}</div>
+    </div>
+  );
+}
+
+// A transient result after an action. It stays for a while so it can be read, then
+// clears itself; Dismiss clears it at once. It never blocks the list underneath
+// for longer than that, and the screen keeps its own result text too.
+export const TOAST_MS = 8_000;
+
+export function Toast({
+  message,
+  onDismiss,
+}: {
+  message: string;
+  onDismiss: () => void;
+}) {
+  // The timer restarts only for a new message, not on every re-render.
+  const latest = useRef(onDismiss);
+  latest.current = onDismiss;
+  useEffect(() => {
+    const timer = setTimeout(() => latest.current(), TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [message]);
+  return (
+    <div className="toast" role="status">
+      <p>{message}</p>
+      <button type="button" onClick={onDismiss}>
+        Dismiss
+      </button>
     </div>
   );
 }
