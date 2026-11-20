@@ -24,7 +24,11 @@ export const WORKSPACE_RESTORE_ROWS: [string, string][] = [
 export const AUTO_MODE_ROWS: [string, string][] = [
   [
     "owner auto-mode [get]",
-    "Shows the Auto Mode mode, reviewer authority, endpoint and model. The reviewer API key is never shown or stored.",
+    "Shows the Auto Mode mode, reviewer authority, endpoint, model and where the AI helper key comes from. The key itself is never shown.",
+  ],
+  [
+    "owner auto-mode set-key",
+    "Saves the AI helper's API key in the encrypted vault. Asks for the owner password, then prompts for the key privately. The key is never an argument.",
   ],
   [
     "owner auto-mode set [--mode manual|rules|auto] [--authority recommend|routine|delegated] [--endpoint <url>|none] [--model <name>]",
@@ -262,7 +266,7 @@ export const brokerHelp: Record<string, Page> = {
   },
   owner: {
     usage:
-      "home-ctl owner init | auto-mode [get] | auto-mode set [--mode manual|rules|auto] [--authority recommend|routine|delegated] [--endpoint <url>|none] [--model <name>] | scan-host-keys <host> | pin-host-key <host> <SHA256:…> | inspect-host <host> | preview-host-grant <host> | apply-host-grant <host> <fingerprint> | revoke-host-grant <host> | repair-host-grant <host> [fingerprint]",
+      "home-ctl owner init | auto-mode [get] | auto-mode set [--mode manual|rules|auto] [--authority recommend|routine|delegated] [--endpoint <url>|none] [--model <name>] | auto-mode set-key | scan-host-keys <host> | pin-host-key <host> <SHA256:…> | inspect-host <host> | preview-host-grant <host> | apply-host-grant <host> <fingerprint> | revoke-host-grant <host> | repair-host-grant <host> [fingerprint]",
     intro:
       "Owner commands for the broker's inventory and host trust. Each one asks for the owner password privately. Host commands need a running broker.",
     sections: ownerSections,
