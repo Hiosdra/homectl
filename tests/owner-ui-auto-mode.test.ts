@@ -23,6 +23,8 @@ const view: AutoModeView = {
     endpoint: "https://reviewer.example.test",
     model: "reviewer-model",
     apiKeyConfigured: true,
+    keySource: "vault",
+    keyLocked: false,
     ready: true,
   },
 };
@@ -37,6 +39,7 @@ const wire = {
     endpoint: "https://reviewer.example.test",
     model: "reviewer-model",
     apiKeyConfigured: true,
+    apiKey: { source: "vault", locked: false },
     ready: true,
   },
   choices: { modes: ["manual", "rules", "auto"], authorities: [] },

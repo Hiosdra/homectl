@@ -2,6 +2,7 @@
 // itself is the bundle served as /owner.js. The stylesheet is assembled from
 // three parts: tokens (design-tokens.ts), components and layout. Colours are
 // tokens so light and dark themes share one set of rules.
+import { AI_HELPER_CSS } from "./css-ai-helper";
 import { COMPONENTS_CSS } from "./css-components";
 import { LAYOUT_CSS } from "./css-layout";
 import { TOKENS_CSS } from "./design-tokens";
@@ -24,4 +25,9 @@ export const OWNER_HTML = `<!doctype html>
 </html>
 `;
 
-export const OWNER_CSS = [TOKENS_CSS, COMPONENTS_CSS, LAYOUT_CSS].join("\n");
+export const OWNER_CSS = [
+  TOKENS_CSS,
+  COMPONENTS_CSS,
+  LAYOUT_CSS,
+  AI_HELPER_CSS,
+].join("\n");

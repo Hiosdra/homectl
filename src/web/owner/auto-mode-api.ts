@@ -1,9 +1,19 @@
 // Browser side of Auto Mode settings (homelab #21 A1). Reads change nothing. A
 // change goes first without the owner password; only when the broker answers
 // "Confirm with the owner password" (403) does the panel ask for it and retry.
-// The reviewer's API key is never read, shown or sent: the panel only learns
-// whether the broker has one.
+// The reviewer's API key is never read, shown or sent back: the panel only learns
+// where the key comes from (environment, vault or none) and whether the vault is
+// closed. The key is typed only during onboarding, and then only sent once.
 import { OwnerApiError, ownerCall } from "./api";
+
+export const AI_PROVIDER_IDS = [
+  "anthropic",
+  "openai",
+  "openrouter",
+  "custom",
+] as const;
+export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
+export type KeySource = "environment" | "vault" | "none";
 
 export const AUTO_MODES = ["manual", "rules", "auto"] as const;
 export type AutoModeName = (typeof AUTO_MODES)[number];
@@ -24,7 +34,13 @@ export interface AutoModeView {
     // The origin only; paths and query strings are never shown.
     endpoint?: string;
     model?: string;
+    // Which provider the helper uses; absent for settings saved before 0.3.
+    provider?: AiProviderId;
     apiKeyConfigured: boolean;
+    // Where the key comes from. The key itself is never part of the view.
+    keySource: KeySource;
+    // True while the vault is closed, so a saved key cannot be checked.
+    keyLocked: boolean;
     ready: boolean;
   };
 }
@@ -95,6 +111,12 @@ export function toAutoModeView(value: unknown): AutoModeView | undefined {
     return undefined;
   const endpoint = textOf(reviewer.endpoint, 300);
   const model = textOf(reviewer.model, 200);
+  const provider = AI_PROVIDER_IDS.find((item) => item === reviewer.provider);
+  const key = reviewer.apiKey as Record<string, unknown> | undefined;
+  const keySource: KeySource =
+    key?.source === "environment" || key?.source === "vault"
+      ? key.source
+      : "none";
   return {
     revision: raw.revision,
     mode,
@@ -104,7 +126,10 @@ export function toAutoModeView(value: unknown): AutoModeView | undefined {
       maxRisk: reviewer.maxRisk,
       ...(endpoint === undefined ? {} : { endpoint }),
       ...(model === undefined ? {} : { model }),
+      ...(provider === undefined ? {} : { provider }),
       apiKeyConfigured: reviewer.apiKeyConfigured,
+      keySource,
+      keyLocked: key?.locked === true,
       ready: reviewer.ready,
     },
   };

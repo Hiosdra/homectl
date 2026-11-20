@@ -25,6 +25,12 @@ import {
   modeHint,
   modeLabel,
 } from "./permissions-copy";
+import {
+  keySourceLabel,
+  providerLabel,
+  statusSentence,
+} from "./ai-helper-copy";
+import { ForgetKey } from "./ai-helper-forget";
 import { Badge, Field, Notice, PasswordStep } from "./ui";
 
 type Load =
@@ -36,11 +42,14 @@ type Load =
 export function AutoModeSection({
   onError,
   onSaved,
+  onConnectHelper,
   custom = false,
 }: {
   onError: (error: unknown) => unknown;
   // Called after a saved change, so the Permissions summary is read again.
   onSaved?: () => void;
+  // Opens the "Connect your AI helper" steps (0.3), from Advanced.
+  onConnectHelper?: () => void;
   // A setting none of the three choices matches: only then are the raw mode and
   // authority shown as controls.
   custom?: boolean;
@@ -89,6 +98,7 @@ export function AutoModeSection({
           custom={custom}
           onError={onError}
           onSaved={onSaved}
+          onConnectHelper={onConnectHelper}
         />
       ) : null}
     </section>
@@ -100,11 +110,13 @@ function AutoModeEditor({
   custom,
   onError,
   onSaved,
+  onConnectHelper,
 }: {
   initial: AutoModeView;
   custom: boolean;
   onError: (error: unknown) => unknown;
   onSaved?: () => void;
+  onConnectHelper?: () => void;
 }) {
   const baseId = useId();
   const [view, setView] = useState(initial);
@@ -237,9 +249,33 @@ function AutoModeEditor({
           <div className="stack">
             <p className="small muted">
               The address and model name only matter when the AI helper answers.
-              The API key is set on the machine, never in this panel.
+              The key is kept in your encrypted vault. It is never shown here.
             </p>
+            <div className="stack">
+              <p>
+                <strong>AI helper:</strong> {statusSentence(reviewer)}
+              </p>
+              <div className="row">
+                <button
+                  type="button"
+                  onClick={onConnectHelper}
+                  disabled={onConnectHelper === undefined}
+                >
+                  {reviewer.ready ? "Change AI helper" : "Connect AI helper"}
+                </button>
+                {reviewer.keySource === "vault" ? (
+                  <ForgetKey
+                    onForgotten={(next) => {
+                      setView(next);
+                      setDraft(draftOf(next));
+                    }}
+                  />
+                ) : null}
+              </div>
+            </div>
             <dl>
+              <dt>Current provider</dt>
+              <dd>{providerLabel(reviewer.provider)}</dd>
               <dt>Current address</dt>
               <dd>
                 {reviewer.endpoint === undefined
@@ -250,8 +286,10 @@ function AutoModeEditor({
               <dd>{reviewer.model ?? "Not set"}</dd>
               <dt>API key</dt>
               <dd>
-                <Badge tone={reviewer.apiKeyConfigured ? "good" : "neutral"}>
-                  {reviewer.apiKeyConfigured ? "Configured" : "Not configured"}
+                <Badge
+                  tone={reviewer.keySource === "none" ? "neutral" : "good"}
+                >
+                  {keySourceLabel(reviewer.keySource, reviewer.keyLocked)}
                 </Badge>
               </dd>
             </dl>

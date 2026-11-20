@@ -202,26 +202,36 @@ export function PasswordStep({
 export function Dialog({
   title,
   onClose,
+  className,
   children,
 }: {
   title: string;
   onClose: () => void;
+  className?: string;
   children: ReactNode;
 }) {
   const titleId = useId();
   const panel = useRef<HTMLDivElement>(null);
+  // The latest close handler is read through a ref. Focus moves to the first
+  // control once, when the dialog opens; a parent that re-renders with a new
+  // handler must not pull focus back to the start on every keystroke.
+  const close = useRef(onClose);
+  useEffect(() => {
+    close.current = onClose;
+  });
   useEffect(() => {
     panel.current?.querySelector<HTMLElement>("button, input")?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") close.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
   return (
     <div className="dialog-backdrop">
       <div
         ref={panel}
+        className={className}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

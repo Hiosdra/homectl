@@ -11,8 +11,10 @@ import {
   type PolicyDocument,
   type PolicyRule,
 } from "./api";
+import { AiHelperSheet } from "./ai-helper-sheet";
+import { statusSentence } from "./ai-helper-copy";
 import { AutoModeSection } from "./auto-mode";
-import { readAutoMode } from "./auto-mode-api";
+import { type AutoModeView, readAutoMode } from "./auto-mode-api";
 import { ModeChooser } from "./permissions-choice";
 import { ManualModeOption } from "./permissions-manual";
 import {
@@ -41,6 +43,12 @@ export function PolicyScreen({
   const [password, setPassword] = useState("");
   // The choice the owner is making on this visit; undefined means the saved one.
   const [choice, setChoice] = useState<PresetId | undefined>();
+  // The AI helper's status, and the onboarding the owner opened (0.3). `preset`
+  // is the Permissions choice being saved; undefined when opened from Advanced.
+  const [helper, setHelper] = useState<AutoModeView | undefined>();
+  const [onboarding, setOnboarding] = useState<
+    { preset?: "routine" | "delegated" } | undefined
+  >();
 
   const load = async () => {
     try {
@@ -54,6 +62,7 @@ export function PolicyScreen({
       setPolicy(loaded);
       setClients(listed);
       setReviewerReady(auto?.reviewer.ready === true);
+      setHelper(auto);
     } catch (failure) {
       onError(failure);
       setError(describeError(failure));
@@ -103,6 +112,32 @@ export function PolicyScreen({
     shownChoice === "delegated" ||
     savedChoice === undefined;
 
+  // Picking an AI choice while no helper is set up opens the onboarding at once.
+  // Nothing is saved until the owner confirms there; Cancel keeps the setting.
+  const pickChoice = (next: PresetId) => {
+    if (
+      (next === "routine" || next === "delegated") &&
+      !reviewerReady &&
+      helper !== undefined
+    ) {
+      setChoice(undefined);
+      setOnboarding({ preset: next });
+      return;
+    }
+    setChoice(next);
+  };
+  const finishOnboarding = (view: AutoModeView) => {
+    const preset = onboarding?.preset;
+    setOnboarding(undefined);
+    setChoice(undefined);
+    setHelper(view);
+    setReviewerReady(view.reviewer.ready);
+    setNotice(
+      `${preset === undefined ? "AI helper saved." : `Saved: "${presetLabel(preset)}".`} ${statusSentence(view.reviewer)}`,
+    );
+    void load();
+  };
+
   return (
     <>
       <div className="page-head">
@@ -129,7 +164,7 @@ export function PolicyScreen({
         <ModeChooser
           currentId={savedChoice}
           choice={choice}
-          onChoice={setChoice}
+          onChoice={pickChoice}
           password={password}
           onPassword={setPassword}
           busy={busy}
@@ -272,11 +307,22 @@ export function PolicyScreen({
         ) : null}
       </section>
 
+      {onboarding !== undefined && helper !== undefined ? (
+        <AiHelperSheet
+          preset={onboarding.preset}
+          initial={helper}
+          onCancel={() => setOnboarding(undefined)}
+          onConnected={finishOnboarding}
+        />
+      ) : null}
       {aiVisible ? (
         <AutoModeSection
           key={policy.revision}
           onError={onError}
           onSaved={load}
+          onConnectHelper={
+            helper === undefined ? undefined : () => setOnboarding({})
+          }
           custom={savedChoice === undefined}
         />
       ) : null}
