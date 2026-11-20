@@ -86,7 +86,11 @@ export async function runPermissionsWordingScenario(
     // The AI helper's address and model sit behind Advanced, closed at first.
     // The AI helper section appears for the AI choices; picking one shows it (no save).
     await page.getByLabel(/AI helps with small fixes/).check();
-    const advanced = page.locator("details.advanced");
+    // Two Advanced disclosures exist now (the manual option too), so this one is
+    // picked by its own content.
+    const advanced = page.locator("details.advanced", {
+      hasText: "AI helper address",
+    });
     await expect(
       advanced.getByText("AI helper address (endpoint)"),
     ).toBeHidden();
@@ -94,6 +98,88 @@ export async function runPermissionsWordingScenario(
     await expect(
       advanced.getByText("AI helper address (endpoint)"),
     ).toBeVisible();
+    await noOverflow(page);
+  } finally {
+    await context.close();
+  }
+  await runManualModeOption(harness, viewport);
+}
+
+// The quiet option under Advanced saves the broker's manual mode through the Auto Mode
+// route. The route is answered here (not the real broker, so the shared owner state is
+// untouched): refused without the password, saved with it, and the password is never
+// in the body of the first try.
+async function runManualModeOption(harness: Harness, viewport: Viewport) {
+  const { context, page } = await open(harness, viewport);
+  try {
+    const sent: Record<string, unknown>[] = [];
+    await page.route("**/v1/owner/auto-mode/set", (route) => {
+      const body = (route.request().postDataJSON() ?? {}) as Record<
+        string,
+        unknown
+      >;
+      sent.push(body);
+      if (body.password === undefined)
+        return route.fulfill({
+          status: 403,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: { code: 3, message: "Confirm with the owner password" },
+          }),
+        });
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          revision: 99,
+          mode: "manual",
+          reviewer: {
+            authority: "recommend",
+            fallback: "ask",
+            maxRisk: "R2",
+            apiKeyConfigured: false,
+            ready: false,
+          },
+        }),
+      });
+    });
+    await signIn(page, harness);
+    await page
+      .getByRole("button", { name: "Permissions", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "How much should homectl decide?" }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // Closed at first: the option is inside Advanced, under the three choices.
+    const option = page.getByRole("button", {
+      name: "Ignore my saved rules and ask about every change",
+    });
+    const advanced = page.locator("details.advanced", {
+      hasText: "Ignore my saved rules",
+    });
+    await expect(option).toHaveCount(0);
+    await advanced.locator("summary").click();
+    await expect(option).toBeVisible();
+
+    // Without the password the broker refuses: the password is asked for here.
+    await option.click();
+    await expect(
+      page.getByText(/This change needs your owner password/),
+    ).toBeVisible({ timeout: 10_000 });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ mode: "manual" });
+    expect(sent[0]).not.toHaveProperty("password");
+    await advanced.getByLabel("Owner password").fill(harness.password);
+    await option.click();
+    await expect(
+      page.getByText("Saved. Every change now waits for you."),
+    ).toBeVisible({ timeout: 10_000 });
+    expect(sent[1]).toMatchObject({
+      mode: "manual",
+      password: harness.password,
+    });
+    expect(page.url()).not.toContain(harness.password);
     await noOverflow(page);
   } finally {
     await context.close();

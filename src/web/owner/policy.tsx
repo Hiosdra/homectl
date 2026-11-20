@@ -14,6 +14,7 @@ import {
 import { AutoModeSection } from "./auto-mode";
 import { readAutoMode } from "./auto-mode-api";
 import { ModeChooser } from "./permissions-choice";
+import { ManualModeOption } from "./permissions-manual";
 import {
   effectLabel,
   type PresetId,
@@ -139,6 +140,14 @@ export function PolicyScreen({
               { preset },
               `Changed to "${presetLabel(preset)}".`,
             );
+          }}
+        />
+        <ManualModeOption
+          manual={policy.mode === "manual"}
+          onError={onError}
+          onSaved={() => {
+            setNotice("Saved. Every change now waits for you.");
+            void load();
           }}
         />
       </section>
