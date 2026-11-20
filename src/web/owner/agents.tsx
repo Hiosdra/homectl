@@ -3,6 +3,7 @@
 // when the owner dismisses it or leaves the screen.
 import { type FormEvent, useEffect, useId, useState } from "react";
 import { type ClientView, describeError, ownerCall } from "./api";
+import { relativeTime, toEpoch } from "./time";
 import { Badge, Dialog, Field, Notice, PasswordStep, fmtTime } from "./ui";
 
 interface Issued {
@@ -58,42 +59,48 @@ export function AgentsScreen({
 
   return (
     <>
-      <h2>Agents</h2>
-      <p className="small muted">
-        Each agent has its own token, its own hosts and its own scopes. Revoking
-        one does not affect the others.
-      </p>
+      <div className="page-head">
+        <h2>Assistants</h2>
+        <p>
+          An assistant is an AI tool, such as Claude or Codex, that asks homectl
+          to run commands on your machines. Each one has its own token, machines
+          and limits. Revoking one does not affect the others.
+        </p>
+      </div>
       {error ? <Notice tone="bad">{error}</Notice> : null}
       {issued ? (
         <TokenOnce issued={issued} onDismiss={() => setIssued(undefined)} />
       ) : null}
-      <CreateAgent
-        onCreated={(result) => {
-          setIssued(result);
-          void load();
-        }}
-        onError={onError}
-      />
 
       <section aria-labelledby="agents-list">
-        <h3 id="agents-list">Connected agents</h3>
+        <h3 id="agents-list">Your assistants</h3>
         {clients === undefined ? <p className="muted">Loading…</p> : null}
         {clients?.length === 0 ? (
-          <p className="muted">No agents yet. Create one above.</p>
+          <p className="muted">
+            No assistants yet. Add one below to let Claude or Codex ask homectl
+            for work on your machines.
+          </p>
         ) : null}
         {clients?.map((client) => (
           <div className="item" key={client.id}>
             <div className="row between">
               <strong>{client.name}</strong>
-              <Badge tone={client.revoked ? "bad" : "good"}>
+              <Badge
+                tone={client.revoked ? "bad" : "good"}
+                icon={client.revoked ? "x" : "check"}
+              >
                 {client.revoked ? "Revoked" : "Active"}
               </Badge>
             </div>
             <div className="small muted">
-              <span className="mono">{client.id}</span> · hosts:{" "}
+              <span className="mono">{client.id}</span> · machines:{" "}
               {client.hosts.length > 0 ? client.hosts.join(", ") : "none"} ·
-              scopes: {client.scopes.join(", ") || "none"} · created{" "}
-              {fmtTime(client.createdAt)}
+              limits: {client.scopes.join(", ") || "none"} · added{" "}
+              <span title={fmtTime(client.createdAt)}>
+                {toEpoch(client.createdAt) !== undefined
+                  ? relativeTime(toEpoch(client.createdAt) as number)
+                  : fmtTime(client.createdAt)}
+              </span>
             </div>
             {!client.revoked ? (
               <RowActions
@@ -109,6 +116,13 @@ export function AgentsScreen({
           </div>
         ))}
       </section>
+      <CreateAgent
+        onCreated={(result) => {
+          setIssued(result);
+          void load();
+        }}
+        onError={onError}
+      />
     </>
   );
 }
@@ -230,7 +244,7 @@ function CreateAgent({
 
   return (
     <section aria-labelledby={`${baseId}-title`}>
-      <h3 id={`${baseId}-title`}>Add an agent</h3>
+      <h3 id={`${baseId}-title`}>Add an assistant</h3>
       <form className="stack" onSubmit={submit}>
         <Field
           id={`${baseId}-id`}

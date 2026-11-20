@@ -80,12 +80,14 @@ export function WorkspaceScreen({
 
   return (
     <>
-      <h2>Workspace</h2>
-      <p className="small muted">
-        {server.name}. Decisions here are sent to the client, which applies them
-        under its own approval policy. A client marked stale has not synced
-        recently, so its state is the last one mirrored here.
-      </p>
+      <div className="page-head">
+        <h2>Devices &amp; backup</h2>
+        <p>
+          {server.name}. Decisions here are sent to the client, which applies
+          them under its own approval policy. A client marked stale has not
+          synced recently, so its state is the last one mirrored here.
+        </p>
+      </div>
       <ContextNote scope={scope} />
       {error ? <Notice tone="bad">{error}</Notice> : null}
       {thisDevice ? (

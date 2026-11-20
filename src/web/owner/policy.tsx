@@ -94,11 +94,13 @@ export function PolicyScreen({
 
   return (
     <>
-      <h2>Permissions</h2>
-      <p className="small muted">
-        Permissions decide what your assistants may do on your machines, and
-        when homectl asks you first. A change applies to the next request.
-      </p>
+      <div className="page-head">
+        <h2>Permissions</h2>
+        <p>
+          Permissions decide what your assistants may do on your machines, and
+          when homectl asks you first. A change applies to the next request.
+        </p>
+      </div>
       {error ? <Notice tone="bad">{error}</Notice> : null}
       {notice ? <Notice tone="good">{notice}</Notice> : null}
 
@@ -162,7 +164,7 @@ export function PolicyScreen({
           A rule decides matching requests without asking you again. Some come
           with homectl; others you saved from your answers.
         </p>
-        <table>
+        <table className="stackable">
           <thead>
             <tr>
               <th>What it covers</th>

@@ -13,7 +13,13 @@ export function SystemScreen({
 }) {
   return (
     <>
-      <h2>System</h2>
+      <div className="page-head">
+        <h2>System</h2>
+        <p>
+          Updates for this homectl and whether this browser may tell you when
+          something needs you.
+        </p>
+      </div>
       <UpdatePanel onError={onError} />
       <NotificationSection />
     </>
