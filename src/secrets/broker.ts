@@ -233,7 +233,7 @@ export class SecretBroker {
   revoke(ref: string): void {
     this.sweep();
     const entry = this.byRef.get(ref);
-    if (!entry || entry.state !== "provided") throw refusal(NOT_USABLE);
+    if (entry?.state !== "provided") throw refusal(NOT_USABLE);
     this.retire(entry, "revoked");
     this.record("revoked", entry);
   }
@@ -292,7 +292,7 @@ export class SecretBroker {
   ): Promise<Record<string, string>> {
     this.sweep();
     const entry = this.byRef.get(ref);
-    if (!entry || entry.state !== "provided") throw refusal(NOT_USABLE);
+    if (entry?.state !== "provided") throw refusal(NOT_USABLE);
     const destination = this.matchDestination(options.destination);
     const sameRequester =
       entry.client === options.client && entry.task === options.task;
@@ -348,7 +348,7 @@ export class SecretBroker {
     if (options.stepUp !== true || options.warningAcknowledged !== true)
       throw refusal("raw handoff needs step-up and an acknowledged warning");
     const entry = this.byRef.get(ref);
-    if (!entry || entry.state !== "provided") throw refusal(NOT_USABLE);
+    if (entry?.state !== "provided") throw refusal(NOT_USABLE);
     if (entry.client !== options.client) throw refusal(MISMATCH_CLIENT);
     if (entry.admin) throw refusal("raw handoff is refused for admin requests");
     if (entry.fields.some((field) => field.kind === "ssh-key"))

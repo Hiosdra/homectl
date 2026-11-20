@@ -16,10 +16,11 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { HomectlError } from "./types";
 
 // Public keys (32-byte Ed25519, hex) this build accepts as release signers.
-// No key is embedded yet: the signing key is generated and held by the owner, and only its
-// public half is added here. Until then this build refuses every automatic update, which
-// is the intended fail-closed behaviour.
-export const RELEASE_SIGNING_KEYS: readonly string[] = [];
+// The signing key is generated and held by the owner; only its public half is listed here.
+export const RELEASE_SIGNING_KEYS: readonly string[] = [
+  // ed25519-b85e16245fca0f43, owner key created 2026-11-20 (homelab #21 U2)
+  "dc36c91a9820e210a01cd2bda4ceea2e33f629f605fb7c219bdcd1cfc7c2d058",
+];
 
 // keyIds (see keyIdOf) that must no longer be accepted, even if still listed above.
 export const REVOKED_RELEASE_KEY_IDS: readonly string[] = [];

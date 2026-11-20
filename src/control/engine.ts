@@ -1631,8 +1631,7 @@ export class ControlPlane {
       const approval = approvalRequired ? op.approval : undefined;
       if (
         approvalRequired &&
-        (!approval ||
-          approval.state !== "active" ||
+        (approval?.state !== "active" ||
           state.consumedNonces.includes(approval.nonce))
       )
         throw new HomectlError(3, "Approval was already used");
@@ -1814,7 +1813,7 @@ export class ControlPlane {
       const op = Object.hasOwn(state.operations, operationId)
         ? state.operations[operationId]
         : undefined;
-      if (!op || op.state !== "executing")
+      if (op?.state !== "executing")
         throw new HomectlError(
           5,
           "Operation changed during execution; inspect the audit journal",

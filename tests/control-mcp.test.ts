@@ -77,6 +77,8 @@ async function fixture(
 }
 
 let nextId = 1;
+const rpcResult = <T>(r: { json?: { result?: unknown } }) =>
+  r.json?.result as T;
 async function rpc(
   f: Fixture,
   token: string | undefined,
@@ -285,9 +287,9 @@ describe("MCP methods", () => {
         clientInfo: { name: "t", version: "1" },
       },
     });
-    expect(
-      (older.json?.result as { protocolVersion: string }).protocolVersion,
-    ).toBe("2025-03-26");
+    expect(rpcResult<{ protocolVersion: string }>(older).protocolVersion).toBe(
+      "2025-03-26",
+    );
     const unknown = await rpc(f, token, {
       jsonrpc: "2.0",
       id: 2,
@@ -317,8 +319,8 @@ describe("MCP methods", () => {
       method: "tools/list",
     });
     const names = (r: typeof codex) =>
-      (r.json?.result as { tools: { name: string }[] }).tools
-        .map((t) => t.name)
+      rpcResult<{ tools: { name: string }[] }>(r)
+        .tools.map((t) => t.name)
         .sort();
     // The typed Proxmox plan tool carries plan:create, like homectl_plan.
     expect(names(codex)).toEqual([
@@ -343,11 +345,9 @@ describe("MCP methods", () => {
       id: 1,
       method: "tools/list",
     });
-    const tools = (
-      response.json?.result as {
-        tools: { name: string; inputSchema: Record<string, unknown> }[];
-      }
-    ).tools;
+    const tools = rpcResult<{
+      tools: { name: string; inputSchema: Record<string, unknown> }[];
+    }>(response).tools;
     for (const tool of tools) {
       expect(JSON.stringify(tool.inputSchema)).not.toContain("$ref");
       expect(tool.inputSchema.additionalProperties).toBe(false);
@@ -511,7 +511,7 @@ describe("tool calls through the engine", () => {
       "homectl_inspect",
       {},
     );
-    expect((all.structuredContent?.hosts as unknown[]).length).toBe(1);
+    expect(all.structuredContent?.hosts).toHaveLength(1);
     expect(f.calls).toHaveLength(0);
   });
 
