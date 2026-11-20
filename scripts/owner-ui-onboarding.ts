@@ -65,17 +65,19 @@ export function startStubProvider(): { base: string; stop: () => void } {
 }
 
 // Saves light and dark screenshots of the current view when a folder is set.
-async function shots(page: Page, name: string) {
+// `atTop` is false when the caller has scrolled to the part it wants to show.
+async function shots(page: Page, name: string, atTop = true) {
   const dir = process.env.HOMECTL_UI_SHOTS;
   if (!dir) return;
-  // The sheet scrolls inside itself; the capture starts at its top, and finished
-  // animations are waited for so the sheet is not caught half-open.
-  await page
-    .locator(".dialog-backdrop > div")
-    .first()
-    .evaluate((panel) => {
-      panel.scrollTop = 0;
-    });
+  // The sheet scrolls inside itself; by default the capture starts at its top,
+  // and finished animations are waited for so the sheet is not caught half-open.
+  if (atTop)
+    await page
+      .locator(".dialog-backdrop > div")
+      .first()
+      .evaluate((panel) => {
+        panel.scrollTop = 0;
+      });
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await page.screenshot({
@@ -152,10 +154,10 @@ async function desktopFlow(
     await dialog.getByRole("radio", { name: "Custom" }).click();
     await dialog.getByLabel("Base URL").fill("http://127.0.0.1:9/v1");
     await dialog.getByRole("button", { name: "Refresh list" }).click();
-    await expect(
-      dialog.getByText(/Could not reach 127\.0\.0\.1:9/),
-    ).toBeVisible();
-    await shots(page, "desktop-custom-error");
+    const plainError = dialog.getByText(/Could not reach 127\.0\.0\.1:9/);
+    await expect(plainError).toBeVisible();
+    await plainError.scrollIntoViewIfNeeded();
+    await shots(page, "desktop-custom-error", false);
 
     // The stub provider: the list loads, then the free filter, then All again.
     await dialog.getByLabel("Base URL").fill(stubBase);
