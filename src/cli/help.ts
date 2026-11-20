@@ -336,7 +336,7 @@ pages.serve = {
         ["--peer-port PORT", "Peer protocol port, default 7448."],
         [
           "--container",
-          "Container mode for the containerized peer: needs an explicit --interface, runs startup recovery, serves /healthz, stops cleanly on SIGTERM, and turns discovery off. See docs/homectl-2.0/container-peer.md.",
+          "Container mode for the containerized peer: needs an explicit --interface, runs startup recovery, serves /healthz, stops cleanly on SIGTERM, and turns discovery off. See docs/setup.md (Docker and NAS containers).",
         ],
         [
           "--panel-interface IP",

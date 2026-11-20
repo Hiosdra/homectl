@@ -54,6 +54,8 @@ export async function daemonCommand(
           ? join(paths.state, "workspace", "inventory.yaml")
           : options.inventoryPath;
       const { startDaemon } = await import("../broker/daemon");
+      const { workspaceFromEnv } = await import("../workspace/wiring");
+      const workspace = workspaceFromEnv();
       const daemon = await startDaemon({
         mode,
         ...paths,
@@ -62,6 +64,7 @@ export async function daemonCommand(
           mode === "hardened"
             ? join(dirname(inventoryPath), "ssh_config")
             : options.sshConfigPath,
+        ...(workspace ? { workspace } : {}),
         ...(process.env.HOMECTL_PANEL_ORIGIN
           ? { panelOrigin: process.env.HOMECTL_PANEL_ORIGIN }
           : {}),

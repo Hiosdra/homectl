@@ -1,10 +1,10 @@
 # Workspace (optional server mode)
 
-A **workspace** is an optional way to connect several homectl brokers. One broker acts as the **server**, and other brokers join it as **clients**. The server shows what each client is doing, queues your approval decisions for clients to apply, and keeps encrypted backups it cannot read.
+A **workspace** is an optional way to connect several homectl brokers. One broker acts as the **server**, and other brokers join it as **clients**. The server shows what each client is doing, queues your approval decisions for clients to apply, and keeps their encrypted backups. The server holds the custody key for those backups, so it **can** decrypt them when you authorise a restore (see [backup custody](security.md#backup-custody)).
 
 Clients work without a server. Nothing you do locally depends on the link being up.
 
-<!-- verify: the workspace commands are being implemented on this branch (src/cli/workspace-commands.ts, src/workspace/*). Every behaviour marked verify below is not yet confirmed by tests or a live run. -->
+Behaviour below is covered by in-process tests (`tests/workspace-*.test.ts`). A live run between two machines is part of the release gate and is not claimed here.
 
 ## Contents
 
@@ -36,24 +36,29 @@ Both sides keep these files in the broker's private state directory, written ato
 
 ## Pair a client
 
-Pairing uses a one-time code and a verification phrase. Start on the server:
+Turn a broker into the server by starting it with a listener for clients:
+
+```sh
+HOMECTL_WORKSPACE_LISTEN=0.0.0.0:7450 home-ctl daemon run
+```
+
+That listener serves only the pairing and sync endpoints, and every message after pairing is sealed. Without the variable a broker is a client only. Pairing uses a one-time code. Start on the server:
 
 ```sh
 home-ctl workspace invite
 ```
 
-It prints a code that is valid for **5 minutes**. Then, on the client:
+It prints a code that is valid for **5 minutes** and good for one attempt; a wrong code closes the invite. Then, on the client:
 
 ```sh
 home-ctl workspace join <server-address> <code> [--remote-approval]
 ```
 
-Both devices show a **verification phrase**. Check that the two phrases match before you rely on the link. A code that expires needs a new `invite`.
+The code itself authenticates both sides (SRP), so a device that does not know it cannot pair or impersonate the server. `join` also prints a **verification phrase** you can compare with the server for extra assurance. A code that expires needs a new `invite`.
 
-`--remote-approval` records that this client accepts approval decisions made on the server. The server shows the setting per client in `workspace clients`. <!-- verify: that a client without the flag refuses server decisions, and how the setting is changed after joining, are not confirmed in code. -->
+`--remote-approval` lets the server's owner approve or deny this client's ordinary operations. Without it the client refuses every server decision and reports why. To change it, `workspace leave` and join again. Operations that need **step-up** are never approved remotely: approve them on the client itself.
 
-> **Treat the backup key as a secret.** `workspace join` prints the client's backup key in its output, and that key decrypts this client's backups. Do not paste the output into chat, and keep it out of shared terminal logs.
-> <!-- verify: the join output includes the backup key in plain text (src/cli/workspace-commands.ts); consider whether it should be shown once or stored instead. -->
+During `join` the client sends its backup key to the server, which stores it wrapped under its custody key. The output shows only whether that registration succeeded, never the key.
 
 Channel protection: every request from a client to the server is two round trips. The server first answers a challenge with an HMAC proof under the link key, which shows the client that it is talking to its server. The client then sends one request sealed under a key derived from a fresh X25519 exchange and the link key. Each challenge is used once and expires after 30 seconds, so a captured request cannot be replayed. The context string `workspace-v1` keeps workspace keys apart from the 0.2 peer protocol.
 
@@ -68,13 +73,13 @@ Run these on the broker's machine. Each one asks the local broker, which holds t
 | `workspace status` | Show this broker's workspace state as JSON. |
 | `workspace clients` | List linked clients, with `(stale)` for any not seen in the last 60 seconds, remote-approval on or off, and the number of pending operations. |
 | `workspace pending` | List operations that linked clients are waiting on. |
-| `workspace decide <client> <operationId> <fingerprint> approve\|deny` | On a server: queue a one-time approve or deny for one client's operation. The fingerprint must match the one from `pending`. Requires your owner password. |
+| `workspace decide <client> <operationId> <fingerprint> approve\|deny` | On a server: queue a one-time approve or deny for one client's operation. The fingerprint must match the one from `pending`. The client must have joined with `--remote-approval`; step-up operations are refused. |
 | `workspace remove <client>` | On a server: unlink a client. It is remembered as removed. |
 | `workspace leave` | On a client: unlink from the server. |
-| `workspace sync-now` | Run a sync with the server now. |
-| `workspace backup-now` | Run a backup now. |
+| `workspace sync-now` | Run a sync with the server now and wait for it. |
+| `workspace backup-now` | Run a backup now and wait for it; prints the new sequence number and how many chunks were uploaded or reused. |
 
-<!-- verify: the exact output of sync-now and backup-now, and whether either runs immediately or only queues work, is not documented in code yet. -->
+A linked client also syncs every 5 seconds and backs up every 15 minutes on its own.
 
 Workspace decisions are one-time only: `approve-once` and `deny-once`. Remembering a rule (`--remember`) is local to each client's own policy and is not sent through the workspace.
 
@@ -84,9 +89,9 @@ Workspace decisions are one-time only: `approve-once` and `deny-once`. Rememberi
 
 A decision you make on the server goes through these states: `queued`, then `delivered` to the client, then `applied` or `refused`. The client applies it only if the fingerprint still matches and its own policy agrees. A decision that is not finished within 120 seconds expires. Expired decisions do not apply, and you decide again.
 
-<!-- verify: whether intents are delivered only to clients with remote approval on, and whether a client enforces step-up for intents marked stepUp, are not confirmed in code. -->
+The server refuses to queue a decision for a client that has not opted in to remote approval, and the client refuses one again if it arrives anyway. A decision is applied at most once: the client records each decision id before acting on it.
 
-**Events.** A client pushes its most recent events to the server in sequence. The server stores them in order, skips duplicates and reports a gap if a sequence number is missing. The event types are:
+**Events.** A client pushes its most recent events to the server in sequence. The server stores them in order and skips duplicates. If the client's own log was pruned before events were mirrored, the client says so, the server counts the gap (shown as `mirror.gaps` in `workspace clients`), and mirroring continues from the oldest retained event. The event types are:
 
 `approval.requested`, `approval.decided`, `operation.updated`, `task.updated`, `secret.requested`, `secret.resolved`, `backup.updated`, `settings.updated`, `device.updated`, `vault.locked`, `vault.unlocked`.
 
@@ -95,9 +100,7 @@ The server keeps the most recent 500 events per client.
 ## Offline behaviour
 
 - **A client keeps working alone.** Its own broker, vault, policy and approvals do not wait for the server. Without a link, the workspace client loop does not start.
-  <!-- verify: confirm the standalone behaviour with a live server that is switched off. -->
 - **The server marks an unreachable client as stale** when it has not been seen for 60 seconds. Its mirrored data is then labelled stale in `workspace clients`.
-  <!-- verify: whether the panel marks all mirrored data as stale, not just the client row. -->
 - **Decisions expire.** A decision queued for an offline client expires after 120 seconds. Queue it again when the client is back.
 
 ## Incremental encrypted backups
@@ -123,7 +126,7 @@ Each client backs up its own scoped state, in encrypted, incremental snapshots.
 
 **Status.** The panel reads only manifest headers, so it can show backup status without any key.
 
-<!-- verify: src/backup/ implements all of the above as a library, but no CLI command or broker route calls it yet, so these rules are not yet exercised end to end. -->
+The client backs up `inventory.yaml`, `known_hosts` and the policy file. Tests cover upload, chunk reuse, a refused foreign client id, and that no plaintext reaches the server's store.
 
 ## Restore
 

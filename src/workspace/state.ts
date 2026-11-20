@@ -53,7 +53,9 @@ export interface LinkedClient {
   remoteApproval?: boolean;
   vaultUnlocked?: boolean;
   wrappedBackupKey?: string;
-  mirror: { lastSeq: number; events: EventEnvelope[] };
+  // gaps counts sequence jumps the client declared (its events were pruned
+  // before they were mirrored, or the server copy was lost).
+  mirror: { lastSeq: number; events: EventEnvelope[]; gaps?: number };
   pending: PendingSummary[];
   intents: Intent[];
 }
@@ -177,7 +179,15 @@ export type ClientLinkFile = ReturnType<typeof clientLinkFile>;
 export function ingestEvents(
   mirror: LinkedClient["mirror"],
   events: EventEnvelope[],
+  // The client's cursor: the last seq it believes is mirrored. A cursor ahead
+  // of the mirror is a declared gap; the mirror continues from it rather than
+  // refusing every later event.
+  after?: number,
 ): { lastSeq: number; gap: boolean } {
+  if (after !== undefined && after > mirror.lastSeq) {
+    if (mirror.lastSeq !== 0 || after > 0) mirror.gaps = (mirror.gaps ?? 0) + 1;
+    mirror.lastSeq = after;
+  }
   for (const event of events) {
     if (event.seq <= mirror.lastSeq) continue;
     if (mirror.lastSeq !== 0 && event.seq !== mirror.lastSeq + 1)

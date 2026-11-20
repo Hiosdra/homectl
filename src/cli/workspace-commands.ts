@@ -68,7 +68,7 @@ export async function workspaceCommand(
       });
       emit(
         result,
-        `Linked to ${result.server.name}. Verification phrase: ${result.sas}. Remote approval: ${options.remoteApproval ? "on" : "off"}. Backup key: ${result.backupKey}.`,
+        `Linked to ${result.server.name}. Verification phrase: ${result.sas}. Remote approval: ${options.remoteApproval ? "on" : "off"}. Backup key registration with the server: ${result.backupKey}.`,
       );
       return 0;
     }

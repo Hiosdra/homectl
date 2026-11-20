@@ -157,3 +157,21 @@ function reply(body: unknown, status: number): Response {
     },
   });
 }
+
+// HOMECTL_WORKSPACE_LISTEN="host:port" turns this broker into the workspace
+// server and opens the pairing/sync listener there. Unset: client only.
+export function workspaceFromEnv(
+  value = process.env.HOMECTL_WORKSPACE_LISTEN,
+): WorkspaceConfig | undefined {
+  if (!value) return undefined;
+  const match = /^(\[[0-9a-fA-F:]+\]|[A-Za-z0-9.-]+):(\d{1,5})$/.exec(value);
+  const port = Number(match?.[2]);
+  if (!match?.[1] || !Number.isInteger(port) || port < 1 || port > 65535)
+    throw new HomectlError(
+      2,
+      "HOMECTL_WORKSPACE_LISTEN must be host:port, e.g. 0.0.0.0:7450",
+    );
+  return {
+    server: { listen: { hostname: match[1].replace(/^\[|\]$/g, ""), port } },
+  };
+}

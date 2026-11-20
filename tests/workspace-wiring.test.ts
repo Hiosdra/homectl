@@ -5,7 +5,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WorkspaceServer } from "../src/workspace/server";
-import { backupFiles, workspaceFetch } from "../src/workspace/wiring";
+import {
+  backupFiles,
+  workspaceFetch,
+  workspaceFromEnv,
+} from "../src/workspace/wiring";
 
 let dir: string;
 let server: WorkspaceServer;
@@ -93,4 +97,16 @@ test("backup files are the inventory, known_hosts and policy, and missing ones a
     "known_hosts",
   ]);
   expect(new TextDecoder().decode(files[0]?.data)).toContain("machines");
+});
+
+test("HOMECTL_WORKSPACE_LISTEN selects server mode only with a valid host:port", () => {
+  expect(workspaceFromEnv(undefined)).toBeUndefined();
+  expect(workspaceFromEnv("0.0.0.0:7450")).toEqual({
+    server: { listen: { hostname: "0.0.0.0", port: 7450 } },
+  });
+  expect(workspaceFromEnv("[::1]:7450")).toEqual({
+    server: { listen: { hostname: "::1", port: 7450 } },
+  });
+  for (const bad of ["7450", "host:0", "host:70000", "http://h:1", "h:1/x"])
+    expect(() => workspaceFromEnv(bad)).toThrow("host:port");
 });

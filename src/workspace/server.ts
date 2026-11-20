@@ -257,7 +257,11 @@ export class WorkspaceServer implements RouteExtension {
       current.remoteApproval = request.status.remoteApproval;
       current.vaultUnlocked = request.status.vaultUnlocked;
       current.pending = request.pending;
-      const ingest = ingestEvents(current.mirror, request.events);
+      const ingest = ingestEvents(
+        current.mirror,
+        request.events,
+        request.after,
+      );
       applyResults(current, request.intentResults);
       expireIntents(current, now);
       if (ingest.gap) return { ack: ingest.lastSeq, gap: true };
@@ -358,6 +362,10 @@ export class WorkspaceServer implements RouteExtension {
         remoteApproval: client.remoteApproval === true,
         vaultUnlocked: client.vaultUnlocked === true,
         pending: client.pending.length,
+        mirror: {
+          lastSeq: client.mirror.lastSeq,
+          gaps: client.mirror.gaps ?? 0,
+        },
         backup: await backupStatus(this.store, backupClientId(id)),
       });
     return out;
@@ -411,19 +419,21 @@ export class WorkspaceServer implements RouteExtension {
         3,
         "That operation is not waiting for approval with this fingerprint",
       );
-    const passwordGiven = input.password !== undefined;
-    if (passwordGiven) await stepUp(input.password);
-    if (decision === "approve-once" && op.stepUp && !passwordGiven)
+    // Step-up is proof of the owner's presence on the origin device. A
+    // server's own re-authentication does not stand in for it.
+    if (decision === "approve-once" && op.stepUp)
       throw new HomectlError(
         3,
-        "This approval needs you to confirm your identity again",
+        "This operation needs step-up; approve it on its own device",
       );
+    const passwordGiven = input.password !== undefined;
+    if (passwordGiven) await stepUp(input.password);
     const intent: Intent = {
       id: randomUUID(),
       operationId,
       fingerprint,
       decision,
-      stepUp: passwordGiven,
+      stepUp: false,
       createdAt: now,
       expiresAt: Math.min(now + INTENT_MS, op.expiresAt),
       status: "queued",

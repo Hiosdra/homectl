@@ -32,6 +32,8 @@ export interface ServerIntent {
 }
 
 export interface SyncRequest {
+  // The client's acknowledged cursor (see ingestEvents).
+  after?: number;
   events: EventEnvelope[];
   pending: PendingSummary[];
   intentResults: IntentResult[];
@@ -188,6 +190,9 @@ export function parseStatus(value: unknown): SyncRequest["status"] {
 export function parseSync(value: unknown): SyncRequest {
   const body = record(value, "sync");
   return {
+    ...(body.after === undefined
+      ? {}
+      : { after: integer(body.after, "after") }),
     events: parseEvents(body.events),
     pending: parsePending(body.pending),
     intentResults: parseResults(body.intentResults),

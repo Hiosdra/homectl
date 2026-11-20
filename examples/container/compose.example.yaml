@@ -6,7 +6,7 @@
 #   HOMECTL_LAN_IP=<the NAS LAN address> docker compose up -d --build
 #
 # The panel is not published. Pair and control through docker exec, see
-# docs/homectl-2.0/container-peer.md.
+# docs/setup.md (Docker and NAS containers).
 name: homectl
 
 services:

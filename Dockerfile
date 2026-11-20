@@ -1,4 +1,4 @@
-# Containerized homectl peer (docs/homectl-2.0/container-peer.md).
+# Containerized homectl peer (docs/setup.md (Docker and NAS containers)).
 #
 # BUN_IMAGE has no default on purpose. Pass a digest-pinned reference from a
 # registry you trust, for example:

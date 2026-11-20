@@ -273,6 +273,7 @@ export class WorkspaceClient implements RouteExtension {
         peerOf(server),
         "sync",
         {
+          after: batch.after,
           events: batch.events,
           pending,
           intentResults: sent,
@@ -301,14 +302,19 @@ export class WorkspaceClient implements RouteExtension {
   // were mirrored) is sent as nothing and noted, never silently skipped.
   private async nextBatch(
     acked: number,
-  ): Promise<{ events: EventEnvelope[]; note?: string }> {
+  ): Promise<{ after: number; events: EventEnvelope[]; note?: string }> {
     const since = await this.deps.events.since(acked);
-    if (!isGap(since)) return { events: takeBatch(since) };
+    if (!isGap(since)) return { after: acked, events: takeBatch(since) };
+    // Continue from the oldest retained event; the cursor jump tells the
+    // server where its copy has a hole.
+    const after = Math.max(0, since.firstRetainedSeq - 1);
     await this.file.update((next) => {
-      next.eventsAcked = Math.max(0, since.firstRetainedSeq - 1);
+      next.eventsAcked = after;
     });
+    const retained = await this.deps.events.since(after);
     return {
-      events: [],
+      after,
+      events: isGap(retained) ? [] : takeBatch(retained),
       note: "Local events were pruned before they were mirrored; the server copy has a gap",
     };
   }
@@ -352,7 +358,8 @@ export class WorkspaceClient implements RouteExtension {
         fingerprint: intent.fingerprint,
         decision: intent.decision,
         surface: `workspace-server:${server.id}`,
-        stepUp: intent.stepUp,
+        // A server's re-authentication never satisfies local step-up.
+        stepUp: false,
       });
       return { status: "applied" };
     } catch (error) {

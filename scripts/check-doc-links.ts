@@ -76,8 +76,9 @@ export function checkFile(relative: string, text: string): Problem[] {
       if (EXTERNAL.test(target)) continue;
       const hash = target.indexOf("#");
       const rawPath = hash < 0 ? target : target.slice(0, hash);
-      const anchor =
-        hash < 0 ? undefined : safeDecode(target.slice(hash + 1)).toLowerCase();
+      const decodedAnchor =
+        hash < 0 ? undefined : safeDecode(target.slice(hash + 1));
+      const anchor = decodedAnchor?.toLowerCase() ?? decodedAnchor;
       const pathPart = safeDecode(rawPath);
       const fail = (reason: string) =>
         problems.push({ file: relative, line, target, reason });

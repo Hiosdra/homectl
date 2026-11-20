@@ -67,16 +67,26 @@ test("events are mirrored in order and the client's position is acknowledged", a
   expect(again.map((item) => item.seq)).toEqual([3, 4]);
 });
 
-test("a local event gap is noted on the client and never silently skipped", async () => {
+test("a local event gap is declared, counted on the server, and mirroring continues", async () => {
   await link(h);
+  const id = await clientId(h);
   h.events.push(event(1), event(2), event(3));
   await h.client.syncOnce();
   h.gapFrom = 10;
   await h.client.syncOnce();
   const linkState = await h.clientLink();
-  // The server still holds 1..3, so its acknowledgement wins.
-  expect(linkState.eventsAcked).toBe(3);
+  // The client continues after the oldest retained event; the server follows.
+  expect(linkState.eventsAcked).toBe(9);
   expect(linkState.lastSyncError).toContain("pruned");
+  const clients = (await h.server.owner(
+    "/v1/owner/workspace/clients",
+    {},
+    stepUp,
+  )) as { id: string; mirror: { lastSeq: number; gaps: number } }[];
+  expect(clients.find((c) => c.id === id)?.mirror).toEqual({
+    lastSeq: 9,
+    gaps: 1,
+  });
 });
 
 test("pending operations appear on the server, tagged with their origin", async () => {
@@ -111,7 +121,18 @@ test("the owner's decision is queued on the server", async () => {
   await h.client.syncOnce();
   const intent = await queue(id, "op-1", "fp-1");
   expect(intent.status).toBe("queued");
-  expect(intent.stepUp).toBe(true);
+  // A server's re-authentication never stands in for the origin's step-up.
+  expect(intent.stepUp).toBe(false);
+});
+
+test("an operation that needs step-up cannot be approved from the server", async () => {
+  await link(h, true);
+  const id = await clientId(h);
+  h.ops.push(op({ id: "op-s", fingerprint: "fp-s", stepUp: true }));
+  await h.client.syncOnce();
+  await expect(queue(id, "op-s", "fp-s")).rejects.toThrow(
+    "approve it on its own device",
+  );
 });
 
 test("a client with remote approval applies the decision through its engine", async () => {
@@ -128,7 +149,7 @@ test("a client with remote approval applies the decision through its engine", as
       fingerprint: "fp-1",
       decision: "approve-once",
       surface: `workspace-server:${sid}`,
-      stepUp: true,
+      stepUp: false,
     },
   ]);
   // The second round of that sync reported the outcome back.

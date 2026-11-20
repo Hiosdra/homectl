@@ -219,7 +219,7 @@ Backups are encrypted on the client before upload. The server stores ciphertext,
 
 Server custody and the cryptography are described in [workspace](workspace.md#incremental-encrypted-backups).
 
-<!-- verify: src/backup/ implements these rules, but no CLI command or broker route calls them yet; the backup-now and restore commands are part of the workspace work in progress. -->
+Workspace clients run these backups (see [workspace](workspace.md#incremental-encrypted-backups)). Restore of a reset client is not implemented yet.
 
 ## Residual risks
 

@@ -57,7 +57,7 @@ export type ServeOptions = {
   // a test can hold a round in flight.
   syncIntervalMs?: number;
   syncRound?: () => Promise<unknown>;
-  // Container mode (docs/homectl-2.0/container-peer.md). "recovered" means the
+  // Container mode (docs/setup.md (Docker and NAS containers)). "recovered" means the
   // startup checks repaired or flagged something, so health reports degraded.
   container?: { recovered: boolean };
   // An optional, authenticated reverse-proxy listener for the existing panel.
