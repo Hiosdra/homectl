@@ -93,7 +93,7 @@ function view(
 
 function defaultCopy(): string[] {
   return [
-    ...PRESETS.flatMap((preset) => [preset.label, preset.hint]),
+    ...PRESETS.flatMap((preset) => [preset.label, preset.detail]),
     ...(["manual", "rules", "auto"] as const).flatMap((mode) => [
       modeLabel(mode),
       modeHint(mode),
@@ -131,8 +131,8 @@ describe("the default view has no technical words", () => {
   test("the preset names read as everyday choices", () => {
     expect(PRESETS.map((preset) => preset.label)).toEqual([
       "Ask me first",
-      "Small fixes on their own",
-      "Let the AI helper decide more (advanced)",
+      "AI helps with small fixes",
+      "AI decides more",
     ]);
     expect(presetLabel(undefined)).toBe("Custom");
   });

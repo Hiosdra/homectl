@@ -3,7 +3,7 @@
 // Details and "Why?". Reads change nothing. Changing the setting, or removing a
 // rule, needs the owner password again, because each changes what assistants may
 // do.
-import { Fragment, useEffect, useId, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   type ClientView,
   describeError,
@@ -13,9 +13,9 @@ import {
 } from "./api";
 import { AutoModeSection } from "./auto-mode";
 import { readAutoMode } from "./auto-mode-api";
+import { ModeChooser } from "./permissions-choice";
 import {
   effectLabel,
-  PRESETS,
   type PresetId,
   presetLabel,
   RISK_LEVELS,
@@ -23,7 +23,7 @@ import {
 } from "./permissions-copy";
 import { ruleCovers, ruleFacts, ruleOwner } from "./policy-sentences";
 import { CheckRules, namesOf, WhoCanDo } from "./policy-who";
-import { Badge, Dialog, Field, fmtTime, Notice, PasswordStep } from "./ui";
+import { Badge, Dialog, fmtTime, Notice, PasswordStep } from "./ui";
 
 export function PolicyScreen({
   onError,
@@ -38,6 +38,8 @@ export function PolicyScreen({
   const [busy, setBusy] = useState(false);
   const [removing, setRemoving] = useState<PolicyRule | undefined>();
   const [password, setPassword] = useState("");
+  // The choice the owner is making on this visit; undefined means the saved one.
+  const [choice, setChoice] = useState<PresetId | undefined>();
 
   const load = async () => {
     try {
@@ -91,6 +93,14 @@ export function PolicyScreen({
     );
 
   const names = namesOf(clients);
+  // The saved setting, and the choice on screen (a pending one, else the saved one).
+  // The AI helper section shows only for the AI choices, or for a custom setting.
+  const savedChoice = presetOf(policy);
+  const shownChoice = choice ?? savedChoice;
+  const aiVisible =
+    shownChoice === "routine" ||
+    shownChoice === "delegated" ||
+    savedChoice === undefined;
 
   return (
     <>
@@ -110,6 +120,26 @@ export function PolicyScreen({
           policy={policy}
           clients={clients}
           reviewerReady={reviewerReady}
+        />
+      </section>
+
+      <section aria-labelledby="choice-title">
+        <h3 id="choice-title">How much should homectl decide?</h3>
+        <ModeChooser
+          currentId={savedChoice}
+          choice={choice}
+          onChoice={setChoice}
+          password={password}
+          onPassword={setPassword}
+          busy={busy}
+          onApply={(preset) => {
+            setChoice(undefined);
+            void change(
+              "/v1/owner/policy/preset",
+              { preset },
+              `Changed to "${presetLabel(preset)}".`,
+            );
+          }}
         />
       </section>
 
@@ -142,20 +172,6 @@ export function PolicyScreen({
             before it goes on.
           </li>
         </ul>
-        <h4>How much should homectl decide for you?</h4>
-        <PresetChooser
-          currentId={presetOf(policy)}
-          password={password}
-          onPassword={setPassword}
-          busy={busy}
-          onApply={(preset) =>
-            change(
-              "/v1/owner/policy/preset",
-              { preset },
-              `Changed to "${presetLabel(preset)}".`,
-            )
-          }
-        />
       </section>
 
       <section aria-labelledby="rules-title">
@@ -222,14 +238,18 @@ export function PolicyScreen({
                 </td>
                 <td className="hide-sm small">{ruleOwner(rule)}</td>
                 <td>
-                  <button
-                    type="button"
-                    className="danger"
-                    disabled={busy}
-                    onClick={() => setRemoving(rule)}
-                  >
-                    Remove…
-                  </button>
+                  {rule.id.startsWith("default-") ? (
+                    <span className="small muted">Built in. Stays.</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="danger"
+                      disabled={busy}
+                      onClick={() => setRemoving(rule)}
+                    >
+                      Remove rule…
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -243,7 +263,14 @@ export function PolicyScreen({
         ) : null}
       </section>
 
-      <AutoModeSection onError={onError} onSaved={load} />
+      {aiVisible ? (
+        <AutoModeSection
+          key={policy.revision}
+          onError={onError}
+          onSaved={load}
+          custom={savedChoice === undefined}
+        />
+      ) : null}
 
       <section aria-labelledby="details-title">
         <details className="details">
@@ -370,79 +397,4 @@ function presetOf(policy: PolicyDocument): PresetId | undefined {
   if (policy.mode === "rules" && policy.reviewer.authority === "recommend")
     return "conservative";
   return undefined;
-}
-
-function PresetChooser({
-  currentId,
-  password,
-  onPassword,
-  busy,
-  onApply,
-}: {
-  currentId: PresetId | undefined;
-  password: string;
-  onPassword: (value: string) => void;
-  busy: boolean;
-  onApply: (preset: PresetId) => void;
-}) {
-  const [choice, setChoice] = useState<PresetId | undefined>();
-  const baseId = useId();
-  const target = choice ?? currentId;
-  const hint = PRESETS.find((preset) => preset.id === target)?.hint;
-  return (
-    <form
-      className="stack"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (target && target !== currentId) onApply(target);
-      }}
-    >
-      <p className="small">
-        Current setting:{" "}
-        <strong>
-          {currentId === undefined
-            ? "Custom (set under Let an AI helper decide)"
-            : presetLabel(currentId)}
-        </strong>
-      </p>
-      <Field id={`${baseId}-preset`} label="Choose a setting">
-        <select
-          id={`${baseId}-preset`}
-          value={target ?? ""}
-          onChange={(event) =>
-            setChoice((event.target.value || undefined) as PresetId | undefined)
-          }
-        >
-          {currentId === undefined ? (
-            <option value="">Custom (set under Let an AI helper decide)</option>
-          ) : null}
-          {PRESETS.map((preset) => (
-            <option key={preset.id} value={preset.id}>
-              {preset.label}
-            </option>
-          ))}
-        </select>
-      </Field>
-      {hint ? <p className="small muted">{hint}</p> : null}
-      {target && target !== currentId ? (
-        <>
-          <p className="small muted">
-            Changing this needs your owner password.
-          </p>
-          <PasswordStep
-            value={password}
-            onChange={onPassword}
-            hint="required to change"
-          />
-          <button
-            type="submit"
-            className="primary"
-            disabled={busy || !password}
-          >
-            Change setting
-          </button>
-        </>
-      ) : null}
-    </form>
-  );
 }

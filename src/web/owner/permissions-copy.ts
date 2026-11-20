@@ -7,21 +7,26 @@ import type { AutoModeName, ReviewerAuthority } from "./auto-mode-api";
 
 export type PresetId = "conservative" | "routine" | "delegated";
 
-export const PRESETS: { id: PresetId; label: string; hint: string }[] = [
+// The three choices the owner sees, each with its consequence in one line. The
+// labels are the words on the cards; the presets are the broker's own settings.
+export const PRESETS: { id: PresetId; label: string; detail: string }[] = [
   {
     id: "conservative",
     label: "Ask me first",
-    hint: "Only your saved rules, and looking around, run without asking. The AI helper is not used.",
+    detail:
+      "Only your saved rules decide. Everything else waits for you. The AI helper is not used.",
   },
   {
     id: "routine",
-    label: "Small fixes on their own",
-    hint: "Like Ask me first, but the AI helper may approve small, undoable fixes. This works once you turn the AI helper on under Advanced.",
+    label: "AI helps with small fixes",
+    detail:
+      "The AI helper may approve small, undoable fixes. Anything bigger still waits for you.",
   },
   {
     id: "delegated",
-    label: "Let the AI helper decide more (advanced)",
-    hint: "The AI helper decides requests it judges safe, up to small, undoable changes. Big or risky changes still ask you.",
+    label: "AI decides more",
+    detail:
+      "The AI helper decides more requests, up to small, undoable changes. Big or risky changes still wait for you.",
   },
 ];
 

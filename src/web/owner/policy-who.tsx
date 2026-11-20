@@ -84,8 +84,8 @@ export function WhoCanDo({
   if (activeClients(clients).length === 0)
     return (
       <p className="muted">
-        No assistants are set up yet. Add one on the Agents page, and it will
-        appear here.
+        No assistants are set up yet. Add one on the Assistants page, and it
+        will appear here.
       </p>
     );
   if (rows === undefined) return <p className="muted">Checking…</p>;
