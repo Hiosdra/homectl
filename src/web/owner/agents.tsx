@@ -1,19 +1,22 @@
-// Agents (clients) that may call the broker. A token is shown once, when it is
-// created or rotated; it is kept only in this component's state and dropped
-// when the owner dismisses it or leaves the screen.
-import { type FormEvent, useEffect, useId, useState } from "react";
+// Assistants (the broker's clients): what each one may do, on which machines, and
+// the owner's three changes: a new key, removing access, and adding one. A key is
+// shown once, when it is created or replaced; it is kept only in this component's
+// state and dropped when the owner dismisses it or leaves the screen.
+import { useEffect, useState } from "react";
 import { type ClientView, describeError, ownerCall } from "./api";
+import { AddAssistant, type Issued, NewKey } from "./agent-form";
+import { displayName } from "./plain-words";
 import { relativeTime, toEpoch } from "./time";
-import { Badge, Dialog, Field, Notice, PasswordStep, fmtTime } from "./ui";
+import { Badge, Dialog, Notice, PasswordStep } from "./ui";
 
-interface Issued {
-  client: ClientView;
-  token: string;
-}
-
-export function setupCommand(kind: string, hosts: string[]): string {
-  const list = hosts.length > 0 ? hosts.join(",") : "<host>";
-  return `home-ctl agent connect ${kind} --hosts ${list}`;
+// What an assistant may do, in one plain sentence, from the scopes the broker
+// stores. The scope names stay under Details; the owner reads the sentence.
+export function assistantSentence(scopes: string[]): string {
+  if (scopes.includes("plan:create"))
+    return "It can ask you to approve changes on its machines. Each one waits for you.";
+  if (scopes.includes("inspect:read") || scopes.includes("status:read"))
+    return "It can only look around on its machines. It cannot change anything.";
+  return "It has no permissions yet.";
 }
 
 export function AgentsScreen({
@@ -37,7 +40,7 @@ export function AgentsScreen({
 
   useEffect(() => {
     void load();
-    // The one-time token is dropped when the screen unmounts.
+    // The one-time key is dropped when the screen unmounts.
     return () => setIssued(undefined);
     // Loaded once per visit; the screen refreshes itself after each change.
   }, []);
@@ -57,23 +60,28 @@ export function AgentsScreen({
     }
   };
 
+  const active = clients?.filter((client) => !client.revoked) ?? [];
+  const removed = clients?.filter((client) => client.revoked) ?? [];
+
   return (
     <>
       <div className="page-head">
         <h2>Assistants</h2>
         <p>
           An assistant is an AI tool, such as Claude or Codex, that asks homectl
-          to run commands on your machines. Each one has its own token, machines
-          and limits. Revoking one does not affect the others.
+          to run commands on your machines. Each one has its own key and only
+          the machines you give it. Removing one does not affect the others.
         </p>
       </div>
       {error ? <Notice tone="bad">{error}</Notice> : null}
       {issued ? (
-        <TokenOnce issued={issued} onDismiss={() => setIssued(undefined)} />
+        <NewKey issued={issued} onDismiss={() => setIssued(undefined)} />
       ) : null}
 
-      <section aria-labelledby="agents-list">
-        <h3 id="agents-list">Your assistants</h3>
+      <div className="group" aria-labelledby="agents-list">
+        <h3 id="agents-list" className="group-title">
+          Your assistants
+        </h3>
         {clients === undefined ? <p className="muted">Loading…</p> : null}
         {clients?.length === 0 ? (
           <p className="muted">
@@ -81,42 +89,30 @@ export function AgentsScreen({
             for work on your machines.
           </p>
         ) : null}
-        {clients?.map((client) => (
-          <div className="item" key={client.id}>
-            <div className="row between">
-              <strong>{client.name}</strong>
-              <Badge
-                tone={client.revoked ? "bad" : "good"}
-                icon={client.revoked ? "x" : "check"}
-              >
-                {client.revoked ? "Revoked" : "Active"}
-              </Badge>
-            </div>
-            <div className="small muted">
-              <span className="mono">{client.id}</span> · machines:{" "}
-              {client.hosts.length > 0 ? client.hosts.join(", ") : "none"} ·
-              limits: {client.scopes.join(", ") || "none"} · added{" "}
-              <span title={fmtTime(client.createdAt)}>
-                {toEpoch(client.createdAt) !== undefined
-                  ? relativeTime(toEpoch(client.createdAt) as number)
-                  : fmtTime(client.createdAt)}
-              </span>
-            </div>
-            {!client.revoked ? (
-              <RowActions
-                client={client}
-                busy={busy}
-                onRotated={(result) => {
-                  setIssued(result);
-                }}
-                onRun={run}
-                onError={onError}
-              />
-            ) : null}
+        <div className="request-list">
+          {active.map((client) => (
+            <AssistantRow
+              key={client.id}
+              client={client}
+              busy={busy}
+              onRotated={setIssued}
+              onRun={run}
+            />
+          ))}
+        </div>
+        {removed.length > 0 ? (
+          <div className="removed-list">
+            <h4>Access removed</h4>
+            {removed.map((client) => (
+              <p key={client.id} className="small muted">
+                {displayName(client.id)} no longer has access.
+              </p>
+            ))}
           </div>
-        ))}
-      </section>
-      <CreateAgent
+        ) : null}
+      </div>
+      <AddAssistant
+        clients={clients ?? []}
         onCreated={(result) => {
           setIssued(result);
           void load();
@@ -127,245 +123,112 @@ export function AgentsScreen({
   );
 }
 
-function TokenOnce({
-  issued,
-  onDismiss,
-}: {
-  issued: Issued;
-  onDismiss: () => void;
-}) {
-  const [copied, setCopied] = useState<string | undefined>();
-  const copy = async (label: string, text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(`Copied the ${label}.`);
-    } catch {
-      setCopied("Select the text and copy it manually.");
-    }
-  };
-  const setups = ["codex", "claude", "other"].map((kind) =>
-    setupCommand(kind, issued.client.hosts),
-  );
-  return (
-    <section aria-labelledby="token-title">
-      <h3 id="token-title">Token for {issued.client.name}</h3>
-      <Notice tone="warn">
-        Shown once. Copy it now; it cannot be displayed again. Rotate the agent
-        to get a new one.
-      </Notice>
-      <pre className="copy" aria-label="Agent token">
-        {issued.token}
-      </pre>
-      <div className="row">
-        <button
-          type="button"
-          className="primary"
-          onClick={() => copy("token", issued.token)}
-        >
-          Copy token
-        </button>
-        <button type="button" onClick={onDismiss}>
-          I have copied it
-        </button>
-      </div>
-      {copied ? (
-        <p className="small muted" role="status">
-          {copied}
-        </p>
-      ) : null}
-      <h3>Connect the agent</h3>
-      <p className="small">
-        Use one of these two ways, not both. Each creates its own token.
-      </p>
-      <ol className="small">
-        <li>
-          Give the token above to the agent through its environment, as{" "}
-          <code>HOMECTL_TOKEN</code>. Never paste it into chat.
-        </li>
-        <li>
-          Or, on this computer, let homectl create a token and configure the
-          agent itself:
-          <pre className="copy">{setups.join("\n")}</pre>
-          <button
-            type="button"
-            onClick={() => copy("setup commands", setups.join("\n"))}
-          >
-            Copy setup commands
-          </button>
-        </li>
-      </ol>
-    </section>
-  );
-}
-
-function CreateAgent({
-  onCreated,
-  onError,
-}: {
-  onCreated: (result: Issued) => void;
-  onError: (error: unknown) => unknown;
-}) {
-  const baseId = useId();
-  const [id, setId] = useState("");
-  const [name, setName] = useState("");
-  const [hosts, setHosts] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | undefined>();
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (busy) return;
-    const secret = password;
-    setPassword("");
-    setBusy(true);
-    setError(undefined);
-    try {
-      const result = await ownerCall<Issued>("/v1/owner/clients/create", {
-        id: id.trim(),
-        name: name.trim(),
-        hosts: hosts
-          .split(",")
-          .map((host) => host.trim())
-          .filter(Boolean),
-        password: secret,
-      });
-      setId("");
-      setName("");
-      setHosts("");
-      onCreated(result);
-    } catch (failure) {
-      onError(failure);
-      setError(describeError(failure));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <section aria-labelledby={`${baseId}-title`}>
-      <h3 id={`${baseId}-title`}>Add an assistant</h3>
-      <form className="stack" onSubmit={submit}>
-        <Field
-          id={`${baseId}-id`}
-          label="Identifier"
-          hint="lowercase, no spaces"
-        >
-          <input
-            id={`${baseId}-id`}
-            value={id}
-            required
-            pattern="[a-z][a-z0-9-]{0,62}"
-            onChange={(event) => setId(event.target.value)}
-          />
-        </Field>
-        <Field id={`${baseId}-name`} label="Name">
-          <input
-            id={`${baseId}-name`}
-            value={name}
-            required
-            maxLength={100}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </Field>
-        <Field id={`${baseId}-hosts`} label="Hosts" hint="comma separated">
-          <input
-            id={`${baseId}-hosts`}
-            value={hosts}
-            onChange={(event) => setHosts(event.target.value)}
-          />
-        </Field>
-        <PasswordStep value={password} onChange={setPassword} />
-        {error ? <Notice tone="bad">{error}</Notice> : null}
-        <button
-          type="submit"
-          className="primary"
-          disabled={busy || !password || !id || !name}
-        >
-          Create agent
-        </button>
-      </form>
-    </section>
-  );
-}
-
-function RowActions({
+function AssistantRow({
   client,
   busy,
   onRotated,
   onRun,
-  onError,
 }: {
   client: ClientView;
   busy: boolean;
   onRotated: (result: Issued) => void;
   onRun: (work: () => Promise<void>) => Promise<void>;
-  onError: (error: unknown) => unknown;
 }) {
-  const [rotating, setRotating] = useState(false);
-  const [revoking, setRevoking] = useState(false);
+  const [replacing, setReplacing] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [password, setPassword] = useState("");
+  const name = client.name || displayName(client.id);
+  const created = toEpoch(client.createdAt);
   return (
-    <div className="stack">
-      <div className="row">
+    <div className="item request-card assistant-card">
+      <div className="request-head">
+        <span className="assistant-tag">
+          <span className="assistant-name">{name}</span>
+        </span>
+        <Badge tone="good" icon="check">
+          Active
+        </Badge>
+      </div>
+      <div className="chips" aria-label={`${name} machines`}>
+        {client.hosts.length > 0 ? (
+          client.hosts.map((host) => (
+            <span className="chip" key={host}>
+              {host}
+            </span>
+          ))
+        ) : (
+          <span className="small muted">No machines yet</span>
+        )}
+      </div>
+      <p className="small">{assistantSentence(client.scopes)}</p>
+      <p className="request-meta">
+        {created !== undefined
+          ? `Added ${relativeTime(created)}`
+          : "Added at an unknown time"}
+      </p>
+      <div className="request-actions">
         <button
           type="button"
           disabled={busy}
-          onClick={() => setRotating((v) => !v)}
+          onClick={() => setReplacing((open) => !open)}
         >
-          Rotate token…
+          Get a new key…
         </button>
         <button
           type="button"
           className="danger"
           disabled={busy}
-          onClick={() => setRevoking(true)}
+          onClick={() => setRemoving(true)}
         >
-          Revoke…
+          Remove access…
         </button>
       </div>
-      {rotating ? (
+      {replacing ? (
         <form
           className="stack"
           onSubmit={(event) => {
             event.preventDefault();
             const secret = password;
             setPassword("");
-            setRotating(false);
+            setReplacing(false);
             void onRun(async () => {
               const result = await ownerCall<Issued>(
                 "/v1/owner/clients/rotate",
-                {
-                  id: client.id,
-                  password: secret,
-                },
+                { id: client.id, password: secret },
               );
               onRotated(result);
             });
           }}
         >
+          <p className="small muted">
+            This makes a new key for {name}. The old key stops working at once,
+            so paste the new one into {name} straight away.
+          </p>
           <PasswordStep
             value={password}
             onChange={setPassword}
-            hint="rotating invalidates the old token"
+            hint="required to get a new key"
           />
           <button type="submit" className="primary" disabled={!password}>
-            Rotate {client.name}
+            Get a new key
           </button>
         </form>
       ) : null}
-      {revoking ? (
+      {removing ? (
         <Dialog
-          title={`Revoke ${client.name}?`}
-          onClose={() => setRevoking(false)}
+          title={`Remove access for ${name}?`}
+          onClose={() => setRemoving(false)}
         >
-          <p>Its token stops working immediately.</p>
+          <p>
+            {name} can no longer ask homectl for anything. Its key stops working
+            at once. You can add the assistant again later.
+          </p>
           <div className="row">
             <button
               type="button"
               className="danger"
               onClick={() => {
-                setRevoking(false);
+                setRemoving(false);
                 void onRun(async () => {
                   await ownerCall("/v1/owner/clients/revoke", {
                     id: client.id,
@@ -373,9 +236,9 @@ function RowActions({
                 });
               }}
             >
-              Revoke agent
+              Remove access
             </button>
-            <button type="button" onClick={() => setRevoking(false)}>
+            <button type="button" onClick={() => setRemoving(false)}>
               Cancel
             </button>
           </div>
