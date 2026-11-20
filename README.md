@@ -1,151 +1,114 @@
-<div align="center">
-
 # homectl
 
-**Run your homelab from your AI coding agent. Your keys stay encrypted.**
+**Let an AI coding agent work on your homelab machines, without giving it your SSH keys.**
 
-Named machines, encrypted SSH keys and one unlock a day for Codex and Claude Code.
+homectl runs a local broker that holds the keys in an encrypted vault and runs commands for agents such as Codex or Claude Code. You decide what needs your approval, and an agent never sees a password.
 
-[![CI](https://github.com/Hiosdra/homectl/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Hiosdra/homectl/actions/workflows/ci.yml)
-![License: MIT](https://img.shields.io/badge/license-MIT-14151a)
-![Runtime: Bun](https://img.shields.io/badge/runtime-Bun-14151a)
-![Credentials: KeePassXC](https://img.shields.io/badge/credentials-KeePassXC-6cac4d)
+The command is `home-ctl`.
 
-[Install](#install) · [Quick start](#quick-start) · [User guide](docs/user-guide.md) · [Windows and WSL](docs/windows.md) · [Sync](docs/peer-workspace.md)
+- [Setup](docs/setup.md): install, first run, connecting agents and machines, platform notes
+- [Security](docs/security.md): trust boundaries, approvals, secrets, host enrollment, backup custody, residual risks
+- [Workspace](docs/workspace.md): the optional server mode, pairing, mirrored approvals, offline behaviour, backups
+- [Reference](docs/reference.md): commands, MCP tools, paths, exit codes, troubleshooting
 
-</div>
+## What it does
 
----
+- **The broker holds the keys.** `home-ctl daemon run` owns the vault and the SSH agent. Each agent gets its own client token and reaches only the machines you name.
+- **Machines have an access tier.** `observe`, `user`, `sudo-approved` or `full`. A tier describes what the agent may run; your accounts still set the real privileges. See [security](docs/security.md#host-access-tiers).
+- **Changes wait for you.** A command that needs approval returns `awaiting-approval`. You approve it in the owner panel or with `home-ctl approve <operation>`, and the agent then waits for the result.
+- **Secrets stay out of chat.** An agent asks for a secret for one destination. You provide it in the panel, and the broker injects it and redacts it from the output.
+- **An optional server.** One broker can act as a workspace server. It mirrors approvals and events from linked clients and stores encrypted backups it cannot read. Clients keep working without it.
 
-homectl gives your agent a safe way to look after your servers, NAS devices, printers and Proxmox nodes. It knows what each machine is for, runs commands within the access you set, and never sees your private keys.
+## Requirements
+
+- OpenSSH client (`ssh`) and the KeePassXC CLI (`keepassxc-cli`). `home-ctl setup` checks for both.
+- Bun 1.4.4 or newer, only if you run from a source checkout.
+- systemd, only for the hardened broker on Linux.
+
+Windows and macOS run the compatibility broker, which runs as your user. Details are in [setup](docs/setup.md#platform-notes).
+
+## Install
+
+| System | How |
+| --- | --- |
+| Debian, Ubuntu, Fedora, RHEL, Arch, Alpine | Install the package from the latest [release](https://github.com/Hiosdra/homectl/releases/latest). |
+| macOS, Linux | Unpack the archive for your system and put `home-ctl` on your PATH. |
+| Windows | Unzip `homectl-<version>-windows-x64.zip` and run `home-ctl.exe setup`. |
+| Source checkout | `git clone https://github.com/Hiosdra/homectl.git`, then run `bun install --frozen-lockfile` and `bun src/cli/main.ts setup` in that folder. |
+
+Then run setup once for your user:
+
+```sh
+home-ctl setup --dry-run   # shows what will change
+home-ctl setup
+```
+
+Setup creates the inventory, the launchers, the SSH include and the agent skills. Full details, including the packages for each system, are in [setup](docs/setup.md#install).
+
+<!-- verify: Homebrew (brew tap Hiosdra/tap) was listed in earlier docs, but no Homebrew step exists in .github/workflows/release.yml. Add it back only after confirming the tap. -->
+
+## Quick start
+
+```sh
+# In a private terminal, once:
+home-ctl session configure --ttl 24h
+home-ctl session init
+home-ctl key create lab-printer            # creates the machine's key in the database
+home-ctl key inspect lab-printer           # install this public key through access you already have
+
+# After you verify the host key through a trusted source:
+home-ctl enroll lab-printer --file ./lab-printer.json --dry-run
+home-ctl enroll lab-printer --file ./lab-printer.json
+
+# Run the broker and connect your agent:
+home-ctl daemon run                        # keep this terminal open
+home-ctl agent connect codex --hosts lab-printer
+```
+
+Then ask your agent to work on the machine:
 
 > Check the printer's Klipper and Moonraker services before changing anything.
 
 > Inspect the NAS disk usage and summarize what is taking space.
 
-> Prepare a Proxmox VM plan with 4 CPUs and 8 GB RAM for me to review.
+The full walkthrough, with the host-key checks and platform steps, is in [setup](docs/setup.md).
 
-## Why homectl
+## Approvals
 
-- **Machines with context.** Each machine has a name, a purpose, an access tier and cautions. Your agent reads them before it acts.
-- **Keys that stay encrypted.** SSH keys live in a dedicated KeePassXC database. Unlock once, and the default session lasts 24 hours.
-- **Review before anything changes.** Inspect first. Destructive commands need an exact plan and your confirmation.
-- **One setup on every computer.** Linux, macOS, Windows and WSL. Pair your devices and sync only what you choose, with conflicts you decide.
-
-## See it in action
+Safe reads run without a prompt. Anything that changes state waits for your decision:
 
 ```sh
-home-ctl session unlock          # once a day, in a private terminal
-home-ctl hosts
-home-ctl inspect lab-printer
-home-ctl exec lab-printer -- uname -s
-home-ctl session lock            # when you are done
+home-ctl approvals                          # what is waiting
+home-ctl approve <operation>                # or: home-ctl deny <operation>
+home-ctl approve <operation> --remember     # also saves an exact rule for this one command
 ```
 
-Add `--json` to any command for scripts and agents.
-
-## Install
-
-You need OpenSSH and KeePassXC (its `keepassxc-cli` tool). Then choose your system:
-
-| System | Command |
-| --- | --- |
-| macOS and Linux (Homebrew) | `brew tap Hiosdra/tap` then `brew install homectl` |
-| Debian, Ubuntu | `sudo apt-get install ./homectl_<version>_amd64.deb` |
-| Fedora, RHEL | `sudo dnf install ./homectl-<version>-1.x86_64.rpm` |
-| Arch Linux | `sudo pacman -U ./homectl-<version>-1-x86_64.pkg.tar.zst` |
-| Alpine Linux | `sudo apk add --allow-untrusted ./homectl_<version>_x86_64.apk` |
-| Windows | Unzip `homectl-<version>-windows-x64.zip` and put `home-ctl.exe` on your PATH |
-| Anything else | Download the archive for your system from [Releases](https://github.com/Hiosdra/homectl/releases/latest) |
-
-Then run setup once. It links the `home-ctl` command, installs the Codex and Claude Code skills, and sets up SSH aliases:
-
-```sh
-home-ctl setup
-```
-
-Preview it first with `home-ctl setup --dry-run`. The skills are built into the executable, so no source checkout is needed.
-
-Working on homectl itself? Run it from a checkout instead. It needs Bun 1.4.4 or newer:
-
-```sh
-git clone https://github.com/Hiosdra/homectl.git
-cd homectl
-bun install --frozen-lockfile
-bun src/cli/main.ts setup
-```
-
-## Quick start
-
-1. **Open the panel.** `home-ctl panel` opens a local workspace in your browser. Keep that terminal open while you use it.
-2. **Create a vault.** In **Access**, create an encrypted vault and choose its password. It stays on this computer.
-3. **Add a machine.** Create an SSH key named after the machine. Install its **public key** through your existing trusted access, and verify the host fingerprint through a trusted source. Then add the machine under **Machines**. homectl connects the key automatically.
-4. **Let your agent work.** Unlock in a private terminal with `home-ctl session unlock`, then ask your agent.
-
-For scripted setup and advanced host settings, use the [user guide](docs/user-guide.md).
-
-## Choose how much each machine allows
-
-| Tier | Intended use |
-| --- | --- |
-| `observe` | Read-only inspection with recognized commands |
-| `user` | Work as the existing account, without privileged commands |
-| `sudo-approved` | Exact sudo commands you allow, such as restarting a service |
-| `full` | Administration and Proxmox provisioning |
-
-Tiers guide what the agent may run. Real privileges still come from your accounts and system configuration. See [access tiers](docs/user-guide.md#access-tiers).
-
-## Sessions that fit your day
-
-```sh
-home-ctl session configure --ttl 12h          # or: --ttl until-reboot
-home-ctl session status
-home-ctl session lock
-```
-
-The session lasts 24 hours from unlock by default. The panel also locks the vault after 2 hours without activity by default. Unlocking again does not extend the session. Locking stops new SSH logins; connections already open can finish.
-
-## Provision a Proxmox VM
-
-homectl uses `pvesh` over SSH to clone a cloud-init template, configure and start the VM, wait for SSH, and enroll it. Review the plan first:
-
-```sh
-home-ctl provision --file /path/vm.json --dry-run
-home-ctl provision --file /path/vm.json
-```
-
-Start from [vm.example.json](examples/vm.example.json). The [walkthrough](docs/user-guide.md#proxmox-vm-provisioning-over-ssh) covers the template and network setup.
-
-## Sync your computers
-
-Pair two devices with a one-time code and a matching phrase. Then review the changes before anything is applied. Each device keeps its own database password. Details are in the [sync guide](docs/peer-workspace.md).
-
-## How it works
-
-```mermaid
-flowchart LR
-    Agent[Codex / Claude Code] --> CLI[homectl]
-    CLI --> Hosts[Existing SSH machines]
-    CLI --> PVE[Proxmox via SSH]
-    Vault[Private KeePassXC unlock] --> Keys[Dedicated SSH agent]
-    Keys --> CLI
-```
-
-Your agent and homectl run on one machine. Managed machines keep their existing accounts. Keys are encrypted at rest and loaded into a separate SSH agent for the session. Inventory holds references and host details, never key material.
+Significant (R3) and destructive (R4) actions, and trust changes, ask you, and the decision needs your owner password again. Budgets, Auto Mode and rules are described in [security](docs/security.md#approvals-and-auto-mode).
 
 ## Honest limits
 
-- **Confirmation is a safeguard, not a sandbox.** Your approval keeps changes deliberate. It does not isolate the agent or remove privileges an account already has.
-- **An unlocked session is open to your user account.** Other programs running as you can use the unlocked SSH agent. Lock when you finish.
-- **Early project.** VM image import, DHCP discovery and cross-node provisioning are not built yet. Read the [credential model](docs/user-guide.md#configuration-and-credential-storage) and [verification status](docs/user-guide.md#verification-status) before you choose access tiers.
+- **Approval is a safeguard, not a sandbox.** An approved command runs with the privileges its account already has.
+- **Compatibility mode shares your user.** Any program running as you can use the unlocked SSH agent. Lock the session when you finish, and use the hardened broker on Linux when you can.
+- **The owner password can open the vault.** When a vault exists, the two are the same password.
+- **Early project.** Image import, DHCP discovery, cross-node Proxmox provisioning and the workspace backup commands are not finished. The Windows and macOS runtimes are not verified on real hardware. [Setup](docs/setup.md#verification-status) lists what is and is not verified.
 
-## More
+## Agent skills
 
-- [User guide](docs/user-guide.md): install details, access tiers, provisioning, troubleshooting
-- [Windows and WSL](docs/windows.md): PowerShell, CMD, Git Bash, services
-- [Sync and pairing](docs/peer-workspace.md): two computers, one reviewed sync
-- [Inventory example](examples/inventory.example.yaml) · [Architecture](docs/architecture.md)
-- Agent skills: [Operate](skills/homelab/SKILL.md) · [Set up](skills/homelab-setup/SKILL.md) · [Enroll](skills/homelab-enroll/SKILL.md)
-- Command help: `home-ctl --help`, or `home-ctl <command> --help`
+The skills in `skills/` teach agents how to operate, set up and enroll machines:
 
-MIT License. See [LICENSE](LICENSE).
+- [homelab](skills/homelab/SKILL.md): operate machines and deploy Ugreen NAS projects
+- [homelab-setup](skills/homelab-setup/SKILL.md): bootstrap and diagnose homectl on this computer
+- [homelab-enroll](skills/homelab-enroll/SKILL.md): add existing machines or create Proxmox VMs
+
+## Development
+
+```sh
+bun install --frozen-lockfile
+bun run check      # typecheck, lint (file length, doc links, biome) and tests
+```
+
+Keep the documentation in `docs/` in step with the code. Maintainer build steps are in [reference](docs/reference.md#building-from-source).
+
+## License
+
+MIT. See [LICENSE](LICENSE).

@@ -18,4 +18,4 @@ Apply this skill without routinely quoting its paragraphs, listing rule numbers 
 
 On authentication failure, run `home-ctl doctor <host> --json`. Follow classified remediation: session unlock privately, inventory/account/network checks, and trusted-console fingerprint verification before changing known_hosts. Do not repeat a failed operation before checking whether it already took effect.
 
-Exit codes: 2 input/configuration, 3 policy/conflict, 4 waiting for or refused by the owner, 5 transport/setup, 6 remote command failure. Report actual verification separately from assumptions. For initial setup use homelab-setup; for new hosts/VMs use homelab-enroll. Read README for session storage and TTL details.
+Exit codes: 2 input/configuration, 3 policy/conflict, 4 waiting for or refused by the owner, 5 transport/setup, 6 remote command failure. Report actual verification separately from assumptions. For initial setup use homelab-setup; for new hosts/VMs use homelab-enroll. Read docs/setup.md (First run) for session storage and TTL details.
