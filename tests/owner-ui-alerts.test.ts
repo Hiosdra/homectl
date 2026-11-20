@@ -97,7 +97,8 @@ test("alert text never includes the command, the agent's words or the secret pur
     expect(alert.body).not.toContain("rm -rf");
     expect(alert.body).not.toMatch(/token|password/i);
   }
-  expect(approval.body).toContain("codex");
+  // The assistant is named by its display name ("Codex"), never by a command.
+  expect(approval.body.toLowerCase()).toContain("codex");
   expect(approval.body).toContain("nas");
 });
 

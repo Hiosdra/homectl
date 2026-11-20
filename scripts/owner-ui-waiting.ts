@@ -18,7 +18,7 @@ export function needsYouName(count: number): string {
 // The overview lists an approval as one item: "<argv> on <host>". Each scenario
 // finds its own request by its argv, which carries the scenario's label.
 export function approvalItem(page: Page, argv: string[]) {
-  return page.locator("div.item").filter({ hasText: `${argv.join(" ")} on` });
+  return page.locator("div.item").filter({ hasText: argv.join(" ") });
 }
 
 // The panel shows an empty inbox until its first load, so a count read straight
@@ -41,6 +41,16 @@ export async function settledWaitingCount(
     )
     .toBe(true);
   return expected;
+}
+
+// Approval detail: the title is the plain sentence, under the heading's id.
+export function approvalTitle(page: Page) {
+  return page.locator("#approval-title");
+}
+
+// The remember and revise options sit under "More options" on the detail screen.
+export async function openMoreOptions(page: Page) {
+  await page.locator("details.more-options > summary").click();
 }
 
 // Opens one secret request by its id, the way its "Provide or decline" button does.

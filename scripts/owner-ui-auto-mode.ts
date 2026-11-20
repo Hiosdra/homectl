@@ -113,9 +113,12 @@ export async function runAutoModeScenario(
     await page
       .getByRole("button", { name: "Permissions", exact: true })
       .click();
-    const section = page.getByRole("region", {
-      name: "Let an AI helper decide (advanced)",
-    });
+
+    // The AI helper section belongs to the AI choices. The saved "Ask me first"
+    // hides it; choosing an AI choice shows it. Choosing is not saving.
+    const section = page.getByRole("region", { name: "The AI helper" });
+    await expect(section).toBeHidden();
+    await page.getByLabel(/AI helps with small fixes/).check();
     await expect(section).toBeVisible({ timeout: 10_000 });
 
     // What the owner is told: the helper's answer is not an approval, and
@@ -141,52 +144,33 @@ export async function runAutoModeScenario(
       section.getByText("Configured", { exact: true }),
     ).toBeVisible();
 
-    // Least privilege is what the form opens on: the saved settings.
+    // A saved choice is not edited through raw mode and authority controls; those
+    // appear only for a custom setting.
     await expect(
       section.getByLabel("How requests are decided", { exact: true }),
-    ).toHaveValue("rules");
+    ).toBeHidden();
     await expect(
       section.getByLabel("What the AI helper may decide"),
-    ).toHaveValue("recommend");
+    ).toBeHidden();
     const save = section.getByRole("button", { name: "Save changes" });
     await expect(save).toBeDisabled();
 
-    // A change that needs no step-up is saved without asking for a password.
+    // A new address needs the owner password. The first try carries none; the
+    // panel asks for it after the refusal.
     await section
-      .getByLabel("How requests are decided", { exact: true })
-      .selectOption("manual");
+      .getByLabel(/AI helper address/)
+      .fill("https://other-reviewer.example.test/v1");
     await save.click();
-    await expect(section.getByText("Saved (version 2).")).toBeVisible({
-      timeout: 10_000,
-    });
-    expect(stub.saves[0]).toEqual({ mode: "manual" });
-
-    // Raising the helper's authority is refused without the password. The
-    // panel then asks for it, and the retry carries it.
-    await section
-      .getByLabel("What the AI helper may decide")
-      .selectOption("routine");
-    await section.getByRole("button", { name: "Save changes" }).click();
     await expect(
       section.getByText(/This change needs your owner password/),
     ).toBeVisible({ timeout: 10_000 });
     const confirm = section.getByRole("button", { name: "Confirm and save" });
     await expect(confirm).toBeDisabled();
-    await section.getByLabel("Owner password").fill(harness.password);
+
+    // A wrong password is refused and nothing changes.
+    await section.getByLabel("Owner password").fill("not the owner password");
     await expect(confirm).toBeEnabled();
     await confirm.click();
-    await expect(section.getByText("Saved (version 3).")).toBeVisible({
-      timeout: 10_000,
-    });
-    expect(stub.authority).toBe("routine");
-
-    // A new address: a wrong password is refused and nothing changes.
-    await section
-      .getByLabel(/AI helper address/)
-      .fill("https://other-reviewer.example.test/v1");
-    await section.getByRole("button", { name: "Save changes" }).click();
-    await section.getByLabel("Owner password").fill("not the owner password");
-    await section.getByRole("button", { name: "Confirm and save" }).click();
     await expect(
       section.getByText(
         "That owner password was not accepted. Nothing changed.",
@@ -197,7 +181,7 @@ export async function runAutoModeScenario(
     // The right password saves it; the origin is what is shown afterwards.
     await section.getByLabel("Owner password").fill(harness.password);
     await section.getByRole("button", { name: "Confirm and save" }).click();
-    await expect(section.getByText("Saved (version 4).")).toBeVisible({
+    await expect(section.getByText("Saved (version 2).")).toBeVisible({
       timeout: 10_000,
     });
     await expect(
@@ -209,9 +193,6 @@ export async function runAutoModeScenario(
     // The password was sent only on the attempts that needed it, never on the
     // first try of a change, and each attempt was sent once.
     expect(stub.saves.map((save) => "password" in save)).toEqual([
-      false, // manual: no step-up
-      false, // routine: refused for want of the password
-      true, // routine with the password
       false, // new endpoint: refused for want of the password
       true, // new endpoint, wrong password
       true, // new endpoint, right password

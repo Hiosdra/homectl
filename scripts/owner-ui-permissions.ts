@@ -84,6 +84,8 @@ export async function runPermissionsWordingScenario(
     await expect(details.getByLabel("Machine")).toBeVisible();
 
     // The AI helper's address and model sit behind Advanced, closed at first.
+    // The AI helper section appears for the AI choices; picking one shows it (no save).
+    await page.getByLabel(/AI helps with small fixes/).check();
     const advanced = page.locator("details.advanced");
     await expect(
       advanced.getByText("AI helper address (endpoint)"),

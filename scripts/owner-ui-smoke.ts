@@ -12,9 +12,10 @@ import { startDaemon } from "../src/broker/daemon";
 import type { FileVerifier } from "../src/broker/owner";
 import { compatPaths } from "../src/broker/paths";
 import { startOwnerPanel } from "../src/web/owner/server";
-import type { Agent } from "./owner-ui-harness";
+import { type Agent, VIEWPORTS } from "./owner-ui-harness";
 import { runOwnerFlowScenarios } from "./owner-ui-flows";
 import { runDesignScenarios } from "./owner-ui-design";
+import { runFocusScenario } from "./owner-ui-focus";
 import { approvalItem, openSecret } from "./owner-ui-waiting";
 import { runOwnerExtensionScenarios } from "./owner-ui-workspace";
 
@@ -189,19 +190,19 @@ async function runScenario(
     await approvalItem(page, argv)
       .getByRole("button", { name: "Review" })
       .click();
-    await expect(
-      page.getByRole("heading", { name: "Approve this command?" }),
-    ).toBeVisible();
+    await expect(page.locator("#approval-title")).toBeVisible();
     await expect(page.getByText("smoke-tool", { exact: true })).toBeVisible();
     await expect(
-      page.getByText(/Written by the agent · not verified/),
+      page.getByText(/Written by the assistant · not verified/),
     ).toBeVisible();
     const approve = page.getByRole("button", { name: "Approve once" });
     await expect(approve).toBeDisabled();
     await page.getByLabel("Owner password").fill(PASSWORD);
     await expect(approve).toBeEnabled();
     await approve.click();
-    await expect(page.getByText(/Approved\./)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/Approved/).first()).toBeVisible({
+      timeout: 15_000,
+    });
     // Dispatch runs after the decision returns; poll until the executor ran.
     await expect
       .poll(() => ran.at(-1), { timeout: 15_000 })
@@ -221,15 +222,14 @@ async function runScenario(
 
     // Agents: create one; the token is shown once.
     await page.getByRole("button", { name: /^Assistants/ }).click();
-    await page.getByLabel("Identifier").fill(`smoke-${name}`);
-    await page.getByLabel("Name").fill(`Smoke ${name}`);
-    await page.getByLabel(/Hosts/).fill("pc");
+    await page.getByLabel("Name", { exact: true }).fill(`Smoke ${name}`);
+    await page.getByLabel("pc", { exact: true }).check();
     await page.getByLabel("Owner password").fill(PASSWORD);
-    await page.getByRole("button", { name: "Create agent" }).click();
+    await page.getByRole("button", { name: "Add assistant" }).click();
     await expect(page.getByText("Shown once. Copy it now")).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByLabel("Agent token")).toContainText("hct_");
+    await expect(page.getByLabel("Assistant key")).toContainText("hct_");
 
     // Layout: no horizontal scrolling at this width.
     const overflow = await page.evaluate(
@@ -265,6 +265,8 @@ try {
   // Design: information architecture, accessible names and headings, one-tap
   // approval from the list, and the remembered section.
   await runDesignScenarios(harness);
+  // Keyboard order and focus rings on every main screen, at both widths.
+  for (const viewport of VIEWPORTS) await runFocusScenario(harness, viewport);
   console.log("Owner panel browser smoke passed (desktop and phone).");
 } finally {
   await browser.close();

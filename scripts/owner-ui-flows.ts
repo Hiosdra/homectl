@@ -15,6 +15,7 @@ import {
   approvalItem,
   needsYouName,
   settledWaitingCount,
+  openMoreOptions,
   waitingFromTitle,
 } from "./owner-ui-waiting";
 
@@ -46,9 +47,7 @@ export async function runRememberScenario(
     await approvalItem(page, opaqueFor(label))
       .getByRole("button", { name: "Review" })
       .click();
-    await expect(
-      page.getByRole("heading", { name: "Approve this command?" }),
-    ).toBeVisible();
+    await expect(page.locator("#approval-title")).toBeVisible();
     await expect(
       page.getByText(
         "This kind of action can only be approved once. It cannot become a rule.",
@@ -60,7 +59,7 @@ export async function runRememberScenario(
     // Clear it with a single approval so it does not linger in the inbox.
     await page.getByLabel("Owner password").fill(harness.password);
     await page.getByRole("button", { name: "Approve once" }).click();
-    await expect(page.getByText(/Approved\./).first()).toBeVisible({
+    await expect(page.getByText(/Approved/).first()).toBeVisible({
       timeout: 15_000,
     });
 
@@ -71,9 +70,8 @@ export async function runRememberScenario(
     await approvalItem(page, argv)
       .getByRole("button", { name: "Review" })
       .click();
-    await expect(
-      page.getByRole("heading", { name: "Approve this command?" }),
-    ).toBeVisible();
+    await expect(page.locator("#approval-title")).toBeVisible();
+    await openMoreOptions(page);
     const remember = page.getByRole("button", {
       name: "Approve and remember…",
     });
@@ -84,7 +82,7 @@ export async function runRememberScenario(
     const dialog = page.getByRole("dialog", { name: "Approve and remember?" });
     await expect(
       dialog.getByText(
-        `Future commands exactly like "${argv.join(" ")}" on pc from ${agent.id} will run without asking. You can remove the rule in Permissions.`,
+        `Future commands exactly like "${argv.join(" ")}" on pc from Smoke ${agent.id} will run without asking. You can remove the rule in Permissions.`,
         { exact: true },
       ),
     ).toBeVisible();
@@ -109,7 +107,7 @@ export async function runRememberScenario(
       "fingerprint",
       "operationId",
     ]);
-    await expect(page.getByText(/Approved\./).first()).toBeVisible({
+    await expect(page.getByText(/Approved/).first()).toBeVisible({
       timeout: 15_000,
     });
     await expect
@@ -208,7 +206,7 @@ export async function runAttentionScenario(
       .click();
     await page.getByLabel("Owner password").fill(harness.password);
     await page.getByRole("button", { name: "Approve once" }).click();
-    await expect(page.getByText(/Approved\./).first()).toBeVisible({
+    await expect(page.getByText(/Approved/).first()).toBeVisible({
       timeout: 15_000,
     });
     await expect(approvalItem(page, argv)).toHaveCount(0);

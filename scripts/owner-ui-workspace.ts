@@ -4,6 +4,7 @@
 // owner-ui-system.ts (updates); this file runs them all, one set per viewport.
 
 import { expect } from "@playwright/test";
+import { openMoreOptions } from "./owner-ui-waiting";
 import { runAutoModeScenario } from "./owner-ui-auto-mode";
 import { runPermissionsWordingScenario } from "./owner-ui-permissions";
 import { runContextScenario, runNoWorkspaceContext } from "./owner-ui-context";
@@ -146,14 +147,16 @@ export async function runWorkspaceScenario(
 
     // Clients: stale, approvals on device, vault, mirror gaps, backups.
     const nas = page.getByRole("article", { name: "Client NAS" });
-    await expect(nas.getByText("Stale", { exact: true })).toBeVisible();
+    await expect(
+      nas.getByText("Not synced lately", { exact: true }),
+    ).toBeVisible();
     await expect(nas.getByText("Approvals on its device")).toBeVisible();
-    await expect(nas.getByText("2 gaps")).toBeVisible();
+    await expect(nas.getByText("2 missed updates")).toBeVisible();
     await expect(nas.getByText("No backup yet")).toBeVisible();
     const laptop = page.getByRole("article", { name: "Client Laptop" });
-    await expect(laptop.getByText("Recently synced")).toBeVisible();
+    await expect(laptop.getByText("Synced recently")).toBeVisible();
     await expect(laptop.getByText("Vault unlocked")).toBeVisible();
-    await expect(laptop.getByText("Sequence 42")).toBeVisible();
+    await expect(laptop.getByText("Update 42")).toBeVisible();
 
     // Remove NAS: the owner password is required, and it leaves the page.
     await nas.getByRole("button", { name: "Remove NAS…" }).click();
@@ -236,14 +239,14 @@ export async function runLocalReviewScenario(
     );
     await signIn(page, harness);
     // The overview marks the item still under review.
-    await expect(page.getByText(/· Under review/)).toHaveCount(1);
+    await expect(page.getByText("Under review", { exact: true })).toHaveCount(
+      1,
+    );
 
     await page.evaluate(() => {
       location.hash = "#/approvals/op-review";
     });
-    await expect(
-      page.getByRole("heading", { name: "Approve this command?" }),
-    ).toBeVisible();
+    await expect(page.locator("#approval-title")).toBeVisible();
     await expect(
       page.getByText(
         /Under review: the AI helper that checks requests has not decided yet/,
@@ -259,10 +262,9 @@ export async function runLocalReviewScenario(
     await page.evaluate(() => {
       location.hash = "#/approvals/op-rule";
     });
-    await expect(
-      page.getByRole("heading", { name: "Approve this command?" }),
-    ).toBeVisible();
+    await expect(page.locator("#approval-title")).toBeVisible();
     await expect(page.getByText(/Under review/)).toHaveCount(0);
+    await openMoreOptions(page);
     await expect(
       page.getByRole("button", { name: "Approve and remember…" }),
     ).toBeVisible();

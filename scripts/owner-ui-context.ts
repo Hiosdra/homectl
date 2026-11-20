@@ -22,7 +22,7 @@ type Viewport = {
 };
 
 const STORAGE_KEY = "homectl.owner.context";
-const LOCAL_TEXT = "smoke-tool --local on pc";
+const LOCAL_TEXT = "smoke-tool --local";
 
 // A local approval as the broker lists it on /v1/owner/pending.
 function localOperation(id: string) {

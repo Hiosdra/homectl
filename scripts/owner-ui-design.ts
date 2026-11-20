@@ -131,7 +131,7 @@ async function runDesignScenario(
       timeout: 10_000,
     });
     await card.getByRole("button", { name: "Approve", exact: true }).click();
-    await expect(page.getByText(/Approved\./).first()).toBeVisible({
+    await expect(page.getByText(/Approved/).first()).toBeVisible({
       timeout: 15_000,
     });
     await expect
