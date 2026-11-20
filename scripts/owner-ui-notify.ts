@@ -11,6 +11,11 @@ import {
   signIn,
   type VIEWPORTS,
 } from "./owner-ui-harness";
+import {
+  approvalItem,
+  openSecret,
+  settledWaitingCount,
+} from "./owner-ui-waiting";
 
 // Notifications: a browser that grants permission gets one alert per new
 // request; a browser that denies it gets none. The fake only records calls;
@@ -68,13 +73,16 @@ export async function runNotificationScenario(
     // A request created after sign-in is announced (or not, when denied).
     // Labels are per run: an identical pending request would be deduplicated.
     const label = `alert-${answer}-${viewport.name}`;
+    const before = await settledWaitingCount(page, harness);
+    const argv = ["smoke-tool", "--apply", label];
     await harness.requestApproval(label);
     // A label keeps this request from matching a pending one left by an
     // earlier run: the broker returns the existing request for an identical one.
-    await harness.requestSecret(`${answer}-${viewport.name}`);
+    const secret = await harness.requestSecret(`${answer}-${viewport.name}`);
     await page.getByRole("button", { name: "Needs you" }).click();
+    // This run's own approval, not the first one on the page.
     await expect(
-      page.getByRole("button", { name: "Review" }).first(),
+      approvalItem(page, argv).getByRole("button", { name: "Review" }),
     ).toBeVisible({
       timeout: 10_000,
     });
@@ -111,6 +119,16 @@ export async function runNotificationScenario(
       expect(notes).toEqual([]);
     }
     expect(page.url()).not.toMatch(/token|password|hco_/);
+    // Clean up what this run left waiting: decline its secret request and deny its
+    // approval, then check the broker is back where this run found it.
+    await openSecret(page, secret.id, `${answer}-${viewport.name}`);
+    await page.getByRole("button", { name: "Decline", exact: true }).click();
+    await page.getByRole("button", { name: "Needs you" }).click();
+    await approvalItem(page, argv)
+      .getByRole("button", { name: "Review" })
+      .click();
+    await page.getByRole("button", { name: "Deny", exact: true }).click();
+    await expect.poll(() => harness.waitingOnBroker()).toBe(before);
     await noOverflow(page);
   } finally {
     await context.close();

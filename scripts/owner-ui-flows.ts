@@ -3,7 +3,7 @@
 // coming back. The panel and the broker are real; only the executor is fake, and no
 // workspace route is stubbed here.
 
-import { expect, type Page } from "@playwright/test";
+import { expect } from "@playwright/test";
 import {
   type Harness,
   noOverflow,
@@ -11,6 +11,12 @@ import {
   signIn,
   VIEWPORTS,
 } from "./owner-ui-harness";
+import {
+  approvalItem,
+  needsYouName,
+  settledWaitingCount,
+  waitingFromTitle,
+} from "./owner-ui-waiting";
 
 type Viewport = (typeof VIEWPORTS)[number];
 
@@ -19,20 +25,6 @@ const opaqueFor = (label: string) => ["smoke-tool", "--apply", label];
 // A service restart is a mutation: R2 with no sudo. The policy asks, and the owner may
 // remember the exact command.
 const rememberableFor = (label: string) => ["systemctl", "restart", label];
-
-// The overview lists an approval as one item: "<argv> on <host>".
-function approvalItem(page: Page, argv: string[]) {
-  return page.locator("div.item").filter({ hasText: `${argv.join(" ")} on` });
-}
-
-// The window title carries the waiting count: "(N) homectl owner", or none at 0.
-function waitingFromTitle(title: string): number {
-  return Number(/^\((\d+)\) homectl owner$/.exec(title)?.[1] ?? 0);
-}
-
-function needsYouName(count: number): string {
-  return count > 0 ? `Needs you (${count})` : "Needs you";
-}
 
 // Remember: the owner approves once and remembers the exact command. The browser
 // sends only the identity of the decision; the broker saves the exact rule.
@@ -44,9 +36,12 @@ export async function runRememberScenario(
   const { context, page } = await open(harness, viewport);
   try {
     await signIn(page, harness);
+    const before = await settledWaitingCount(page, harness);
+    // Its own agent, so its risk budget holds only this scenario's requests.
+    const agent = await harness.createAgent(`remember-${viewport.name}`);
 
     // Human-only: an opaque command never offers "remember", and says so.
-    const opaque = await harness.requestCommand(opaqueFor(label));
+    const opaque = await harness.requestCommandAs(agent, opaqueFor(label));
     expect(opaque.state).toBe("awaiting-approval");
     await approvalItem(page, opaqueFor(label))
       .getByRole("button", { name: "Review" })
@@ -71,7 +66,7 @@ export async function runRememberScenario(
 
     // Remember: the rule is for this exact command from this client on this host.
     const argv = rememberableFor(label);
-    const requested = await harness.requestCommand(argv);
+    const requested = await harness.requestCommandAs(agent, argv);
     expect(requested.state).toBe("awaiting-approval");
     await approvalItem(page, argv)
       .getByRole("button", { name: "Review" })
@@ -89,7 +84,7 @@ export async function runRememberScenario(
     const dialog = page.getByRole("dialog", { name: "Approve and remember?" });
     await expect(
       dialog.getByText(
-        `Future commands exactly like "${argv.join(" ")}" on pc from codex-smoke will run without asking. You can remove the rule in Permissions.`,
+        `Future commands exactly like "${argv.join(" ")}" on pc from ${agent.id} will run without asking. You can remove the rule in Permissions.`,
         { exact: true },
       ),
     ).toBeVisible();
@@ -129,7 +124,7 @@ export async function runRememberScenario(
       .locator("tr")
       .filter({ hasText: `argvExact: systemctl,restart,${label}` });
     await expect(rule).toHaveCount(1);
-    await expect(rule).toContainText("clients: codex-smoke");
+    await expect(rule).toContainText(`clients: ${agent.id}`);
     await expect(rule).toContainText("hosts: pc");
     await expect(rule).toContainText("kinds: exec");
     await expect(rule).toContainText("maxRisk: R2");
@@ -142,7 +137,7 @@ export async function runRememberScenario(
     const effective = page.getByRole("region", {
       name: "What applies to an agent on a host",
     });
-    await effective.getByLabel("Agent identifier").fill("codex-smoke");
+    await effective.getByLabel("Agent identifier").fill(agent.id);
     await effective.getByLabel(/^Host/).fill("pc");
     await effective
       .getByRole("button", { name: "Explain", exact: true })
@@ -159,13 +154,22 @@ export async function runRememberScenario(
     ).toContainText("does not apply");
 
     // A matching later request runs with no approval; a longer command still asks.
-    const again = await harness.requestCommand(argv);
+    const again = await harness.requestCommandAs(agent, argv);
     expect(again.state).not.toBe("awaiting-approval");
     await expect
       .poll(() => harness.ranCommands().at(-1), { timeout: 15_000 })
       .toEqual(argv);
-    const longer = await harness.requestCommand([...argv, "--extra"]);
+    const longer = await harness.requestCommandAs(agent, [...argv, "--extra"]);
     expect(longer.state).toBe("awaiting-approval");
+    // Clean up what this scenario left waiting: deny the longer command, then check
+    // the broker is back where this scenario found it. The inbox is on the overview,
+    // not on the Permissions view this scenario ended on.
+    await page.getByRole("button", { name: /^Needs you/ }).click();
+    await approvalItem(page, [...argv, "--extra"])
+      .getByRole("button", { name: "Review" })
+      .click();
+    await page.getByRole("button", { name: "Deny", exact: true }).click();
+    await expect.poll(() => harness.waitingOnBroker()).toBe(before);
     await noOverflow(page);
   } finally {
     await context.close();
@@ -186,7 +190,7 @@ export async function runAttentionScenario(
     await expect(
       page.locator("header").getByText("Live", { exact: true }),
     ).toBeVisible({ timeout: 15_000 });
-    const before = waitingFromTitle(await page.title());
+    const before = await settledWaitingCount(page, harness);
 
     await harness.requestCommand(argv);
     await expect(approvalItem(page, argv)).toBeVisible({ timeout: 10_000 });
@@ -230,7 +234,7 @@ export async function runOfflineScenario(harness: Harness, viewport: Viewport) {
   try {
     await signIn(page, harness);
     await expect(badge).toHaveText("Live", { timeout: 15_000 });
-    const before = waitingFromTitle(await page.title());
+    const before = await settledWaitingCount(page, harness);
 
     // A route only sees new requests, and the open stream predates it. Reloading makes
     // the panel open its stream again, and that request fails. The poll still answers,
@@ -272,6 +276,13 @@ export async function runOfflineScenario(harness: Harness, viewport: Viewport) {
     await page.waitForTimeout(3_500);
     await expect(approvalItem(page, argv)).toHaveCount(1);
     expect(await page.title()).toBe(`(${before + 1}) homectl owner`);
+    // Clean up: deny the request this scenario left waiting, and check the broker
+    // is back where this scenario found it.
+    await approvalItem(page, argv)
+      .getByRole("button", { name: "Review" })
+      .click();
+    await page.getByRole("button", { name: "Deny", exact: true }).click();
+    await expect.poll(() => harness.waitingOnBroker()).toBe(before);
     await noOverflow(page);
   } finally {
     await context.close();

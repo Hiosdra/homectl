@@ -15,17 +15,33 @@ import {
 export type Json = Record<string, unknown>;
 export type Viewport = { width: number; height: number };
 
+// An agent on host "pc". Each agent has its own risk budget, so requests from one
+// scenario never change the verdicts another scenario gets.
+export interface Agent {
+  id: string;
+  authorization: string;
+}
+
 export interface Harness {
   browser: Browser;
   panelOrigin: string;
   password: string;
   // Creates a real approval / secret request through the broker (shared daemon).
-  requestApproval(label: string): Promise<unknown>;
-  requestSecret(label: string): Promise<unknown>;
+  requestApproval(label: string): Promise<{ id: string; state: string }>;
+  requestSecret(label: string): Promise<{ id: string }>;
   // Asks the broker to run exactly this argv as the smoke agent on host "pc".
   requestCommand(argv: string[]): Promise<{ id: string; state: string }>;
+  // A fresh agent on host "pc", and a command asked as that agent.
+  createAgent(id: string): Promise<Agent>;
+  requestCommandAs(
+    agent: Agent,
+    argv: string[],
+  ): Promise<{ id: string; state: string }>;
   // Commands the fake executor has run, in order.
   ranCommands(): string[][];
+  // What the broker itself lists as waiting for the owner: approvals plus secret
+  // requests. The broker is shared by every scenario, so this is never a constant.
+  waitingOnBroker(): Promise<number>;
 }
 
 export interface WorkspaceStub {

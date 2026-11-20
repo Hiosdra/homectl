@@ -12,7 +12,9 @@ import { startDaemon } from "../src/broker/daemon";
 import type { FileVerifier } from "../src/broker/owner";
 import { compatPaths } from "../src/broker/paths";
 import { startOwnerPanel } from "../src/web/owner/server";
+import type { Agent } from "./owner-ui-harness";
 import { runOwnerFlowScenarios } from "./owner-ui-flows";
+import { approvalItem, openSecret } from "./owner-ui-waiting";
 import { runOwnerExtensionScenarios } from "./owner-ui-workspace";
 
 const PASSWORD = "owner smoke password";
@@ -89,6 +91,34 @@ async function requestCommand(argv: string[]) {
   );
 }
 
+// A new agent on host "pc". Its risk budget starts empty, so the other scenarios'
+// requests cannot use it up and change the verdicts this agent gets.
+async function createAgent(id: string): Promise<Agent> {
+  const created = await callBroker<{ token: string }>(
+    "/v1/owner/clients/create",
+    { id, name: `Smoke ${id}`, hosts: ["pc"], password: PASSWORD },
+    owner,
+  );
+  return { id, authorization: `Bearer ${created.token}` };
+}
+
+async function requestCommandAs(agentToRun: Agent, argv: string[]) {
+  return callBroker<{ id: string; state: string }>(
+    "/v1/exec",
+    { host: "pc", argv },
+    { endpoint, authorization: agentToRun.authorization },
+  );
+}
+
+// The broker's own count of what waits for the owner: approvals plus secret requests.
+async function waitingOnBroker() {
+  const [approvals, secrets] = await Promise.all([
+    callBroker<unknown[]>("/v1/owner/pending", {}, owner),
+    callBroker<unknown[]>("/v1/owner/secrets/pending", {}, owner),
+  ]);
+  return approvals.length + secrets.length;
+}
+
 // A label makes the request distinct: the broker returns the existing pending
 // request for an identical one.
 async function requestSecret(label = "") {
@@ -143,21 +173,21 @@ async function runScenario(
     expect(session?.sameSite).toBe("Strict");
     expect(page.url()).not.toMatch(/hco_|hct_|password/);
 
-    // Live: work created while the overview is open appears without a reload.
+    // Live: work created while the overview is open appears without a reload. The
+    // broker is shared with other scenarios, so this scenario finds its own request
+    // by its label and never the first one on the page.
+    const argv = ["smoke-tool", "--apply", name];
     const approval = await requestApproval(name);
     expect(approval.state).toBe("awaiting-approval");
-    await requestSecret();
+    const secret = await requestSecret(name);
     await expect(
-      page.getByRole("button", { name: "Review" }).first(),
+      approvalItem(page, argv).getByRole("button", { name: "Review" }),
     ).toBeVisible({ timeout: 10_000 });
-    await expect(
-      page.getByRole("button", { name: "Provide or decline" }).first(),
-    ).toBeVisible({
-      timeout: 10_000,
-    });
 
     // Approval with step-up: the button stays disabled until the password is typed.
-    await page.getByRole("button", { name: "Review" }).first().click();
+    await approvalItem(page, argv)
+      .getByRole("button", { name: "Review" })
+      .click();
     await expect(
       page.getByRole("heading", { name: "Approve this command?" }),
     ).toBeVisible();
@@ -177,10 +207,7 @@ async function runScenario(
       .toEqual(["smoke-tool", "--apply", name]);
 
     // Secret: the token field is masked, the value is cleared after submit.
-    await page
-      .getByRole("button", { name: "Provide or decline" })
-      .first()
-      .click();
+    await openSecret(page, secret.id, name);
     const token = page.getByLabel(/API token/);
     await expect(token).toHaveAttribute("type", "password");
     await token.fill("smoke-token-value");
@@ -226,7 +253,10 @@ try {
     requestApproval,
     requestSecret,
     requestCommand,
+    createAgent,
+    requestCommandAs,
     ranCommands: () => ran,
+    waitingOnBroker,
   };
   await runOwnerExtensionScenarios(harness);
   // Remembered rules, the attention inbox, the stream dropping and returning.
