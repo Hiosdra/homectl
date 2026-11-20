@@ -83,21 +83,16 @@ export async function runPermissionsWordingScenario(
     await expect(details.getByLabel("Assistant")).toBeVisible();
     await expect(details.getByLabel("Machine")).toBeVisible();
 
-    // The AI helper's address and model sit behind Advanced, closed at first.
-    // The AI helper section appears for the AI choices; picking one shows it (no save).
-    await page.getByLabel(/AI helps with small fixes/).check();
-    // Two Advanced disclosures exist now (the manual option too), so this one is
-    // picked by its own content.
-    const advanced = page.locator("details.advanced", {
-      hasText: "AI helper address",
-    });
+    // Picking an AI choice while no helper is set up opens "Connect your AI
+    // helper" at once (0.3). Nothing is saved; Escape keeps "Ask me first". The
+    // helper's address fields are checked where a helper is ready, in the
+    // Auto Mode and onboarding scenarios.
+    await page.getByLabel(/AI helps with small fixes/).click();
     await expect(
-      advanced.getByText("AI helper address (endpoint)"),
-    ).toBeHidden();
-    await advanced.locator("summary").click();
-    await expect(
-      advanced.getByText("AI helper address (endpoint)"),
+      page.getByRole("dialog", { name: "Connect your AI helper" }),
     ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByLabel(/Ask me first/)).toBeChecked();
     await noOverflow(page);
   } finally {
     await context.close();

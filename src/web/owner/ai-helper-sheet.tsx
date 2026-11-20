@@ -14,6 +14,7 @@ import {
   CONFIRM_HELP,
   CUSTOM_BASE_EXAMPLE,
   ENVIRONMENT_KEY_NOTE,
+  CUSTOM_KEY_HELP,
   KEY_HELP,
   LOCKED_NOTE,
   PROVIDER_CHOICES,
@@ -221,8 +222,7 @@ export function AiHelperSheet({
           (keySource !== "vault" || replacing) ? (
             <>
               <p className="small muted">
-                {custom ? "Optional for most local servers. " : ""}
-                {KEY_HELP}
+                {custom ? CUSTOM_KEY_HELP : KEY_HELP}
               </p>
               <Field id="ai-key" label="API key" hint={keyHint}>
                 <input

@@ -46,6 +46,7 @@ function viewOf(stub: AutoModeStub): Json {
       ...(stub.endpoint === undefined ? {} : { endpoint: stub.endpoint }),
       ...(stub.model === undefined ? {} : { model: stub.model }),
       apiKeyConfigured: true,
+      apiKey: { source: "vault", locked: false },
       ready: stub.endpoint !== undefined && stub.model !== undefined,
     },
     choices: {
@@ -134,14 +135,14 @@ export async function runAutoModeScenario(
     // the address is shown as an origin only, never the key.
     const advanced = section.locator("details.advanced");
     await expect(
-      advanced.getByText("Configured", { exact: true }),
+      advanced.getByText("Saved in your encrypted vault", { exact: true }),
     ).toBeHidden();
     await advanced.locator("summary").click();
     await expect(
       section.getByText("https://reviewer.example.test", { exact: false }),
     ).toBeVisible();
     await expect(
-      section.getByText("Configured", { exact: true }),
+      section.getByText("Saved in your encrypted vault", { exact: true }),
     ).toBeVisible();
 
     // A saved choice is not edited through raw mode and authority controls; those

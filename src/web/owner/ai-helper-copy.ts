@@ -27,8 +27,10 @@ export const SHEET_INTRO =
 export const PROVIDER_HELP =
   "Pick the company whose AI you have an account with. Custom is for an AI running on this network, such as Ollama or LM Studio.";
 
-export const KEY_HELP =
-  "Paste the key from your provider's website. It is saved in your encrypted vault. You will not see it again.";
+export const KEY_HELP = "Paste the key from your provider's website.";
+
+export const CUSTOM_KEY_HELP =
+  "Most local servers need no key. Leave this blank unless yours asks for one.";
 
 export const ENVIRONMENT_KEY_NOTE =
   "A key from the broker's environment is in use. You do not need to paste one here.";

@@ -17,6 +17,7 @@ import { runOwnerFlowScenarios } from "./owner-ui-flows";
 import { runDesignScenarios } from "./owner-ui-design";
 import { runFocusScenario } from "./owner-ui-focus";
 import { approvalItem, openSecret } from "./owner-ui-waiting";
+import { runOnboardingScenarios } from "./owner-ui-onboarding";
 import { runOwnerExtensionScenarios } from "./owner-ui-workspace";
 
 const PASSWORD = "owner smoke password";
@@ -262,6 +263,10 @@ try {
   await runOwnerExtensionScenarios(harness);
   // Remembered rules, the attention inbox, the stream dropping and returning.
   await runOwnerFlowScenarios(harness);
+  // AI helper onboarding: opens on an AI choice, Cancel keeps the setting, the
+  // model list and test run against a local stub provider. Runs after the flows
+  // because it leaves the helper ready.
+  await runOnboardingScenarios(harness);
   // Design: information architecture, accessible names and headings, one-tap
   // approval from the list, and the remembered section.
   await runDesignScenarios(harness);
