@@ -17,10 +17,10 @@ This page describes what homectl 0.3.0 enforces, what it only advises, and what 
 
 Three parties matter: the **owner** (you), the **broker** (`home-ctl daemon run`), and **agents** (Codex, Claude Code or another MCP client). Agents are not trusted with keys, the vault password or approvals.
 
-| Surface | Who calls it | Authentication |
-| --- | --- | --- |
-| `/v1/*` (agent routes) and `/mcp` | An agent, through `home-ctl mcp` or the HTTP endpoint | `Authorization: Bearer <client token>` |
-| `/v1/owner/*` | You, through the owner panel or CLI | Owner session: panel cookie or `Owner <token>` from `/v1/owner/login` |
+| Surface                           | Who calls it                                          | Authentication                                                        |
+| --------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------- |
+| `/v1/*` (agent routes) and `/mcp` | An agent, through `home-ctl mcp` or the HTTP endpoint | `Authorization: Bearer <client token>`                                |
+| `/v1/owner/*`                     | You, through the owner panel or CLI                   | Owner session: panel cookie or `Owner <token>` from `/v1/owner/login` |
 
 Enforced in the broker (`src/broker/server.ts`):
 
@@ -34,10 +34,10 @@ Each agent install gets its own client identity and token. `home-ctl agent conne
 
 ### Two broker modes
 
-| Mode | Where it runs | What separates it from you |
-| --- | --- | --- |
-| **Hardened** (Linux with systemd only) | A `homectl` system account, state in `/var/lib/homectl` (mode 0700), installed with `sudo home-ctl daemon install` | The agent's OS user cannot read broker state, keys or the vault. Agents reach the socket `/run/homectl/agent.sock`, which is world-writable (mode 0666), so the client token is the only check. |
-| **Compatibility** (`--mode compat`, the default) | Your OS user, state under `<inventory directory>/broker` | **Weaker.** Any process running as your user can read the broker state and use the unlocked SSH agent. `home-ctl daemon status` says so. |
+| Mode                                             | Where it runs                                                                                                      | What separates it from you                                                                                                                                                                      |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Hardened** (Linux with systemd only)           | A `homectl` system account, state in `/var/lib/homectl` (mode 0700), installed with `sudo home-ctl daemon install` | The agent's OS user cannot read broker state, keys or the vault. Agents reach the socket `/run/homectl/agent.sock`, which is world-writable (mode 0666), so the client token is the only check. |
+| **Compatibility** (`--mode compat`, the default) | Your OS user, state under `<inventory directory>/broker`                                                           | **Weaker.** Any process running as your user can read the broker state and use the unlocked SSH agent. `home-ctl daemon status` says so.                                                        |
 
 Hardened mode is not available on Windows or macOS in this build; `daemon install` refuses there and says to use compatibility mode. Hardened mode also needs systemd, so it is not available in WSL without systemd enabled or in containers.
 
@@ -56,11 +56,11 @@ Hardened mode is not available on Windows or macOS in this build; `daemon instal
 
 **Timers.**
 
-| Timer | Default | Effect |
-| --- | --- | --- |
-| Absolute session TTL | 24 hours (`session configure --ttl`) | Locks the vault and clears keys |
-| Idle lock | 1 hour | Locks after no activity |
-| Privileged window | 10 minutes | Admin-tagged keys load only after you re-enter the owner password (`/v1/owner/vault/elevate`) |
+| Timer                | Default                              | Effect                                                                                        |
+| -------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------- |
+| Absolute session TTL | 24 hours (`session configure --ttl`) | Locks the vault and clears keys                                                               |
+| Idle lock            | 1 hour                               | Locks after no activity                                                                       |
+| Privileged window    | 10 minutes                           | Admin-tagged keys load only after you re-enter the owner password (`/v1/owner/vault/elevate`) |
 
 Locking clears the SSH agent's keys, drops in-memory secrets, ends owner sessions, cancels queued approvals and stops new dispatch. Connections that are already open can finish. Locking never touches your personal SSH agent.
 
@@ -81,13 +81,13 @@ Every request from an agent passes a fixed decision pipeline (`src/authz/evaluat
 
 ### Risk levels and budgets
 
-| Risk | Points | Meaning |
-| --- | --- | --- |
-| R0 | 0 | Metadata reads |
-| R1 | 1 | Safe inspection |
-| R2 | 3 | Routine, reversible change |
-| R3 | 10 | Significant, opaque or privileged |
-| R4 | 30 | Destructive, trust-changing or credential export |
+| Risk | Points | Meaning                                          |
+| ---- | ------ | ------------------------------------------------ |
+| R0   | 0      | Metadata reads                                   |
+| R1   | 1      | Safe inspection                                  |
+| R2   | 3      | Routine, reversible change                       |
+| R3   | 10     | Significant, opaque or privileged                |
+| R4   | 30     | Destructive, trust-changing or credential export |
 
 Defaults in the policy file (`budgets`):
 
@@ -102,11 +102,11 @@ The one built-in rule allows read-only `exec` (classified as inspection, up to R
 
 Presets set only the mode and reviewer authority. Rules and budgets stay as they are.
 
-| Preset | Mode | Reviewer authority |
-| --- | --- | --- |
+| Preset                                           | Mode    | Reviewer authority              |
+| ------------------------------------------------ | ------- | ------------------------------- |
 | `conservative` (used when no policy file exists) | `rules` | `recommend` (the owner decides) |
-| `routine` | `rules` | `routine` |
-| `delegated` | `auto` | `delegated` |
+| `routine`                                        | `rules` | `routine`                       |
+| `delegated`                                      | `auto`  | `delegated`                     |
 
 Changing a preset or removing a rule needs your owner password in the same request. The policy file is `policy.json` in the broker state directory, and only the broker writes it.
 
@@ -145,12 +145,12 @@ Agents must not ask for passwords in chat. They ask the broker for a secret inst
 
 Destination kinds:
 
-| Kind | Where the value goes |
-| --- | --- |
-| `ssh-stdin` | Standard input of a fixed argv on an inventory host |
-| `target-file` | A file on an inventory host, written with its final mode |
-| `http-header` | One HTTPS request header |
-| `vault-only` | Kept in the vault. The broker has no injection plan for it, so `secret_use` refuses it. |
+| Kind          | Where the value goes                                                                    |
+| ------------- | --------------------------------------------------------------------------------------- |
+| `ssh-stdin`   | Standard input of a fixed argv on an inventory host                                     |
+| `target-file` | A file on an inventory host, written with its final mode                                |
+| `http-header` | One HTTPS request header                                                                |
+| `vault-only`  | Kept in the vault. The broker has no injection plan for it, so `secret_use` refuses it. |
 
 Retention is `ephemeral` (the value lives for 1 hour in memory) or `saved` (stored in the vault under a name you choose). The broker refuses a secret request for a host the client may not use, with the same error exec gives, so a client cannot probe which hosts exist.
 
@@ -200,12 +200,12 @@ Dot-named temporary and backup files are ignored by sudo's `includedir`, so left
 
 Each machine has one tier in the inventory. Tiers say what the agent is intended to run. They do not create privileges: real privileges still come from your accounts and system configuration.
 
-| Tier | Intended use |
-| --- | --- |
-| `observe` | Recognized, read-only inspection |
-| `user` | The existing account, no privileged commands |
+| Tier            | Intended use                                              |
+| --------------- | --------------------------------------------------------- |
+| `observe`       | Recognized, read-only inspection                          |
+| `user`          | The existing account, no privileged commands              |
 | `sudo-approved` | Exact absolute commands listed in `sudo_allow` (required) |
-| `full` | Arbitrary commands, subject to review |
+| `full`          | Arbitrary commands, subject to review                     |
 
 A root SSH account must use `full`. Passwords never enter agent chat.
 

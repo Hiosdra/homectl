@@ -13,10 +13,11 @@
     "test": "bun test",
     "build:panel": "bun scripts/build-panel.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "bun scripts/check-file-length.ts && bun scripts/check-doc-links.ts && biome check src tests scripts schema package.json tsconfig.json biome.json",
-    "format": "biome check --write src tests scripts schema package.json tsconfig.json biome.json",
-    "check": "bun run typecheck && bun run lint && bun test",
-    "test:ui": "bun scripts/ui-smoke.ts && bun scripts/owner-ui-smoke.ts"
+    "lint": "bun scripts/check-file-length.ts && bun scripts/check-doc-links.ts && biome check src tests scripts schema package.json tsconfig.json biome.json && bun fmt --check .",
+    "format": "biome check --write src tests scripts schema package.json tsconfig.json biome.json && bun fmt .",
+    "check": "bun run typecheck && bun run lint && bun run lint:other && bun test",
+    "test:ui": "bun scripts/ui-smoke.ts && bun scripts/owner-ui-smoke.ts",
+    "lint:other": "sh scripts/lint-other.sh"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",

@@ -29,12 +29,12 @@ Windows and macOS run the compatibility broker, which runs as your user. Details
 
 ## Install
 
-| System | How |
-| --- | --- |
-| Debian, Ubuntu, Fedora, RHEL, Arch, Alpine | Install the package from the latest [release](https://github.com/Hiosdra/homectl/releases/latest). |
-| macOS, Linux | Unpack the archive for your system and put `home-ctl` on your PATH. |
-| Windows | Unzip `homectl-<version>-windows-x64.zip` and run `home-ctl.exe setup`. |
-| Source checkout | `git clone https://github.com/Hiosdra/homectl.git`, then run `bun install --frozen-lockfile` and `bun src/cli/main.ts setup` in that folder. |
+| System                                     | How                                                                                                                                          |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Debian, Ubuntu, Fedora, RHEL, Arch, Alpine | Install the package from the latest [release](https://github.com/Hiosdra/homectl/releases/latest).                                           |
+| macOS, Linux                               | Unpack the archive for your system and put `home-ctl` on your PATH.                                                                          |
+| Windows                                    | Unzip `homectl-<version>-windows-x64.zip` and run `home-ctl.exe setup`.                                                                      |
+| Source checkout                            | `git clone https://github.com/Hiosdra/homectl.git`, then run `bun install --frozen-lockfile` and `bun src/cli/main.ts setup` in that folder. |
 
 Then run setup once for your user:
 

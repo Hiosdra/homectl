@@ -11,6 +11,7 @@ dist="$(cd "$1" && (pwd -W 2>/dev/null || pwd))"
 version="${2:-$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' package.json | head -1)}"
 test -n "$version"
 
+# shellcheck disable=SC2016 # expanded later, by the shell inside the container
 check='
   home-ctl help >/tmp/help.txt 2>&1 || { echo "home-ctl help failed"; cat /tmp/help.txt; exit 1; }
   head -1 /tmp/help.txt

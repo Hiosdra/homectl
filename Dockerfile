@@ -9,7 +9,9 @@ FROM ${BUN_IMAGE}
 
 # openssh-client provides ssh-agent and ssh-add. keepassxc provides keepassxc-cli,
 # which the session unlock requires. Package versions are not pinned here (open
-# item in the design).
+# item in the design): BUN_IMAGE picks the Debian release, so apt versions
+# cannot be known here; the digest-pinned base is what makes builds repeatable.
+# hadolint ignore=DL3008
 RUN apt-get update \
  && apt-get install -y --no-install-recommends openssh-client keepassxc \
  && rm -rf /var/lib/apt/lists/*

@@ -27,15 +27,15 @@ Run `home-ctl doctor` after setup to check the tools.
 
 Pick the package for your system from the latest release.
 
-| System | Get it | Install |
-| --- | --- | --- |
-| Debian, Ubuntu | the `.deb` package | `sudo apt-get install ./<file>.deb` |
-| Fedora, RHEL | the `.rpm` package | `sudo dnf install ./<file>.rpm` |
-| Arch Linux | the `.pkg.tar.zst` package | `sudo pacman -U ./<file>.pkg.tar.zst` |
-| Alpine Linux | the `.apk` package (musl builds) | `sudo apk add --allow-untrusted ./<file>.apk` |
-| Linux or macOS | `homectl-<version>-linux-x64.tar.gz`, `homectl-<version>-macos-arm64.tar.gz` and the other `.tar.gz` archives | Unpack and put `home-ctl` on your PATH |
-| Windows | `homectl-<version>-windows-x64.zip` | Unzip and run `home-ctl.exe setup` |
-| Homebrew | `brew tap Hiosdra/tap` then `brew install homectl` | <!-- verify: no Homebrew step appears in .github/workflows/release.yml in this repository; confirm the tap exists before documenting it. --> |
+| System         | Get it                                                                                                        | Install                                                                                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Debian, Ubuntu | the `.deb` package                                                                                            | `sudo apt-get install ./<file>.deb`                                                                                                          |
+| Fedora, RHEL   | the `.rpm` package                                                                                            | `sudo dnf install ./<file>.rpm`                                                                                                              |
+| Arch Linux     | the `.pkg.tar.zst` package                                                                                    | `sudo pacman -U ./<file>.pkg.tar.zst`                                                                                                        |
+| Alpine Linux   | the `.apk` package (musl builds)                                                                              | `sudo apk add --allow-untrusted ./<file>.apk`                                                                                                |
+| Linux or macOS | `homectl-<version>-linux-x64.tar.gz`, `homectl-<version>-macos-arm64.tar.gz` and the other `.tar.gz` archives | Unpack and put `home-ctl` on your PATH                                                                                                       |
+| Windows        | `homectl-<version>-windows-x64.zip`                                                                           | Unzip and run `home-ctl.exe setup`                                                                                                           |
+| Homebrew       | `brew tap Hiosdra/tap` then `brew install homectl`                                                            | <!-- verify: no Homebrew step appears in .github/workflows/release.yml in this repository; confirm the tap exists before documenting it. --> |
 
 Use the file names from the release you download. The Linux packages are built by the release workflow with nfpm (`scripts/build-packages.ts`). The workflow installs them in clean containers and runs `home-ctl help` there. The archives are listed in `SHA256SUMS`, and the release manifest is signed.
 

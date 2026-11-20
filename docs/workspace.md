@@ -66,18 +66,18 @@ Channel protection: every request from a client to the server is two round trips
 
 Run these on the broker's machine. Each one asks the local broker, which holds the state and the keys; the CLI never reads them directly.
 
-| Command | What it does |
-| --- | --- |
-| `workspace invite` | On a server: create a pairing code, valid 5 minutes. |
-| `workspace join <address> <code> [--remote-approval]` | On a client: link to the server and show the verification phrase. |
-| `workspace status` | Show this broker's workspace state as JSON. |
-| `workspace clients` | List linked clients, with `(stale)` for any not seen in the last 60 seconds, remote-approval on or off, and the number of pending operations. |
-| `workspace pending` | List operations that linked clients are waiting on. |
+| Command                                                               | What it does                                                                                                                                                                                                       |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `workspace invite`                                                    | On a server: create a pairing code, valid 5 minutes.                                                                                                                                                               |
+| `workspace join <address> <code> [--remote-approval]`                 | On a client: link to the server and show the verification phrase.                                                                                                                                                  |
+| `workspace status`                                                    | Show this broker's workspace state as JSON.                                                                                                                                                                        |
+| `workspace clients`                                                   | List linked clients, with `(stale)` for any not seen in the last 60 seconds, remote-approval on or off, and the number of pending operations.                                                                      |
+| `workspace pending`                                                   | List operations that linked clients are waiting on.                                                                                                                                                                |
 | `workspace decide <client> <operationId> <fingerprint> approve\|deny` | On a server: queue a one-time approve or deny for one client's operation. The fingerprint must match the one from `pending`. The client must have joined with `--remote-approval`; step-up operations are refused. |
-| `workspace remove <client>` | On a server: unlink a client. It is remembered as removed. |
-| `workspace leave` | On a client: unlink from the server. |
-| `workspace sync-now` | Run a sync with the server now and wait for it. |
-| `workspace backup-now` | Run a backup now and wait for it; prints the new sequence number and how many chunks were uploaded or reused. |
+| `workspace remove <client>`                                           | On a server: unlink a client. It is remembered as removed.                                                                                                                                                         |
+| `workspace leave`                                                     | On a client: unlink from the server.                                                                                                                                                                               |
+| `workspace sync-now`                                                  | Run a sync with the server now and wait for it.                                                                                                                                                                    |
+| `workspace backup-now`                                                | Run a backup now and wait for it; prints the new sequence number and how many chunks were uploaded or reused.                                                                                                      |
 
 A linked client also syncs every 5 seconds and backs up every 15 minutes on its own.
 

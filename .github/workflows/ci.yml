@@ -40,6 +40,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Non-TypeScript files: shellcheck, actionlint and hadolint at pinned
+  # versions (scripts/lint-other.sh). Formatting of these files is checked by
+  # `bun fmt --check` inside `bun run lint`.
+  lint-other:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh scripts/lint-other.sh
   windows:
     runs-on: windows-latest
     steps:
