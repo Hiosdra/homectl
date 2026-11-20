@@ -19,6 +19,7 @@ p:last-child { margin-bottom: 0; }
 .between { justify-content: space-between; }
 .stack > * + * { margin-top: 12px; }
 .lead { font-size: 16px; margin: 0 0 6px; }
+.sub-title { font-size: 13px; font-weight: 650; color: var(--ink-2); margin: 14px 0 6px; }
 section, .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
   padding: 18px; margin-bottom: 16px; box-shadow: var(--shadow); }
 section:last-child { margin-bottom: 0; }
@@ -36,7 +37,10 @@ button.danger:hover:not(:disabled) { background: var(--bad-bg); }
 button.quiet { background: transparent; border-color: transparent; color: var(--accent); }
 button.quiet:hover:not(:disabled) { background: var(--accent-soft); }
 button.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-button:disabled { opacity: .5; cursor: not-allowed; }
+/* A disabled control keeps its colour family and readable text; it is only dimmed
+   and loses the pointer, so it still reads as the same button. */
+button:disabled { opacity: .62; cursor: not-allowed; }
+button.primary:disabled { background: var(--surface-2); border-color: var(--line-strong); color: var(--ink-2); opacity: 1; }
 .icon { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
   stroke-linecap: round; stroke-linejoin: round; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
@@ -77,12 +81,29 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .item.request[data-risk="big"] { border-left-color: var(--warn); }
 .item.request[data-risk="destructive"] { border-left-color: var(--bad); }
 .request-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
-.request-meta { color: var(--ink-2); font-size: 13px; }
+.request-meta { color: var(--ink-2); font-size: 13px; margin: 0; }
 .request-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .command { font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--ink); background: var(--surface-2);
   border: 1px solid var(--line); border-radius: var(--r-sm); padding: 2px 8px; word-break: break-word; }
+.command-line { margin: 0; }
 .plain-list { margin: 0; padding-left: 20px; }
 .plain-list li + li { margin-top: 8px; }
+
+/* Needs you: one list of cards under one heading each. The cards carry the only
+   border, so nothing sits inside a bordered container. */
+.group + .group { margin-top: 24px; }
+.group-title { display: flex; align-items: center; gap: 8px; font-size: 16px; margin-bottom: 10px; }
+.request-list { display: flex; flex-direction: column; gap: 12px; }
+.item.request-card, .request-card { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; margin: 0;
+  background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line-strong);
+  border-radius: var(--r); box-shadow: var(--shadow); }
+.item.request-card { padding-top: 16px; }
+.item.request-card[data-risk="look"] { border-left-color: var(--accent); }
+.item.request-card[data-risk="small"] { border-left-color: var(--ok); }
+.item.request-card[data-risk="big"] { border-left-color: var(--warn); }
+.item.request-card[data-risk="destructive"] { border-left-color: var(--bad); }
+.assistant-tag { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 650; color: var(--ink-2); }
+.assistant-tag .icon { width: 18px; height: 18px; color: var(--accent); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { font-family: var(--mono); font-size: 14px; padding: 4px 10px; border-radius: 6px; background: var(--surface-2);
@@ -93,7 +114,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .untrusted p { white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; }
 
 details { margin-top: 10px; }
-details > summary { cursor: pointer; list-style: none; color: var(--accent); font-weight: 600; min-height: 36px;
+details > summary { cursor: pointer; list-style: none; color: var(--accent); font-weight: 600; min-height: 44px;
   display: inline-flex; align-items: center; gap: 8px; border-radius: 6px; }
 details > summary::-webkit-details-marker { display: none; }
 details > summary::after { content: ""; width: 7px; height: 7px; border-right: 2px solid currentColor;
@@ -101,6 +122,9 @@ details > summary::after { content: ""; width: 7px; height: 7px; border-right: 2
 details[open] > summary::after { transform: rotate(225deg) translateY(-2px); }
 details[open] > summary { margin-bottom: 8px; }
 .details, .advanced { margin-top: 12px; }
+.more-options > summary { margin-top: 2px; }
+.option-row { display: grid; gap: 4px; }
+.option-row > button { justify-self: start; }
 .why { margin-top: 6px; }
 
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -120,13 +144,34 @@ label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; c
 label .hint { font-weight: 400; color: var(--ink-2); }
 input, select, textarea { font: inherit; font-size: 16px; width: 100%; min-height: var(--touch); padding: 10px 12px;
   border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); }
-input[type="radio"], input[type="checkbox"] { width: 18px; height: 18px; min-height: 18px; margin: 0; accent-color: var(--accent); }
+input[type="radio"], input[type="checkbox"] { width: 20px; height: 20px; min-height: 20px; margin: 0; accent-color: var(--accent); }
 textarea { min-height: 120px; font-family: var(--mono); font-size: 14px; }
 textarea.masked { -webkit-text-security: disc; text-security: disc; }
 fieldset { border: 1px solid var(--line); border-radius: var(--r-sm); padding: 12px 14px; margin: 14px 0 0; }
 legend { font-weight: 650; padding: 0 6px; }
-fieldset label:has(> input[type="radio"]) { display: flex; gap: 10px; align-items: flex-start; font-weight: 500; font-size: 15px; margin: 10px 0 0; cursor: pointer; }
-fieldset label:has(> input[type="radio"]) input { margin-top: 3px; flex: none; }
+
+/* Radio rows: the control and its words side by side, the whole row tappable. */
+.radio-group { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.radio-row { display: flex; gap: 12px; align-items: flex-start; min-height: var(--touch); margin: 0; padding: 14px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--ink);
+  font-weight: 500; cursor: pointer; }
+.radio-row:hover { background: var(--surface-2); }
+.radio-row input { margin-top: 3px; flex: none; }
+.radio-row.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.radio-text { display: flex; flex-direction: column; min-width: 0; }
+.radio-title { font-size: 15px; font-weight: 650; color: var(--ink); }
+.radio-detail { font-size: 13.5px; color: var(--ink-2); margin-top: 2px; font-weight: 400; }
+.check-row { display: flex; gap: 12px; align-items: center; min-height: var(--touch); margin: 0; padding: 6px 4px;
+  font-weight: 500; font-size: 15px; cursor: pointer; }
+.check-row input { flex: none; }
+.copy-control { display: inline-flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.plain-steps { margin: 0; padding-left: 20px; }
+.plain-steps > li + li { margin-top: 12px; }
+.plain-steps .copy { margin-top: 8px; }
+.removed-list { margin-top: 16px; }
+.removed-list h4 { margin-top: 0; }
+.assistant-card .assistant-name { font-size: 16px; font-weight: 700; color: var(--ink); }
+.assistant-card .assistant-tag { font-size: 16px; color: var(--ink); }
 
 .context-switcher { margin-bottom: 16px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--r); }
@@ -155,12 +200,12 @@ fieldset label:has(> input[type="radio"]) input { margin-top: 3px; flex: none; }
   .dialog-backdrop > div::before { display: none; }
 }
 
-.toast { position: fixed; left: 12px; right: 12px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 40;
-  max-width: 560px; margin: 0 auto; display: flex; gap: 12px; align-items: center; justify-content: space-between;
-  background: var(--ink); color: var(--bg); border-radius: var(--r); padding: 12px 12px 12px 16px;
+.toast { position: fixed; left: 12px; right: 12px; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 8px);
+  z-index: 40; max-width: 560px; margin: 0 auto; display: flex; gap: 12px; align-items: center;
+  justify-content: space-between; background: var(--ink); color: var(--bg); border-radius: var(--r); padding: 12px 12px 12px 16px;
   box-shadow: 0 10px 30px rgb(0 0 0 / .25); }
 .toast p { margin: 0; font-size: 15px; font-weight: 550; }
-.toast button { min-height: 36px; background: transparent; color: var(--bg); border-color: transparent; }
+.toast button { min-height: 44px; background: transparent; color: var(--bg); border-color: transparent; }
 .toast button:hover:not(:disabled) { background: rgb(128 128 128 / .2); }
 @media (min-width: 900px) { .toast { bottom: 24px; } }
 

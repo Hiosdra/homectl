@@ -39,8 +39,14 @@ import { type Route, parseRoute } from "./route";
 import { SecretScreen } from "./secret";
 import { SignInScreen } from "./signin";
 import { SystemScreen } from "./system";
-import { Gone, MainNav, NAV, type NavItem, TopBar } from "./app-chrome";
-import type { IconName } from "./icons";
+import {
+  Gone,
+  MainNav,
+  NAV,
+  type NavItem,
+  SidebarFoot,
+  TopBar,
+} from "./app-chrome";
 import { readLastSection, writeLastSection } from "./last-section";
 import { Notice, Toast } from "./ui";
 import {
@@ -361,27 +367,28 @@ function App() {
           ? "Offline"
           : "Connecting";
 
-  const liveIcon: IconName =
-    mode === "live" ? "signal" : mode === "offline" ? "alert" : "refresh";
+  // The owner ends the session from either place it is offered.
+  const endSession = async () => {
+    await ownerCall("/v1/owner/logout").catch(() => undefined);
+    signOut();
+  };
 
   return (
     <div className="shell">
-      <TopBar
-        attention={attention}
-        liveTone={liveTone}
-        liveLabel={liveLabel}
-        liveIcon={liveIcon}
-        onSignOut={async () => {
-          await ownerCall("/v1/owner/logout").catch(() => undefined);
-          signOut();
-        }}
-      />
-      <MainNav
-        items={nav}
-        current={route.name}
-        counts={{ overview: attention, workspace: workspaceWaiting }}
-        onGo={go}
-      />
+      <div className="sidebar">
+        <TopBar
+          liveTone={liveTone}
+          liveLabel={liveLabel}
+          onSignOut={endSession}
+        />
+        <MainNav
+          items={nav}
+          current={route.name}
+          counts={{ overview: attention, workspace: workspaceWaiting }}
+          onGo={go}
+        />
+        <SidebarFoot onSignOut={endSession} />
+      </div>
       <main className="main">
         {server &&
         data.workspace &&

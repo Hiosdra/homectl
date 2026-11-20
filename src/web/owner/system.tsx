@@ -47,8 +47,9 @@ export function NotificationSection() {
       <h3 id="alerts-heading">Notifications</h3>
       <p className="small muted">
         A notification appears when a new approval or secret request arrives
-        while this panel is connected. It names the client and the host only. It
-        never shows the command, the agent's explanation or any secret.
+        while this panel is connected. It names the assistant and the machine
+        only. It never shows the command, the assistant's explanation or any
+        secret.
       </p>
       {permission === "unsupported" ? (
         <Notice>This browser does not offer notifications.</Notice>

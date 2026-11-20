@@ -1,11 +1,11 @@
-// The frame of the owner panel: the top bar (brand, live state, sign out), the
-// section navigation (a bottom tab bar on phones, a sidebar on desktop), and the
-// fallback for a request that is no longer waiting. Pure presentation; the app
-// decides what each section shows.
+// The frame of the owner panel: the top bar (brand and live state on phones), the
+// section navigation (a bottom tab bar on phones, a sidebar on desktop) with the
+// sign-out button at the foot of the sidebar, and the fallback for a request that
+// is no longer waiting. Pure presentation; the app decides what each section shows.
 import type { IconName } from "./icons";
 import { Icon } from "./icons";
 import type { Route } from "./route";
-import { Badge, Notice, type Tone } from "./ui";
+import { Notice, type Tone } from "./ui";
 
 export interface NavItem {
   label: string;
@@ -22,17 +22,24 @@ export const NAV: NavItem[] = [
   { label: "Permissions", hash: "#/policy", name: "policy", icon: "shield" },
 ];
 
+// A small dot and a word: the connection state, never a pill that competes with
+// the page. The colour is paired with the word, so it is never the only signal.
+export function LiveStatus({ tone, label }: { tone: Tone; label: string }) {
+  return (
+    <span className={`live-status ${tone}`} role="status">
+      <span className="live-dot" aria-hidden="true" />
+      {label}
+    </span>
+  );
+}
+
 export function TopBar({
-  attention,
   liveTone,
   liveLabel,
-  liveIcon,
   onSignOut,
 }: {
-  attention: number;
   liveTone: Tone;
   liveLabel: string;
-  liveIcon: IconName;
   onSignOut: () => void;
 }) {
   return (
@@ -42,13 +49,14 @@ export function TopBar({
           <Icon name="shield" />
         </span>
         <h1>homectl owner</h1>
-        {attention > 0 ? <Badge tone="count">{attention} waiting</Badge> : null}
       </div>
       <div className="topbar-actions">
-        <Badge tone={liveTone} icon={liveIcon}>
-          {liveLabel}
-        </Badge>
-        <button type="button" className="sign-out" onClick={onSignOut}>
+        <LiveStatus tone={liveTone} label={liveLabel} />
+        <button
+          type="button"
+          className="sign-out sign-out-top"
+          onClick={onSignOut}
+        >
           <Icon name="logout" />
           <span className="btn-text">Sign out</span>
         </button>
@@ -58,7 +66,8 @@ export function TopBar({
 }
 
 // Each item shows how many things wait behind it, if any. The count is part of
-// the button's name, so a screen reader hears "Needs you 2".
+// the button's name, so a screen reader hears "Needs you 2". Only this item
+// carries the count; the brand block never does.
 export function MainNav({
   items,
   current,
@@ -89,6 +98,19 @@ export function MainNav({
         );
       })}
     </nav>
+  );
+}
+
+// Desktop only (the phone has its sign-out in the top bar). It sits at the foot of
+// the sidebar, away from the sections, as a quiet secondary action.
+export function SidebarFoot({ onSignOut }: { onSignOut: () => void }) {
+  return (
+    <div className="sidebar-foot">
+      <button type="button" className="sign-out quiet" onClick={onSignOut}>
+        <Icon name="logout" />
+        <span className="btn-text">Sign out</span>
+      </button>
+    </div>
   );
 }
 

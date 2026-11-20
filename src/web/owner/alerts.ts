@@ -5,6 +5,8 @@
 // a request id, with no token. Nothing is cached by a service worker: the panel
 // registers none.
 
+import { displayName } from "./plain-words";
+
 export type AlertPermission = "unsupported" | "default" | "granted" | "denied";
 
 export interface Alert {
@@ -26,7 +28,7 @@ export function approvalAlert(op: {
   return {
     key: `approval:${op.id}`,
     title: "Approval needed",
-    body: `${op.client} wants to run a command on ${op.host}. Review it in homectl.`,
+    body: `${displayName(op.client)} wants to run a command on ${op.host}. Review it in homectl.`,
     link: `#/approvals/${encodeURIComponent(op.id)}`,
   };
 }
@@ -35,7 +37,7 @@ export function secretAlert(request: { id: string; client: string }): Alert {
   return {
     key: `secret:${request.id}`,
     title: "Secret requested",
-    body: `${request.client} asked for a secret. Provide it in homectl.`,
+    body: `${displayName(request.client)} asked for a secret. Provide it in homectl.`,
     link: `#/secrets/${encodeURIComponent(request.id)}`,
   };
 }

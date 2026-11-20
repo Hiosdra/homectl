@@ -93,7 +93,7 @@ export function Argv({ argv }: { argv: string[] }) {
 }
 
 export function Untrusted({
-  label = "Written by the agent",
+  label = "Written by the assistant",
   text,
 }: {
   label?: string;
