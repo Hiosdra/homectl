@@ -12,7 +12,6 @@ import {
   shortHash,
 } from "../format";
 import { cn } from "../lib/utils";
-import { MachineName } from "../machine-name";
 import { render, ui } from "../store";
 import {
   Action,
@@ -189,7 +188,7 @@ function OperationRow({
         </div>
       </Cell>
       <Cell label="Machine">
-        <MachineName name={op.host} />
+        <b className="break-all">{op.host}</b>
         {other ? (
           <p className="text-xs text-muted-foreground">
             owned by {op.ownerName ?? op.runsOn}
