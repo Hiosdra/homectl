@@ -103,9 +103,12 @@ The skills in `skills/` teach agents how to operate, set up and enroll machines:
 ## Development
 
 ```sh
-bun install --frozen-lockfile
-bun run check      # typecheck, lint (file length, doc links, biome) and tests
+bun install --frozen-lockfile   # also points git at .githooks
+bun run verify     # bun check, lint (file length, doc links, biome, bun fmt), non-TS lint, tests
+bun run format     # biome fixes, then bun fmt
 ```
+
+The pre-commit hook (`.githooks/pre-commit`) runs `bun fmt --staged`, the file-length and doc-link checks, biome on staged sources, and `scripts/lint-other.sh` when shell scripts, workflows or the Dockerfile are staged. Non-TS lint uses local shellcheck, actionlint and hadolint, or their pinned Docker images.
 
 Keep the documentation in `docs/` in step with the code. Maintainer build steps are in [reference](docs/reference.md#building-from-source).
 
