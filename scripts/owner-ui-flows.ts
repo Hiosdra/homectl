@@ -116,42 +116,44 @@ export async function runRememberScenario(
       .poll(() => harness.ranCommands().at(-1), { timeout: 15_000 })
       .toEqual(argv);
 
-    // The saved rule is the exact request: this client, this host, this argv, R2.
+    // Another assistant, made before the panel loads its list, so the check can
+    // pick it from the list and show the rule does not apply to it.
+    const other = await harness.createAgent(`other-${label}`);
+
+    // The saved rule is the exact request, in plain words: this command, this
+    // assistant's machine, up to small changes. Its stored facts sit under Why?.
     await page
       .getByRole("button", { name: "Permissions", exact: true })
       .click();
     const rule = page
       .locator("tr")
-      .filter({ hasText: `argvExact: systemctl,restart,${label}` });
+      .filter({ hasText: `the exact command "systemctl restart ${label}"` });
     await expect(rule).toHaveCount(1);
-    await expect(rule).toContainText(`clients: ${agent.id}`);
-    await expect(rule).toContainText("hosts: pc");
-    await expect(rule).toContainText("kinds: exec");
-    await expect(rule).toContainText("maxRisk: R2");
+    await expect(rule).toContainText("Allowed without asking");
+    await expect(rule).toContainText("on pc, up to small, undoable changes");
+    await rule.locator("details.why > summary").click();
+    await expect(rule).toContainText(`Stored as clients.`);
+    await expect(rule).toContainText("Stored as maxRisk.");
     const ruleId = (
-      await rule.locator("span.mono").first().textContent()
+      await rule.locator("dd.mono").first().textContent()
     )?.trim();
     expect(ruleId).toBeTruthy();
 
-    // The effective-rights check reads the same rule for the client and host.
-    const effective = page.getByRole("region", {
-      name: "What applies to an agent on a host",
-    });
-    await effective.getByLabel("Agent identifier").fill(agent.id);
-    await effective.getByLabel(/^Host/).fill("pc");
-    await effective
-      .getByRole("button", { name: "Explain", exact: true })
-      .click();
+    // The check under Details reads the same rule, with the assistant and the
+    // machine picked from lists.
+    await page.locator("details.details > summary").click();
+    const effective = page.locator("details.details");
+    await effective.getByLabel("Assistant").selectOption(agent.id);
+    await effective.getByLabel("Machine").selectOption("pc");
+    await effective.getByRole("button", { name: "Check", exact: true }).click();
     await expect(
       effective.locator("li").filter({ hasText: ruleId ?? "" }),
-    ).toContainText("(allow): applies");
-    await effective.getByLabel("Agent identifier").fill("someone-else");
-    await effective
-      .getByRole("button", { name: "Explain", exact: true })
-      .click();
+    ).toContainText("this rule applies");
+    await effective.getByLabel("Assistant").selectOption(other.id);
+    await effective.getByRole("button", { name: "Check", exact: true }).click();
     await expect(
       effective.locator("li").filter({ hasText: ruleId ?? "" }),
-    ).toContainText("does not apply");
+    ).toContainText("this rule does not apply");
 
     // A matching later request runs with no approval; a longer command still asks.
     const again = await harness.requestCommandAs(agent, argv);

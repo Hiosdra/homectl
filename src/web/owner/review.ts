@@ -21,4 +21,4 @@ export function approveRememberOffered(decision: {
 }
 
 export const UNDER_REVIEW_NOTE =
-  "Under review: the Auto Mode reviewer has not decided yet. You can still decide it yourself; approving it does not save a rule.";
+  "Under review: the AI helper that checks requests has not decided yet. You can still decide it yourself; approving it does not save a rule.";

@@ -113,17 +113,27 @@ export async function runAutoModeScenario(
     await page
       .getByRole("button", { name: "Permissions", exact: true })
       .click();
-    const section = page.getByRole("region", { name: "Auto Mode settings" });
+    const section = page.getByRole("region", {
+      name: "Let an AI helper decide (advanced)",
+    });
     await expect(section).toBeVisible({ timeout: 10_000 });
 
-    // What the owner is told: the reviewer is not an approval, the origin only,
-    // and whether a key is configured (never the key).
+    // What the owner is told: the helper's answer is not an approval, and
+    // requests that need the owner password always wait.
     await expect(
-      section.getByText(/The reviewer's verdict is not a human approval/),
+      section.getByText(/The AI helper's answer is not your approval/),
     ).toBeVisible();
     await expect(
-      section.getByText(/Human-only operations and step-up operations never/),
+      section.getByText(/Requests that need your owner password always wait/),
     ).toBeVisible();
+
+    // The address and key status sit behind "Advanced": closed at first, and
+    // the address is shown as an origin only, never the key.
+    const advanced = section.locator("details.advanced");
+    await expect(
+      advanced.getByText("Configured", { exact: true }),
+    ).toBeHidden();
+    await advanced.locator("summary").click();
     await expect(
       section.getByText("https://reviewer.example.test", { exact: false }),
     ).toBeVisible();
@@ -132,29 +142,31 @@ export async function runAutoModeScenario(
     ).toBeVisible();
 
     // Least privilege is what the form opens on: the saved settings.
-    await expect(section.getByLabel("Mode", { exact: true })).toHaveValue(
-      "rules",
-    );
-    await expect(section.getByLabel("Reviewer may")).toHaveValue("recommend");
-    const save = section.getByRole("button", {
-      name: "Save Auto Mode settings",
-    });
+    await expect(
+      section.getByLabel("How requests are decided", { exact: true }),
+    ).toHaveValue("rules");
+    await expect(
+      section.getByLabel("What the AI helper may decide"),
+    ).toHaveValue("recommend");
+    const save = section.getByRole("button", { name: "Save changes" });
     await expect(save).toBeDisabled();
 
     // A change that needs no step-up is saved without asking for a password.
-    await section.getByLabel("Mode", { exact: true }).selectOption("manual");
+    await section
+      .getByLabel("How requests are decided", { exact: true })
+      .selectOption("manual");
     await save.click();
-    await expect(section.getByText("Saved. Policy revision 2.")).toBeVisible({
+    await expect(section.getByText("Saved (version 2).")).toBeVisible({
       timeout: 10_000,
     });
     expect(stub.saves[0]).toEqual({ mode: "manual" });
 
-    // Raising the reviewer's authority is refused without the password. The
+    // Raising the helper's authority is refused without the password. The
     // panel then asks for it, and the retry carries it.
-    await section.getByLabel("Reviewer may").selectOption("routine");
     await section
-      .getByRole("button", { name: "Save Auto Mode settings" })
-      .click();
+      .getByLabel("What the AI helper may decide")
+      .selectOption("routine");
+    await section.getByRole("button", { name: "Save changes" }).click();
     await expect(
       section.getByText(/This change needs your owner password/),
     ).toBeVisible({ timeout: 10_000 });
@@ -163,18 +175,16 @@ export async function runAutoModeScenario(
     await section.getByLabel("Owner password").fill(harness.password);
     await expect(confirm).toBeEnabled();
     await confirm.click();
-    await expect(section.getByText("Saved. Policy revision 3.")).toBeVisible({
+    await expect(section.getByText("Saved (version 3).")).toBeVisible({
       timeout: 10_000,
     });
     expect(stub.authority).toBe("routine");
 
-    // A new endpoint: a wrong password is refused and nothing changes.
+    // A new address: a wrong password is refused and nothing changes.
     await section
-      .getByLabel(/Reviewer endpoint/)
+      .getByLabel(/AI helper address/)
       .fill("https://other-reviewer.example.test/v1");
-    await section
-      .getByRole("button", { name: "Save Auto Mode settings" })
-      .click();
+    await section.getByRole("button", { name: "Save changes" }).click();
     await section.getByLabel("Owner password").fill("not the owner password");
     await section.getByRole("button", { name: "Confirm and save" }).click();
     await expect(
@@ -187,11 +197,13 @@ export async function runAutoModeScenario(
     // The right password saves it; the origin is what is shown afterwards.
     await section.getByLabel("Owner password").fill(harness.password);
     await section.getByRole("button", { name: "Confirm and save" }).click();
-    await expect(section.getByText("Saved. Policy revision 4.")).toBeVisible({
+    await expect(section.getByText("Saved (version 4).")).toBeVisible({
       timeout: 10_000,
     });
     await expect(
-      section.getByText("https://other-reviewer.example.test (origin only)"),
+      section.getByText(
+        "https://other-reviewer.example.test (only the web address is shown)",
+      ),
     ).toBeVisible();
 
     // The password was sent only on the attempts that needed it, never on the

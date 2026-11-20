@@ -92,6 +92,15 @@ label .hint { font-weight: 400; color: var(--muted); }
 .notice.good { background: var(--good-bg); color: var(--good); border-color: transparent; }
 .item { display: flex; flex-direction: column; gap: 6px; padding: 12px 0; border-top: 1px solid var(--line); }
 .item:first-child { border-top: 0; padding-top: 0; }
+.plain-list { margin: 0; padding-left: 20px; }
+.plain-list li + li { margin-top: 8px; }
+details { margin-top: 8px; }
+details > summary { cursor: pointer; color: var(--accent); font-weight: 600; min-height: 32px;
+  display: inline-flex; align-items: center; border-radius: 6px; }
+details[open] > summary { margin-bottom: 8px; }
+summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.details, .advanced { margin-top: 12px; }
+.why { margin-top: 6px; }
 a { color: var(--accent); }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 8px 6px; border-top: 1px solid var(--line); vertical-align: top; }

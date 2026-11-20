@@ -5,6 +5,7 @@
 
 import { expect } from "@playwright/test";
 import { runAutoModeScenario } from "./owner-ui-auto-mode";
+import { runPermissionsWordingScenario } from "./owner-ui-permissions";
 import { runContextScenario, runNoWorkspaceContext } from "./owner-ui-context";
 import { runNotificationScenario } from "./owner-ui-notify";
 import { runRestoreScenario } from "./owner-ui-restore";
@@ -243,7 +244,7 @@ export async function runLocalReviewScenario(
     ).toBeVisible();
     await expect(
       page.getByText(
-        /Under review: the Auto Mode reviewer has not decided yet/,
+        /Under review: the AI helper that checks requests has not decided yet/,
       ),
     ).toBeVisible();
     await expect(
@@ -278,6 +279,7 @@ export async function runOwnerExtensionScenarios(harness: Harness) {
     await runLocalReviewScenario(harness, viewport);
     await runRestoreScenario(harness, viewport);
     await runAutoModeScenario(harness, viewport);
+    await runPermissionsWordingScenario(harness, viewport);
     await runSystemScenario(harness, viewport);
     await runNotificationScenario(harness, viewport, "granted");
     await runNotificationScenario(harness, viewport, "denied");

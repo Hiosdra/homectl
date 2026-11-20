@@ -1,43 +1,29 @@
-// Effective permissions: what the policy allows right now, rule by rule. Reads
-// change nothing. Switching the preset and removing a rule each need the owner
-// password again, because both change what agents may do.
-import { useEffect, useId, useState } from "react";
+// Permissions, in plain questions: who can do what on your machines, when homectl
+// asks you first, and the rules you saved. Technical names and numbers are under
+// Details and "Why?". Reads change nothing. Changing the setting, or removing a
+// rule, needs the owner password again, because each changes what assistants may
+// do.
+import { Fragment, useEffect, useId, useState } from "react";
 import {
-  type EffectiveView,
+  type ClientView,
   describeError,
+  ownerCall,
   type PolicyDocument,
   type PolicyRule,
-  ownerCall,
 } from "./api";
 import { AutoModeSection } from "./auto-mode";
-import { Badge, Dialog, Field, Notice, PasswordStep, fmtTime } from "./ui";
-
-const PRESETS: { id: string; label: string; hint: string }[] = [
-  {
-    id: "conservative",
-    label: "Recommend only",
-    hint: "Manual decisions for everything except built-in safe reads. The reviewer only suggests.",
-  },
-  {
-    id: "routine",
-    label: "Routine maintenance",
-    hint: "The reviewer may also decide routine, reversible maintenance within the risk limit.",
-  },
-  {
-    id: "delegated",
-    label: "Wider delegation",
-    hint: "Auto mode: the reviewer decides eligible requests within explicit delegated scope. Hard gates still apply.",
-  },
-];
-
-function describeMatch(match: Record<string, unknown>): string {
-  const parts: string[] = [];
-  for (const [key, value] of Object.entries(match)) {
-    if (Array.isArray(value)) parts.push(`${key}: ${value.join(", ")}`);
-    else if (value !== undefined) parts.push(`${key}: ${String(value)}`);
-  }
-  return parts.join(" · ") || "any request";
-}
+import { readAutoMode } from "./auto-mode-api";
+import {
+  effectLabel,
+  PRESETS,
+  type PresetId,
+  presetLabel,
+  RISK_LEVELS,
+  WORDS,
+} from "./permissions-copy";
+import { ruleCovers, ruleFacts, ruleOwner } from "./policy-sentences";
+import { CheckRules, namesOf, WhoCanDo } from "./policy-who";
+import { Badge, Dialog, Field, fmtTime, Notice, PasswordStep } from "./ui";
 
 export function PolicyScreen({
   onError,
@@ -45,6 +31,8 @@ export function PolicyScreen({
   onError: (error: unknown) => unknown;
 }) {
   const [policy, setPolicy] = useState<PolicyDocument | undefined>();
+  const [clients, setClients] = useState<ClientView[]>([]);
+  const [reviewerReady, setReviewerReady] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -53,7 +41,16 @@ export function PolicyScreen({
 
   const load = async () => {
     try {
-      setPolicy(await ownerCall<PolicyDocument>("/v1/owner/policy/get"));
+      const [loaded, listed, auto] = await Promise.all([
+        ownerCall<PolicyDocument>("/v1/owner/policy/get"),
+        ownerCall<ClientView[]>("/v1/owner/clients/list"),
+        // A read. If the AI helper's status cannot be read, the sentences assume
+        // it is not ready, so they never promise a decision by the helper.
+        readAutoMode().catch(() => undefined),
+      ]);
+      setPolicy(loaded);
+      setClients(listed);
+      setReviewerReady(auto?.reviewer.ready === true);
     } catch (failure) {
       onError(failure);
       setError(describeError(failure));
@@ -93,42 +90,59 @@ export function PolicyScreen({
       <p className="muted">Loading…</p>
     );
 
-  const currentPreset = PRESETS.find(
-    (preset) => preset.id === presetOf(policy),
-  );
+  const names = namesOf(clients);
 
   return (
     <>
       <h2>Permissions</h2>
       <p className="small muted">
-        This is what agents may do under the current rules (revision{" "}
-        {policy.revision}). Changes apply to the next request.
+        Permissions decide what your assistants may do on your machines, and
+        when homectl asks you first. A change applies to the next request.
       </p>
       {error ? <Notice tone="bad">{error}</Notice> : null}
       {notice ? <Notice tone="good">{notice}</Notice> : null}
 
-      <section aria-labelledby="mode-title">
-        <h3 id="mode-title">Mode and reviewer</h3>
-        <dl>
-          <dt>Mode</dt>
-          <dd>{policy.mode}</dd>
-          <dt>Reviewer may</dt>
-          <dd>
-            {policy.reviewer.authority} · up to {policy.reviewer.maxRisk} · when
-            unsure: {policy.reviewer.fallback}
-          </dd>
-          <dt>Budgets</dt>
-          <dd>
-            {policy.budgets.taskMaxOperations} operations and{" "}
-            {policy.budgets.taskMaxRiskPoints} risk points per task;{" "}
-            {policy.budgets.clientMaxRiskPoints} risk points per agent per{" "}
-            {Math.round(policy.budgets.clientWindowMs / 60_000)} minutes
-          </dd>
-          <dt>Preset</dt>
-          <dd>{currentPreset?.label ?? "Custom"}</dd>
-        </dl>
+      <section aria-labelledby="who-title">
+        <h3 id="who-title">Who can do what on your machines?</h3>
+        <WhoCanDo
+          policy={policy}
+          clients={clients}
+          reviewerReady={reviewerReady}
+        />
+      </section>
+
+      <section aria-labelledby="ask-title">
+        <h3 id="ask-title">When does homectl ask you first?</h3>
+        <ul className="plain-list">
+          <li>
+            <strong>Looking around</strong> (checking things, changing nothing):
+            no question, unless a rule blocks it or your setting asks you about
+            every request.
+          </li>
+          <li>
+            <strong>Small, undoable changes</strong>: homectl asks you, unless
+            one of your rules covers it or the AI helper decides it (if you
+            turned that on).
+          </li>
+          <li>
+            <strong>Big or risky changes</strong>, and commands homectl cannot
+            identify: homectl asks you and needs your owner password. Only a
+            saved rule that covers it lets it run without asking.
+          </li>
+          <li>
+            <strong>Destructive changes</strong>, and anything that changes who
+            is trusted or copies out passwords or keys: homectl always asks you
+            with your owner password. No rule and no AI helper can approve
+            these.
+          </li>
+          <li>
+            <strong>Too many changes in a short time</strong>: homectl asks you
+            before it goes on.
+          </li>
+        </ul>
+        <h4>How much should homectl decide for you?</h4>
         <PresetChooser
-          currentId={currentPreset?.id}
+          currentId={presetOf(policy)}
           password={password}
           onPassword={setPassword}
           busy={busy}
@@ -136,22 +150,24 @@ export function PolicyScreen({
             change(
               "/v1/owner/policy/preset",
               { preset },
-              `Switched to ${PRESETS.find((p) => p.id === preset)?.label ?? preset}.`,
+              `Changed to "${presetLabel(preset)}".`,
             )
           }
         />
       </section>
 
-      <AutoModeSection onError={onError} />
-
       <section aria-labelledby="rules-title">
         <h3 id="rules-title">Rules ({policy.rules.length})</h3>
+        <p className="small muted">
+          A rule decides matching requests without asking you again. Some come
+          with homectl; others you saved from your answers.
+        </p>
         <table>
           <thead>
             <tr>
-              <th>Rule</th>
-              <th>Effect</th>
-              <th className="hide-sm">Applies to</th>
+              <th>What it covers</th>
+              <th>Result</th>
+              <th className="hide-sm">Saved by</th>
               <th />
             </tr>
           </thead>
@@ -159,11 +175,35 @@ export function PolicyScreen({
             {policy.rules.map((rule) => (
               <tr key={rule.id}>
                 <td>
-                  <span className="mono">{rule.id}</span>
-                  <div className="small muted">
-                    {rule.note ?? ""} · {rule.createdBy} ·{" "}
-                    {fmtTime(rule.createdAt)}
-                  </div>
+                  {ruleCovers(rule, names)}
+                  <details className="why">
+                    <summary>Why?</summary>
+                    <dl>
+                      <dt>Rule ID</dt>
+                      <dd className="mono">{rule.id}</dd>
+                      <dt>Stored effect</dt>
+                      <dd className="mono">{rule.effect}</dd>
+                      {ruleFacts(rule, names).map((fact) => (
+                        <Fragment key={fact.key}>
+                          <dt>{fact.term}</dt>
+                          <dd>
+                            {fact.value}
+                            <div className="small muted">
+                              {fact.meaning} Stored as {fact.key}.
+                            </div>
+                          </dd>
+                        </Fragment>
+                      ))}
+                      {rule.note ? (
+                        <>
+                          <dt>Note</dt>
+                          <dd>{rule.note}</dd>
+                        </>
+                      ) : null}
+                      <dt>Saved</dt>
+                      <dd>{fmtTime(rule.createdAt)}</dd>
+                    </dl>
+                  </details>
                 </td>
                 <td>
                   <Badge
@@ -175,10 +215,10 @@ export function PolicyScreen({
                           : "warn"
                     }
                   >
-                    {rule.effect}
+                    {effectLabel(rule.effect)}
                   </Badge>
                 </td>
-                <td className="hide-sm small">{describeMatch(rule.match)}</td>
+                <td className="hide-sm small">{ruleOwner(rule)}</td>
                 <td>
                   <button
                     type="button"
@@ -195,19 +235,99 @@ export function PolicyScreen({
         </table>
         {policy.rules.length === 0 ? (
           <p className="muted">
-            No rules. Every request is decided one by one.
+            No rules yet. Each request is decided by your setting, and you
+            answer it when homectl asks.
           </p>
         ) : null}
       </section>
 
-      <EffectiveCheck onError={onError} />
+      <AutoModeSection onError={onError} onSaved={load} />
+
+      <section aria-labelledby="details-title">
+        <details className="details">
+          <summary id="details-title">Details</summary>
+          <div className="stack">
+            <h4>Risk levels</h4>
+            <p className="small muted">
+              Each command gets one of these levels. Higher levels need you more
+              often.
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Level</th>
+                  <th>What it means</th>
+                </tr>
+              </thead>
+              <tbody>
+                {RISK_LEVELS.map((risk) => (
+                  <tr key={risk.level}>
+                    <td>
+                      <span className="mono">{risk.level}</span>
+                    </td>
+                    <td>{risk.meaning}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <h4>Limits (budgets)</h4>
+            <p className="small">
+              An assistant may make up to {policy.budgets.clientMaxRiskPoints}{" "}
+              risk points in{" "}
+              {Math.round(policy.budgets.clientWindowMs / 60_000)} minutes. A
+              task may make up to {policy.budgets.taskMaxOperations} operations
+              and {policy.budgets.taskMaxRiskPoints} risk points. Going over a
+              limit asks you. Each risk level counts for a different number of
+              points.
+            </p>
+
+            <h4>Check one assistant on one machine</h4>
+            <CheckRules
+              clients={clients}
+              rules={policy.rules}
+              onError={onError}
+            />
+
+            <h4>Words used on this page</h4>
+            <dl>
+              {WORDS.map((word) => (
+                <Fragment key={word.term}>
+                  <dt>{word.term}</dt>
+                  <dd>{word.meaning}</dd>
+                </Fragment>
+              ))}
+            </dl>
+
+            <h4>Technical values</h4>
+            <dl>
+              <dt>Revision</dt>
+              <dd>{policy.revision}</dd>
+              <dt>Stored setting</dt>
+              <dd>
+                mode {policy.mode}; the AI helper&apos;s authority{" "}
+                {policy.reviewer.authority}
+              </dd>
+              <dt>Highest level the AI helper may decide</dt>
+              <dd>{policy.reviewer.maxRisk}</dd>
+              <dt>When the AI helper is unsure</dt>
+              <dd>
+                {policy.reviewer.fallback === "ask"
+                  ? "Asks you (fallback: ask)"
+                  : `${policy.reviewer.fallback} (fallback)`}
+              </dd>
+            </dl>
+          </div>
+        </details>
+      </section>
 
       {removing ? (
         <Dialog
-          title={`Remove rule ${removing.id}?`}
+          title="Remove this rule?"
           onClose={() => setRemoving(undefined)}
         >
-          <p>Requests it covered will be decided again from scratch.</p>
+          <p>{ruleCovers(removing, names)}</p>
+          <p>Requests it covered will be decided again from the start.</p>
           <PasswordStep
             value={password}
             onChange={setPassword}
@@ -224,7 +344,7 @@ export function PolicyScreen({
                 void change(
                   "/v1/owner/policy/remove-rule",
                   { id: rule.id },
-                  `Removed ${rule.id}.`,
+                  "Rule removed.",
                 );
               }}
             >
@@ -240,7 +360,7 @@ export function PolicyScreen({
   );
 }
 
-function presetOf(policy: PolicyDocument): string | undefined {
+function presetOf(policy: PolicyDocument): PresetId | undefined {
   if (policy.mode === "auto" && policy.reviewer.authority === "delegated")
     return "delegated";
   if (policy.mode === "rules" && policy.reviewer.authority === "routine")
@@ -257,13 +377,13 @@ function PresetChooser({
   busy,
   onApply,
 }: {
-  currentId: string | undefined;
+  currentId: PresetId | undefined;
   password: string;
   onPassword: (value: string) => void;
   busy: boolean;
-  onApply: (preset: string) => void;
+  onApply: (preset: PresetId) => void;
 }) {
-  const [choice, setChoice] = useState<string | undefined>();
+  const [choice, setChoice] = useState<PresetId | undefined>();
   const baseId = useId();
   const target = choice ?? currentId;
   const hint = PRESETS.find((preset) => preset.id === target)?.hint;
@@ -275,13 +395,25 @@ function PresetChooser({
         if (target && target !== currentId) onApply(target);
       }}
     >
-      <Field id={`${baseId}-preset`} label="Change preset">
+      <p className="small">
+        Current setting:{" "}
+        <strong>
+          {currentId === undefined
+            ? "Custom (set under Let an AI helper decide)"
+            : presetLabel(currentId)}
+        </strong>
+      </p>
+      <Field id={`${baseId}-preset`} label="Choose a setting">
         <select
           id={`${baseId}-preset`}
           value={target ?? ""}
-          onChange={(event) => setChoice(event.target.value)}
+          onChange={(event) =>
+            setChoice((event.target.value || undefined) as PresetId | undefined)
+          }
         >
-          {currentId === undefined ? <option value="">Custom</option> : null}
+          {currentId === undefined ? (
+            <option value="">Custom (set under Let an AI helper decide)</option>
+          ) : null}
           {PRESETS.map((preset) => (
             <option key={preset.id} value={preset.id}>
               {preset.label}
@@ -292,6 +424,9 @@ function PresetChooser({
       {hint ? <p className="small muted">{hint}</p> : null}
       {target && target !== currentId ? (
         <>
+          <p className="small muted">
+            Changing this needs your owner password.
+          </p>
           <PasswordStep
             value={password}
             onChange={onPassword}
@@ -302,72 +437,10 @@ function PresetChooser({
             className="primary"
             disabled={busy || !password}
           >
-            Apply preset
+            Change setting
           </button>
         </>
       ) : null}
     </form>
-  );
-}
-
-function EffectiveCheck({ onError }: { onError: (error: unknown) => unknown }) {
-  const baseId = useId();
-  const [client, setClient] = useState("");
-  const [host, setHost] = useState("");
-  const [view, setView] = useState<EffectiveView | undefined>();
-  const [error, setError] = useState<string | undefined>();
-  return (
-    <section aria-labelledby={`${baseId}-title`}>
-      <h3 id={`${baseId}-title`}>What applies to an agent on a host</h3>
-      <form
-        className="stack"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          setError(undefined);
-          try {
-            setView(
-              await ownerCall<EffectiveView>("/v1/owner/policy/explain", {
-                client: client.trim(),
-                ...(host.trim() ? { host: host.trim() } : {}),
-              }),
-            );
-          } catch (failure) {
-            onError(failure);
-            setError(describeError(failure));
-          }
-        }}
-      >
-        <Field id={`${baseId}-client`} label="Agent identifier">
-          <input
-            id={`${baseId}-client`}
-            required
-            value={client}
-            onChange={(e) => setClient(e.target.value)}
-          />
-        </Field>
-        <Field id={`${baseId}-host`} label="Host" hint="optional">
-          <input
-            id={`${baseId}-host`}
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-          />
-        </Field>
-        <button type="submit" disabled={!client.trim()}>
-          Explain
-        </button>
-      </form>
-      {error ? <Notice tone="bad">{error}</Notice> : null}
-      {view ? (
-        <ul className="small">
-          {view.rules.map((rule) => (
-            <li key={rule.ruleId}>
-              <span className="mono">{rule.ruleId}</span> ({rule.effect}):{" "}
-              {rule.applies ? "applies" : "does not apply"}
-              {rule.reasons.length > 0 ? ` — ${rule.reasons.join("; ")}` : ""}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </section>
   );
 }

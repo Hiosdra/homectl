@@ -1,27 +1,29 @@
-// Auto Mode settings under Permissions: the mode, the reviewer's authority, and
-// the reviewer connection. The reviewer's verdict is never a human approval, and
-// human-only and step-up operations never auto-approve. The form opens on the
-// saved settings; the owner password is asked for only when the broker says the
-// change needs it.
+// The AI helper section under Permissions: whether the helper decides some
+// requests, how far it may go, and (under Advanced) where it answers. The helper's
+// answer is never a human approval, and requests that need the owner password
+// always wait for the owner. The form opens on the saved settings; the owner
+// password is asked for only when the broker says the change needs it.
 import { type FormEvent, useEffect, useId, useState } from "react";
 import { describeError } from "./api";
 import {
-  authorityHint,
-  authorityLabel,
+  AUTO_MODES,
   type AutoModeDraft,
   type AutoModeName,
   type AutoModeView,
   autoModeChange,
-  AUTO_MODES,
   draftOf,
-  modeHint,
-  modeLabel,
   needsOwnerPassword,
   readAutoMode,
   REVIEWER_AUTHORITIES,
   type ReviewerAuthority,
   saveAutoMode,
 } from "./auto-mode-api";
+import {
+  authorityHint,
+  authorityLabel,
+  modeHint,
+  modeLabel,
+} from "./permissions-copy";
 import { Badge, Field, Notice, PasswordStep } from "./ui";
 
 type Load =
@@ -32,8 +34,11 @@ type Load =
 
 export function AutoModeSection({
   onError,
+  onSaved,
 }: {
   onError: (error: unknown) => unknown;
+  // Called after a saved change, so the Permissions summary is read again.
+  onSaved?: () => void;
 }) {
   const [load, setLoad] = useState<Load>({ state: "loading" });
   useEffect(() => {
@@ -54,18 +59,18 @@ export function AutoModeSection({
   }, [onError]);
 
   return (
-    <section aria-labelledby="auto-mode-heading">
-      <h3 id="auto-mode-heading">Auto Mode settings</h3>
+    <section aria-labelledby="ai-helper-heading">
+      <h3 id="ai-helper-heading">Let an AI helper decide (advanced)</h3>
       <Notice>
-        The reviewer&apos;s verdict is not a human approval. It can decide only
-        inside the authority chosen here, and only for requests the rules leave
-        open. Human-only operations and step-up operations never auto-approve:
-        they wait for you whatever the reviewer says.
+        The AI helper&apos;s answer is not your approval. It decides only within
+        what you allow here, and only for requests no saved rule already covers.
+        Requests that need your owner password always wait for you, whatever the
+        helper says.
       </Notice>
       {load.state === "loading" ? <p className="muted">Checking…</p> : null}
       {load.state === "absent" ? (
         <p className="small muted">
-          This broker does not report Auto Mode settings yet. Update it to
+          This homectl version does not show these settings yet. Update it to
           change them here.
         </p>
       ) : null}
@@ -77,6 +82,7 @@ export function AutoModeSection({
           key={load.view.revision}
           initial={load.view}
           onError={onError}
+          onSaved={onSaved}
         />
       ) : null}
     </section>
@@ -86,9 +92,11 @@ export function AutoModeSection({
 function AutoModeEditor({
   initial,
   onError,
+  onSaved,
 }: {
   initial: AutoModeView;
   onError: (error: unknown) => unknown;
+  onSaved?: () => void;
 }) {
   const baseId = useId();
   const [view, setView] = useState(initial);
@@ -121,7 +129,8 @@ function AutoModeEditor({
       setView(saved);
       setDraft(draftOf(saved));
       setNeedsPassword(false);
-      setNotice(`Saved. Policy revision ${saved.revision}.`);
+      setNotice(`Saved (version ${saved.revision}).`);
+      onSaved?.();
     } catch (failure) {
       if (needsOwnerPassword(failure)) {
         setNeedsPassword(true);
@@ -145,46 +154,24 @@ function AutoModeEditor({
     <div className="stack">
       {notice ? <Notice tone="good">{notice}</Notice> : null}
       <dl>
-        <dt>Mode</dt>
+        <dt>Setting</dt>
         <dd>
           <Badge tone={view.mode === "auto" ? "warn" : "neutral"}>
             {modeLabel(view.mode)}
           </Badge>
         </dd>
-        <dt>Reviewer may</dt>
-        <dd>
-          {authorityLabel(reviewer.authority)}.{" "}
-          {authorityHint(reviewer.authority)}
-        </dd>
-        <dt>Reviewer endpoint</dt>
-        <dd>
-          {reviewer.endpoint === undefined
-            ? "None. The owner decides every request that needs a judgment."
-            : `${reviewer.endpoint} (origin only). Requests it reviews leave this computer.`}
-        </dd>
-        <dt>Reviewer model</dt>
-        <dd>{reviewer.model ?? "Not set"}</dd>
-        <dt>API key</dt>
-        <dd>
-          <Badge tone={reviewer.apiKeyConfigured ? "good" : "neutral"}>
-            {reviewer.apiKeyConfigured ? "Configured" : "Not configured"}
-          </Badge>{" "}
-          <span className="small muted">
-            Set on the broker, never here. This panel does not show or accept
-            it.
-          </span>
-        </dd>
-        <dt>Reviewer</dt>
+        <dt>AI helper may</dt>
+        <dd>{authorityLabel(reviewer.authority)}.</dd>
+        <dt>AI helper ready</dt>
         <dd>
           <Badge tone={reviewer.ready ? "good" : "neutral"}>
-            {reviewer.ready ? "Ready" : "Not ready"}
+            {reviewer.ready ? "Yes" : "Not yet"}
           </Badge>
         </dd>
       </dl>
 
       <form className="stack" onSubmit={submit}>
-        <h4>Change Auto Mode</h4>
-        <Field id={`${baseId}-mode`} label="Mode">
+        <Field id={`${baseId}-mode`} label="How requests are decided">
           <select
             id={`${baseId}-mode`}
             value={draft.mode}
@@ -198,14 +185,14 @@ function AutoModeEditor({
             {AUTO_MODES.map((mode) => (
               <option key={mode} value={mode}>
                 {modeLabel(mode)}
-                {mode === "manual" ? " (least privilege)" : ""}
+                {mode === "manual" ? " (strictest)" : ""}
               </option>
             ))}
           </select>
         </Field>
         <p className="small muted">{modeHint(draft.mode)}</p>
 
-        <Field id={`${baseId}-authority`} label="Reviewer may">
+        <Field id={`${baseId}-authority`} label="What the AI helper may decide">
           <select
             id={`${baseId}-authority`}
             value={draft.authority}
@@ -219,63 +206,88 @@ function AutoModeEditor({
             {REVIEWER_AUTHORITIES.map((authority) => (
               <option key={authority} value={authority}>
                 {authorityLabel(authority)}
-                {authority === "recommend" ? " (least privilege)" : ""}
+                {authority === "recommend" ? " (safest)" : ""}
               </option>
             ))}
           </select>
         </Field>
         <p className="small muted">{authorityHint(draft.authority)}</p>
 
-        <Field
-          id={`${baseId}-endpoint`}
-          label="Reviewer endpoint"
-          hint="blank keeps the current one"
-        >
-          <input
-            id={`${baseId}-endpoint`}
-            type="url"
-            autoComplete="off"
-            placeholder="https://reviewer.example.test/v1"
-            value={draft.endpoint}
-            disabled={draft.clearEndpoint}
-            onChange={(event) =>
-              setDraft({ ...draft, endpoint: event.target.value })
-            }
-          />
-        </Field>
-        {reviewer.endpoint !== undefined ? (
-          <label className="row">
-            <input
-              type="checkbox"
-              checked={draft.clearEndpoint}
-              onChange={(event) =>
-                setDraft({ ...draft, clearEndpoint: event.target.checked })
-              }
-            />
-            Remove the reviewer endpoint
-          </label>
-        ) : null}
-        <Field
-          id={`${baseId}-model`}
-          label="Reviewer model"
-          hint="blank keeps the current one"
-        >
-          <input
-            id={`${baseId}-model`}
-            type="text"
-            autoComplete="off"
-            value={draft.model}
-            onChange={(event) =>
-              setDraft({ ...draft, model: event.target.value })
-            }
-          />
-        </Field>
+        <details className="advanced">
+          <summary>Advanced</summary>
+          <div className="stack">
+            <p className="small muted">
+              The address and model name only matter when the AI helper answers.
+              The API key is set on the machine, never in this panel.
+            </p>
+            <dl>
+              <dt>Current address</dt>
+              <dd>
+                {reviewer.endpoint === undefined
+                  ? "None. You decide every request that needs a judgment."
+                  : `${reviewer.endpoint} (only the web address is shown). Requests it checks leave this computer.`}
+              </dd>
+              <dt>Current model</dt>
+              <dd>{reviewer.model ?? "Not set"}</dd>
+              <dt>API key</dt>
+              <dd>
+                <Badge tone={reviewer.apiKeyConfigured ? "good" : "neutral"}>
+                  {reviewer.apiKeyConfigured ? "Configured" : "Not configured"}
+                </Badge>
+              </dd>
+            </dl>
+            <Field
+              id={`${baseId}-endpoint`}
+              label="AI helper address (endpoint)"
+              hint="blank keeps the current one"
+            >
+              <input
+                id={`${baseId}-endpoint`}
+                type="url"
+                autoComplete="off"
+                placeholder="https://ai-helper.example.test/v1"
+                value={draft.endpoint}
+                disabled={draft.clearEndpoint}
+                onChange={(event) =>
+                  setDraft({ ...draft, endpoint: event.target.value })
+                }
+              />
+            </Field>
+            {reviewer.endpoint !== undefined ? (
+              <label className="row">
+                <input
+                  type="checkbox"
+                  checked={draft.clearEndpoint}
+                  onChange={(event) =>
+                    setDraft({ ...draft, clearEndpoint: event.target.checked })
+                  }
+                />
+                Remove the address
+              </label>
+            ) : null}
+            <Field
+              id={`${baseId}-model`}
+              label="AI model name"
+              hint="blank keeps the current one"
+            >
+              <input
+                id={`${baseId}-model`}
+                type="text"
+                autoComplete="off"
+                value={draft.model}
+                onChange={(event) =>
+                  setDraft({ ...draft, model: event.target.value })
+                }
+              />
+            </Field>
+          </div>
+        </details>
 
         {needsPassword ? (
           <Notice tone="warn">
-            This change needs your owner password: it raises the reviewer&apos;s
-            authority, turns Auto Mode on, or sends the reviewer to a new
-            endpoint. Nothing has changed yet.
+            This change needs your owner password. It gives the AI helper more
+            say, turns on letting it decide, or sends its checks to a new
+            address. Nothing has changed yet.
             <PasswordStep
               value={password}
               onChange={setPassword}
@@ -290,7 +302,7 @@ function AutoModeEditor({
             className="primary"
             disabled={busy || !change || (needsPassword && !password)}
           >
-            {needsPassword ? "Confirm and save" : "Save Auto Mode settings"}
+            {needsPassword ? "Confirm and save" : "Save changes"}
           </button>
         </div>
       </form>
