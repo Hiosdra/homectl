@@ -1,5 +1,6 @@
 #!/bin/sh
-# Pre-commit: format staged files with `bun fmt` and lint what is staged.
+# Pre-commit: format staged files with `bun fmt`, type check with `bun check`
+# and lint what is staged.
 # Installed by `bun install` (scripts/install-hooks.ts sets core.hooksPath).
 # Skip once with `git commit --no-verify` only when you know why.
 set -eu
@@ -11,6 +12,7 @@ staged="$(git diff --cached --name-only --diff-filter=ACMR)"
 # Formats the staged files and stages the result again.
 bun fmt --staged
 
+bun check
 bun scripts/check-file-length.ts
 bun scripts/check-doc-links.ts
 
