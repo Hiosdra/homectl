@@ -447,8 +447,10 @@ export function PolicyScreen({
 function presetOf(policy: PolicyDocument): PresetId | undefined {
   if (policy.mode === "auto" && policy.reviewer.authority === "delegated")
     return "delegated";
-  if (policy.mode === "rules" && policy.reviewer.authority === "routine")
+  if (policy.mode === "auto" && policy.reviewer.authority === "routine")
     return "routine";
+  // Rules with routine authority is not a choice on this screen any more: the
+  // AI helper is never called in that mode, so it shows as Custom.
   if (policy.mode === "rules" && policy.reviewer.authority === "recommend")
     return "conservative";
   return undefined;

@@ -113,11 +113,15 @@ The one built-in rule allows read-only `exec` (classified as inspection, up to R
 
 Presets set only the mode and reviewer authority. Rules and budgets stay as they are.
 
-| Preset                                           | Mode    | Reviewer authority              |
-| ------------------------------------------------ | ------- | ------------------------------- |
-| `conservative` (used when no policy file exists) | `rules` | `recommend` (the owner decides) |
-| `routine`                                        | `rules` | `routine`                       |
-| `delegated`                                      | `auto`  | `delegated`                     |
+| Panel label                                      | Preset         | Mode    | Reviewer authority              |
+| ------------------------------------------------ | -------------- | ------- | ------------------------------- |
+| "Ask me first" (used when no policy file exists) | `conservative` | `rules` | `recommend` (the owner decides) |
+| "AI helps with small fixes"                      | `routine`      | `auto`  | `routine`                       |
+| "AI decides more"                                | `delegated`    | `auto`  | `delegated`                     |
+
+Until 0.3.0 the "AI helps with small fixes" preset used `rules` mode, so the AI helper was never consulted. It now uses `auto`, so the helper is consulted for requests no rule covers, but only once an AI helper is configured (`reviewer.provider`); without one, requests still wait for you.
+
+The hard gates apply under every preset and never reach the helper: R4 and human-only actions always wait for you, and R3 needs an owner rule that covers it. Routine authority allows only R1–R2 inspection or change; delegated authority still never allows above R2 on the helper's word. The step-up rules are unchanged.
 
 Changing a preset or removing a rule needs your owner password in the same request. The policy file is `policy.json` in the broker state directory, and only the broker writes it.
 

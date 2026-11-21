@@ -178,7 +178,7 @@ export async function startDaemon(config: DaemonConfig) {
     events,
     ...(hasVault ? { gate: vault.gate } : {}),
     ...(config.panelOrigin
-      ? { approvalSurface: `${config.panelOrigin}/#approvals` }
+      ? { approvalSurface: `${config.panelOrigin}/#/approvals` }
       : {}),
   });
   await broker.init();

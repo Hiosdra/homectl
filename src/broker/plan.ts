@@ -142,6 +142,13 @@ export function boundOutput(
   };
 }
 
+// The panel link for one operation. The base is the panel origin plus its
+// approvals route, for example http://127.0.0.1:7451/#/approvals; the id is
+// appended so the link opens that request, not the list.
+export function approvalLink(base: string, operationId: string): string {
+  return `${base.replace(/\/+$/, "")}/${encodeURIComponent(operationId)}`;
+}
+
 export function toView(
   op: BrokerOperation,
   approvalSurface?: string,
@@ -168,7 +175,7 @@ export function toView(
     ...(op.result ? { result: op.result } : {}),
     ...(op.reason ? { reason: op.reason } : {}),
     ...(op.state === "awaiting-approval" && approvalSurface
-      ? { approvalSurface }
+      ? { approvalSurface: approvalLink(approvalSurface, op.id) }
       : {}),
   };
 }
