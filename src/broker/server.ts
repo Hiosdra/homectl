@@ -65,6 +65,8 @@ export interface BrokerServerOptions {
 }
 
 const STATUS: Record<number, number> = { 2: 400, 3: 403, 4: 409, 5: 503 };
+// The owner GETs (reads only). Writes stay POST, with Origin and step-up.
+const OWNER_READS = new Set(["/v1/owner/hosts"]);
 const DECISIONS = new Set([
   "approve-once",
   "approve-remember",
@@ -175,7 +177,9 @@ export function handler(options: BrokerServerOptions) {
     }
     const viaHeader = bearer(req, "Owner");
     const token = viaHeader ?? cookie(req);
-    if (!viaHeader) checkOrigin(req);
+    // A GET carries no Origin, so reads check the browser's Fetch Metadata instead.
+    if (req.method === "GET") checkFetchSite(req);
+    else if (!viaHeader) checkOrigin(req);
     const session = owner.resolve(token);
     if (!session) throw new HomectlError(3, "Owner sign-in required");
     const input = await body(req);
@@ -251,6 +255,15 @@ export function handler(options: BrokerServerOptions) {
       throw new HomectlError(3, "Confirm with the owner password");
   }
 
+  function checkFetchSite(req: Request) {
+    const site = req.headers.get("sec-fetch-site");
+    if (site && site !== "same-origin" && site !== "none")
+      throw new HomectlError(
+        3,
+        "Owner requests must come from the homectl panel",
+      );
+  }
+
   function checkOrigin(req: Request) {
     const origin = req.headers.get("origin");
     if (!origin || !options.allowedOrigins.includes(origin))
@@ -288,7 +301,9 @@ export function handler(options: BrokerServerOptions) {
         if (path === "/v1/events/poll" || path === "/v1/owner/events/poll")
           return await streams.poll(req);
       }
-      if (req.method !== "POST")
+      // Owner reads are the only GETs; every other request is a POST.
+      const ownerRead = req.method === "GET" && OWNER_READS.has(path);
+      if (req.method !== "POST" && !ownerRead)
         return json({ error: { code: 2, message: "Use POST" } }, 405);
       if (path.startsWith("/v1/owner/")) return await ownerRoute(path, req);
       // Owner tokens are never accepted on agent routes and vice versa.

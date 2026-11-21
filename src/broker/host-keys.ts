@@ -49,7 +49,7 @@ export function parseKeyscan(output: string): ScannedKey[] {
   return [...keys.values()];
 }
 
-function revokedBlobs(text: string): Set<string> {
+export function revokedBlobs(text: string): Set<string> {
   const blobs = new Set<string>();
   for (const line of text.split("\n")) {
     const fields = line.trim().split(/\s+/);
@@ -153,37 +153,68 @@ export class HostKeyRoutes implements RouteExtension {
   }
 
   private async scan(machine: Machine): Promise<ScannedKey[]> {
-    const result = await this.runner({
-      argv: [
-        executable("ssh-keyscan"),
-        "-T",
-        "5",
-        "-p",
-        String(machine.port ?? 22),
-        "--",
-        machine.address ?? "",
-      ],
-      timeoutMs: 15_000,
-    });
-    const keys = parseKeyscan(result.stdout);
-    if (keys.length === 0)
-      throw new HomectlError(
-        5,
-        "The host presented no SSH keys. Check the inventory address, port and network.",
-      );
-    return keys;
+    return scanHostKeys(this.runner, machine.address ?? "", machine.port ?? 22);
   }
 
-  // Append under a lock with an atomic replace so a crash never truncates
-  // the existing pins.
   private async append(line: string) {
-    const path = this.knownHosts;
-    await withFileLock(`${path}.lock`, "Known hosts", async () => {
-      const current = await readFile(path, "utf8").catch(() => "");
-      const next = `${current}${current && !current.endsWith("\n") ? "\n" : ""}${line}\n`;
-      const temp = `${path}.${randomUUID()}.tmp`;
-      await writeFile(temp, next, { mode: 0o600, flag: "wx" });
-      await atomicReplace(temp, path);
-    });
+    await appendKnownHost(this.knownHosts, line);
   }
+}
+
+// What an address presents right now. A scan is never trusted by itself: the
+// caller shows it as unverified, or pins only a fingerprint the owner typed.
+export async function scanHostKeys(
+  runner: Runner,
+  address: string,
+  port = 22,
+): Promise<ScannedKey[]> {
+  const result = await runner({
+    argv: [
+      executable("ssh-keyscan"),
+      "-T",
+      "5",
+      "-p",
+      String(port),
+      "--",
+      address,
+    ],
+    timeoutMs: 15_000,
+  });
+  const keys = parseKeyscan(result.stdout);
+  if (keys.length === 0)
+    throw new HomectlError(
+      5,
+      "The host presented no SSH keys. Check the inventory address, port and network.",
+    );
+  return keys;
+}
+
+// Rewrites known_hosts under its lock with an atomic replace, so a crash never
+// truncates existing pins. `change` maps the current text to the new text.
+// Returns the text that was replaced, so a caller can roll a change back.
+export async function replaceKnownHosts(
+  path: string,
+  change: (current: string) => string,
+): Promise<string> {
+  return withFileLock(`${path}.lock`, "Known hosts", async () => {
+    const current = await readFile(path, "utf8").catch(() => "");
+    const next = change(current);
+    if (next === current) return current;
+    const temp = `${path}.${randomUUID()}.tmp`;
+    await writeFile(temp, next, { mode: 0o600, flag: "wx" });
+    await atomicReplace(temp, path);
+    return current;
+  });
+}
+
+export async function appendKnownHost(path: string, line: string) {
+  return replaceKnownHosts(
+    path,
+    (current) =>
+      `${current}${current && !current.endsWith("\n") ? "\n" : ""}${line}\n`,
+  );
+}
+
+export async function readKnownHosts(path: string): Promise<string> {
+  return readFile(path, "utf8").catch(() => "");
 }

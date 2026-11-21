@@ -181,6 +181,25 @@ export class VaultService implements OwnerVerifier, RouteExtension {
     return loaded;
   }
 
+  // Loads one managed key (a machine's key, made after the owner's `key create`)
+  // into the session agent, so a probe can use it. A locked vault refuses; the
+  // caller decides whether a missing key matters.
+  async loadMachineKey(entry: string): Promise<void> {
+    const { session, agent, now } = this.options;
+    if (!session.check()) throw new HomectlError(5, "Vault is locked");
+    const until = session.state().expiresAt ?? undefined;
+    const lifetime =
+      until === undefined
+        ? undefined
+        : Math.max(1, Math.floor((until - now()) / 1000));
+    const key = session.getSshKey(entry);
+    try {
+      await agent.add(key.privateKey, lifetime);
+    } finally {
+      key.privateKey.fill(0);
+    }
+  }
+
   async owner(
     path: string,
     input: Record<string, unknown>,

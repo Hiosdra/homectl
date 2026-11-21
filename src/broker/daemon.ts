@@ -17,6 +17,7 @@ import { atomicReplace, privateDirectory } from "../platform";
 import { planExecution } from "../policies";
 import { SecretBroker } from "../secrets";
 import { startWorkspace, type WorkspaceConfig } from "../workspace/wiring";
+import type { Runner } from "../types";
 import { AuthzPolicy } from "./authz-policy";
 import { AiHelperRoutes } from "./ai-helper-routes";
 import { AutoModeRoutes } from "./auto-mode-routes";
@@ -24,6 +25,7 @@ import { ClientAdmin } from "./clients-admin";
 import { Broker } from "./engine";
 import { HostKeyRoutes } from "./host-keys";
 import { HostPermissionRoutes } from "./host-permissions";
+import { OwnerHostRoutes } from "./owner-hosts";
 import { FileVerifier, OwnerSessions } from "./owner";
 import type { BrokerMode, Endpoint } from "./paths";
 import { PolicyRoutes } from "./policy-routes";
@@ -57,6 +59,9 @@ export interface DaemonConfig {
   keyAgent?: KeyAgentPort;
   // Workspace mode: a server listener is opt-in; the client always exists.
   workspace?: WorkspaceConfig;
+  // Tests and the browser smoke: the ssh and keyscan runner for machine checks.
+  // The default runs the real ssh; nothing in the smoke reaches a real machine.
+  machineRunner?: Runner;
 }
 
 export function inventoryPort(inventoryPath: string): InventoryPort {
@@ -231,7 +236,24 @@ export async function startDaemon(config: DaemonConfig) {
         events,
       }),
       mcpHttpRoute({ broker, secrets }),
-      new HostKeyRoutes(inventory, config.inventoryPath, undefined, events),
+      new HostKeyRoutes(
+        inventory,
+        config.inventoryPath,
+        config.machineRunner,
+        events,
+      ),
+      new OwnerHostRoutes({
+        inventoryPath: config.inventoryPath,
+        configPath: config.sshConfigPath,
+        state: config.state,
+        clients: admin,
+        runner: config.machineRunner,
+        events,
+        onInventoryChanged: refreshHosts,
+        ...(hasVault
+          ? { loadKey: (entry: string) => vault.loadMachineKey(entry) }
+          : {}),
+      }),
       ...workspace.extensions,
       ...(hasVault
         ? [
