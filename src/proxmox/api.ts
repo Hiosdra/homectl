@@ -10,9 +10,13 @@ import {
   type ProxmoxFacts,
   type ProxmoxInput,
 } from "./catalogue";
+import { redactOutput } from "./redact";
 
 export interface ApiRequest {
-  method: "GET" | "POST" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "DELETE";
+  // Full-mode requests redact secret-looking fields in the output. Guest-mode
+  // requests leave the output as the API returned it.
+  redact?: boolean;
   path: string;
   // Form fields for POST, or query for DELETE with purge.
   params: Record<string, string>;
@@ -183,14 +187,14 @@ export async function runProxmoxApi(
     Accept: "application/json",
   };
   const call = async (
-    method: "GET" | "POST" | "DELETE",
+    method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
     params: Record<string, string> = {},
   ): Promise<{ ok: boolean; status: number; data?: unknown }> => {
     const url = new URL(`/api2/json${path}`, target.baseUrl);
-    const body =
-      method === "POST" ? new URLSearchParams(params).toString() : undefined;
-    if (method !== "POST")
+    const sendsBody = method === "POST" || method === "PUT";
+    const body = sendsBody ? new URLSearchParams(params).toString() : undefined;
+    if (!sendsBody)
       for (const [key, value] of Object.entries(params))
         url.searchParams.set(key, value);
     const response = await fetcher(url.toString(), {
@@ -225,7 +229,11 @@ export async function runProxmoxApi(
   if (request.inspect)
     return {
       exitCode: 0,
-      stdout: JSON.stringify(first.data ?? null),
+      stdout: JSON.stringify(
+        request.redact
+          ? redactOutput(first.data ?? null)
+          : (first.data ?? null),
+      ),
       stderr: "",
     };
   if (

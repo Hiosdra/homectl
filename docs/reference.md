@@ -7,6 +7,7 @@ Commands, the MCP tools agents get, configuration paths, exit codes and troubles
 - [Binary and global options](#binary-and-global-options)
 - [Commands](#commands)
 - [MCP tools](#mcp-tools)
+- [Proxmox](#proxmox)
 - [Paths and environment](#paths-and-environment)
 - [Ports](#ports)
 - [Exit codes](#exit-codes)
@@ -184,6 +185,51 @@ Verification is the agent's own check of an outcome, and it is kept apart from e
 - The broker never sets it, and homectl never derives it from an exit code or from the output.
 - It can be recorded once, only by the client that ran the operation, and only after the operation has run (`succeeded`, `failed` or `unknown`). A second report, a report by another client, or one before the run is refused.
 - Once recorded, it appears as `verification` on the operation view, and `op` and `wait` print it as an "Agent check (not the exit status)" line.
+
+## Proxmox
+
+A Proxmox provider in the inventory names one node, reached through a full-access SSH host with a managed key. Its settings are the only facts homectl checks against:
+
+| Setting           | Meaning                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `host`, `node`    | The SSH host and the node name. Every API path names this node and no other.                                                          |
+| `vmid_range`      | The guest ids homectl may touch. Any change to a guest needs it.                                                                      |
+| `protected_vmids` | Guest ids that can never be destroyed or rolled back.                                                                                 |
+| `storages`        | Storages homectl may use. Any storage operation needs it.                                                                             |
+| `templates`       | LXC templates allowed for guest-mode creation.                                                                                        |
+| `api`             | `url`, `ca_file` and `token_entry`. With it, plans run over HTTPS with the session's API token. Without it, guest plans run over SSH. |
+| `operations`      | `guests` (default) or `full`. See below.                                                                                              |
+
+`operations: guests` is the default and is unchanged: a typed catalogue of list, status, config, start, stop, reboot, shutdown, clone, create (LXC from an allowed template) and destroy (with purge). Each action is one fixed argv or one fixed API call. Restore is disabled.
+
+`operations: full` lets the owner plan any operation in homectl's route table through one request: `{op: "proxmox-api", host, method, path, params}`. Nothing outside the table is sent. Every request is classified by its method and its area:
+
+| Requests                                                                                                                                                                                                                   | Risk     | Classification          | Approval                                             |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------------- | ---------------------------------------------------- |
+| GET reads (guests, nodes, storage, backups, cluster status, firewall and network reads)                                                                                                                                    | R1       | inspect                 | none needed; the local operator runs it              |
+| POST and PUT changes: guest start, stop, reboot, config, resize, clone, snapshot; node services; pools; backup jobs; storage upload                                                                                        | R2 or R3 | mutation                | a client with `approve:decide`, not the requester    |
+| DELETE of a guest, snapshot or pool; snapshot rollback; replication job                                                                                                                                                    | R4       | destructive             | a client with `approve:decide`, not the requester    |
+| **Owner-only**: `/access/*` (every method), firewall, network and SDN changes, HA, cluster membership, node reboot or shutdown, `/nodes/*/execute`, guest agent exec and file access, storage content and storage deletion | R4       | destructive, owner-only | **no client can approve it**; planned and shown only |
+
+Refused outright, before any plan exists:
+
+- any path not in the table, including shell-like endpoints (`termproxy`, `vncshell`, `spiceshell`) and any other node;
+- traversal, query strings, fragments, encoded characters other than a volume id's `%2F`, and unknown methods;
+- guest ids outside `vmid_range`, and any guest change while `vmid_range` is unset;
+- DELETE or rollback on a `protected_vmids` guest (its snapshots included), and using one as a target id;
+- creating or cloning without an explicit id inside the range, since Proxmox would otherwise choose one;
+- storages not listed in `storages`;
+- the `force` and `skiplock` parameters;
+- secret-looking parameter names (such as `password`, `token`, `cipassword`) and secret-looking values. Secrets are set in the Proxmox interface, not through a plan.
+
+Responses are redacted before they reach the caller: values under secret-looking keys, and strings that look like secret material, become `[REDACTED]`. Guest-mode output is not changed.
+
+Limits of this release:
+
+- Owner-only operations have no approval path yet. Make those changes in the Proxmox interface.
+- Full-mode plans are not carried to another device by takeover or replication. A takeover of one fails closed.
+- The broker's `proxmox` action kind is not wired to full mode, and the owner panel's approval view shows the approved argv under Details, as it does for guest plans.
+- Guest-mode LXC restore stays disabled.
 
 ## Paths and environment
 

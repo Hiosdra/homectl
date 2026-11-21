@@ -2,7 +2,7 @@
   "scripts/ui-smoke.ts": 777,
   "src/cli/main.ts": 998,
   "src/control/cli.ts": 810,
-  "src/control/engine.ts": 1856,
+  "src/control/engine.ts": 1809,
   "src/control/present.ts": 664,
   "src/control/replicate.ts": 604,
   "src/control/replicator.ts": 1384,

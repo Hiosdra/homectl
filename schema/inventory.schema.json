@@ -37,6 +37,9 @@
             "type": "string",
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9-]*$"
           },
+          "operations": {
+            "enum": ["guests", "full"]
+          },
           "vmid_range": {
             "type": "array",
             "minItems": 2,

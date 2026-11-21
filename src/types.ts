@@ -23,6 +23,9 @@ export interface ProviderConfig {
   type: "proxmox";
   host: string;
   node: string;
+  // "guests" (default): the typed guest catalogue only. "full": the typed API
+  // route table (every operation there), each one still behind approval.
+  operations?: "guests" | "full";
   // Facts the guest catalogue checks against (all optional).
   vmid_range?: [number, number];
   // VMIDs that destroy always refuses.

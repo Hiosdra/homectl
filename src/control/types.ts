@@ -1,5 +1,6 @@
 // homectl control-plane API v1 (slice 1). Mirrors schema/control-plane.schema.json.
 // Keep the two in sync; tests/control-schema.test.ts checks the enumerations.
+import type { Risk } from "../core/contracts";
 import type { Machine } from "../types";
 
 export const CONTROL_API_VERSION = "homectl.control/v1" as const;
@@ -22,6 +23,7 @@ export const OPERATION_KINDS = [
   "verify",
   "status",
   "proxmox-plan",
+  "proxmox-api",
 ] as const;
 export type OperationKind = (typeof OPERATION_KINDS)[number];
 
@@ -104,6 +106,15 @@ export type OperationRequest =
       gateway?: string;
       timeout_s?: number;
     }
+  | {
+      // Full-mode Proxmox operation: one typed API route, with its parameters.
+      // Needs the provider's operations: "full" in the inventory.
+      op: "proxmox-api";
+      host: string;
+      method: ApiMethod;
+      path: string;
+      params?: Record<string, string>;
+    }
   | { op: "validate"; operationId: string; fingerprint: string }
   | {
       op: "approve";
@@ -135,6 +146,16 @@ export interface CatalogueInput {
   timeout_s?: number;
 }
 
+export type ApiMethod = "GET" | "POST" | "PUT" | "DELETE";
+
+// The typed full-mode API request a plan was built from. Its fingerprint binds
+// the exact method, path and parameters the approver saw.
+export interface ApiPlanInput {
+  method: ApiMethod;
+  path: string;
+  params: Record<string, string>;
+}
+
 export interface ExecPlan {
   apiVersion: typeof CONTROL_API_VERSION;
   kind: "exec";
@@ -148,6 +169,11 @@ export interface ExecPlan {
   // Built from the Proxmox guest catalogue: only then are qm/pct argv accepted.
   catalogue?: boolean;
   catalogueInput?: CatalogueInput;
+  // Full-mode Proxmox API plan (operations: "full"). ownerOnly plans can be
+  // made and shown, but no client can approve them.
+  apiInput?: ApiPlanInput;
+  risk?: Risk;
+  ownerOnly?: boolean;
 }
 
 export interface ApprovalRecord {
@@ -220,6 +246,10 @@ export interface OperationView {
   operationId: string;
   // Typed Proxmox catalogue input, so a device taking the operation over can rebuild it.
   catalogueInput?: CatalogueInput;
+  // Full-mode API request (parameters contain no secrets: plans refuse them).
+  apiInput?: ApiPlanInput;
+  risk?: Risk;
+  ownerOnly?: boolean;
   // The planner's signature over the fingerprint (public; carried into replicas).
   planSignature?: string;
   state: OperationState;

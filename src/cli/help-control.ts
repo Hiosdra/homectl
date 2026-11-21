@@ -66,6 +66,10 @@ export const controlHelp: Record<string, Page> = {
             "Run an approved operation, or an inspection plan, through the existing exec policy. Single use; failed and unknown operations are not retried.",
           ],
           [
+            "Proxmox full mode",
+            "A provider with operations: full in the inventory can plan any typed API operation. Owner-only areas (access, firewall, network, HA, node power) are planned and shown but cannot be approved. See docs/reference.md#proxmox.",
+          ],
+          [
             "handoff ID --to DEVICE",
             "On the owner: offer the operation to DEVICE. The owner will not run it until DEVICE accepts, the offer is cancelled, or it expires after five minutes (or when the plan ends). Needs an open workspace; run home-ctl panel to start one.",
           ],

@@ -53,7 +53,8 @@
         "execute",
         "verify",
         "status",
-        "proxmox-plan"
+        "proxmox-plan",
+        "proxmox-api"
       ]
     },
     "operationState": {
@@ -315,6 +316,9 @@
         },
         {
           "$ref": "#/definitions/requestProxmoxPlan"
+        },
+        {
+          "$ref": "#/definitions/requestProxmoxApi"
         }
       ]
     },
@@ -363,6 +367,15 @@
           "$ref": "#/definitions/fingerprint"
         },
         "catalogue": {
+          "type": "boolean"
+        },
+        "apiInput": {
+          "$ref": "#/definitions/apiInput"
+        },
+        "risk": {
+          "$ref": "#/definitions/riskLevel"
+        },
+        "ownerOnly": {
           "type": "boolean"
         },
         "catalogueInput": {
@@ -617,6 +630,15 @@
         "fingerprint": {
           "$ref": "#/definitions/fingerprint"
         },
+        "apiInput": {
+          "$ref": "#/definitions/apiInput"
+        },
+        "risk": {
+          "$ref": "#/definitions/riskLevel"
+        },
+        "ownerOnly": {
+          "type": "boolean"
+        },
         "planSignature": {
           "type": "string",
           "minLength": 1,
@@ -752,6 +774,61 @@
         },
         "event": {
           "$ref": "#/definitions/auditEvent"
+        }
+      }
+    },
+    "riskLevel": {
+      "enum": ["R1", "R2", "R3", "R4"]
+    },
+    "apiInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "path", "params"],
+      "properties": {
+        "method": {
+          "enum": ["GET", "POST", "PUT", "DELETE"]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 300
+        },
+        "params": {
+          "type": "object",
+          "maxProperties": 64,
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 1024
+          }
+        }
+      }
+    },
+    "requestProxmoxApi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "host", "method", "path"],
+      "properties": {
+        "op": {
+          "const": "proxmox-api"
+        },
+        "host": {
+          "$ref": "#/definitions/hostName"
+        },
+        "method": {
+          "enum": ["GET", "POST", "PUT", "DELETE"]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 300
+        },
+        "params": {
+          "type": "object",
+          "maxProperties": 64,
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 1024
+          }
         }
       }
     },
