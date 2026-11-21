@@ -173,6 +173,20 @@ An agent asks for a change with `exec`. If the change needs your approval, the a
 
 ## Add a machine
 
+### In the owner panel
+
+Open the panel's **Machines** section, then **Add a machine**. The sheet has five steps:
+
+1. **Name and access.** Give the machine a name (for example `nas`), its address, its SSH port and the login name homectl signs in as. Access starts at **Look only**. A root login is always **Full admin**.
+2. **Key.** Run `home-ctl key create nas` in your private terminal, not in an assistant's chat. The panel waits for the key and shows its public part.
+3. **Install.** Put the public key in the machine's keys file. The sheet gives the steps for Linux, UGOS (Personal Folder) and Proxmox. Check the path first.
+4. **Identity.** Look at the machine's key, compare its fingerprint with the machine's own console, and type it. The panel moves on only when the two match exactly.
+5. **Add.** Enter your owner password. homectl pins the key, saves the machine and runs one read-only check.
+
+Then choose which assistants may reach it, in **Assistants**.
+
+### In the terminal
+
 1. Verify the machine's SSH host key through its console or provider panel. A scan alone does not establish trust.
 2. Create its key: `home-ctl key create <name>`, then `home-ctl key inspect <name>`.
 3. Install the **public** key through access you already have. Confirm the `authorized_keys` path and the account first, and keep your existing access in place.

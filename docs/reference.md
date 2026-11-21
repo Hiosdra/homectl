@@ -113,6 +113,22 @@ Commands are grouped by what they do. The **Broker** table lists commands that t
 
 Some 0.2 options (`--container`, `--panel-interface`, `--panel-origin`, `--panel-token-file`, the OIDC options) apply only to the commands named in their help text.
 
+### Machine routes (owner, 0.3)
+
+The panel's Machines section uses these routes. Reading needs the owner session only. Every write also needs the owner password in the same request, and a POST must come from the panel's origin. A read carries no Origin, so the broker refuses a read the browser marks as cross-site. Nothing here returns a private key, a key path or a secret.
+
+A scan never pins a key. `enroll` pins only the fingerprint the owner typed, and takes the pin back if the check that follows fails.
+
+| Route                        | Body                                                                                                       | What it does                                                                                                                                                                                                      | Owner password |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `GET /v1/owner/hosts`        | none                                                                                                       | Lists SSH machines: name, address, port, login, access level, allowed commands, pinned fingerprint (or none), the last check, and the assistants that can reach each one.                                         | No             |
+| `/v1/owner/hosts/key-status` | `name`                                                                                                     | Reports whether the machine's key exists yet, with its public key and fingerprint. The key is made with `home-ctl key create <name>` in a private terminal.                                                       | No             |
+| `/v1/owner/hosts/scan`       | `address`, `port` (optional), `password`                                                                   | Shows the keys the address presents, each labelled not verified. Pins nothing.                                                                                                                                    | Yes            |
+| `/v1/owner/hosts/enroll`     | `name`, `address`, `port`, `user`, `access`, `fingerprint`, `sudo_allow` (admin with approval), `password` | Pins the key whose fingerprint matches exactly, adds the machine to the inventory, and runs the same check as `home-ctl enroll`. Refuses a name in use, a different pinned key for the address and a revoked key. | Yes            |
+| `/v1/owner/hosts/probe`      | `name`, `password`                                                                                         | "Check again": one read-only `uname -s` through the machine's own key. The result is recorded.                                                                                                                    | Yes            |
+| `/v1/owner/hosts/access`     | `name`, `access`, `sudo_allow` (admin with approval), `password`                                           | Changes the access level. Root is always full. Lowering a level drops the settings it does not use.                                                                                                               | Yes (always)   |
+| `/v1/owner/hosts/remove`     | `name`, `password`                                                                                         | Removes the machine from the inventory, its assistants' grants, its pinned key and its check record. The vault key and anything on the machine stay.                                                              | Yes            |
+
 ### AI helper routes (owner, 0.3)
 
 The panel's "Connect your AI helper" steps use these routes. The broker calls the provider; the browser never does. No route returns, logs or echoes the key, and every error is a plain sentence. Providers: `anthropic`, `openai`, `openrouter`, `custom` (an OpenAI-compatible address, for example `http://localhost:11434/v1`).

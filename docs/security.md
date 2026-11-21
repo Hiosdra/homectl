@@ -227,6 +227,23 @@ The broker can pin a host key. Each step needs your owner password:
 
 Pins are written to the `known_hosts` file next to the inventory.
 
+### 2a. Adding a machine in the owner panel
+
+The panel's Machines section does the same steps as the CLI, in one guided sheet. The trust rules are the same, and each step is checked by the broker, not only by the page:
+
+1. **Key.** The panel waits for `home-ctl key create <name>`, which you run in your private terminal. The panel reads only the public key. It never sees or stores the private key.
+2. **Install.** The panel shows what to put in the machine's keys file for Linux, UGOS and Proxmox. You install it with access you already have. The panel does not log in anywhere.
+3. **Identity.** A scan shows the keys the address presents, labelled **not verified**. You compare the fingerprint with the machine's own console or provider page, and type it. Only an exact match moves on. A scanned key is never pinned automatically.
+4. **Enrol.** Your owner password is asked again. The broker re-scans, pins only the typed fingerprint, writes the inventory, and runs the same check as `home-ctl enroll`. If that check fails, the pin is taken back, so nothing stays trusted for a machine that is not on your list.
+
+Other changes to a machine need the owner password every time:
+
+- **Check again** runs one read-only command through the machine's key.
+- **Change access level** is a trust change, so it always asks. `root` is always Full admin and cannot be lowered in the panel.
+- **Remove machine** drops the inventory entry, the assistants' access to it, its pinned key and its check record. It does not delete the vault key, the public key on the machine, or anything on the machine itself. Those stay until you remove them yourself.
+
+Routes and their bodies are in [reference](reference.md#machine-routes-owner-03).
+
 ### 3. Agentless sudo grants (sudoers drop-ins)
 
 A grant gives a homectl-managed account sudo rules through one file. Every step needs your owner password, and host permissions exist only when a vault is present:
