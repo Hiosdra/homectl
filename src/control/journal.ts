@@ -3,6 +3,7 @@ import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
 import { canonicalJson, sha256 } from "./canonical";
+import { auditReason } from "./reason";
 import { containsSecretMaterial } from "./redact";
 import { schemas } from "./schema";
 import type { AuditEntry, AuditEvent } from "./types";
@@ -155,7 +156,13 @@ export class AuditJournal {
     return { ...chain, anchored: true };
   }
 
-  async append(event: AuditEvent): Promise<AuditEntry> {
+  async append(input: AuditEvent): Promise<AuditEntry> {
+    // A reason is shortened to the schema's limit here, so an engine message
+    // can never make the entry unverifiable (see reason.ts).
+    const event: AuditEvent =
+      input.reason === undefined
+        ? input
+        : { ...input, reason: auditReason(input.reason) };
     // Fail closed: never write a payload that looks like secret material.
     if (containsSecretMaterial(JSON.stringify(event)))
       throw new HomectlError(
@@ -178,6 +185,13 @@ export class AuditJournal {
       event,
     };
     const entry: AuditEntry = { ...body, hash: chainHash(body) };
+    // Refuse before writing: an entry the verifier would reject must never
+    // reach the journal, or every later append would be refused too.
+    if (!schemas.auditEntry(entry))
+      throw new HomectlError(
+        5,
+        "Audit event does not match the journal schema; nothing was written",
+      );
     await appendFile(this.path, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
     await this.writeAnchor({ v: 1, seq: entry.seq, hash: entry.hash });
     return entry;

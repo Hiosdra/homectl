@@ -1360,7 +1360,7 @@ export class ControlPlane {
       if (req.decision === "approve" && op.plan.ownerOnly === true)
         throw new HomectlError(
           3,
-          "This Proxmox operation is owner-only: no client can approve it, so it will not run. Make the change in the Proxmox interface instead",
+          "This Proxmox operation is owner-only: no client can approve it here. Submit it with home-ctl proxmox and approve it in Needs you",
         );
       if (req.fingerprint !== op.fingerprint)
         throw new HomectlError(
