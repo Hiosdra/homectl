@@ -26,9 +26,13 @@ export async function agentMethod(
         scopes: client.scopes,
         hosts: client.hosts,
       };
-    case "/v1/exec": {
+    case "/v1/exec":
+    case "/v1/proxmox": {
       const { waitMs, ...rest } = input;
-      const view = await broker.exec(client, rest);
+      const view =
+        path === "/v1/exec"
+          ? await broker.exec(client, rest)
+          : await broker.proxmox(client, rest);
       return typeof waitMs === "number" && view.state !== "denied"
         ? broker.wait(client, view.id, waitMs)
         : view;

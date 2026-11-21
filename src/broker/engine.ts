@@ -3,7 +3,6 @@
 // decide. Approval and dispatch are one flow: an owner approval issues a
 // signed single-use grant and the engine dispatches it immediately after
 // verifying and consuming it. Nothing is retried automatically.
-import { randomBytes } from "node:crypto";
 import { issueGrant } from "../approvals/grant";
 import type { NonceLedger } from "../approvals/ledger";
 import { fingerprint } from "../control/canonical";
@@ -20,22 +19,11 @@ import { recordVerification } from "../core/verification";
 import { HomectlError } from "../types";
 import { type DispatchContext, dispatch } from "./dispatch";
 import { decisionAudit } from "./decision-record";
-import {
-  actionOf,
-  operationFingerprint,
-  planExec,
-  toView,
-  validateExecInput,
-} from "./plan";
-import {
-  captureReview,
-  isReviewPending,
-  isUnderReview,
-  pendingDecision,
-  type ReviewDeps,
-  reviewOperation,
-} from "./review";
+import { actionOf, planExec, toView, validateExecInput } from "./plan";
+import { planProxmoxRequest, proxmoxChanged } from "./proxmox-submit";
+import { isReviewPending, isUnderReview } from "./review";
 import type { BrokerStore } from "./store";
+import { type SubmitPort, submitOperation } from "./submit";
 import {
   type BrokerOperation,
   type DecideInput,
@@ -48,8 +36,7 @@ import {
   type PolicyPort,
 } from "./types";
 
-export const PLAN_TTL_MS = 15 * 60_000;
-export const CLIENT_WINDOW_MS = 60 * 60_000;
+export { CLIENT_WINDOW_MS, PLAN_TTL_MS } from "./submit";
 // Same text for unknown and ungranted hosts: no enumeration.
 const NOT_GRANTED = "Host is not in this client's grants";
 
@@ -138,9 +125,7 @@ export class Broker {
     const machine = await this.options.inventory.machine(input.host);
     if (!machine) throw new HomectlError(3, NOT_GRANTED);
     const planned = planExec(input.host, machine, input);
-    const id = `op_${randomBytes(12).toString("base64url")}`;
     const base = {
-      id,
       client: client.id,
       ...(input.task ? { task: input.task } : {}),
       host: input.host,
@@ -162,51 +147,34 @@ export class Broker {
       risk: planned.risk,
       ...(input.narrative ? { narrative: input.narrative } : {}),
     };
-    const fp = operationFingerprint(base);
-    const deps = this.reviewDeps();
-    const first = await this.options.store.update(async (state) => {
-      const snapshot = await captureReview(
-        state,
-        deps,
-        client.id,
-        input.task,
-        id,
-      );
-      state.operations[id] = {
-        ...base,
-        fingerprint: fp,
-        decision: pendingDecision(planned.risk, snapshot.revision),
-        state: "awaiting-approval",
-        createdAt: snapshot.now,
-        expiresAt: snapshot.now + PLAN_TTL_MS,
-        updatedAt: snapshot.now,
-        ...(input.narrative ? { narrative: input.narrative } : {}),
-      };
-      return snapshot;
-    });
-    const settled = await reviewOperation(deps, id, fp, request, first);
-    const op = settled.op;
-    if (!op) throw new HomectlError(3, "Unknown operation");
-    if (settled.kind === "settled")
-      await this.emit(
-        op,
-        op.state === "awaiting-approval"
-          ? "approval.requested"
-          : "operation.updated",
-      );
-    // An owner decision made during the review has already dispatched.
-    if (settled.kind === "settled" && settled.machine)
-      this.track(dispatch(this.dispatchContext(), id, settled.machine));
-    return this.view(op, this.options.approvalSurface);
+    return submitOperation(this.submitPort(), base, request, input.narrative);
   }
 
-  private reviewDeps(): ReviewDeps {
+  // A Proxmox request (kind proxmox): the same queue, review and approval as exec.
+  async proxmox(client: ClientIdentity, raw: unknown): Promise<OperationView> {
+    const planned = await planProxmoxRequest(
+      this.options.inventory,
+      client,
+      raw,
+    );
+    return submitOperation(
+      this.submitPort(),
+      planned.base,
+      planned.request,
+      planned.narrative,
+    );
+  }
+
+  private submitPort(): SubmitPort {
     return {
       store: this.options.store,
       policy: this.options.policy,
       inventory: this.options.inventory,
       now: this.now,
-      windowMs: CLIENT_WINDOW_MS,
+      emit: (op, type) => this.emit(op, type),
+      track: (work) => this.track(work),
+      dispatch: (id, machine) => dispatch(this.dispatchContext(), id, machine),
+      view: (op) => this.view(op, this.options.approvalSurface),
     };
   }
 
@@ -384,7 +352,11 @@ export class Broker {
       if (op.fingerprint !== input.fingerprint)
         throw new HomectlError(3, "The plan changed; review it again");
       const machine = await this.options.inventory.machine(op.host);
-      if (!machine || fingerprint(machine) !== op.machineHash) {
+      if (
+        !machine ||
+        fingerprint(machine) !== op.machineHash ||
+        (await proxmoxChanged(this.options.inventory, op))
+      ) {
         op.state = "failed";
         op.reason = "plan-changed";
         op.finishedAt = now;
@@ -400,7 +372,11 @@ export class Broker {
       ) {
         op.state = "denied";
         op.reason = "owner-denied";
-        if (input.decision === "deny-remember" && this.options.policy.remember)
+        if (
+          input.decision === "deny-remember" &&
+          this.options.policy.remember &&
+          op.proxmox === undefined
+        )
           op.rememberedRule = await this.options.policy.remember(
             actionOf(op),
             "deny",
@@ -418,7 +394,11 @@ export class Broker {
               3,
               "This request is still being reviewed; approve it once or wait for the review",
             );
-          if (op.decision.humanOnly || !this.options.policy.remember)
+          if (
+            op.decision.humanOnly ||
+            op.proxmox !== undefined ||
+            !this.options.policy.remember
+          )
             throw new HomectlError(
               3,
               "This kind of action cannot be remembered as a rule; approve it once",

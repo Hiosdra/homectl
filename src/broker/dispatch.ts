@@ -7,7 +7,7 @@ import type { NonceLedger } from "../approvals/ledger";
 import { fingerprint } from "../control/canonical";
 import type { DeviceKey } from "../control/device-key";
 import type { ApprovalGrant } from "../core/contracts";
-import { HomectlError, type Machine } from "../types";
+import { HomectlError, type Machine, type ProcessResult } from "../types";
 import { boundOutput } from "./plan";
 import type { BrokerStore } from "./store";
 import {
@@ -28,6 +28,25 @@ export interface DispatchContext {
   // Returns a reason when nothing may start now (vault locked); checked
   // before the nonce is consumed so a locked vault never burns a grant.
   gate?: () => string | undefined;
+}
+
+// Proxmox requests run through the API transport, never over SSH. Without one,
+// nothing starts and the operation fails as not-started.
+async function runProxmox(
+  executor: ExecutorPort,
+  op: BrokerOperation,
+): Promise<ProcessResult> {
+  if (!executor.proxmox || op.proxmox === undefined)
+    throw new HomectlError(
+      5,
+      "The Proxmox API is not configured for this broker",
+    );
+  return executor.proxmox.run({
+    host: op.host,
+    operationId: op.id,
+    request: op.proxmox,
+    ...(op.providerHash === undefined ? {} : { providerHash: op.providerHash }),
+  });
 }
 
 export async function dispatch(
@@ -96,12 +115,15 @@ export async function dispatch(
   }
   let final: Partial<BrokerOperation>;
   try {
-    const result = await ctx.executor.run({
-      host: op.live.host,
-      machine,
-      argv: op.live.argv,
-      operationId: op.live.id,
-    });
+    const result =
+      op.live.proxmox === undefined
+        ? await ctx.executor.run({
+            host: op.live.host,
+            machine,
+            argv: op.live.argv,
+            operationId: op.live.id,
+          })
+        : await runProxmox(ctx.executor, op.live);
     final = {
       state: result.exitCode === 0 ? "succeeded" : "failed",
       result: boundOutput(

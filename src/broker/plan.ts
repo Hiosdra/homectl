@@ -110,8 +110,12 @@ export function operationFingerprint(
     | "sudo"
     | "risk"
     | "machineHash"
+    | "proxmox"
+    | "providerHash"
   > & { id: string },
 ): string {
+  // Proxmox fields join the fingerprint only when present, so the hash of an
+  // exec plan is unchanged.
   return fingerprint({
     v: "homectl.plan/v3",
     id: op.id,
@@ -124,6 +128,8 @@ export function operationFingerprint(
     sudo: op.sudo,
     risk: op.risk,
     machineHash: op.machineHash,
+    ...(op.proxmox === undefined ? {} : { proxmox: op.proxmox }),
+    ...(op.providerHash === undefined ? {} : { providerHash: op.providerHash }),
   });
 }
 
@@ -184,7 +190,7 @@ export function actionOf(op: BrokerOperation): ActionRequest {
   return {
     client: op.client,
     ...(op.task ? { task: op.task } : {}),
-    kind: "exec",
+    kind: op.proxmox === undefined ? "exec" : "proxmox",
     host: op.host,
     argv: op.argv,
     sudo: op.sudo,

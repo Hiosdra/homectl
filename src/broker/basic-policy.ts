@@ -44,7 +44,7 @@ export class BasicPolicy implements PolicyPort {
       };
     if (
       !humanOnly &&
-      req.kind === "exec" &&
+      (req.kind === "exec" || req.kind === "proxmox") &&
       req.classification === "inspect" &&
       !req.sudo
     )

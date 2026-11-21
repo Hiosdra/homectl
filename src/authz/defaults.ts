@@ -26,14 +26,15 @@ const PRESETS: Record<
   delegated: { mode: "auto", authority: "delegated" },
 };
 
-// The one built-in rule: read-only exec on any host, for any client, up to
-// R1, never with sudo. Safe reads run without a prompt.
+// The one built-in rule: read-only exec and Proxmox reads on any host, for any
+// client, up to R1, never with sudo. Safe reads run without a prompt. Owner-only
+// Proxmox reads are R4, so the hard gate still sends them to the owner.
 function defaultRule(now: number): Rule {
   return {
     id: "default-inspect",
     effect: "allow",
     match: {
-      kinds: ["exec"],
+      kinds: ["exec", "proxmox"],
       classifications: ["inspect"],
       maxRisk: "R1",
       sudo: false,

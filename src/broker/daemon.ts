@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { NonceLedger } from "../approvals/ledger";
 import { ClientRegistry } from "../control/clients";
 import { fingerprintOf, loadOrCreateDeviceKey } from "../control/device-key";
+import { providerEntry } from "../control/proxmox-full";
 import { ensurePrivateDirectoryOnce } from "../control/file-lock";
 import { EventLog } from "../events";
 import { loadInventory } from "../inventory";
@@ -36,6 +37,7 @@ import { type Listen, startBrokerServer } from "./server";
 import { gatherFacts } from "./setup-facts";
 import { SetupRoutes } from "./setup-routes";
 import { isUpgradeNotice, SetupStore } from "./setup-state";
+import { proxmoxExecutor } from "./proxmox-exec";
 import { BrokerStore } from "./store";
 import type {
   EventsPort,
@@ -74,6 +76,8 @@ export function inventoryPort(inventoryPath: string): InventoryPort {
       (await loadInventory(inventoryPath)).machines[host],
     hosts: async () =>
       Object.keys((await loadInventory(inventoryPath)).machines),
+    providerFor: async (host) =>
+      providerEntry(await loadInventory(inventoryPath), host)?.[1],
   };
 }
 
@@ -155,8 +159,10 @@ export async function startDaemon(config: DaemonConfig) {
     inventoryPort(config.inventoryPath),
     config.inventoryPath,
   );
-  const executor =
-    config.executor ?? sshExecutor(config.inventoryPath, config.sshConfigPath);
+  const executor: ExecutorPort = config.executor ?? {
+    ...sshExecutor(config.inventoryPath, config.sshConfigPath),
+    proxmox: proxmoxExecutor({ inventoryPath: config.inventoryPath }),
+  };
   const hostSet = new Set<string>();
   const refreshHosts = async () => {
     const hosts = await inventory.hosts();

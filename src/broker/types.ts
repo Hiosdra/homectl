@@ -12,7 +12,9 @@ import type {
   Risk,
   TaskRecord,
 } from "../core/contracts";
-import type { Machine, ProcessResult } from "../types";
+import type { Machine, ProcessResult, ProviderConfig } from "../types";
+import type { ProxmoxPort } from "./proxmox-exec";
+import type { ProxmoxOperationRequest } from "./proxmox-plan";
 
 export const OPERATION_STATES = [
   "awaiting-approval",
@@ -88,6 +90,13 @@ export interface BrokerOperation {
   verification?: AgentVerification;
   // Fixed reason codes only.
   reason?: string;
+  // Proxmox requests: the typed request (an API call or a catalogue action),
+  // the provider's fingerprint at plan time, whether only the owner may
+  // approve it, and its plain-language area. argv above is display only.
+  proxmox?: ProxmoxOperationRequest;
+  providerHash?: string;
+  ownerOnly?: boolean;
+  area?: string;
 }
 
 export interface BrokerState {
@@ -137,6 +146,8 @@ export interface PolicyPort {
 export interface InventoryPort {
   machine(host: string): Promise<Machine | undefined>;
   hosts(): Promise<string[]>;
+  // The Proxmox provider that names this host, if any (Proxmox requests only).
+  providerFor?(host: string): Promise<ProviderConfig | undefined>;
 }
 
 export interface ExecutorPort {
@@ -147,6 +158,8 @@ export interface ExecutorPort {
     operationId: string;
     stdin?: string;
   }): Promise<ProcessResult>;
+  // The Proxmox API transport. Absent: Proxmox operations fail before any request.
+  proxmox?: ProxmoxPort;
 }
 
 export interface EventsPort {

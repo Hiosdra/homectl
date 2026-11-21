@@ -86,6 +86,8 @@ export function rebindInventory(
       const machine = await port.machine(host);
       return machine && rebindMachine(machine, inventoryPath);
     },
+    providerFor: (host) =>
+      port.providerFor?.(host) ?? Promise.resolve(undefined),
   };
 }
 

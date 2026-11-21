@@ -162,6 +162,7 @@ test("tools/list offers the catalogue with closed schemas, and notifications get
   expect(tools.map((t) => t.name)).toEqual([
     "hosts",
     "exec",
+    "proxmox",
     "status",
     "list",
     "wait",
