@@ -61,7 +61,8 @@ home-ctl enroll lab-printer --file ./lab-printer.json --dry-run
 home-ctl enroll lab-printer --file ./lab-printer.json
 
 # Start homectl: the broker and the owner panel in one window (setup offers this too).
-# It opens the panel in your browser. Keep the window open; Ctrl+C stops it.
+# It opens the panel in your browser, on the guided setup until it is complete.
+# Keep the window open; Ctrl+C stops it.
 home-ctl start
 
 # Connect your agent (or use the panel's Assistants page):

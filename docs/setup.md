@@ -6,6 +6,7 @@ This guide covers installing homectl 0.3.0, the first run, connecting agents and
 
 - [Requirements](#requirements)
 - [Install](#install)
+- [Your first 15 minutes](#your-first-15-minutes)
 - [First run](#first-run)
 - [Run the broker](#run-the-broker)
 - [Connect an agent](#connect-an-agent)
@@ -66,6 +67,21 @@ Run `home-ctl setup --dry-run` first. It lists every change before it makes one.
 - Optional: `--configure-firewall --interface <LAN-IP>` opens UDP 5353 and TCP 7448 for your LAN subnet only. On Windows the rules apply to the Private profile only. Without `--interface`, a non-interactive run refuses this option.
 
 Restart your terminal after the first setup on Windows so the new PATH is loaded.
+
+## Your first 15 minutes
+
+Run `home-ctl setup` in a private terminal. At the end it offers to start homectl, which opens the owner panel on the guided setup; the setup page stays the place to go until it is complete. A checklist also sits at the top of **Needs you** until then. You can stop at any step and come back.
+
+1. **Welcome.** Read what homectl does, then start.
+2. **Vault and sign-in.** `home-ctl setup` creates the vault. Its password is also your owner password: signing in opens the vault.
+3. **Add your first machine.** Run `home-ctl key create <name>` in a private terminal, then use **Add a machine** in the panel. Nothing is trusted until you have checked the machine's fingerprint on its own console.
+4. **Connect an assistant.** Add it in the panel, then run the one command it shows on the assistant's computer. The panel waits until the assistant connects.
+5. **First safe request.** Paste the read-only prompt into Claude or Codex, then the small change. You approve the change in Needs you; nothing runs before that.
+6. **Choose how much homectl decides.** Keep "Ask me first", which is the default, or pick another level in Permissions.
+7. _Optional:_ **a second device and backups**, see [workspace](workspace.md).
+8. _Optional:_ **notifications and updates**: allow alerts, check the version, or start homectl when you sign in.
+
+Each step can be skipped and reopened. The broker keeps the progress in `broker/setup.json` (booleans and timestamps only), so a new browser keeps your place. A step counts as done only when homectl can see the real state, such as a machine that is pinned and answered its check. Two marks come from you alone: keeping "Ask me first", and allowing notifications in the browser. After an upgrade from 0.2 that carried machines, the panel says once what changed and asks you to connect each assistant again.
 
 ## First run
 

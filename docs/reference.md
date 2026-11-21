@@ -129,6 +129,17 @@ A scan never pins a key. `enroll` pins only the fingerprint the owner typed, and
 | `/v1/owner/hosts/access`     | `name`, `access`, `sudo_allow` (admin with approval), `password`                                           | Changes the access level. Root is always full. Lowering a level drops the settings it does not use.                                                                                                               | Yes (always)   |
 | `/v1/owner/hosts/remove`     | `name`, `password`                                                                                         | Removes the machine from the inventory, its assistants' grants, its pinned key and its check record. The vault key and anything on the machine stay.                                                              | Yes            |
 
+### Guided setup routes (owner, 0.3)
+
+The owner panel's setup page (`#/setup`, or `#/setup/<step>` for one step) reads and records its progress through these routes. The progress is kept in `broker/setup.json` (booleans and timestamps only). A detected step always wins over a stored mark. Neither route asks for the owner password, because neither changes security state, but both need the owner session and the panel's origin.
+
+| Route                       | Body                                                         | What it does                                                                                                                                                                                           | Step-up |
+| --------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| `GET /v1/owner/setup`       | none                                                         | Each step's detected and stored state, the required and optional counts, the next step, whether setup is complete, and the public counts behind them. No names, addresses or keys.                     | No      |
+| `POST /v1/owner/setup/step` | `action`, and `step` for `skip`, `reopen`, `keep` and `done` | `welcome`; `skip` or `reopen` a step; `keep` (permissions only: keep "Ask me first"); `done` (notifications only: the browser allows alerts); `dismiss` (only after setup is complete); `upgrade-ack`. | No      |
+
+The first complete read records when setup was finished. `home-ctl start` opens `#/setup` until that is recorded.
+
 ### AI helper routes (owner, 0.3)
 
 The panel's "Connect your AI helper" steps use these routes. The broker calls the provider; the browser never does. No route returns, logs or echoes the key, and every error is a plain sentence. Providers: `anthropic`, `openai`, `openrouter`, `custom` (an OpenAI-compatible address, for example `http://localhost:11434/v1`).
