@@ -187,6 +187,18 @@ export class OwnerHostRoutes implements RouteExtension {
     return { machines };
   }
 
+  // Counts for the setup checklist: enrolled machines, and those pinned with a
+  // probe that answered OK. Counts only; the list itself stays behind the session.
+  async readiness(): Promise<{ enrolled: number; ready: number }> {
+    const { machines } = await this.list();
+    return {
+      enrolled: machines.length,
+      ready: machines.filter(
+        (machine) => machine.pinned !== null && machine.probe?.ok === true,
+      ).length,
+    };
+  }
+
   // The public key for a machine's managed key, once `home-ctl key create` has
   // made it in the owner's private terminal. Never the private key.
   private async keyStatus(input: Record<string, unknown>) {

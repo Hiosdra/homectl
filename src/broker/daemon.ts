@@ -18,6 +18,7 @@ import { planExecution } from "../policies";
 import { SecretBroker } from "../secrets";
 import { startWorkspace, type WorkspaceConfig } from "../workspace/wiring";
 import type { Runner } from "../types";
+import { AssistantSeen } from "./assistant-seen";
 import { AuthzPolicy } from "./authz-policy";
 import { AiHelperRoutes } from "./ai-helper-routes";
 import { AutoModeRoutes } from "./auto-mode-routes";
@@ -32,6 +33,9 @@ import { PolicyRoutes } from "./policy-routes";
 import { loadReviewerSettings, reviewerFrom } from "./reviewer-settings";
 import { SecretService } from "./secret-service";
 import { type Listen, startBrokerServer } from "./server";
+import { gatherFacts } from "./setup-facts";
+import { SetupRoutes } from "./setup-routes";
+import { SetupStore } from "./setup-state";
 import { BrokerStore } from "./store";
 import type {
   EventsPort,
@@ -96,9 +100,21 @@ export function sshExecutor(
 }
 
 export async function startDaemon(config: DaemonConfig) {
-  await migrate(config.inventoryPath, { brokerState: config.state });
+  const migration = await migrate(config.inventoryPath, {
+    brokerState: config.state,
+  });
   await privateDirectory(config.state);
   await ensurePrivateDirectoryOnce(config.state);
+  // Setup progress (broker/setup.json). A data migration that ran just now is shown
+  // to the owner once, in plain words, with a note to connect assistants again.
+  const setup = new SetupStore(join(config.state, "setup.json"));
+  if (migration.status === "migrated")
+    await setup.update((file, at) => {
+      file.upgradedAt = at;
+      delete file.upgradeAckAt;
+    });
+  const seen = new AssistantSeen(join(config.state, "assistant-seen.json"));
+  const brokerStore = new BrokerStore(config.state);
   const keys = join(config.state, "keys");
   const key = await loadOrCreateDeviceKey(keys);
   // Late-bound: the vault's lock handler needs parts created further down.
@@ -170,7 +186,7 @@ export async function startDaemon(config: DaemonConfig) {
   });
   const policy = config.policy ?? authz;
   const broker = new Broker({
-    store: new BrokerStore(config.state),
+    store: brokerStore,
     ledger: new NonceLedger(config.state),
     key,
     device: {
@@ -210,6 +226,32 @@ export async function startDaemon(config: DaemonConfig) {
     ...(hasVault ? { vaultUnlocked: () => vault.unlocked() } : {}),
     ...(config.workspace ? { config: config.workspace } : {}),
   });
+  const ownerHosts = new OwnerHostRoutes({
+    inventoryPath: config.inventoryPath,
+    configPath: config.sshConfigPath,
+    state: config.state,
+    clients: admin,
+    runner: config.machineRunner,
+    events,
+    onInventoryChanged: refreshHosts,
+    ...(hasVault
+      ? { loadKey: (entry: string) => vault.loadMachineKey(entry) }
+      : {}),
+  });
+  const setupRoutes = new SetupRoutes({
+    store: setup,
+    facts: () =>
+      gatherFacts({
+        vaultExists: () => vault.exists(),
+        machines: () => ownerHosts.readiness(),
+        clients: () => admin.list(),
+        seen,
+        store: brokerStore,
+        permissionsRevision: () => authz.revision(),
+        state: config.state,
+        workspaceServer: config.workspace?.server !== undefined,
+      }),
+  });
   const running = startBrokerServer({
     broker,
     clients: registry,
@@ -242,18 +284,8 @@ export async function startDaemon(config: DaemonConfig) {
         config.machineRunner,
         events,
       ),
-      new OwnerHostRoutes({
-        inventoryPath: config.inventoryPath,
-        configPath: config.sshConfigPath,
-        state: config.state,
-        clients: admin,
-        runner: config.machineRunner,
-        events,
-        onInventoryChanged: refreshHosts,
-        ...(hasVault
-          ? { loadKey: (entry: string) => vault.loadMachineKey(entry) }
-          : {}),
-      }),
+      ownerHosts,
+      setupRoutes,
       ...workspace.extensions,
       ...(hasVault
         ? [
@@ -270,6 +302,7 @@ export async function startDaemon(config: DaemonConfig) {
         : []),
     ],
     events: log,
+    onAgentSeen: (id) => seen.note(id),
   });
   const endpoint: Endpoint = {
     v: 1,

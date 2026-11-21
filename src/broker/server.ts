@@ -62,11 +62,14 @@ export interface BrokerServerOptions {
   extensions?: RouteExtension[];
   // Live stream (SSE) and catch-up poll, filtered by audience.
   events?: EventLog;
+  // Told after each successful agent call, so the setup checklist can see that an
+  // assistant has connected. Never consulted for any decision.
+  onAgentSeen?: (clientId: string) => void;
 }
 
 const STATUS: Record<number, number> = { 2: 400, 3: 403, 4: 409, 5: 503 };
 // The owner GETs (reads only). Writes stay POST, with Origin and step-up.
-const OWNER_READS = new Set(["/v1/owner/hosts"]);
+const OWNER_READS = new Set(["/v1/owner/hosts", "/v1/owner/setup"]);
 const DECISIONS = new Set([
   "approve-once",
   "approve-remember",
@@ -316,6 +319,7 @@ export function handler(options: BrokerServerOptions) {
       const result = await agent(path, req, client);
       if (result === undefined)
         return json({ error: { code: 2, message: "Not found" } }, 404);
+      options.onAgentSeen?.(client.id);
       // An extension may answer with its own response (MCP's 202 for notifications).
       if (result instanceof Response) return result;
       return json(result);
