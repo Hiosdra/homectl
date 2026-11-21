@@ -220,7 +220,8 @@ describe("owner rule precedence", () => {
   });
 
   test("a rule whose host list does not include the request host does not apply", async () => {
-    const policy = withPolicy();
+    // Rules mode: the owner decides when no rule applies, so the source is "mode".
+    const policy = withPolicy({}, "conservative");
     policy.rules.push(rule("other", "deny", { hosts: ["other-host"] }));
     const decision = await evaluate(req(), ctx({ policy }));
     expect(decision.verdict).toBe("ask");

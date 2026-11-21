@@ -6,6 +6,7 @@
 import type { ClientIdentity } from "../control/types";
 import { type EventLog, pollHandler, sseHandler } from "../events";
 import { HomectlError } from "../types";
+import { agentMethod, str } from "./agent-methods";
 import type { ClientAdmin } from "./clients-admin";
 import type { Broker } from "./engine";
 import type { OwnerSessions } from "./owner";
@@ -13,6 +14,19 @@ import type { DecideInput } from "./types";
 
 export const MAX_BODY = 64 * 1024;
 const COOKIE = "hc_owner";
+
+// The owner session cookie. HttpOnly and SameSite=Strict always. Secure is added
+// when the panel origin is https, so the browser never sends the session over
+// plain http. The origin is the one checkOrigin already accepted (or the panel's
+// exact origin, which the proxy substitutes), never a value the caller chose.
+function sessionCookie(
+  value: string,
+  maxAge: number,
+  origin: string | null,
+): string {
+  const secure = origin?.startsWith("https://") ? "; Secure" : "";
+  return `${COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/v1/owner; Max-Age=${maxAge}${secure}`;
+}
 
 export interface ClientAuth {
   authenticate(token: string | undefined): Promise<ClientIdentity | null>;
@@ -48,9 +62,14 @@ export interface BrokerServerOptions {
   extensions?: RouteExtension[];
   // Live stream (SSE) and catch-up poll, filtered by audience.
   events?: EventLog;
+  // Told after each successful agent call, so the setup checklist can see that an
+  // assistant has connected. Never consulted for any decision.
+  onAgentSeen?: (clientId: string) => void;
 }
 
 const STATUS: Record<number, number> = { 2: 400, 3: 403, 4: 409, 5: 503 };
+// The owner GETs (reads only). Writes stay POST, with Origin and step-up.
+const OWNER_READS = new Set(["/v1/owner/hosts", "/v1/owner/setup"]);
 const DECISIONS = new Set([
   "approve-once",
   "approve-remember",
@@ -122,58 +141,18 @@ function cookie(req: Request): string | undefined {
   return undefined;
 }
 
-function str(value: unknown, field: string): string {
-  if (typeof value !== "string" || !value || value.length > 200)
-    throw new HomectlError(2, `${field} is required`);
-  return value;
-}
-
 export function handler(options: BrokerServerOptions) {
   const { broker, clients, owner } = options;
 
   async function agent(path: string, req: Request, client: ClientIdentity) {
     const input = await body(req);
-    switch (path) {
-      case "/v1/whoami":
-        return {
-          id: client.id,
-          name: client.name,
-          scopes: client.scopes,
-          hosts: client.hosts,
-        };
-      case "/v1/exec": {
-        const { waitMs, ...rest } = input;
-        const view = await broker.exec(client, rest);
-        return typeof waitMs === "number" && view.state !== "denied"
-          ? broker.wait(client, view.id, waitMs)
-          : view;
-      }
-      case "/v1/status":
-        return broker.status(client, str(input.id, "id"));
-      case "/v1/list":
-        return broker.list(
-          client,
-          typeof input.limit === "number" ? input.limit : 50,
-        );
-      case "/v1/wait":
-        return broker.wait(
-          client,
-          str(input.id, "id"),
-          typeof input.timeoutMs === "number" ? input.timeoutMs : 60_000,
-        );
-      case "/v1/cancel":
-        return broker.cancel(client, str(input.id, "id"));
-      case "/v1/task/open":
-        return broker.openTask(client, input);
-      case "/v1/task/close":
-        return broker.closeTask(client, str(input.id, "id"));
-      default:
-        for (const extension of options.extensions ?? []) {
-          const result = await extension.agent?.(path, input, client);
-          if (result !== undefined) return result;
-        }
-        return undefined;
+    const direct = await agentMethod(broker, path, input, client);
+    if (direct !== undefined) return direct;
+    for (const extension of options.extensions ?? []) {
+      const result = await extension.agent?.(path, input, client);
+      if (result !== undefined) return result;
     }
+    return undefined;
   }
 
   async function ownerRoute(path: string, req: Request) {
@@ -184,20 +163,26 @@ export function handler(options: BrokerServerOptions) {
       const session = await owner.login(input.password, surface);
       return json(
         {
-          token: session.token,
+          ...(surface === "cli" ? { token: session.token } : {}),
           expiresAt: new Date(session.expiresAt).toISOString(),
         },
         200,
         surface === "panel"
           ? {
-              "set-cookie": `${COOKIE}=${session.token}; HttpOnly; SameSite=Strict; Path=/v1/owner; Max-Age=900`,
+              "set-cookie": sessionCookie(
+                session.token,
+                900,
+                req.headers.get("origin"),
+              ),
             }
           : {},
       );
     }
     const viaHeader = bearer(req, "Owner");
     const token = viaHeader ?? cookie(req);
-    if (!viaHeader) checkOrigin(req);
+    // A GET carries no Origin, so reads check the browser's Fetch Metadata instead.
+    if (req.method === "GET") checkFetchSite(req);
+    else if (!viaHeader) checkOrigin(req);
     const session = owner.resolve(token);
     if (!session) throw new HomectlError(3, "Owner sign-in required");
     const input = await body(req);
@@ -222,7 +207,7 @@ export function handler(options: BrokerServerOptions) {
       case "/v1/owner/logout":
         owner.logout(token);
         return json({ ok: true }, 200, {
-          "set-cookie": `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/v1/owner; Max-Age=0`,
+          "set-cookie": sessionCookie("", 0, req.headers.get("origin")),
         });
       case "/v1/owner/pending":
         return json(
@@ -273,6 +258,15 @@ export function handler(options: BrokerServerOptions) {
       throw new HomectlError(3, "Confirm with the owner password");
   }
 
+  function checkFetchSite(req: Request) {
+    const site = req.headers.get("sec-fetch-site");
+    if (site && site !== "same-origin" && site !== "none")
+      throw new HomectlError(
+        3,
+        "Owner requests must come from the homectl panel",
+      );
+  }
+
   function checkOrigin(req: Request) {
     const origin = req.headers.get("origin");
     if (!origin || !options.allowedOrigins.includes(origin))
@@ -310,7 +304,9 @@ export function handler(options: BrokerServerOptions) {
         if (path === "/v1/events/poll" || path === "/v1/owner/events/poll")
           return await streams.poll(req);
       }
-      if (req.method !== "POST")
+      // Owner reads are the only GETs; every other request is a POST.
+      const ownerRead = req.method === "GET" && OWNER_READS.has(path);
+      if (req.method !== "POST" && !ownerRead)
         return json({ error: { code: 2, message: "Use POST" } }, 405);
       if (path.startsWith("/v1/owner/")) return await ownerRoute(path, req);
       // Owner tokens are never accepted on agent routes and vice versa.
@@ -323,6 +319,9 @@ export function handler(options: BrokerServerOptions) {
       const result = await agent(path, req, client);
       if (result === undefined)
         return json({ error: { code: 2, message: "Not found" } }, 404);
+      options.onAgentSeen?.(client.id);
+      // An extension may answer with its own response (MCP's 202 for notifications).
+      if (result instanceof Response) return result;
       return json(result);
     } catch (error) {
       return failure(error);
@@ -332,6 +331,9 @@ export function handler(options: BrokerServerOptions) {
 
 export function startBrokerServer(options: BrokerServerOptions) {
   const fetch = handler(options);
+  // Loopback TCP streams stay open between heartbeats (15 s); Bun's default
+  // idle timeout of 10 s would cut them first. Bun's unix-socket options take
+  // no idle timeout, so the socket transport keeps its defaults.
   const server =
     options.listen.kind === "unix"
       ? Bun.serve({ unix: options.listen.path, fetch })
@@ -339,6 +341,7 @@ export function startBrokerServer(options: BrokerServerOptions) {
           hostname: options.listen.hostname,
           port: options.listen.port,
           fetch,
+          idleTimeout: 255,
         });
   return {
     server,

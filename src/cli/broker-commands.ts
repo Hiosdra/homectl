@@ -1,19 +1,24 @@
 // 0.3.0 CLI surface for the broker. Agent commands (exec, wait, op, cancel,
-// task) talk to the daemon with the agent's client token. Owner commands
+// verify, task) talk to the daemon with the agent's client token. Owner commands
 // (approvals, approve, deny, agent, owner) ask for the owner password in a
 // private terminal every time; nothing the agent can read grants approval.
 import { hostname } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import { callBroker, clientToken, findEndpoint } from "../broker/client";
 import type { Endpoint } from "../broker/paths";
-import { compatPaths } from "../broker/paths";
 import { readPassword } from "../session";
+import { connectAgent, describeConnect } from "./agent-connect";
+import { checkLocalExecOptions } from "./exec-local-options";
 import { paths } from "../setup";
 import { HomectlError } from "../types";
+import { ownerCommand } from "./owner-commands";
+import { workspaceCommand } from "./workspace-commands";
+import { verificationNote, verifyCommand } from "./verify-command";
 
 export const BROKER_COMMANDS = new Set([
+  "start",
   "daemon",
   "owner",
   "approvals",
@@ -22,8 +27,11 @@ export const BROKER_COMMANDS = new Set([
   "wait",
   "op",
   "cancel",
+  "verify",
   "task",
   "agent",
+  "mcp",
+  "workspace",
 ]);
 
 export const APPROVAL_REMOVED =
@@ -57,7 +65,7 @@ async function agentAuth(inventoryPath: string) {
   if (!token)
     throw new HomectlError(
       3,
-      "This agent has no homectl client token. The owner connects it with `home-ctl agent add`.",
+      "This agent has no homectl client token. The owner connects it with `home-ctl agent connect`.",
     );
   return { endpoint, authorization: `Bearer ${token}` };
 }
@@ -97,6 +105,20 @@ function describe(view: {
   result?: { stdout: string; stderr: string };
   reason?: string;
   decision?: { reason: string };
+  verification?: { status: string; summary: string };
+}) {
+  const text = outcome(view);
+  const note = verificationNote(view);
+  return note ? `${text}\n${note}` : text;
+}
+
+function outcome(view: {
+  id: string;
+  state: string;
+  approvalSurface?: string;
+  result?: { stdout: string; stderr: string };
+  reason?: string;
+  decision?: { reason: string };
 }) {
   if (view.state === "awaiting-approval")
     return `Waiting for the owner to approve operation ${view.id}${view.approvalSurface ? ` at ${view.approvalSurface}` : ""}. Ask the user to approve it, then run: home-ctl wait ${view.id}`;
@@ -120,7 +142,10 @@ export async function brokerCommand(
   // exec/ssh go through the broker whenever the agent is connected to one.
   if (command === "exec" || command === "ssh") {
     const endpoint = await findEndpoint(options.inventoryPath);
-    if (!endpoint || !(await clientToken())) return undefined;
+    if (!endpoint || !(await clientToken())) {
+      checkLocalExecOptions(cliArgs);
+      return undefined;
+    }
   } else if (!BROKER_COMMANDS.has(command)) return undefined;
   const { values: v, positionals } = parseArgs({
     args: cliArgs.slice(1),
@@ -133,11 +158,19 @@ export async function brokerCommand(
       wait: { type: "string" },
       task: { type: "string" },
       remember: { type: "boolean" },
+      summary: { type: "string" },
       hosts: { type: "string" },
       name: { type: "string" },
+      client: { type: "string" },
+      "no-open": { type: "boolean" },
       mode: { type: "string" },
+      authority: { type: "string" },
+      endpoint: { type: "string" },
+      model: { type: "string" },
       ttl: { type: "string" },
       "dry-run": { type: "boolean" },
+      "remote-approval": { type: "boolean" },
+      reason: { type: "string" },
     },
   });
   const { inventoryPath, emit } = options;
@@ -193,6 +226,12 @@ export async function brokerCommand(
       emit(view, describe(view));
       return 0;
     }
+    case "verify":
+      return verifyCommand(positionals, {
+        summary: v.summary,
+        auth: () => agentAuth(inventoryPath),
+        emit,
+      });
     case "task": {
       const [action, ...rest] = positionals;
       const auth = await agentAuth(inventoryPath);
@@ -304,65 +343,49 @@ export async function brokerCommand(
         if (!["codex", "claude", "other"].includes(kind))
           throw new HomectlError(
             2,
-            "Usage: home-ctl agent connect codex|claude|other --hosts a,b",
+            "Usage: home-ctl agent connect codex|claude|other --hosts a,b [--name <id>] | home-ctl agent connect claude --client <id> --hosts a,b",
           );
         const onboard = await import("../broker/onboard");
         const hosts = (v.hosts ?? "")
           .split(",")
           .map((h) => h.trim())
           .filter(Boolean);
-        const clientId = (v.name ?? `${kind}-${hostname()}`)
-          .toLowerCase()
-          .replace(/[^a-z0-9-]/g, "-")
-          .replace(/^[^a-z]+/, "")
-          .slice(0, 63);
-        const created = await callBroker<{ token: string }>(
-          "/v1/owner/clients/create",
+        // Plans first; creates or rotates only after the owner says yes (cli/agent-connect.ts).
+        const result = await connectAgent(
           {
-            id: clientId,
-            name: `${kind} on ${hostname()}`,
-            hosts,
-            password: auth.password,
+            list: () =>
+              callBroker<{ id: string }[]>("/v1/owner/clients/list", {}, auth),
+            create: (input) =>
+              callBroker<{ token: string }>(
+                "/v1/owner/clients/create",
+                { ...input, password: auth.password },
+                auth,
+              ),
+            rotate: (id) =>
+              callBroker<{ token: string }>(
+                "/v1/owner/clients/rotate",
+                { id, password: auth.password },
+                auth,
+              ),
+            plan: onboard.planAgentConfig,
+            apply: onboard.applyAgentConfig,
+            storeToken: onboard.storeClientToken,
+            whoami: async (token) =>
+              (
+                await callBroker<{ id: string }>(
+                  "/v1/whoami",
+                  {},
+                  { endpoint: auth.endpoint, authorization: `Bearer ${token}` },
+                )
+              ).id,
+            confirm,
+            note: (line) => console.error(line),
+            setupPrompt: onboard.setupPrompt,
+            hostName: hostname(),
           },
-          auth,
+          { kind, hosts, name: v.name, client: v.client },
         );
-        const change = await onboard.planAgentConfig(kind, created.token);
-        if (!change.supported) {
-          await onboard.storeClientToken(created.token);
-          emit(
-            {
-              id: clientId,
-              applied: false,
-              manual: change.manual,
-              prompt: onboard.setupPrompt(kind),
-            },
-            [
-              ...(change.manual ?? []),
-              "",
-              "Setup prompt for the agent:",
-              onboard.setupPrompt(kind),
-            ].join("\n"),
-          );
-          return 0;
-        }
-        console.error(
-          `Planned change to ${change.path}:\n${change.diff.join("\n")}`,
-        );
-        if (!(await confirm("Apply this change? [y/N] ")))
-          throw new HomectlError(
-            3,
-            "Cancelled; the client was created but not configured. Revoke it with `home-ctl agent revoke`.",
-          );
-        await onboard.applyAgentConfig(change, created.token);
-        const who = await callBroker<{ id: string }>(
-          "/v1/whoami",
-          {},
-          { endpoint: auth.endpoint, authorization: `Bearer ${created.token}` },
-        );
-        emit(
-          { id: who.id, applied: true, path: change.path, verified: true },
-          `Connected ${kind} as ${who.id}. Restart the agent so it picks up the change.`,
-        );
+        emit(result, describeConnect(result, kind));
         return 0;
       }
       if (action === "rotate") {
@@ -371,9 +394,9 @@ export async function brokerCommand(
           { id, password: auth.password },
           auth,
         );
-        await (await import("../broker/onboard")).storeClientToken(
-          rotated.token,
-        );
+        await (
+          await import("../broker/onboard")
+        ).storeClientToken(rotated.token);
         emit({ id, rotated: true }, `Token for ${id} rotated.`);
         return 0;
       }
@@ -389,32 +412,33 @@ export async function brokerCommand(
         "Usage: home-ctl agent connect|list|rotate|revoke",
       );
     }
-    case "owner": {
-      const [action] = positionals;
-      if (action !== "init")
-        throw new HomectlError(2, "Usage: home-ctl owner init");
-      const mode = v.mode ?? "compat";
-      if (mode !== "compat")
-        throw new HomectlError(
-          2,
-          "The hardened service sets the owner password during `home-ctl daemon install`",
-        );
-      const { FileVerifier } = await import("../broker/owner");
-      const verifier = new FileVerifier(
-        join(compatPaths(inventoryPath).state, "owner.json"),
-      );
-      if (await verifier.exists())
-        throw new HomectlError(3, "An owner password is already set");
-      const first = await readPassword("New homectl owner password: ");
-      const second = await readPassword("Repeat it: ");
-      if (first !== second)
-        throw new HomectlError(2, "The passwords do not match");
-      const { privateDirectory } = await import("../platform");
-      await privateDirectory(compatPaths(inventoryPath).state);
-      await verifier.set(first);
-      emit({ owner: "set" }, "Owner password set.");
+    case "owner":
+      return ownerCommand(positionals, {
+        inventoryPath,
+        flags: v,
+        argv,
+        emit,
+        auth: () => ownerAuth(inventoryPath),
+      });
+    case "workspace":
+      return workspaceCommand(positionals, {
+        auth: () => ownerAuth(inventoryPath),
+        emit,
+        remoteApproval: v["remote-approval"] ?? false,
+        reason: v.reason,
+      });
+    case "mcp":
+      // stdio MCP server: stdout carries protocol messages only.
+      await (await import("../mcp/stdio")).runMcpStdio({ inventoryPath });
       return 0;
-    }
+    case "start":
+      return (await import("./start-command")).startCommand({
+        inventoryPath,
+        sshConfigPath: v.inventory
+          ? `${inventoryPath}.ssh_config`
+          : paths().ssh,
+        open: !v["no-open"],
+      });
     case "daemon":
       return (await import("./daemon-command")).daemonCommand(positionals, {
         inventoryPath,

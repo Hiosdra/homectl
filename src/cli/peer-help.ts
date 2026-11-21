@@ -1,4 +1,4 @@
-import type { Page } from "./help";
+import type { Page } from "./help-format";
 
 const globalOptions: Page["sections"][number] = {
   title: "Options",

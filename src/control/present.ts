@@ -565,12 +565,12 @@ export function awaitingApprovalBy(
 ): boolean {
   return Boolean(
     caller?.scopes.includes("approve:decide") &&
-      op.state === "pending" &&
-      op.needsApproval &&
-      !op.expired &&
-      op.issuer !== caller.id &&
-      // A forwarded approval is already on its way to the owner.
-      op.delivery?.status !== "awaiting-confirmation",
+    op.state === "pending" &&
+    op.needsApproval &&
+    !op.expired &&
+    op.issuer !== caller.id &&
+    // A forwarded approval is already on its way to the owner.
+    op.delivery?.status !== "awaiting-confirmation",
   );
 }
 

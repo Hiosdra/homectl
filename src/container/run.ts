@@ -1,5 +1,5 @@
 // `home-ctl serve --container`: the process-level lifecycle of the containerized
-// peer (docs/homectl-2.0/container-peer.md). Startup recovery runs first; the
+// peer (docs/setup.md (Docker and NAS containers)). Startup recovery runs first; the
 // first SIGTERM or SIGINT then starts one graceful stop, and a second signal is
 // ignored so the stop can finish within Docker's grace period.
 import { readFile, stat } from "node:fs/promises";

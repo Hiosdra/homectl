@@ -81,32 +81,6 @@ async function identity(
   return { token: created.token as string, client };
 }
 
-async function mcpCall(
-  url: string,
-  token: string,
-  name: string,
-  args: Record<string, unknown>,
-) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: { name, arguments: args },
-    }),
-  });
-  return (await response.json()).result as {
-    isError: boolean;
-    content: { text: string }[];
-    structuredContent?: Record<string, unknown>;
-  };
-}
-
 async function expectRefused(
   promise: Promise<unknown>,
   code: number,
@@ -236,7 +210,7 @@ describe("cooperative handoff over the real peer channel", () => {
 });
 
 describe("control-plane convergence over the real peer channel", () => {
-  test("plan on A, approve through MCP on B, execute on A, result visible on B, replays and revocation refused", async () => {
+  test("plan on A, approve on B, execute on A, result visible on B, replays and revocation refused", async () => {
     const A = await server("Linux");
     const B = await server("Windows");
     await pair(A, B);
@@ -248,7 +222,7 @@ describe("control-plane convergence over the real peer channel", () => {
     ]);
     await rounds(A, B);
 
-    // Plan on A (the owner: the device whose MCP endpoint received the plan).
+    // Plan on A, which owns the operation.
     const plan = (await A.control.request(
       { kind: "client", client: codex.client },
       { op: "plan", host: "agent-host", argv: CHANGE },
@@ -256,20 +230,18 @@ describe("control-plane convergence over the real peer channel", () => {
     await rounds(A, B);
     expect(B.replicator?.replica.ops[plan.operationId]?.state).toBe("pending");
 
-    // Approve through MCP on B. The decision is signed on B and forwarded.
+    // Keep the legacy endpoint for the revoked-token check below.
     const mcp = startMcpServer({ control: B.control, port: 0 });
     stops.push(() => mcp.stop());
-    const approved = await mcpCall(mcp.url, hermes.token, "homectl_approve", {
-      operationId: plan.operationId,
-      fingerprint: plan.fingerprint,
-      decision: "approve",
-    });
-    expect(approved.isError).toBe(false);
-    expect(approved.content[0]?.text).toContain(
-      "Approval forwarded to owner Linux",
-    );
-    expect(approved.content[0]?.text).toContain(
-      "it applies after the next sync",
+    // The decision is signed on B and forwarded to the owner.
+    await B.control.request(
+      { kind: "client", client: hermes.client },
+      {
+        op: "approve",
+        operationId: plan.operationId,
+        fingerprint: plan.fingerprint,
+        decision: "approve",
+      },
     );
     // B shows the operation as held by Linux, with its approval still in flight.
     const onB = async () =>

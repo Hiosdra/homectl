@@ -380,8 +380,7 @@ export class SavedCommandStore {
   async replaceFromRecordsWith(
     records: Record<string, { value: unknown | null }>,
     expectedSavedCommands:
-      | Record<string, { value: unknown | null }>
-      | undefined,
+      Record<string, { value: unknown | null }> | undefined,
     apply: (
       savedCommandsAvailable: boolean,
       preservedInvalidIds: string[],
@@ -424,8 +423,7 @@ export class SavedCommandStore {
   private async replaceUnderLock(
     records: Record<string, { value: unknown | null }>,
     expectedSavedCommands:
-      | Record<string, { value: unknown | null }>
-      | undefined,
+      Record<string, { value: unknown | null }> | undefined,
     apply: (
       savedCommandsAvailable: boolean,
       preservedInvalidIds: string[],

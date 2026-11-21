@@ -54,7 +54,7 @@ export function probeFailureMessage(result?: ProcessResult) {
       output,
     )
   )
-    return "SSH authentication was rejected. Check the inventory username, managed session and installed public key; run session unlock privately if needed. No credentials or raw diagnostics are shown.";
+    return "SSH authentication was rejected. The machine did not accept homectl's key for this login name. Either the login name is wrong, or the public key is not installed for that account yet. Check both, then run the check again. No credentials or raw diagnostics are shown.";
 
   return "Connectivity failed. Check the SSH alias, address, username, pinned known_hosts fingerprint, managed SSH session and network. Inventory was not changed, though the generated SSH config may have been refreshed. No credentials or raw diagnostics are shown.";
 }

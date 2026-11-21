@@ -54,7 +54,10 @@ export function ExecutionResult({ r }: { r: ControlExecution }) {
       className="mt-8 rounded-panel border border-border bg-card p-6 outline-none focus-visible:ring-2 focus-visible:ring-ring max-[700px]:p-[18px]"
     >
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 id="control-result-title" className="text-xl font-semibold tracking-[-0.015em]">
+        <h2
+          id="control-result-title"
+          className="text-xl font-semibold tracking-[-0.015em]"
+        >
           Execution result
         </h2>
         <Button
@@ -69,7 +72,9 @@ export function ExecutionResult({ r }: { r: ControlExecution }) {
       </div>
       <p>
         <strong>{headline}</strong>
-        {took ? <span className="text-muted-foreground"> · took {took}</span> : null}
+        {took ? (
+          <span className="text-muted-foreground"> · took {took}</span>
+        ) : null}
       </p>
       <p className="text-muted-foreground">
         <code>$ {shellArgv(op.argv)}</code>
@@ -92,11 +97,23 @@ function ResultBlock({ title, text }: { title: string; text: string }) {
   if (!body.trim()) return null;
   const lines = body.split("\n").length;
   return (
-    <Disclosure title={<>{title} · {lines} line{lines === 1 ? "" : "s"}</>} compact>
+    <Disclosure
+      title={
+        <>
+          {title} · {lines} line{lines === 1 ? "" : "s"}
+        </>
+      }
+      compact
+    >
       <div className="grid gap-2">
         <Pre>{body}</Pre>
-        <Action action="control-result-copy" id={title} label={`Copy ${title}`} kind="quiet" />
+        <Action
+          action="control-result-copy"
+          id={title}
+          label={`Copy ${title}`}
+          kind="quiet"
+        />
       </div>
-      </Disclosure>
+    </Disclosure>
   );
 }

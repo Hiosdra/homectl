@@ -1,6 +1,7 @@
 // Broker engine types (homelab #21 §4, §7). The broker is the single engine
 // behind CLI, MCP and panel: every route calls the same methods, so checks,
 // bounds and redaction cannot differ between surfaces.
+import type { AgentVerification } from "../core/verification";
 import type {
   ActionRequest,
   ApprovalGrant,
@@ -66,7 +67,10 @@ export interface BrokerOperation {
     | "humanOnly"
     | "policyRevision"
     | "ruleId"
-  >;
+  > & {
+    // Reviewer (model) calls made for this decision; absent on older records.
+    modelCalls?: number;
+  };
   state: BrokerOperationState;
   createdAt: number;
   expiresAt: number;
@@ -79,6 +83,9 @@ export interface BrokerOperation {
   startedAt?: number;
   finishedAt?: number;
   result?: BoundedOutput;
+  // Agent-reported check of the outcome. Separate from the exit status and
+  // never set by the broker (see core/verification.ts).
+  verification?: AgentVerification;
   // Fixed reason codes only.
   reason?: string;
 }
@@ -104,6 +111,7 @@ export interface OperationView {
   expiresAt: string;
   finishedAt?: string;
   result?: BoundedOutput;
+  verification?: AgentVerification;
   reason?: string;
   // Present while awaiting approval: where the owner approves.
   approvalSurface?: string;

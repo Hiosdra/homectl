@@ -7,7 +7,9 @@
 
 /* homectl palette from the approved mockup, mapped onto the coss semantic tokens. */
 @theme inline {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
   --font-heading: var(--font-sans);
   --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
 
@@ -48,65 +50,66 @@
 
 :root {
   color-scheme: light;
-  --background: #fafafa;
-  --foreground: #171717;
+  /* The owner panel tokens (src/web/owner/design-tokens.ts), so both panels share one look. */
+  --background: #f3f5f9;
+  --foreground: #111a2b;
   --card: #ffffff;
-  --card-foreground: #171717;
+  --card-foreground: #111a2b;
   --popover: #ffffff;
-  --popover-foreground: #171717;
-  --primary: #171717;
-  --primary-foreground: #fafafa;
-  --secondary: #f3f3f3;
-  --secondary-foreground: #171717;
-  --muted: #f3f3f3;
-  --muted-foreground: #6b6b6b;
-  --accent: #ececec;
-  --accent-foreground: #171717;
-  --destructive: #b91c1c;
-  --destructive-foreground: #b91c1c;
-  --success: #15803d;
-  --success-foreground: #15803d;
-  --warning: #a16207;
-  --warning-foreground: #a16207;
-  --info: #1d4ed8;
-  --info-foreground: #1d4ed8;
-  --border: #e5e5e5;
-  --input: #d4d4d4;
-  --ring: #171717;
+  --popover-foreground: #111a2b;
+  --primary: #1c5bc4;
+  --primary-foreground: #ffffff;
+  --secondary: #eef2f7;
+  --secondary-foreground: #111a2b;
+  --muted: #eef2f7;
+  --muted-foreground: #4a5669;
+  --accent: #e5edfb;
+  --accent-foreground: #163f8c;
+  --destructive: #a81c2c;
+  --destructive-foreground: #a81c2c;
+  --success: #14693a;
+  --success-foreground: #14693a;
+  --warning: #834a00;
+  --warning-foreground: #834a00;
+  --info: #1c5bc4;
+  --info-foreground: #1c5bc4;
+  --border: #d6dde8;
+  --input: #aeb9c9;
+  --ring: #1c5bc4;
   --rail: #ffffff;
-  --radius: 0.5rem;
+  --radius: 0.75rem;
 }
 
 /* Dark values of the approved mockup, used when the system is dark. */
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --background: #0f0f0f;
-    --foreground: #f5f5f5;
-    --card: #171717;
-    --card-foreground: #f5f5f5;
-    --popover: #1f1f1f;
-    --popover-foreground: #f5f5f5;
-    --primary: #f5f5f5;
-    --primary-foreground: #171717;
-    --secondary: #1f1f1f;
-    --secondary-foreground: #f5f5f5;
-    --muted: #1f1f1f;
-    --muted-foreground: #a3a3a3;
-    --accent: #262626;
-    --accent-foreground: #f5f5f5;
-    --destructive: #f87171;
-    --destructive-foreground: #f87171;
-    --success: #4ade80;
-    --success-foreground: #4ade80;
-    --warning: #facc15;
-    --warning-foreground: #facc15;
-    --info: #93c5fd;
-    --info-foreground: #93c5fd;
-    --border: #2a2a2a;
-    --input: #3a3a3a;
-    --ring: #a3a3a3;
-    --rail: #171717;
+    --background: #0b1017;
+    --foreground: #e9eef6;
+    --card: #131a24;
+    --card-foreground: #e9eef6;
+    --popover: #1a2331;
+    --popover-foreground: #e9eef6;
+    --primary: #86b4ff;
+    --primary-foreground: #0a1528;
+    --secondary: #1a2331;
+    --secondary-foreground: #e9eef6;
+    --muted: #1a2331;
+    --muted-foreground: #aab5c6;
+    --accent: #1b2c49;
+    --accent-foreground: #c4dcff;
+    --destructive: #ffa2ac;
+    --destructive-foreground: #ffa2ac;
+    --success: #86e0b0;
+    --success-foreground: #86e0b0;
+    --warning: #f5c372;
+    --warning-foreground: #f5c372;
+    --info: #86b4ff;
+    --info-foreground: #86b4ff;
+    --border: #283445;
+    --input: #3c4a5e;
+    --ring: #86b4ff;
+    --rail: #131a24;
   }
 }
 

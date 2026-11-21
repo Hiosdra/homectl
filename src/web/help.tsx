@@ -4,7 +4,15 @@ import { useState } from "react";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
 
-export function HelpLabel({ htmlFor, label, help }: { htmlFor: string; label: string; help: string }) {
+export function HelpLabel({
+  htmlFor,
+  label,
+  help,
+}: {
+  htmlFor: string;
+  label: string;
+  help: string;
+}) {
   const [open, setOpen] = useState(false);
   const helpId = `${htmlFor}-help`;
   return (

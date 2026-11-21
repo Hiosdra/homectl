@@ -1,4 +1,4 @@
-// Typed Proxmox guest catalogue (slice 5, docs/homectl-2.0/proxmox-adapters.md).
+// Typed Proxmox guest catalogue (slice 5, docs/reference.md).
 // Every action becomes one exact argv built from validated fields. Free-form
 // `qm` and `pct` argv is never accepted through the generic plan path.
 import { basename } from "node:path";

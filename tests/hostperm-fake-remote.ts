@@ -179,6 +179,17 @@ export class FakeHost {
   private test(args: string[], asRoot: boolean): ProcessResult {
     const [flag, path = ""] = args;
     const ok = (value: boolean): ProcessResult => result(value ? 0 : 1);
+    if (
+      flag === "!" &&
+      path === "-e" &&
+      args[3] === "-a" &&
+      args[4] === "!" &&
+      args[5] === "-L" &&
+      args[2] === args[6]
+    ) {
+      const location = args[2] ?? "";
+      return ok(!this.files.has(location) && !this.dirs.has(location));
+    }
     switch (flag) {
       case "-x":
         return ok(this.executables.has(path));

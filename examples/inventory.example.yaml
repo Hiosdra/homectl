@@ -22,14 +22,14 @@ machines:
       socket: /home/operator/.config/homectl/inventory.yaml.session/agent.sock
       public_key: /home/operator/.config/homectl/public-keys/lab-printer.pub
     caution:
-    - Check printer is idle before restarting Klipper
+      - Check printer is idle before restarting Klipper
     sudo_allow:
-    - - /usr/bin/systemctl
-      - restart
-      - klipper
-    - - /usr/bin/systemctl
-      - restart
-      - moonraker
+      - - /usr/bin/systemctl
+        - restart
+        - klipper
+      - - /usr/bin/systemctl
+        - restart
+        - moonraker
   lab-nas:
     description: Example critical NAS
     transport: ssh
@@ -44,7 +44,7 @@ machines:
       socket: /home/operator/.config/homectl/inventory.yaml.session/agent.sock
       public_key: /home/operator/.config/homectl/public-keys/lab-nas.pub
     caution:
-    - Storage changes may affect other workloads
+      - Storage changes may affect other workloads
   lab-proxmox:
     description: Example Proxmox SSH node
     transport: ssh

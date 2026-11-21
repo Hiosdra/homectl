@@ -1,17 +1,21 @@
 name: CI
+# Pushes run on master and release branches only. A pull request runs the same checks once,
+# from its own branch, so feature branches are not checked twice.
 on:
   push:
+    branches: [master, "release/**"]
   pull_request:
 permissions:
   contents: read
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.5
       - run: sudo apt-get update && sudo apt-get install -y openssh-client keepassxc
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
@@ -19,19 +23,50 @@ jobs:
       - run: bun test
       - run: bunx playwright install --with-deps chromium
       - run: bun run test:ui
+      - run: bun scripts/owner-ui-smoke.ts
 
-  windows:
-    runs-on: windows-latest
+  # Read-only scans on every push and pull request. Nothing here publishes anything.
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          # Secret scanning reads the whole history, not only the tip.
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.5
+      - run: bun install --frozen-lockfile
+      # Fails on high or critical advisories not listed in scripts/audit-accepted.txt.
+      - run: sh scripts/dependency-audit.sh
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Non-TypeScript files: shellcheck, actionlint and hadolint at pinned
+  # versions (scripts/lint-other.sh). Formatting of these files is checked by
+  # `bun fmt --check` inside `bun run lint`.
+  lint-other:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - run: sh scripts/lint-other.sh
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
       - run: choco install keepassxc --yes --no-progress
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run lint
-      - run: bun test --timeout 30000 tests/platform.test.ts tests/peer.test.ts tests/update.test.ts tests/dependencies.test.ts tests/interactive-pair.test.ts tests/output.test.ts tests/firewall.test.ts tests/setup-flow.test.ts tests/workspace-session.test.ts tests/session-lifetime.test.ts
+      - run: bun test --timeout 30000 tests/platform.test.ts tests/peer.test.ts tests/update.test.ts tests/dependencies.test.ts tests/interactive-pair.test.ts tests/output.test.ts tests/firewall.test.ts tests/setup-flow.test.ts tests/workspace-session.test.ts tests/session-lifetime.test.ts tests/migrate.test.ts tests/migrate-clients.test.ts tests/migrate-command.test.ts tests/migrate-output.test.ts tests/migrate-steps.test.ts
       - name: PowerShell CLI smoke
         shell: pwsh
         run: |
@@ -49,3 +84,62 @@ jobs:
       - name: Git Bash CLI smoke
         shell: bash
         run: bun src/cli/main.ts help
+      # The compiled executable is what users install. Build the Windows target and run it:
+      # help must exit 0 and an unknown command must exit 2, as release.yml checks on linux-x64.
+      - name: Compiled executable smoke
+        shell: bash
+        run: |
+          exe="$RUNNER_TEMP/home-ctl.exe"
+          bun build --compile --target=bun-windows-x64 src/cli/main.ts --outfile "$exe"
+          "$exe" help
+          status=0
+          "$exe" __internal bogus || status=$?
+          test "$status" -eq 2
+
+  # macOS runs the portable subset: no keepassxc-backed session tests, no Playwright UI smoke,
+  # no container job. Hardened mode is not available on macOS yet (src/broker/hardened-support.ts).
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun test --timeout 30000 tests/platform.test.ts tests/update.test.ts tests/update-apply.test.ts tests/update-release.test.ts tests/output.test.ts tests/dependencies.test.ts tests/hardened-support.test.ts tests/broker-daemon.test.ts tests/broker-server.test.ts tests/broker-engine.test.ts tests/migrate.test.ts tests/migrate-clients.test.ts tests/migrate-command.test.ts tests/migrate-output.test.ts tests/migrate-steps.test.ts
+      - name: CLI smoke
+        run: bun src/cli/main.ts help
+      # The compiled executable is what users install. Build this runner's target and run it:
+      # help must exit 0 and an unknown command must exit 2, as release.yml checks on linux-x64.
+      - name: Compiled executable smoke
+        run: |
+          case "$(uname -m)" in
+            arm64) target=bun-darwin-arm64 ;;
+            *) target=bun-darwin-x64 ;;
+          esac
+          bun build --compile --target="$target" src/cli/main.ts --outfile "$RUNNER_TEMP/home-ctl"
+          "$RUNNER_TEMP/home-ctl" help
+          status=0
+          "$RUNNER_TEMP/home-ctl" __internal bogus || status=$?
+          test "$status" -eq 2
+
+  # B1: real OS users. Creates the homectl service account and an unprivileged agent
+  # account, runs the broker as the service account and checks what the agent can reach.
+  hardened-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+      - run: bun install --frozen-lockfile
+      - name: Compile the Linux executable the broker runs
+        run: bun build --compile --target=bun-linux-x64 src/cli/main.ts --outfile "$RUNNER_TEMP/home-ctl"
+      # keepassxc-cli creates the test vault that the check unlocks as the owner.
+      - run: sudo apt-get update && sudo apt-get install -y keepassxc
+      - name: Hardened broker checks with real OS users
+        run: sudo sh scripts/hardened-linux-check.sh "$RUNNER_TEMP/home-ctl"

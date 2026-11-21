@@ -1,0 +1,7 @@
+# bun fmt formats every file in the repository; biome only lints.
+bun.lock
+scripts/file-length-baseline.json
+# Design-tool state, written by its own tooling.
+.impeccable/
+dist/
+node_modules/

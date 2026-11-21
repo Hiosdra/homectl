@@ -15,12 +15,18 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Attestations need an OIDC token and write access to the attestation store; the
+    # publish job below still holds the only contents: write.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.5
 
       # The same test tools as ci.yml: the session tests need keepassxc-cli and ssh-agent.
       - run: sudo apt-get update && sudo apt-get install -y zip openssh-client keepassxc
@@ -66,7 +72,31 @@ jobs:
           "${folder}/home-ctl" __internal bogus || status=$?
           test "$status" -eq 2
 
-      - uses: actions/upload-artifact@v4
+      # The manifest lists every archive; builds install only a manifest whose signature
+      # verifies. Without the HOMECTL_SIGNING_KEY secret the signing step skips with a notice.
+      - run: bun scripts/release-manifest.ts dist
+      - name: Sign the release manifest
+        env:
+          HOMECTL_SIGNING_KEY: ${{ secrets.HOMECTL_SIGNING_KEY }}
+        run: bun scripts/sign-release.ts dist
+
+      # Software bill of materials for the source tree and its locked dependencies.
+      - name: Generate the SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      # Build provenance: a signed statement that these archives came from this workflow run.
+      - name: Attest the build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: "dist/*.tar.gz, dist/*.zip, dist/*.deb, dist/*.rpm, dist/*.apk, dist/*.pkg.tar.zst"
+
+      - uses: actions/upload-artifact@v7
         with:
           name: release
           path: dist/*
@@ -78,7 +108,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release
           path: dist
@@ -88,8 +118,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         # No checkout in this job, so gh needs the repository named explicitly.
         # Named files only: dist/packaging is a folder and gh release create takes files.
+        # manifest.json.sig is absent when the release is unsigned; dist/manifest.json* matches what exists.
         run: |
           gh release create "$GITHUB_REF_NAME" \
             dist/*.tar.gz dist/*.zip dist/*.deb dist/*.rpm dist/*.apk dist/*.pkg.tar.zst dist/SHA256SUMS \
+            dist/manifest.json* dist/sbom.spdx.json \
             dist/packaging/homectl.rb dist/packaging/winget/*.yaml \
             --repo "$GITHUB_REPOSITORY" --title "homectl ${GITHUB_REF_NAME}" --generate-notes

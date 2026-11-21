@@ -24,7 +24,10 @@ export interface AuthzPolicyOptions {
   path: string;
   now: () => number;
   preset?: Preset;
-  reviewer?: Reviewer;
+  // Resolved for each evaluation, so reviewer settings change without a
+  // restart. Undefined, or a throw, means no reviewer: the owner decides.
+  reviewer?: () => Promise<Reviewer | undefined>;
+  reviewerTimeoutMs?: number;
 }
 
 export class AuthzPolicy implements PolicyPort {
@@ -58,15 +61,29 @@ export class AuthzPolicy implements PolicyPort {
     req: ActionRequest,
     ctx: PolicyContext,
   ): Promise<PolicyDecision> {
+    const reviewer = await this.resolveReviewer();
     const decision = await evaluate(req, {
       ...ctx,
       policy: await this.document(),
-      ...(this.options.reviewer ? { reviewer: this.options.reviewer } : {}),
+      ...(reviewer ? { reviewer } : {}),
+      ...(this.options.reviewerTimeoutMs !== undefined
+        ? { reviewerTimeoutMs: this.options.reviewerTimeoutMs }
+        : {}),
     });
     // The reviewer's own words stay out of the engine decision; the panel
     // shows them separately as untrusted model output.
     const { reviewerReason: _ignored, ...engine } = decision;
     return engine;
+  }
+
+  // A broken reviewer configuration must not fail the request: without a
+  // reviewer the evaluator asks the owner.
+  private async resolveReviewer(): Promise<Reviewer | undefined> {
+    try {
+      return await this.options.reviewer?.();
+    } catch {
+      return undefined;
+    }
   }
 
   // Saves an exact rule built from the request the owner just decided.

@@ -88,4 +88,20 @@ export class ClientAdmin {
       return clientView(record);
     });
   }
+
+  // Removes one machine from every assistant's grants (a removed machine must
+  // not stay on an assistant). Returns how many assistants lost it.
+  async dropHost(host: string): Promise<number> {
+    return withFileLock(this.lock, "Client registry", async () => {
+      const clients = await this.registry.load();
+      let changed = 0;
+      for (const record of Object.values(clients)) {
+        if (!record.hosts.includes(host)) continue;
+        record.hosts = record.hosts.filter((item) => item !== host);
+        changed += 1;
+      }
+      if (changed > 0) await this.registry.save(clients);
+      return changed;
+    });
+  }
 }

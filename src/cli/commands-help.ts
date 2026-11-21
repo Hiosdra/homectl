@@ -1,4 +1,4 @@
-import type { Page } from "./help";
+import type { Page } from "./help-format";
 
 export const commandsHelp: Page = {
   usage: "home-ctl commands <list|save|run|rm> [id] [options]",

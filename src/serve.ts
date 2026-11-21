@@ -37,6 +37,7 @@ import {
 import { panelAssets } from "./web/panel-assets";
 import { security } from "./web/panel-headers";
 import { handleServiceRoute } from "./web/service-route";
+import { LaunchCodes } from "./web/launch-code";
 import { handleUnlockRoute } from "./web/unlock-gate";
 import { openPanelGate, saveSession, unlockVault } from "./web/unlock-open";
 import { handleUpdateRoute, updateChecker } from "./web/update-status";
@@ -57,7 +58,7 @@ export type ServeOptions = {
   // a test can hold a round in flight.
   syncIntervalMs?: number;
   syncRound?: () => Promise<unknown>;
-  // Container mode (docs/homectl-2.0/container-peer.md). "recovered" means the
+  // Container mode (docs/setup.md (Docker and NAS containers)). "recovered" means the
   // startup checks repaired or flagged something, so health reports degraded.
   container?: { recovered: boolean };
   // An optional, authenticated reverse-proxy listener for the existing panel.
@@ -121,6 +122,7 @@ export async function serve(options: ServeOptions) {
     externalPanel?.accessToken ?? randomBytes(32).toString("base64url");
   const cookie = randomBytes(32).toString("base64url");
   const gate = await openPanelGate(options.inventoryPath, cookie);
+  const launchCodes = new LaunchCodes();
   let hub: Hub;
   let control: ControlPlane;
   let replicator: ControlReplicator | undefined;
@@ -353,6 +355,27 @@ export async function serve(options: ServeOptions) {
               r.headers.set("Set-Cookie", gate.grantPanel());
               return r;
             }
+            // `home-ctl panel`: the token is traded for a one-time code (POST), and
+            // the browser opens /launch?code=…, which sets the cookie and redirects.
+            if (url.pathname === "/api/launch" && req.method === "POST") {
+              if (req.headers.get("Origin") !== origin)
+                throw new HomectlError(3, "Open the local panel directly");
+              const v = await body(req);
+              if (!sameSecret(v.token, token))
+                throw new HomectlError(3, "Invalid workspace access code");
+              return response(launchCodes.issue());
+            }
+            if (url.pathname === "/launch" && req.method === "GET") {
+              if (!launchCodes.redeem(url.searchParams.get("code")))
+                return new Response(
+                  "This launch link was used or has expired. Run home-ctl panel again in your private terminal.",
+                  { status: 403, headers: { "Content-Type": "text/plain" } },
+                );
+              return new Response(null, {
+                status: 302,
+                headers: { Location: "/", "Set-Cookie": gate.grantPanel() },
+              });
+            }
             const unlock = await handleUnlockRoute(
               req,
               url,
@@ -459,24 +482,12 @@ export async function serve(options: ServeOptions) {
                   typeof v.token === "string" ? v.token : undefined,
                 )) ?? null,
               );
-            if (url.pathname === "/api/control/mcp/request") {
-              const client = await control.authenticate(
-                typeof v.token === "string" ? v.token : undefined,
+            // The legacy MCP can no longer plan, approve or execute (homelab #21 B3).
+            if (url.pathname === "/api/control/mcp/request")
+              throw new HomectlError(
+                3,
+                "The legacy MCP is retired in homectl 0.3.0; use the broker MCP (home-ctl mcp).",
               );
-              if (!client) throw new HomectlError(3, "Unauthorized");
-              if (
-                !v.request ||
-                typeof v.request !== "object" ||
-                Array.isArray(v.request)
-              )
-                throw new HomectlError(2, "Request object required");
-              return response(
-                await control.request(
-                  { kind: "client", client },
-                  v.request as Parameters<ControlPlane["request"]>[1],
-                ),
-              );
-            }
             if (url.pathname === "/api/control/mcp/auth-rejection") {
               await control.recordAuthRejection();
               return response({ recorded: true });
@@ -604,7 +615,7 @@ export async function serve(options: ServeOptions) {
                     throw new HomectlError(2, "Use a lowercase machine name");
                   const inv = await loadInventory(options.inventoryPath);
                   const m = v.machine as Machine;
-                  if (!m || m.transport !== "ssh")
+                  if (m?.transport !== "ssh")
                     throw new HomectlError(
                       2,
                       "Panel editing requires an SSH host",

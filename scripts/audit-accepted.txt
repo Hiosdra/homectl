@@ -1,0 +1,3 @@
+# High-severity advisories accepted until the owner decides on the fix. One GHSA id per line.
+# Empty: the 13 @xmldom/xmldom 0.7.x advisories (via kdbxweb) are fixed by the 0.8.15
+# override in package.json (verified by tests/vault-*.test.ts, including the XML round trip).

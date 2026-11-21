@@ -80,8 +80,7 @@ export function parseInventory(text: string): Inventory {
   for (const p of Object.values(inventory.providers ?? {})) {
     const host = inventory.machines[p.host];
     if (
-      !host ||
-      host.transport !== "ssh" ||
+      host?.transport !== "ssh" ||
       host.access !== "full" ||
       host.auth?.type !== "keepassxc"
     )

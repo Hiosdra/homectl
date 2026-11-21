@@ -1,22 +1,21 @@
+// Help registry for `home-ctl <command> --help` and `home-ctl help [topic]`.
+// The pages live in help-*.ts modules; this file holds the root page, the
+// short command pages and the lookup.
+import { agentHelp } from "./help-agent";
+import { brokerHelp } from "./help-broker";
+import { controlHelp } from "./help-control";
+import { machineHelp } from "./help-machines";
+import { formatPage, globalOptions, type Page } from "./help-format";
+import { serveHelp } from "./help-serve";
 import { commandsHelp, historyHelp } from "./commands-help";
 import { peerHelp } from "./peer-help";
 
-type Section = { title: string; rows: [string, string][] };
-export type Page = { usage: string; intro?: string; sections: Section[] };
+export type { Page } from "./help-format";
 
-const globalOptions: Section = {
-  title: "Options",
-  rows: [
-    ["--inventory PATH", "Use another inventory file."],
-    ["--json", "Print machine-readable output."],
-    ["--dry-run", "Preview without changes or credential access."],
-    ["-h, --help", "Show help for this command."],
-  ],
-};
 const pages: Record<string, Page> = {
   "": {
     usage: "home-ctl <command> [options]",
-    intro: "Manage your homelab through KeePassXC and SSH.",
+    intro: "Manage your homelab through the homectl broker, SSH and KeePassXC.",
     sections: [
       {
         title: "Get started",
@@ -27,6 +26,10 @@ const pages: Record<string, Page> = {
           ],
           ["setup", "Install the CLI links, skills and SSH configuration."],
           [
+            "migrate [--dry-run] [--mode compat|hardened]",
+            "Upgrade workspace data to the current version. The broker also does this on start.",
+          ],
+          [
             "serve",
             "Run the local panel, LAN pairing and peer synchronization.",
           ],
@@ -36,6 +39,46 @@ const pages: Record<string, Page> = {
           ],
           ["service <action>", "Install or manage persistent serve execution."],
           ["doctor [host]", "Check tools and, optionally, host access."],
+        ],
+      },
+      {
+        title: "Broker and workspace",
+        rows: [
+          [
+            "start [--no-open]",
+            "Start homectl: the broker and the owner panel in one window. Keep it open; Ctrl+C stops it.",
+          ],
+          [
+            "daemon run|panel|status|install|uninstall",
+            "Run the broker, its owner panel, or manage the hardened service.",
+          ],
+          [
+            "owner <action>",
+            "Owner password, host key pinning and host sudo grants.",
+          ],
+          [
+            "workspace <action>",
+            "Link brokers: invite, join, decide, and manage clients.",
+          ],
+        ],
+      },
+      {
+        title: "Agents and approvals",
+        rows: [
+          ["agent <action>", "Connect, list, rotate or revoke agent clients."],
+          ["approvals", "List operations waiting for the owner's decision."],
+          ["approve | deny <operation>", "Owner decision for one operation."],
+          ["wait | op <operation>", "Wait for, or check, an operation."],
+          [
+            "verify <operation> passed|failed|inconclusive",
+            "Report your own check of a finished operation. Never changes its state or exit status.",
+          ],
+          [
+            "cancel <operation>",
+            "Cancel an operation still awaiting approval.",
+          ],
+          ["task open | close", "Group operations under one title."],
+          ["mcp", "Run the MCP stdio server for an agent on this device."],
         ],
       },
       {
@@ -104,515 +147,77 @@ const pages: Record<string, Page> = {
       {
         title: "Examples",
         rows: [
-          ["home-ctl session --help", "Session actions and TTL options."],
+          [
+            "home-ctl daemon --help",
+            "Broker run, owner panel and workspace variables.",
+          ],
+          [
+            "home-ctl workspace --help",
+            "Link brokers and manage linked clients.",
+          ],
           ["home-ctl exec --help", "Command execution and confirmation."],
           ["home-ctl doctor voron", "Check a configured host."],
         ],
       },
     ],
   },
-  session: {
-    usage: "home-ctl session <action> [options]",
-    intro: "Unlock privately once per TTL or agent-host reboot.",
-    sections: [
-      {
-        title: "Actions",
-        rows: [
-          [
-            "configure",
-            "Set the lifetime or database path; locks the session.",
-          ],
-          ["init", "Create a new encrypted database in a private terminal."],
-          ["unlock", "Load enrolled SSH keys; enter the password privately."],
-          ["status", "Show whether the session is unlocked and its expiry."],
-          ["lock", "Clear only the dedicated homelab SSH agent."],
-        ],
-      },
-      {
-        title: "Configure options",
-        rows: [
-          [
-            "--ttl DURATION",
-            "Default: 24h. Accepts 1s to 365d, or until-reboot.",
-          ],
-          ["--database PATH", "Absolute path to the homelab .kdbx database."],
-        ],
-      },
-      globalOptions,
-      {
-        title: "Examples",
-        rows: [
-          [
-            "home-ctl session configure --ttl 24h",
-            "Set a daily unlock interval.",
-          ],
-          [
-            "home-ctl session configure --ttl until-reboot",
-            "Keep keys until lock or cold reboot.",
-          ],
-          ["home-ctl session unlock", "Run yourself in a private terminal."],
-          ["home-ctl session status --json", "Inspect the current session."],
-        ],
-      },
-      {
-        title: "Lifetime",
-        rows: [
-          ["Absolute TTL", "Repeated unlock keeps the existing expiry."],
-          [
-            "Lock or expiry",
-            "Stops new authentication; existing SSH connections can continue.",
-          ],
-        ],
-      },
-    ],
-  },
-  key: {
-    usage: "home-ctl key <create|inspect> <name> [options]",
-    sections: [
-      {
-        title: "Actions",
-        rows: [
-          [
-            "create <name>",
-            "Privately create or reuse a KDBX key and load it into the managed agent. Uses encrypted staging on all platforms.",
-          ],
-          [
-            "inspect <name>",
-            "Show the public key and auth references without opening KDBX.",
-          ],
-        ],
-      },
-      globalOptions,
-      {
-        title: "Next steps",
-        rows: [
-          [
-            "Install the public key",
-            "Use existing trusted access; verify the host fingerprint first.",
-          ],
-          [
-            "Enroll the host",
-            "Copy the returned auth references into its host JSON.",
-          ],
-        ],
-      },
-    ],
-  },
-  exec: {
-    usage: "home-ctl exec <host> [options] -- <command> [args...]",
+  update: {
+    usage: "home-ctl update [--dry-run] [--rollback] [--json]",
     intro:
-      "Put homectl options before --; arguments after it belong to the remote command.",
-    sections: [
-      {
-        title: "Command options",
-        rows: [
-          [
-            "--impact TEXT",
-            "Describe concrete targets and effects for review.",
-          ],
-        ],
-      },
-      globalOptions,
-      {
-        title: "Examples",
-        rows: [
-          ["home-ctl exec voron -- uname -s", "Inspect the host OS."],
-          ["home-ctl exec voron --dry-run -- uptime", "Preview the command."],
-        ],
-      },
-      {
-        title: "Confirmation",
-        rows: [
-          [
-            "Destructive or opaque commands",
-            "Review --dry-run and --impact first. Confirm the exact host, argv and effect before passing the digest. There is no --yes bypass.",
-          ],
-          ["ssh", "Uses the same policy as exec; not an interactive shell."],
-        ],
-      },
-    ],
+      "Source checkout: fast-forward the current branch from its configured upstream, install the frozen dependencies and refresh setup. Git refuses overlapping local changes or divergent history; no automatic stash or reset; never restarts services. Release build: --rollback points the command files back at the release that ran before the last install (the previous release stays on disk). A release install verifies the signed manifest and refuses unsigned, wrongly signed, wrong-platform and older releases.",
+    sections: [{ ...globalOptions }],
   },
-  enroll: {
-    usage: "home-ctl enroll <host> --file PATH [options]",
-    sections: [
-      {
-        title: "Enrollment",
-        rows: [
-          [
-            "--file PATH",
-            "Host JSON with an existing account and managed key references.",
-          ],
-          [
-            "--configure-sudo",
-            "Install the requested sudo policy using existing administrator access.",
-          ],
-          [
-            "Before enrollment",
-            "Prepare the key privately, install its public key and verify the SSH fingerprint. See README.",
-          ],
-        ],
-      },
-      globalOptions,
-    ],
-  },
-  provision: {
-    usage: "home-ctl provision --file PATH [options]",
-    sections: [
-      {
-        title: "Provisioning",
-        rows: [
-          [
-            "--file PATH",
-            "VM JSON: provider, template, VMID, resources, network, user and public key.",
-          ],
-          [
-            "Before applying",
-            "Enroll a full Proxmox SSH host and prepare the VM key with key create. Review --dry-run first.",
-          ],
-          [
-            "Resume",
-            "Reuse the identical request. Inspect conflicts and retained journals; no automatic destructive rollback.",
-          ],
-        ],
-      },
-      globalOptions,
-    ],
-  },
-};
-for (const [name, usage, description] of [
-  [
-    "update",
-    "home-ctl update [--dry-run] [--json]",
-    "Fast-forward the current branch from its configured upstream, install the frozen dependencies and refresh setup. Git refuses overlapping local changes or divergent history; no automatic stash or reset; never restarts services.",
-  ],
-  [
-    "setup",
-    "home-ctl setup [--json] [--dry-run] [--install-deps] [--configure-firewall --interface IP]",
-    "Interactive setup guides dependency installation, LAN selection and scoped firewall configuration with confirmation. Installs per-user CLI, skills and SSH configuration. --json never prompts: use --install-deps and --configure-firewall --interface IP explicitly from an administrator terminal. --dry-run previews without changing files or firewall rules. Existing configuration is preserved. Uses the standard per-user directory; --inventory is not supported.",
-  ],
-  [
-    "doctor",
-    "home-ctl doctor [host] [options]",
-    "Check local tools. A named host adds a real managed-key SSH probe. Never opens KDBX or restarts services.",
-  ],
-  ["hosts", "home-ctl hosts [options]", "List machines from inventory."],
-  [
-    "inspect",
-    "home-ctl inspect <host> [options]",
-    "Show the host's purpose, cautions, account and access tier.",
-  ],
-  [
-    "sudoers",
-    "home-ctl sudoers <host> [options]",
-    "Print literal sudoers rules without installing them.",
-  ],
-]) {
-  pages[name as string] = {
-    usage: usage as string,
-    intro: description,
+  setup: {
+    usage:
+      "home-ctl setup [--json] [--dry-run] [--install-deps] [--configure-firewall --interface IP] [--no-path]",
+    intro:
+      "Interactive setup checks the tools, creates your vault (its password is also your owner password, explained once), prints a summary, and asks whether to start homectl and open the owner panel. It also guides dependency installation, LAN selection and scoped firewall configuration with confirmation. Installs per-user CLI, skills and SSH configuration. --json never prompts: use --install-deps and --configure-firewall --interface IP explicitly from an administrator terminal. --dry-run previews without changing files or firewall rules. Existing configuration is preserved. Uses the standard per-user directory; --inventory is not supported.",
     sections: [
       {
         ...globalOptions,
-        rows:
-          name === "setup"
-            ? globalOptions.rows.filter(
-                ([label]) => label !== "--inventory PATH",
-              )
-            : globalOptions.rows,
+        rows: globalOptions.rows.filter(
+          ([label]) => label !== "--inventory PATH",
+        ),
       },
     ],
-  };
-}
-pages.serve = {
-  usage: "home-ctl serve [--interface LAN-IP] [--port 7447] [--peer-port 7448]",
-  intro:
-    "Panel binds only localhost. Pairing is opened explicitly. LAN channel requires an explicit interface IP.",
-  sections: [
-    {
-      title: "Options",
-      rows: [
-        ["--interface IP", "One LAN interface address; no wildcard binding."],
-        ["--port PORT", "Local panel port, default 7447."],
-        ["--peer-port PORT", "Peer protocol port, default 7448."],
-        [
-          "--container",
-          "Container mode for the containerized peer: needs an explicit --interface, runs startup recovery, serves /healthz, stops cleanly on SIGTERM, and turns discovery off. See docs/homectl-2.0/container-peer.md.",
-        ],
-        [
-          "--panel-interface IP",
-          "Optional container-only remote panel listener on one explicit container IP; requires origin and token file.",
-        ],
-        [
-          "--panel-origin ORIGIN",
-          "Exact browser origin allowed for the remote panel, including scheme and port.",
-        ],
-        [
-          "--panel-token-file PATH",
-          "Optional extra access code for the remote panel, read from a protected file or Compose secret; never logged. The database password unlocks the panel without it.",
-        ],
-        [
-          "--no-discovery",
-          "Disable multicast discovery only; use manual IP pairing. Control sync with already-paired devices keeps running.",
-        ],
-        [
-          "--no-control-sync",
-          "Turn control sync off on this device. Peers get no sync from it, and operations here with signing peers wait for a sync.",
-        ],
-      ],
-    },
-    globalOptions,
-  ],
+  },
+  doctor: {
+    usage: "home-ctl doctor [host] [options]",
+    intro:
+      "Check local tools. A named host adds a real managed-key SSH probe. Never opens KDBX or restarts services.",
+    sections: [{ ...globalOptions }],
+  },
+  hosts: {
+    usage: "home-ctl hosts [options]",
+    intro: "List machines from inventory.",
+    sections: [{ ...globalOptions }],
+  },
+  inspect: {
+    usage: "home-ctl inspect <host> [options]",
+    intro: "Show the host's purpose, cautions, account and access tier.",
+    sections: [{ ...globalOptions }],
+  },
+  sudoers: {
+    usage: "home-ctl sudoers <host> [options]",
+    intro: "Print literal sudoers rules without installing them.",
+    sections: [{ ...globalOptions }],
+  },
+  ...machineHelp,
+  ...serveHelp,
+  ...controlHelp,
+  ...brokerHelp,
+  ...agentHelp,
+  peer: peerHelp,
+  commands: commandsHelp,
+  history: historyHelp,
 };
-pages.service = {
-  usage: "home-ctl service <install|start|stop|restart|status|logs|uninstall>",
-  intro:
-    "Linux/WSL use a systemd user service. Windows uses an official WinSW host with an explicitly configured user account. On Windows, --task uses a scheduled task that starts at your sign-in instead, with no service account and no password; install it with --dry-run first to see the command.",
-  sections: [
-    {
-      title: "Install",
-      rows: [
-        ["--interface IP", "Persist the LAN interface for serve."],
-        ["--wrapper PATH", "Windows: path to an official WinSW executable."],
-      ],
-    },
-    globalOptions,
-  ],
-};
-pages.panel = {
-  usage: "home-ctl panel [--interface LAN-IP] [--inventory PATH]",
-  intro:
-    "Run yourself in a private terminal. Opens the panel and starts a temporary workspace if needed; keep this terminal open until you finish. The private launch token is never emitted as JSON.",
-  sections: [globalOptions],
-};
-pages.peers = {
-  usage: "home-ctl peers [--json]",
-  intro:
-    "List paired peers from the running local serve instance, without secrets.",
-  sections: [globalOptions],
-};
-pages.pair = {
-  usage: "home-ctl pair [--address http://DEVICE-LAN-IP:7448]",
-  intro:
-    "Use home-ctl pair on both devices for guided LAN discovery. If discovery is blocked (for example by Docker, Wi-Fi isolation or VLANs), open pairing in one device's UI and run home-ctl pair --address http://<device-LAN-IP>:7448 on the other. It starts the local pairing endpoint, asks for the code privately and guides phrase verification; no separate serve command is needed. If Windows asks, allow homectl on private networks. Keep the terminal open until pairing and sync are finished. Codes and phrases are private, never argv. Advanced subcommands remain available.",
-  sections: [
-    {
-      title: "Pairing",
-      rows: [
-        ["--interface IP", "Local LAN interface for the temporary workspace."],
-        [
-          "--address URL",
-          "Manual pair join endpoint, e.g. http://192.168.1.10:7448",
-        ],
-      ],
-    },
-    globalOptions,
-  ],
-};
-pages.sync = {
-  usage:
-    "home-ctl sync <preview|apply|cancel> <peer-or-preview-id> [--file choices.json]",
-  intro:
-    "Review the preview before applying. An explicit choices JSON file is required, even when it contains {} and there are no conflicts. Choose local, remote or both for each conflict ID.",
-  sections: [
-    {
-      title: "Apply",
-      rows: [
-        [
-          "--file PATH",
-          "Required reviewed choices object. Use {} when no conflicts exist.",
-        ],
-      ],
-    },
-    globalOptions,
-  ],
-};
-Object.assign(pages, { peer: peerHelp, commands: commandsHelp });
-pages.history = historyHelp;
-pages["serve-mcp"] = {
-  usage:
-    "home-ctl serve-mcp [--host 127.0.0.1] [--port 7449] [--inventory PATH]",
-  intro:
-    "Starts the MCP endpoint on 127.0.0.1 by default. Each client authenticates with its own token and receives only its granted scopes and hosts. Clients can inspect, plan and approve. They cannot execute, open shells or read secrets; the local operator runs approved operations with home-ctl control execute.",
-  sections: [
-    {
-      title: "Options",
-      rows: [
-        ["--port PORT", "Port (default 7449)."],
-        [
-          "--host IPV4",
-          "Bind one explicit IPv4 address, for example the NAS LAN address. Wildcard, multicast and broadcast are refused. Plain HTTP: the bearer token is not encrypted on a LAN.",
-        ],
-        ...globalOptions.rows,
-      ],
-    },
-  ],
-};
-pages.control = {
-  usage:
-    "home-ctl control <client|ops|show|execute|handoff|sync|audit> [options]",
-  intro:
-    "Local operator actions for the control plane. Run them in your private terminal; they are not available through MCP.",
-  sections: [
-    {
-      title: "Clients",
-      rows: [
-        [
-          "client add ID --name NAME --scopes LIST --hosts LIST --token-file PATH",
-          "Create a client. The token is written to a new owner-only file and is never printed.",
-        ],
-        ["client list", "List clients without token material."],
-        [
-          "client revoke ID",
-          "Revoke a client; its token stops working at once.",
-        ],
-        [
-          "--scopes LIST",
-          "Comma-separated: status:read, inspect:read, plan:create, approve:decide, proxmox:lxc:restore. Restore remains disabled until its archive safety path is implemented.",
-        ],
-        ["--hosts LIST", "Comma-separated inventory host names to grant."],
-        [
-          "--token-file PATH",
-          "New file that receives the token. Must not exist.",
-        ],
-      ],
-    },
-    {
-      title: "Operations",
-      rows: [
-        [
-          "ops [--state LIST] [--all]",
-          "List open operations (pending, approved, executing). --all includes history.",
-        ],
-        [
-          "show ID",
-          "Show one operation in full. ID can be a unique prefix of at least 8 characters.",
-        ],
-        [
-          "execute ID",
-          "Run an approved operation, or an inspection plan, through the existing exec policy. Single use; failed and unknown operations are not retried.",
-        ],
-        [
-          "handoff ID --to DEVICE",
-          "On the owner: offer the operation to DEVICE. The owner will not run it until DEVICE accepts, the offer is cancelled, or it expires after five minutes (or when the plan ends). Needs an open workspace; run home-ctl panel to start one.",
-        ],
-        [
-          "handoff ID",
-          "On the named receiver: accept the pending offer. Without a pending offer, takes over an unreachable owner (the takeover window must be open). The operation needs a fresh approval on this device.",
-        ],
-        [
-          "handoff ID --cancel",
-          "On the owner: withdraw an offer that nobody has accepted.",
-        ],
-        [
-          "peer suspend DEVICE [--reason TEXT]  |  peer resume DEVICE",
-          "Take a paired device out of this device's lease, so operations here do not wait for it, or put it back. Operations here may run without that device confirming the latest state: use it only when the device is offline or will stay offline. Signed, replicated and audited. Needs an open workspace; run home-ctl panel to start one.",
-        ],
-        [
-          "resolve ID --owner DEVICE",
-          "Conflicting takeovers: propose DEVICE as the owner. It applies only once DEVICE runs the same command on its own device. A device that proposes itself agrees at once.",
-        ],
-        [
-          "sync",
-          "Per-device control sync: last sync, lease, backoff, refusals and conflicts. Without a running serve it shows the last saved state and says that backoff is unknown.",
-        ],
-        ["audit verify", "Check the audit journal hash chain and its anchor."],
-        [
-          "--state LIST",
-          "Comma-separated: pending, approved, executing, succeeded, failed, unknown.",
-        ],
-      ],
-    },
-    {
-      title: "Quickstart",
-      rows: [
-        [
-          "1. Add clients",
-          "client add codex-pc --name ... --scopes ... --hosts ... --token-file PATH (one per agent)",
-        ],
-        [
-          "2. Start the endpoint",
-          "serve-mcp, then keep it running in a private terminal",
-        ],
-        [
-          "3. Configure the agent",
-          "URL http://127.0.0.1:7449/mcp and header Authorization: Bearer <token file contents>",
-        ],
-        [
-          "4. Plan and approve",
-          "The agent calls homectl_plan. Inspection needs no approval; changes need approval by another client.",
-        ],
-        [
-          "5. Accept and run",
-          "control execute <id>, or choose Accept in the panel's Accept requests view",
-        ],
-        ["6. Verify", "control audit verify, or the panel's Audit log card"],
-      ],
-    },
-    globalOptions,
-  ],
-};
-pages.ssh = {
-  ...(pages.exec as Page),
-  usage: "home-ctl ssh <host> [options] -- <command> [args...]",
-};
+
 export const helpTopics = Object.keys(pages);
-function wrap(text: string, width: number): string[] {
-  const lines: string[] = [];
-  let line = "";
-  for (const word of text.split(/\s+/)) {
-    if (line && line.length + word.length + 1 > width) {
-      lines.push(line);
-      line = "";
-    }
-    line += `${line ? " " : ""}${word}`;
-  }
-  if (line) lines.push(line);
-  return lines;
-}
 
 export function renderHelp(
   topic = "",
   options: { width?: number; color?: boolean } = {},
 ) {
   const page = pages[topic] ?? (pages[""] as Page);
-  const width = Math.max(40, Math.min(options.width ?? 80, 100));
-  const heading = (text: string) =>
-    options.color ? `\x1b[1;36m${text}\x1b[0m` : text;
-  const lines = [heading("home-ctl"), ""];
-  if (page.intro) lines.push(...wrap(page.intro, width), "");
-  lines.push(
-    heading("Usage"),
-    ...wrap(page.usage, width - 2).map((line) => `  ${line}`),
-  );
-  for (const section of page.sections) {
-    lines.push("", heading(section.title));
-    const labelWidth = Math.max(...section.rows.map(([label]) => label.length));
-    const columns = width >= 72 && labelWidth <= 26;
-    for (const [label, description] of section.rows) {
-      if (columns) {
-        const indent = labelWidth + 4;
-        const descriptionLines = wrap(description, width - indent);
-        lines.push(
-          `  ${label.padEnd(labelWidth)}  ${descriptionLines[0] ?? ""}`,
-        );
-        lines.push(
-          ...descriptionLines
-            .slice(1)
-            .map((line) => `${" ".repeat(indent)}${line}`),
-        );
-      } else {
-        lines.push(...wrap(label, width - 2).map((line) => `  ${line}`));
-        lines.push(
-          ...wrap(description, width - 4).map((line) => `    ${line}`),
-        );
-      }
-    }
-  }
-  lines.push("", "More help: home-ctl <command> --help");
-  if (!topic)
-    lines.push(
-      "Exit codes: 0 success, 2 input, 3 policy, 4 confirmation,",
-      "            5 transport/setup, 6 remote command failure.",
-    );
-  return `${lines.join("\n")}\n`;
+  return formatPage(page, topic, options);
 }

@@ -13,7 +13,17 @@ import {
 } from "../format";
 import { cn } from "../lib/utils";
 import { render, ui } from "../store";
-import { Action, Cell, DataTable, EmptyState, PageHeading, Pre, Row, Tag, type Tone } from "../shared";
+import {
+  Action,
+  Cell,
+  DataTable,
+  EmptyState,
+  PageHeading,
+  Pre,
+  Row,
+  Tag,
+  type Tone,
+} from "../shared";
 import { Button } from "../ui/button";
 import { Tabs, TabsList, TabsTab } from "../ui/tabs";
 import type { ControlOp } from "../types";
@@ -27,8 +37,10 @@ const TABS: [ControlBucket, string][] = [
 
 // One plain sentence per tab, for people who are new to requests.
 const TAB_HELP: Record<ControlBucket, string> = {
-  ready: "Requests you can run here. Open one to read the command, then Accept to run it or Deny to close it.",
-  needs: "Requests another client has to approve before they can run. Nothing runs until then.",
+  ready:
+    "Requests you can run here. Open one to read the command, then Accept to run it or Deny to close it.",
+  needs:
+    "Requests another client has to approve before they can run. Nothing runs until then.",
   history: "Finished requests: what ran, what was denied, and when.",
 };
 
@@ -44,18 +56,26 @@ const STATE_TONE: Record<string, Tone> = {
 };
 
 const EMPTY: Record<ControlBucket, string> = {
-  ready: "Nothing is ready to run. Approved changes and inspection plans appear here.",
-  needs: "Nothing is waiting for approval. New changes from MCP clients appear here.",
+  ready:
+    "Nothing is ready to run. Approved changes and inspection plans appear here.",
+  needs:
+    "Nothing is waiting for approval. New changes from MCP clients appear here.",
   history: "No finished operations yet.",
 };
 
 export function Approvals() {
   const ops = ui.control?.operations ?? [];
-  const buckets: Record<ControlBucket, ControlOp[]> = { ready: [], needs: [], history: [] };
+  const buckets: Record<ControlBucket, ControlOp[]> = {
+    ready: [],
+    needs: [],
+    history: [],
+  };
   for (const op of ops) buckets[bucketOf(op)].push(op);
   for (const list of Object.values(buckets))
     list.sort(
-      (a, b) => rankOf(a) - rankOf(b) || Date.parse(b.createdAt) - Date.parse(a.createdAt),
+      (a, b) =>
+        rankOf(a) - rankOf(b) ||
+        Date.parse(b.createdAt) - Date.parse(a.createdAt),
     );
   // As in the approved design, the To run tab opens its first request until the person
   // picks another one or closes the drawer (which stores an empty selection).
@@ -72,9 +92,14 @@ export function Approvals() {
     <>
       <PageHeading
         title="Accept requests"
-        description="Plans from MCP clients. This panel runs only ready plans. Another client approves them."
+        description="Requests from your AI assistants. Ready ones run here; another device approves the rest."
       />
-      <div className={cn("grid gap-5", selected && "min-[1360px]:grid-cols-[minmax(0,1fr)_360px]")}>
+      <div
+        className={cn(
+          "grid gap-5",
+          selected && "min-[1360px]:grid-cols-[minmax(0,1fr)_360px]",
+        )}
+      >
         <div className="min-w-0">
           <Tabs
             value={ui.controlFilter}
@@ -92,11 +117,19 @@ export function Approvals() {
               ))}
             </TabsList>
           </Tabs>
-          <p className="mb-4 text-sm text-muted-foreground">{TAB_HELP[ui.controlFilter]}</p>
+          <p className="mb-4 text-sm text-muted-foreground">
+            {TAB_HELP[ui.controlFilter]}
+          </p>
           {visible.length ? (
-            <DataTable head={["State", "Host", "Command", "Requested by", "When", ""]}>
+            <DataTable
+              head={["State", "Machine", "Command", "Requested by", "When", ""]}
+            >
               {visible.map((op) => (
-                <OperationRow key={op.operationId} op={op} selectedId={selectedId} />
+                <OperationRow
+                  key={op.operationId}
+                  op={op}
+                  selectedId={selectedId}
+                />
               ))}
             </DataTable>
           ) : (
@@ -111,12 +144,22 @@ export function Approvals() {
   );
 }
 
-function OperationRow({ op, selectedId }: { op: ControlOp; selectedId?: string }) {
+function OperationRow({
+  op,
+  selectedId,
+}: {
+  op: ControlOp;
+  selectedId?: string;
+}) {
   const other = op.runsOn !== undefined;
   const label = displayStateOf(op);
   const open = op.state === "pending" || op.state === "approved";
-  const expiresAt = op.approval && op.state === "approved" ? op.approval.expiresAt : op.expiresAt;
-  const when = open && !op.remote ? relative(expiresAt, true) : relative(op.updatedAt);
+  const expiresAt =
+    op.approval && op.state === "approved"
+      ? op.approval.expiresAt
+      : op.expiresAt;
+  const when =
+    open && !op.remote ? relative(expiresAt, true) : relative(op.updatedAt);
   const approver =
     op.approval?.approver ??
     op.approvedBy ??
@@ -126,19 +169,36 @@ function OperationRow({ op, selectedId }: { op: ControlOp; selectedId?: string }
         ? "awaiting approval"
         : "not needed");
   return (
-    <Row operationId={op.operationId} className={cn(selectedId === op.operationId && "bg-accent/50")}>
+    <Row
+      operationId={op.operationId}
+      className={cn(selectedId === op.operationId && "bg-accent/50")}
+    >
       <Cell label="State" className="whitespace-nowrap">
         <div className="flex flex-wrap gap-1.5">
-          <Tag tone={other ? "info" : (STATE_TONE[label] ?? "neutral")}>{other ? "other device" : label}</Tag>
-          {other ? null : <Tag tone={classificationTone(op)}>{op.classification === "inspect" ? "inspection" : op.classification}</Tag>}
+          <Tag tone={other ? "info" : (STATE_TONE[label] ?? "neutral")}>
+            {other ? "other device" : label}
+          </Tag>
+          {other ? null : (
+            <Tag tone={classificationTone(op)}>
+              {op.classification === "inspect"
+                ? "inspection"
+                : op.classification}
+            </Tag>
+          )}
         </div>
       </Cell>
-      <Cell label="Host">
-        <b>{op.host}</b>
-        {other ? <p className="text-xs text-muted-foreground">owned by {op.ownerName ?? op.runsOn}</p> : null}
+      <Cell label="Machine">
+        <b className="break-all">{op.host}</b>
+        {other ? (
+          <p className="text-xs text-muted-foreground">
+            owned by {op.ownerName ?? op.runsOn}
+          </p>
+        ) : null}
       </Cell>
       <Cell label="Command" className="min-w-[200px]">
-        <code className="font-mono text-[12px] break-words">{shellArgv(op.argv)}</code>
+        <code className="font-mono text-[12px] break-words">
+          {shellArgv(op.argv)}
+        </code>
         <p className="text-sm text-muted-foreground">{op.impact || "—"}</p>
       </Cell>
       <Cell label="Requested by">
@@ -146,11 +206,15 @@ function OperationRow({ op, selectedId }: { op: ControlOp; selectedId?: string }
         <p className="text-sm text-muted-foreground">→ {approver}</p>
       </Cell>
       <Cell label="When" className="whitespace-nowrap">
-        <time dateTime={op.updatedAt} title={localStamp(op.updatedAt)}>{when}</time>
+        <time dateTime={op.updatedAt} title={localStamp(op.updatedAt)}>
+          {when}
+        </time>
       </Cell>
       <Cell label="Action" className="whitespace-nowrap">
         {other ? (
-          <span className="text-sm text-muted-foreground">Open {op.runsOn} to run it</span>
+          <span className="text-sm text-muted-foreground">
+            Open {op.runsOn} to run it
+          </span>
         ) : (
           <Action action="open-operation" id={op.operationId} label="Open" />
         )}
@@ -164,7 +228,10 @@ function OperationRow({ op, selectedId }: { op: ControlOp; selectedId?: string }
 function Details({ op }: { op: ControlOp }) {
   const ready = isReady(op) && !op.runsOn;
   const open = op.state === "pending" || op.state === "approved";
-  const result = ui.controlResult?.operation.operationId === op.operationId ? ui.controlResult : undefined;
+  const result =
+    ui.controlResult?.operation.operationId === op.operationId
+      ? ui.controlResult
+      : undefined;
   return (
     <aside
       className="grid content-start gap-4 rounded-panel border border-border bg-card p-5 max-[700px]:fixed max-[700px]:inset-0 max-[700px]:z-30 max-[700px]:overflow-y-auto max-[700px]:rounded-none max-[700px]:border-0 max-[700px]:bg-background max-[700px]:p-4"
@@ -175,8 +242,12 @@ function Details({ op }: { op: ControlOp }) {
         <Action action="close-operation" label="Close" kind="quiet" />
       </div>
       <div className="flex flex-wrap gap-1.5">
-        <Tag tone={STATE_TONE[displayStateOf(op)] ?? "neutral"}>{displayStateOf(op)}</Tag>
-        <Tag tone={classificationTone(op)}>{op.classification === "inspect" ? "inspection" : op.classification}</Tag>
+        <Tag tone={STATE_TONE[displayStateOf(op)] ?? "neutral"}>
+          {displayStateOf(op)}
+        </Tag>
+        <Tag tone={classificationTone(op)}>
+          {op.classification === "inspect" ? "inspection" : op.classification}
+        </Tag>
         {op.fingerprint ? <Tag tone="success">device signature ✓</Tag> : null}
       </div>
       <Pre>{`$ ${shellArgv(op.argv)}`}</Pre>
@@ -189,26 +260,41 @@ function Details({ op }: { op: ControlOp }) {
         <dd>
           {op.approval
             ? `${op.approval.approver} · ${relative(op.approval.expiresAt, true)}`
-            : (op.approvedBy ?? (op.classification === "inspect" ? "not needed" : "waiting for approval"))}
+            : (op.approvedBy ??
+              (op.classification === "inspect"
+                ? "not needed"
+                : "waiting for approval"))}
         </dd>
         <dt className="text-muted-foreground">Fingerprint</dt>
         <dd className="font-mono text-[12px]">{shortHash(op.fingerprint)}</dd>
       </dl>
       <div className="flex flex-wrap gap-2">
         {ready ? (
-          <Action action="control-execute" id={op.operationId} label="Accept" kind="accept" />
+          <Action
+            action="control-execute"
+            id={op.operationId}
+            label="Accept"
+            kind="accept"
+          />
         ) : (
           <Button type="button" disabled>
             Accept
           </Button>
         )}
-        {open ? <Action action="control-deny" id={op.operationId} label="Deny" kind="danger" /> : null}
+        {open ? (
+          <Action
+            action="control-deny"
+            id={op.operationId}
+            label="Deny"
+            kind="danger"
+          />
+        ) : null}
       </div>
       {result ? <ExecutionResult r={result} /> : null}
       <p className="text-xs text-muted-foreground">
-        Accept asks for confirmation, then runs the plan. Accept is available once another
-        client has approved it. Deny cancels the plan. The result (stdout, stderr, duration)
-        appears in this same panel.
+        Accept asks for confirmation, then runs the plan. Accept is available
+        once another client has approved it. Deny cancels the plan. The result
+        (stdout, stderr, duration) appears in this same panel.
       </p>
     </aside>
   );

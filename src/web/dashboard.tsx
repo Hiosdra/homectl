@@ -2,8 +2,15 @@
 // needs the person now, and what finished recently. Review opens a request in Accept
 // requests; Compare opens a sync comparison.
 import { type ReactNode, useEffect, useState } from "react";
-import { bucketOf, displayStateOf, isReady, relative, shellArgv } from "./format";
+import {
+  bucketOf,
+  displayStateOf,
+  isReady,
+  relative,
+  shellArgv,
+} from "./format";
 import { cn } from "./lib/utils";
+import { MachineName } from "./machine-name";
 import { Action, PageHeading, Tag, type Tone } from "./shared";
 import type { ControlOp, ControlOverview, State } from "./types";
 
@@ -44,7 +51,9 @@ export function Dashboard({
   const ready = operations.filter((op) => isReady(op) && !op.runsOn);
   const inspections = ready.filter((op) => op.classification === "inspect");
   const changes = ready.length - inspections.length;
-  const waiting = operations.filter((op) => op.state === "pending" && op.needsApproval);
+  const waiting = operations.filter(
+    (op) => op.state === "pending" && op.needsApproval,
+  );
   const proposals = state.pending;
   const items = ready.length + waiting.length + proposals.length;
   const recent = operations
@@ -88,7 +97,8 @@ export function Dashboard({
           <div className="min-w-0">
             <b>Update available: {release.latest}</b>
             <p className="text-sm text-muted-foreground">
-              Panel and CLI on this device. Other devices update on their own schedule.
+              Panel and CLI on this device. Other devices update on their own
+              schedule.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -134,12 +144,12 @@ export function Dashboard({
             state.peers.length === 0
               ? "No paired devices yet"
               : !syncing
-              ? "Control sync is not running"
-              : firstStale
-                ? firstSeen === undefined
-                  ? `${firstStale.name}: never synced`
-                  : `${firstStale.name}: no sync for ${Math.floor((now - firstSeen) / 3_600_000)} h`
-                : "All devices synced recently"
+                ? "Control sync is not running"
+                : firstStale
+                  ? firstSeen === undefined
+                    ? `${firstStale.name}: never synced`
+                    : `${firstStale.name}: no sync for ${Math.floor((now - firstSeen) / 3_600_000)} h`
+                  : "All devices synced recently"
           }
           detailClass={firstStale ? "text-warning" : undefined}
         />
@@ -147,7 +157,11 @@ export function Dashboard({
           label="Audit log"
           value={audit ? (audit.ok ? "Verified" : "Attention") : "Unknown"}
           valueClass={
-            audit ? (audit.ok ? "text-success" : "text-destructive-foreground") : undefined
+            audit
+              ? audit.ok
+                ? "text-success"
+                : "text-destructive-foreground"
+              : undefined
           }
           detail={
             audit
@@ -160,8 +174,12 @@ export function Dashboard({
       </div>
       <section className="rounded-panel border border-border bg-card p-6 max-[700px]:p-[18px]">
         <div className="mb-2 flex items-baseline justify-between gap-3">
-          <h2 className="text-xl font-semibold tracking-[-0.015em]">Needs attention</h2>
-          <span className="text-sm text-muted-foreground">{plural(items, "item")}</span>
+          <h2 className="text-xl font-semibold tracking-[-0.015em]">
+            Needs attention
+          </h2>
+          <span className="text-sm text-muted-foreground">
+            {plural(items, "item")}
+          </span>
         </div>
         {items === 0 ? (
           <p className="text-muted-foreground">Nothing needs you right now.</p>
@@ -173,13 +191,19 @@ export function Dashboard({
             tone={op.classification === "inspect" ? "neutral" : "warning"}
             title={
               <>
-                <b>{op.host}</b>
-                <code className="font-mono text-[12px]">{shellArgv(op.argv)}</code>
+                <MachineName name={op.host} />
+                <code className="font-mono text-[12px]">
+                  {shellArgv(op.argv)}
+                </code>
               </>
             }
             detail={opDetail(op)}
             action={
-              <Action action="review-operation" id={op.operationId} label="Review" />
+              <Action
+                action="review-operation"
+                id={op.operationId}
+                label="Review"
+              />
             }
           />
         ))}
@@ -190,13 +214,19 @@ export function Dashboard({
             tone="warning"
             title={
               <>
-                <b>{op.host}</b>
-                <code className="font-mono text-[12px]">{shellArgv(op.argv)}</code>
+                <MachineName name={op.host} />
+                <code className="font-mono text-[12px]">
+                  {shellArgv(op.argv)}
+                </code>
               </>
             }
             detail="Waiting for approval by another client"
             action={
-              <Action action="review-operation" id={op.operationId} label="Review" />
+              <Action
+                action="review-operation"
+                id={op.operationId}
+                label="Review"
+              />
             }
           />
         ))}
@@ -228,7 +258,9 @@ export function Dashboard({
         ))}
       </section>
       <section className="rounded-panel border border-border bg-card p-6 max-[700px]:p-[18px]">
-        <h2 className="mb-2 text-xl font-semibold tracking-[-0.015em]">Recent activity</h2>
+        <h2 className="mb-2 text-xl font-semibold tracking-[-0.015em]">
+          Recent activity
+        </h2>
         {recent.length === 0 ? (
           <p className="text-muted-foreground">No finished operations yet.</p>
         ) : null}
@@ -239,8 +271,12 @@ export function Dashboard({
           >
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <Tag tone={outcomeTone(op)}>{outcomeLabel(op)}</Tag>
-              <code className="font-mono text-[12px]">{shellArgv(op.argv)}</code>
-              <span className="text-sm text-muted-foreground">on {op.host}</span>
+              <code className="font-mono text-[12px]">
+                {shellArgv(op.argv)}
+              </code>
+              <span className="text-sm text-muted-foreground">
+                on <MachineName name={op.host} />
+              </span>
             </div>
             <time
               dateTime={op.updatedAt}
@@ -256,7 +292,8 @@ export function Dashboard({
 }
 
 function opDetail(op: ControlOp) {
-  if (op.classification === "inspect") return `From ${op.issuer} · no approval needed`;
+  if (op.classification === "inspect")
+    return `From ${op.issuer} · no approval needed`;
   if (op.approval)
     return `Approved by ${op.approval.approver} · ${relative(op.approval.expiresAt, true)}`;
   return `From ${op.issuer}`;
@@ -325,7 +362,10 @@ function Stat({
         {value}
       </strong>
       <span
-        className={cn("mt-1 block text-[13px] text-muted-foreground", detailClass)}
+        className={cn(
+          "mt-1 block text-[13px] text-muted-foreground",
+          detailClass,
+        )}
       >
         {detail}
       </span>

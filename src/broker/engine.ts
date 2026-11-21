@@ -10,22 +10,31 @@ import { fingerprint } from "../control/canonical";
 import { hasScope, permitsHost } from "../control/clients";
 import type { DeviceKey } from "../control/device-key";
 import type { ClientIdentity } from "../control/types";
-import {
-  type ActionRequest,
-  type ApprovalGrant,
-  type DeviceRef,
-  RISK_POINTS,
-  riskAtLeast,
-  type TaskRecord,
+import type {
+  ActionRequest,
+  ApprovalGrant,
+  DeviceRef,
 } from "../core/contracts";
+import { closeTask, openTask } from "../core/tasks";
+import { recordVerification } from "../core/verification";
 import { HomectlError } from "../types";
 import { type DispatchContext, dispatch } from "./dispatch";
+import { decisionAudit } from "./decision-record";
 import {
+  actionOf,
   operationFingerprint,
   planExec,
   toView,
   validateExecInput,
 } from "./plan";
+import {
+  captureReview,
+  isReviewPending,
+  isUnderReview,
+  pendingDecision,
+  type ReviewDeps,
+  reviewOperation,
+} from "./review";
 import type { BrokerStore } from "./store";
 import {
   type BrokerOperation,
@@ -41,7 +50,6 @@ import {
 
 export const PLAN_TTL_MS = 15 * 60_000;
 export const CLIENT_WINDOW_MS = 60 * 60_000;
-export const MAX_TASK_TTL_MS = 24 * 60 * 60_000;
 // Same text for unknown and ungranted hosts: no enumeration.
 const NOT_GRANTED = "Host is not in this client's grants";
 
@@ -57,20 +65,8 @@ export interface BrokerOptions {
   now?: () => number;
   // Shown to agents so they can tell the user where to approve.
   approvalSurface?: string;
-}
-
-function actionOf(op: BrokerOperation): ActionRequest {
-  return {
-    client: op.client,
-    ...(op.task ? { task: op.task } : {}),
-    kind: "exec",
-    host: op.host,
-    argv: op.argv,
-    sudo: op.sudo,
-    classification: op.classification,
-    risk: op.risk,
-    ...(op.narrative ? { narrative: op.narrative } : {}),
-  };
+  // See DispatchContext.gate.
+  gate?: () => string | undefined;
 }
 
 export class Broker {
@@ -82,13 +78,19 @@ export class Broker {
     this.now = options.now ?? Date.now;
   }
 
-  // Startup recovery: work interrupted by a crash has an unknown outcome.
+  // Startup recovery: work interrupted by a crash has an unknown outcome. A
+  // review that was running is gone and nothing ran: the agent resubmits.
   async init(): Promise<void> {
     await this.options.store.update((state) => {
       for (const op of Object.values(state.operations))
         if (op.state === "dispatching") {
           op.state = "unknown";
           op.reason = "interrupted";
+          op.finishedAt = this.now();
+          op.updatedAt = op.finishedAt;
+        } else if (isUnderReview(op)) {
+          op.state = "cancelled";
+          op.reason = "review-interrupted";
           op.finishedAt = this.now();
           op.updatedAt = op.finishedAt;
         }
@@ -110,12 +112,7 @@ export class Broker {
     type: "approval.requested" | "operation.updated",
   ) {
     await this.options.events
-      ?.emit(type, op.id, [op.client], {
-        state: op.state,
-        host: op.host,
-        risk: op.risk,
-        client: op.client,
-      })
+      ?.emit(type, op.id, [op.client], decisionAudit(op))
       .catch(() => undefined);
     this.notify(op.id);
   }
@@ -131,6 +128,9 @@ export class Broker {
 
   // ---------------------------------------------------------------- agent
 
+  // The policy may call a slow reviewer, so it never runs under the state lock
+  // (see review.ts). The operation is recorded first, awaiting review; the
+  // verdict is committed only if it still applies.
   async exec(client: ClientIdentity, raw: unknown): Promise<OperationView> {
     const input = validateExecInput(raw);
     if (!hasScope(client, "plan:create") || !permitsHost(client, input.host))
@@ -138,103 +138,76 @@ export class Broker {
     const machine = await this.options.inventory.machine(input.host);
     if (!machine) throw new HomectlError(3, NOT_GRANTED);
     const planned = planExec(input.host, machine, input);
-    const now = this.now();
-    const op = await this.options.store.update(async (state) => {
-      let task: TaskRecord | undefined;
-      if (input.task) {
-        task = state.tasks[input.task];
-        if (!task || task.client !== client.id)
-          throw new HomectlError(3, "Unknown task");
-        if (task.state === "open" && now >= task.expiresAt)
-          task.state = "expired";
-      }
-      const window =
-        (await this.options.policy.budgetWindowMs?.()) ?? CLIENT_WINDOW_MS;
-      const clientRiskPoints = Object.values(state.operations)
-        .filter(
-          (o) =>
-            o.client === client.id &&
-            riskAtLeast(o.risk, "R2") &&
-            now - o.createdAt < window &&
-            o.state !== "denied" &&
-            o.state !== "cancelled" &&
-            o.state !== "expired",
-        )
-        .reduce((sum, o) => sum + RISK_POINTS[o.risk], 0);
-      const id = `op_${randomBytes(12).toString("base64url")}`;
-      const base = {
+    const id = `op_${randomBytes(12).toString("base64url")}`;
+    const base = {
+      id,
+      client: client.id,
+      ...(input.task ? { task: input.task } : {}),
+      host: input.host,
+      argv: input.argv,
+      impact: planned.impact,
+      classification: planned.classification,
+      sudo: planned.sudo,
+      risk: planned.risk,
+      machineHash: planned.machineHash,
+    };
+    const request: ActionRequest = {
+      client: client.id,
+      ...(input.task ? { task: input.task } : {}),
+      kind: "exec",
+      host: input.host,
+      argv: input.argv,
+      sudo: planned.sudo,
+      classification: planned.classification,
+      risk: planned.risk,
+      ...(input.narrative ? { narrative: input.narrative } : {}),
+    };
+    const fp = operationFingerprint(base);
+    const deps = this.reviewDeps();
+    const first = await this.options.store.update(async (state) => {
+      const snapshot = await captureReview(
+        state,
+        deps,
+        client.id,
+        input.task,
         id,
-        client: client.id,
-        ...(input.task ? { task: input.task } : {}),
-        host: input.host,
-        argv: input.argv,
-        impact: planned.impact,
-        classification: planned.classification,
-        sudo: planned.sudo,
-        risk: planned.risk,
-        machineHash: planned.machineHash,
-      };
-      const request: ActionRequest = {
-        client: client.id,
-        ...(input.task ? { task: input.task } : {}),
-        kind: "exec",
-        host: input.host,
-        argv: input.argv,
-        sudo: planned.sudo,
-        classification: planned.classification,
-        risk: planned.risk,
-        ...(input.narrative ? { narrative: input.narrative } : {}),
-      };
-      const decision = await this.options.policy.evaluate(request, {
-        ...(task ? { task } : {}),
-        clientRiskPoints,
-        knownHost: true,
-        now,
-      });
-      const record: BrokerOperation = {
+      );
+      state.operations[id] = {
         ...base,
-        fingerprint: operationFingerprint(base),
-        decision: {
-          verdict: decision.verdict,
-          source: decision.source,
-          reason: decision.reason,
-          stepUp: decision.stepUp,
-          humanOnly: decision.humanOnly,
-          policyRevision: decision.policyRevision,
-          ...(decision.ruleId ? { ruleId: decision.ruleId } : {}),
-        },
-        state:
-          decision.verdict === "deny"
-            ? "denied"
-            : decision.verdict === "ask"
-              ? "awaiting-approval"
-              : "dispatching",
-        createdAt: now,
-        expiresAt: now + PLAN_TTL_MS,
-        updatedAt: now,
+        fingerprint: fp,
+        decision: pendingDecision(planned.risk, snapshot.revision),
+        state: "awaiting-approval",
+        createdAt: snapshot.now,
+        expiresAt: snapshot.now + PLAN_TTL_MS,
+        updatedAt: snapshot.now,
         ...(input.narrative ? { narrative: input.narrative } : {}),
-        ...(decision.verdict === "deny"
-          ? { finishedAt: now, reason: "policy-denied" }
-          : {}),
-        ...(decision.verdict === "allow" ? { startedAt: now } : {}),
       };
-      state.operations[id] = record;
-      if (task && record.state !== "denied") {
-        task.used.operations += 1;
-        task.used.riskPoints += RISK_POINTS[record.risk];
-        task.operations.push(id);
-      }
-      return record;
+      return snapshot;
     });
-    await this.emit(
-      op,
-      op.state === "awaiting-approval"
-        ? "approval.requested"
-        : "operation.updated",
-    );
-    if (op.state === "dispatching")
-      this.track(dispatch(this.dispatchContext(), op.id, machine));
-    return toView(op, this.options.approvalSurface);
+    const settled = await reviewOperation(deps, id, fp, request, first);
+    const op = settled.op;
+    if (!op) throw new HomectlError(3, "Unknown operation");
+    if (settled.kind === "settled")
+      await this.emit(
+        op,
+        op.state === "awaiting-approval"
+          ? "approval.requested"
+          : "operation.updated",
+      );
+    // An owner decision made during the review has already dispatched.
+    if (settled.kind === "settled" && settled.machine)
+      this.track(dispatch(this.dispatchContext(), id, settled.machine));
+    return this.view(op, this.options.approvalSurface);
+  }
+
+  private reviewDeps(): ReviewDeps {
+    return {
+      store: this.options.store,
+      policy: this.options.policy,
+      inventory: this.options.inventory,
+      now: this.now,
+      windowMs: CLIENT_WINDOW_MS,
+    };
   }
 
   private dispatchContext(): DispatchContext {
@@ -246,12 +219,18 @@ export class Broker {
       executor: this.options.executor,
       now: this.now,
       emit: (op) => this.emit(op, "operation.updated"),
+      ...(this.options.gate ? { gate: this.options.gate } : {}),
     };
   }
 
   private track(work: Promise<void>) {
     this.running.add(work);
     void work.finally(() => this.running.delete(work));
+  }
+
+  private view(op: BrokerOperation, approvalSurface?: string): OperationView {
+    const view = toView(op, approvalSurface);
+    return op.verification ? { ...view, verification: op.verification } : view;
   }
 
   async status(client: ClientIdentity, id: string): Promise<OperationView> {
@@ -264,7 +243,7 @@ export class Broker {
         const live = s.operations[id];
         if (live) this.expire(live, this.now());
       });
-    return toView(op, this.options.approvalSurface);
+    return this.view(op, this.options.approvalSurface);
   }
 
   async list(client: ClientIdentity, limit = 50): Promise<OperationView[]> {
@@ -273,7 +252,25 @@ export class Broker {
       .filter((op) => op.client === client.id)
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, Math.min(Math.max(limit, 1), 200))
-      .map((op) => toView(op, this.options.approvalSurface));
+      .map((op) => this.view(op, this.options.approvalSurface));
+  }
+
+  // The agent's own check of a finished operation (§7). It records what the
+  // agent found; the exit status, state and reason are never changed by it.
+  async verify(
+    client: ClientIdentity,
+    id: string,
+    raw: unknown,
+  ): Promise<OperationView> {
+    const op = await this.options.store.update((state) => {
+      const live = state.operations[id];
+      if (!live || live.client !== client.id)
+        throw new HomectlError(3, "Unknown operation");
+      recordVerification(live, raw, this.now());
+      return live;
+    });
+    await this.emit(op, "operation.updated");
+    return this.view(op);
   }
 
   // Blocks until the operation is final or the timeout passes. Waiting is not
@@ -320,53 +317,46 @@ export class Broker {
       return live;
     });
     await this.emit(op, "operation.updated");
-    return toView(op);
+    return this.view(op);
   }
 
   async openTask(
     client: ClientIdentity,
     raw: { title?: unknown; ttlMs?: unknown },
-  ): Promise<TaskRecord> {
-    const title = typeof raw.title === "string" ? raw.title.trim() : "";
-    if (!title || title.length > 200)
-      throw new HomectlError(2, "Task title must be 1-200 characters");
-    const ttl =
-      typeof raw.ttlMs === "number" && Number.isSafeInteger(raw.ttlMs)
-        ? Math.min(Math.max(raw.ttlMs, 60_000), MAX_TASK_TTL_MS)
-        : 4 * 60 * 60_000;
+  ) {
     const now = this.now();
-    const task: TaskRecord = {
-      id: `tsk_${randomBytes(12).toString("base64url")}`,
-      client: client.id,
-      title,
-      createdAt: now,
-      expiresAt: now + ttl,
-      state: "open",
-      used: { operations: 0, riskPoints: 0 },
-      operations: [],
-    };
-    await this.options.store.update((state) => {
-      const open = Object.values(state.tasks).filter(
-        (t) => t.client === client.id && t.state === "open",
-      );
-      if (open.length >= 32)
-        throw new HomectlError(3, "Too many open tasks; close some first");
-      state.tasks[task.id] = task;
-    });
-    return task;
+    return this.options.store.update((state) =>
+      openTask(state, client.id, raw, now),
+    );
   }
 
-  async closeTask(client: ClientIdentity, id: string): Promise<TaskRecord> {
-    return this.options.store.update((state) => {
-      const task = state.tasks[id];
-      if (!task || task.client !== client.id)
-        throw new HomectlError(3, "Unknown task");
-      task.state = "closed";
-      return task;
-    });
+  async closeTask(client: ClientIdentity, id: string) {
+    return this.options.store.update((state) =>
+      closeTask(state, client.id, id),
+    );
   }
 
   // ---------------------------------------------------------------- owner
+
+  // Vault lock: nothing queued survives it; agents resubmit after unlock.
+  async invalidatePending(reason: string): Promise<number> {
+    const now = this.now();
+    const changed = await this.options.store.update((state) => {
+      const ops = Object.values(state.operations).filter(
+        (op) => op.state === "awaiting-approval",
+      );
+      for (const op of ops)
+        Object.assign(op, {
+          state: "cancelled",
+          reason,
+          finishedAt: now,
+          updatedAt: now,
+        });
+      return ops;
+    });
+    for (const op of changed) await this.emit(op, "operation.updated");
+    return changed.length;
+  }
 
   async pending(): Promise<BrokerOperation[]> {
     const now = this.now();
@@ -422,6 +412,12 @@ export class Broker {
             "This approval needs you to confirm your identity again",
           );
         if (input.decision === "approve-remember") {
+          // Until the review ends, human-only is not known: no rule from it.
+          if (isReviewPending(op.decision))
+            throw new HomectlError(
+              3,
+              "This request is still being reviewed; approve it once or wait for the review",
+            );
           if (op.decision.humanOnly || !this.options.policy.remember)
             throw new HomectlError(
               3,
@@ -482,7 +478,7 @@ export class Broker {
       nonce: "",
     };
     return {
-      operation: toView(outcome.op),
+      operation: this.view(outcome.op),
       ...(outcome.grant ? { grant: publicGrant as DecideResult["grant"] } : {}),
     };
   }

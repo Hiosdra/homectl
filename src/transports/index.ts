@@ -61,3 +61,61 @@ export function transportSpec(
     timeoutMs: 120_000,
   };
 }
+
+// Owner-side inspection uses the exact inventory address and broker key. It
+// does not load user/system SSH config or fall back to other host key stores.
+export function trustedHostProbeSpec(
+  machine: Machine,
+  argv: string[],
+  knownHosts: string,
+): ProcessSpec {
+  if (
+    machine.transport !== "ssh" ||
+    !machine.address ||
+    !machine.user ||
+    !machine.auth?.socket ||
+    !machine.auth.public_key
+  )
+    throw new HomectlError(
+      3,
+      "Host inspection requires an SSH host with a broker-managed key",
+    );
+  return {
+    argv: [
+      executable("ssh"),
+      "-F",
+      "none",
+      "-T",
+      "-o",
+      "BatchMode=yes",
+      "-o",
+      "ForwardAgent=no",
+      "-o",
+      "StrictHostKeyChecking=yes",
+      "-o",
+      "GlobalKnownHostsFile=none",
+      "-o",
+      `UserKnownHostsFile=${configQuote(knownHosts)}`,
+      "-o",
+      "UpdateHostKeys=no",
+      "-o",
+      "IdentitiesOnly=yes",
+      "-o",
+      "PreferredAuthentications=publickey",
+      "-o",
+      `IdentityAgent=${configQuote(machine.auth.socket)}`,
+      "-i",
+      machine.auth.public_key,
+      "-o",
+      "ConnectTimeout=8",
+      "-p",
+      String(machine.port ?? 22),
+      "-l",
+      machine.user,
+      "--",
+      machine.address,
+      argv.map(shellQuote).join(" "),
+    ],
+    timeoutMs: 10_000,
+  };
+}

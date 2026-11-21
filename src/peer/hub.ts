@@ -888,7 +888,7 @@ export class Hub {
   }
   async decideOperation(id: string, approved: boolean) {
     const o = this.operations.get(id);
-    if (!o || o.state !== "pending" || o.expiresAt < Date.now())
+    if (o?.state !== "pending" || o.expiresAt < Date.now())
       throw new HomectlError(3, "Operation approval expired or already used");
     if (!approved) {
       o.state = "rejected";

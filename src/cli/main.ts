@@ -10,6 +10,7 @@ import { loadInventory, resolveHost, saveInventory } from "../inventory";
 import { workerArgv, writeSSHConfig } from "../operations";
 import { windows } from "../platform";
 import { run } from "../process";
+import { requestLaunchCode } from "../web/launch-code";
 import { type ProvisionRequest, planProvision, proxmox } from "../provisioners";
 import { proxmoxSSH } from "../provisioners/ssh";
 import {
@@ -33,7 +34,8 @@ import { hostCommand } from "./host-commands";
 import { runInternal } from "./internal-roles";
 import { knownCommands } from "./known-commands";
 import { formatError, formatHuman, normalizeCliError } from "./output";
-import { confirm } from "./prompts";
+import { migrateCommand } from "./migrate-command";
+import { peerCommand } from "./peer-commands";
 export const help = renderHelp();
 
 async function panelInterface(inventoryPath: string, requested?: string) {
@@ -83,6 +85,17 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
   const commandArgs = split < 0 ? [] : raw.slice(split + 1);
   let json = cliArgs.includes("--json");
   try {
+    // Broker commands parse their own options and do not know --help, so their
+    // help is answered here, before they run.
+    const [topic] = cliArgs;
+    if (
+      topic &&
+      helpTopics.includes(topic) &&
+      cliArgs.some((arg) => arg === "--help" || arg === "-h")
+    ) {
+      console.log(renderHelp(topic, { width: process.stdout.columns }));
+      return 0;
+    }
     const brokerResult = await brokerCli(raw, json);
     if (brokerResult !== undefined) return brokerResult;
     const { values: v, positionals } = parseArgs({
@@ -113,16 +126,21 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         target: { type: "string" },
         json: { type: "boolean" },
         "dry-run": { type: "boolean" },
+        rollback: { type: "boolean" },
         task: { type: "boolean" },
         "install-deps": { type: "boolean" },
         "configure-firewall": { type: "boolean" },
+        "no-path": { type: "boolean" },
         inventory: { type: "string" },
+        mode: { type: "string" },
         file: { type: "string" },
         id: { type: "string" },
         "parameters-file": { type: "string" },
         name: { type: "string" },
         scopes: { type: "string" },
         hosts: { type: "string" },
+        client: { type: "string" },
+        "no-open": { type: "boolean" },
         "token-file": { type: "string" },
         to: { type: "string" },
         out: { type: "string" },
@@ -132,6 +150,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         state: { type: "string" },
         all: { type: "boolean" },
         impact: { type: "string" },
+        wait: { type: "string" },
         "configure-sudo": { type: "boolean" },
         help: { type: "boolean", short: "h" },
         ttl: { type: "string" },
@@ -225,9 +244,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           width: process.stdout.columns,
           color: Boolean(
             process.stdout.isTTY &&
-              !json &&
-              process.env.NO_COLOR === undefined &&
-              process.env.TERM !== "dumb",
+            !json &&
+            process.env.NO_COLOR === undefined &&
+            process.env.TERM !== "dumb",
           ),
         }),
       );
@@ -240,7 +259,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       );
     await (await import("../skill-install")).refreshManagedSkills();
     if (command === "update") {
-      emit(await runUpdate(positionals, commandArgs, v.inventory, dryRun));
+      emit(await runUpdate(positionals, commandArgs, v.inventory, dryRun, v));
       return 0;
     }
     if (command === "setup") {
@@ -249,221 +268,55 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           2,
           "setup uses the standard per-user directory; use --inventory on later commands",
         );
-      const result = await (await import("../setup-flow")).setupFlow({
+      const result = await (
+        await import("../setup-flow")
+      ).setupFlow({
         home: p.home,
         json,
         dryRun,
         installDeps: Boolean(v["install-deps"]),
         configureFirewall: Boolean(v["configure-firewall"]),
         interface: v.interface,
+        updatePath: !v["no-path"],
       });
+      // An interactive run has printed its own steps (and, when homectl is
+      // started, ran until Ctrl+C); only scripted runs get the result object.
+      if (result.interactive) return 0;
       emit(result);
       if ("doctor" in result && result.doctor && !result.doctor.ok) return 5;
       return 0;
     }
-    if (["peers", "pair", "sync", "peer"].includes(command ?? "")) {
-      const expected = command === "sync" ? 3 : command === "peers" ? 1 : 2;
-      if (
-        positionals.length > expected ||
-        (command !== "peer" && commandArgs.length)
-      )
-        throw new HomectlError(2, "Unexpected arguments");
-      if (dryRun) {
-        emit({
-          command,
-          action: host,
-          id: keyName,
-          target: v.target,
-          argv: commandArgs,
-          credentialAccess: false,
-          network: false,
-        });
-        return 0;
-      }
-      if (command === "pair" && !host) {
-        if (json)
-          throw new HomectlError(
-            2,
-            "Interactive pairing does not support --json; use explicit pair subcommands",
-          );
-        await (await import("../peer/interactive")).interactivePair(
+    const peer = await peerCommand({
+      command,
+      host,
+      keyName,
+      positionals,
+      commandArgs,
+      values: v,
+      json,
+      dryRun,
+      inventoryPath,
+      configPath,
+      emit,
+    });
+    if (peer !== undefined) return peer;
+    if (command === "migrate") {
+      emit(
+        await migrateCommand(
+          positionals,
+          commandArgs,
           inventoryPath,
-          configPath,
-          v.interface,
-          v.address,
-        );
-        return 0;
-      }
-      if (
-        command === "pair" &&
-        !["open", "join", "confirm", "status", "poll", "cancel"].includes(
-          host ?? "",
-        )
-      )
-        throw new HomectlError(
-          2,
-          "Use pair open, join, confirm, status, poll or cancel",
-        );
-      if (command === "pair" && host === "join") {
-        if (!v.address)
-          throw new HomectlError(
-            2,
-            "Use home-ctl pair join --address http://<device-LAN-IP>:7448",
-          );
-        if (json)
-          throw new HomectlError(
-            2,
-            "Guided pairing is interactive; omit --json so the one-time code stays private",
-          );
-        await (await import("../peer/interactive")).interactivePair(
-          inventoryPath,
-          configPath,
-          v.interface,
-          v.address,
-        );
-        return 0;
-      }
-      const { localApi } = await import("../peer/local-api");
-      if (command === "peers") {
-        const state = await localApi<{ peers: unknown }>(
-          inventoryPath,
-          "/api/state",
-        );
-        emit(state.peers);
-        return 0;
-      }
-      if (command === "pair") {
-        if (
-          ["open", "join", "confirm"].includes(host ?? "") &&
-          !process.stdin.isTTY
-        )
-          throw new HomectlError(
-            5,
-            "Run pairing yourself in a private interactive terminal",
-          );
-        if (host === "open") {
-          const result = await localApi<{ pair: unknown }>(
-            inventoryPath,
-            "/api/pair/open",
-            {},
-          );
-          emit(result.pair);
-          return 0;
-        }
-        if (host === "confirm") {
-          const state = await localApi<{
-            pair: { sas?: string; remote?: { id?: string; name?: string } };
-          }>(inventoryPath, "/api/state");
-          if (!state.pair?.sas)
-            throw new HomectlError(
-              3,
-              "No verified pairing awaiting confirmation",
-            );
-          console.log("Compare on both devices:", state.pair.sas);
-          if (!(await confirm("Does this phrase match on both devices?")))
-            throw new HomectlError(
-              3,
-              "Pairing cancelled: phrase not confirmed",
-            );
-          const result = await localApi<{
-            pair: { remote?: { id?: string; name?: string } } | null;
-            peers: { id: string; name: string }[];
-          }>(inventoryPath, "/api/pair/confirm", {
-            permissions: {
-              sync: true,
-              diagnostics: false,
-              operations: [],
-              administer: false,
-            },
-          });
-          emit(result.pair);
-          const remote = result.pair?.remote;
-          if (
-            !json &&
-            remote?.id &&
-            remote.name &&
-            result.peers.some((peer) => peer.id === remote.id)
-          )
-            console.log(
-              `Paired with ${remote.name}. To change its permissions, open home-ctl panel → Sync → Permissions for that device.`,
-            );
-          return 0;
-        }
-        if (host === "cancel") {
-          emit(await localApi(inventoryPath, "/api/pair/cancel", {}));
-          return 0;
-        }
-        const state = await localApi<{ pair: Record<string, unknown> | null }>(
-          inventoryPath,
-          host === "status" ? "/api/state" : "/api/pair/poll",
-          host === "status" ? undefined : {},
-        );
-        if (state.pair) {
-          const safe = { ...state.pair };
-          delete safe.code;
-          emit(safe);
-        } else emit({ pairing: false });
-        return 0;
-      }
-      if (command === "sync") {
-        if (!keyName)
-          throw new HomectlError(
-            2,
-            "Use sync preview <peer-id>, apply <preview-id> --file choices.json, or cancel <preview-id>",
-          );
-        if (host === "preview") {
-          emit(
-            await localApi(inventoryPath, "/api/sync/start", { id: keyName }),
-          );
-          return 0;
-        }
-        if (host === "apply") {
-          if (!v.file)
-            throw new HomectlError(
-              4,
-              "Review the preview, then provide explicit choices with --file PATH",
-            );
-          const choices = JSON.parse(await readFile(resolve(v.file), "utf8"));
-          emit(
-            await localApi(inventoryPath, "/api/sync/apply", {
-              id: keyName,
-              choices,
-            }),
-          );
-          return 0;
-        }
-        if (host === "cancel") {
-          emit(
-            await localApi(inventoryPath, "/api/sync/cancel", { id: keyName }),
-          );
-          return 0;
-        }
-        throw new HomectlError(2, "Unknown sync action");
-      }
-      if (command === "peer") {
-        if (!host || !v.target || !commandArgs.length)
-          throw new HomectlError(
-            2,
-            "Use peer <id> --target <host> -- <argv...>",
-          );
-        emit(
-          await localApi(inventoryPath, "/api/peer/request", {
-            id: host,
-            action: "exec",
-            payload: {
-              host: v.target,
-              argv: commandArgs,
-              dryRun,
-              impact: v.impact,
-            },
-          }),
-        );
-        return 0;
-      }
+          dryRun,
+          v.mode,
+        ),
+      );
+      return 0;
     }
     if (command === "service") {
       emit(
-        await (await import("../service")).serviceFromFlags(host, {
+        await (
+          await import("../service")
+        ).serviceFromFlags(host, {
           ...v,
           inventory: inventoryPath,
           dryRun,
@@ -486,23 +339,23 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       if (!process.stdin.isTTY)
         throw new HomectlError(
           5,
-          "Run home-ctl panel yourself in a private terminal; the launch address contains a local access token",
+          "Run home-ctl panel yourself in a private terminal; it opens the local panel for you",
         );
       let existing: { peerAddress?: string } | undefined;
       try {
-        existing = await (await import("../peer/local-api")).localApi(
-          inventoryPath,
-          "/api/state",
-        );
+        existing = await (
+          await import("../peer/local-api")
+        ).localApi(inventoryPath, "/api/state");
       } catch {
         /* Start a temporary workspace below. */
       }
       let running:
-        | Awaited<ReturnType<typeof import("../serve").serve>>
-        | undefined;
+        Awaited<ReturnType<typeof import("../serve").serve>> | undefined;
       if (!existing) {
         const interfaceIP = await panelInterface(inventoryPath, v.interface);
-        running = await (await import("../serve")).serve({
+        running = await (
+          await import("../serve")
+        ).serve({
           inventoryPath,
           configPath,
           interface: interfaceIP,
@@ -529,7 +382,10 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           "utf8",
         ),
       ) as { url: string; token: string };
-      const url = `${launch.url}/#token=${encodeURIComponent(launch.token)}`;
+      // The launch token never enters the address: the panel trades it for a
+      // one-time code, which the browser spends on its first visit.
+      const code = await requestLaunchCode(launch);
+      const url = `${launch.url}/launch?code=${encodeURIComponent(code)}`;
       console.log("Opening the local home-ctl panel.");
       const child = Bun.spawn(
         windows
@@ -585,7 +441,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
             2,
             "Container mode needs --interface with the container LAN address; wildcard binding is refused",
           );
-        return await (await import("../container/run")).serveContainer({
+        return await (
+          await import("../container/run")
+        ).serveContainer({
           inventoryPath,
           configPath,
           interface: v.interface,
@@ -598,10 +456,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       }
       let existing: { peerAddress?: string } | undefined;
       try {
-        existing = await (await import("../peer/local-api")).localApi(
-          inventoryPath,
-          "/api/state",
-        );
+        existing = await (
+          await import("../peer/local-api")
+        ).localApi(inventoryPath, "/api/state");
       } catch {
         /* No authenticated running workspace. */
       }
@@ -622,7 +479,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         });
         return 0;
       }
-      const running = await (await import("../serve")).serve({
+      const running = await (
+        await import("../serve")
+      ).serve({
         inventoryPath,
         configPath,
         port: port(v.port, 7447),
@@ -658,14 +517,18 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         });
         return 0;
       }
-      await (await import("../control/cli")).serveMcp(
+      await (
+        await import("../control/cli")
+      ).serveMcp(
         { inventoryPath, configPath, positionals, values: v, dryRun, json },
         (value, human) => console.log(json ? JSON.stringify(value) : human),
       );
       return 0;
     }
     if (command === "control") {
-      const result = await (await import("../control/cli")).controlCommand({
+      const result = await (
+        await import("../control/cli")
+      ).controlCommand({
         inventoryPath,
         configPath,
         positionals: positionals.slice(1),
@@ -747,11 +610,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           return 0;
         }
         emit(
-          await (await import("../session/workspace")).sessionWorkspace(
-            host,
-            inv,
-            inventoryPath,
-          ),
+          await (
+            await import("../session/workspace")
+          ).sessionWorkspace(host, inv, inventoryPath),
         );
         return 0;
       }

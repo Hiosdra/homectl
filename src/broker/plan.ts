@@ -1,7 +1,7 @@
 // Turning a validated agent request into an immutable plan: classification,
 // risk and fingerprint. Pure.
 import { fingerprint } from "../control/canonical";
-import type { Classification, Risk } from "../core/contracts";
+import type { ActionRequest, Classification, Risk } from "../core/contracts";
 import { innerCommand, planExecution } from "../policies";
 import { HomectlError, type Machine } from "../types";
 import type { BrokerOperation, ExecInput, OperationView } from "./types";
@@ -142,6 +142,13 @@ export function boundOutput(
   };
 }
 
+// The panel link for one operation. The base is the panel origin plus its
+// approvals route, for example http://127.0.0.1:7451/#/approvals; the id is
+// appended so the link opens that request, not the list.
+export function approvalLink(base: string, operationId: string): string {
+  return `${base.replace(/\/+$/, "")}/${encodeURIComponent(operationId)}`;
+}
+
 export function toView(
   op: BrokerOperation,
   approvalSurface?: string,
@@ -168,7 +175,21 @@ export function toView(
     ...(op.result ? { result: op.result } : {}),
     ...(op.reason ? { reason: op.reason } : {}),
     ...(op.state === "awaiting-approval" && approvalSurface
-      ? { approvalSurface }
+      ? { approvalSurface: approvalLink(approvalSurface, op.id) }
       : {}),
+  };
+}
+
+export function actionOf(op: BrokerOperation): ActionRequest {
+  return {
+    client: op.client,
+    ...(op.task ? { task: op.task } : {}),
+    kind: "exec",
+    host: op.host,
+    argv: op.argv,
+    sudo: op.sudo,
+    classification: op.classification,
+    risk: op.risk,
+    ...(op.narrative ? { narrative: op.narrative } : {}),
   };
 }

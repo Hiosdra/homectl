@@ -94,14 +94,29 @@ export async function update(dryRun = false, runner: Runner = run) {
   };
 }
 
-// `home-ctl update` takes only --dry-run and --json.
+// `home-ctl update` takes --dry-run, --rollback and --json.
 export async function runUpdate(
   positionals: string[],
   commandArgs: string[],
   inventory: unknown,
   dryRun: boolean,
+  values: { rollback?: boolean } = {},
 ) {
   if (positionals.length !== 1 || commandArgs.length || inventory)
-    throw new HomectlError(2, "Usage: home-ctl update [--dry-run] [--json]");
+    throw new HomectlError(
+      2,
+      "Usage: home-ctl update [--dry-run] [--rollback] [--json]",
+    );
+  if (values.rollback) {
+    if (!bundled)
+      throw new HomectlError(
+        2,
+        "--rollback applies to release builds. A source checkout reverts with git.",
+      );
+    if (dryRun)
+      return { actions: ["Point the commands back at the earlier release"] };
+    const { rollbackRelease } = await import("./update-apply");
+    return rollbackRelease();
+  }
   return update(dryRun);
 }

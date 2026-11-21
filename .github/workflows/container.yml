@@ -15,6 +15,8 @@ on:
       - "src/**"
       - "schema/**"
       - "skills/**"
+      - "docker/**"
+      - "examples/container/**"
       - "scripts/container-smoke.sh"
       - ".github/workflows/container.yml"
   workflow_dispatch:
@@ -23,9 +25,10 @@ permissions:
   contents: read
 
 env:
-  # Digest-pinned Bun base (Debian variant). The Dockerfile has no default on
-  # purpose. Change this value only in a reviewed pull request.
-  BUN_IMAGE: oven/bun@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d
+  # Digest-pinned Bun base: oven/bun:1.4.5-debian (Bun 1.4.5, Debian variant), read
+  # with `docker inspect` on 2026-11-20. The Dockerfile has no default on purpose.
+  # Change this value only in a reviewed pull request.
+  BUN_IMAGE: oven/bun@sha256:3dddea58e1f8f2240eca906b023fedb944f9a8352515a35309fd0c879fe00aaa
   IMAGE: ghcr.io/hiosdra/homectl
 
 jobs:
@@ -35,13 +38,13 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -49,7 +52,7 @@ jobs:
 
       - name: Image tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE }}
           tags: |
@@ -61,7 +64,7 @@ jobs:
       # Build once into the local Docker engine and start it before anything is
       # pushed. The push step below reuses the same builder cache.
       - name: Build for smoke test
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64
@@ -71,11 +74,12 @@ jobs:
           push: false
           tags: homectl-smoke:ci
 
-      - name: Smoke test (serve --container becomes healthy)
+      # Runs the 0.3 default (broker + owner panel) and serve --container; both must become healthy.
+      - name: Smoke test (default broker + panel, and serve --container)
         run: bash scripts/container-smoke.sh homectl-smoke:ci
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64

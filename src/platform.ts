@@ -23,7 +23,7 @@ export async function atomicReplace(source: string, destination: string) {
 
 export function executable(name: string): string {
   if (!windows) return name;
-  if (["ssh", "ssh-add", "ssh-keygen"].includes(name))
+  if (["ssh", "ssh-add", "ssh-keygen", "ssh-keyscan"].includes(name))
     return join(
       process.env.SystemRoot ?? "C:\\Windows",
       "System32",

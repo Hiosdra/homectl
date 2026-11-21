@@ -13,7 +13,7 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { ensurePrivateDirectoryOnce } from "../control/file-lock";
 import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
@@ -27,6 +27,20 @@ const CHUNK_FILE = /^[0-9a-f]{64}$/;
 const MANIFEST_FILE = /^(\d{10})\.json\.enc$/;
 // A sealed blob is at least a version byte, an IV and a tag.
 const MIN_BLOB_BYTES = 1 + 12 + 16;
+
+// Counts removals per store root, across every store object on that root. A
+// cache of what a store holds (the workspace quota ledger) compares it to know
+// that a prune or sweep has changed the contents since the cache was built.
+const removals = new Map<string, number>();
+
+export function storeRevision(root: string): number {
+  return removals.get(resolve(root)) ?? 0;
+}
+
+function noteRemoval(root: string): void {
+  const key = resolve(root);
+  removals.set(key, (removals.get(key) ?? 0) + 1);
+}
 
 export function manifestFileName(seq: number): string {
   return `${String(seq).padStart(10, "0")}.json.enc`;
@@ -143,6 +157,7 @@ export class ChunkStore {
     } catch {
       return 0;
     }
+    noteRemoval(this.store.root);
     return size;
   }
 }
@@ -206,6 +221,7 @@ export class ManifestStore {
     try {
       const size = (await stat(path)).size;
       await unlink(path);
+      noteRemoval(this.store.root);
       return size;
     } catch {
       return 0;

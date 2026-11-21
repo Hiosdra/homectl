@@ -3,7 +3,7 @@
 // because it came from disk or from a peer.
 import { CLIENT_ID_PATTERN } from "../core/contracts";
 import { HomectlError } from "../types";
-import { assertSafePath } from "./policy";
+import { assertNotExcluded, assertSafePath } from "./policy";
 
 export const SNAPSHOT_VERSION = 1 as const;
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -134,6 +134,7 @@ export function parseManifest(value: unknown): Manifest {
       if (typeof f.path !== "string")
         fail("Manifest file path must be a string");
       assertSafePath(f.path);
+      assertNotExcluded(f.path);
       return {
         path: f.path,
         size: nonNegativeInt(f.size, "size"),

@@ -1,5 +1,5 @@
 // Health for the containerized peer. The local route returns only a status and
-// the version: no paths, peers, counts or errors (docs/homectl-2.0/container-peer.md).
+// the version: no paths, peers, counts or errors (docs/setup.md (Docker and NAS containers)).
 import pkg from "../../package.json";
 
 export const VERSION: string = pkg.version;

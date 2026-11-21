@@ -65,7 +65,9 @@ test("a corrupt device key file is refused, not replaced silently", async () => 
     await loadOrCreateDeviceKey(d);
     const path = join(d, "device-key.json");
     const text = await readFile(path, "utf8");
-    await (await import("node:fs/promises")).writeFile(
+    await (
+      await import("node:fs/promises")
+    ).writeFile(
       path,
       text.replace(/"publicKey":"[^"]+"/, '"publicKey":"AAAA"'),
     );

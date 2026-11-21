@@ -197,6 +197,7 @@ describe("backup retention and garbage collection", () => {
       latestAt: null,
       count: 0,
       bytes: 0,
+      storedBytes: 0,
       oldestAt: null,
     });
   });

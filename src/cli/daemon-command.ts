@@ -2,8 +2,10 @@
 import { chmod } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { callBroker, findEndpoint } from "../broker/client";
+import { hardenedSupport } from "../broker/hardened-support";
 import { assertRoot, installPlan, uninstallPlan } from "../broker/install";
 import { compatPaths, hardenedPaths } from "../broker/paths";
+import type { ReviewerAuthority } from "../core/contracts";
 import { run } from "../process";
 import { readPassword } from "../session";
 import { HomectlError } from "../types";
@@ -54,6 +56,8 @@ export async function daemonCommand(
           ? join(paths.state, "workspace", "inventory.yaml")
           : options.inventoryPath;
       const { startDaemon } = await import("../broker/daemon");
+      const { workspaceFromEnv } = await import("../workspace/wiring");
+      const workspace = workspaceFromEnv();
       const daemon = await startDaemon({
         mode,
         ...paths,
@@ -62,6 +66,7 @@ export async function daemonCommand(
           mode === "hardened"
             ? join(dirname(inventoryPath), "ssh_config")
             : options.sshConfigPath,
+        ...(workspace ? { workspace } : {}),
         ...(process.env.HOMECTL_PANEL_ORIGIN
           ? { panelOrigin: process.env.HOMECTL_PANEL_ORIGIN }
           : {}),
@@ -84,6 +89,29 @@ export async function daemonCommand(
       });
       return 0;
     }
+    case "panel": {
+      // The owner web panel. It needs the broker started with the same
+      // origin in HOMECTL_PANEL_ORIGIN, or the broker refuses its sign-in.
+      const { startOwnerPanel } = await import("../web/owner/server");
+      const port = Number(process.env.HOMECTL_OWNER_PANEL_PORT ?? 7451);
+      const panel = await startOwnerPanel({
+        inventoryPath: options.inventoryPath,
+        port,
+      });
+      options.emit(
+        { running: true, origin: panel.origin },
+        `Owner panel on ${panel.origin}. Start the broker with HOMECTL_PANEL_ORIGIN=${panel.origin} so it accepts this panel. Press Ctrl+C to stop.`,
+      );
+      await new Promise<void>((resolve) => {
+        const stop = () => {
+          panel.stop();
+          resolve();
+        };
+        process.once("SIGINT", stop);
+        process.once("SIGTERM", stop);
+      });
+      return 0;
+    }
     case "status": {
       const endpoint = await findEndpoint(options.inventoryPath);
       if (!endpoint) {
@@ -97,11 +125,24 @@ export async function daemonCommand(
       )
         .then(() => true)
         .catch((error: HomectlError) => /Client token/.test(error.message));
+      // Says per platform what hardened mode gives here, whichever mode is running.
+      const hardened = hardenedSupport(
+        process.platform,
+        process.platform === "linux" && (await systemdRunning()),
+      );
       options.emit(
-        { running: reachable, mode: endpoint.mode, address: endpoint.address },
-        reachable
-          ? `homectl broker is running (${endpoint.mode}${endpoint.mode === "compat" ? ", weaker: same user as the owner" : ""}).`
-          : "The endpoint file exists but the broker does not answer.",
+        {
+          running: reachable,
+          mode: endpoint.mode,
+          address: endpoint.address,
+          hardened,
+        },
+        [
+          reachable
+            ? `homectl broker is running (${endpoint.mode}${endpoint.mode === "compat" ? ", weaker: same user as the owner" : ""}).`
+            : "The endpoint file exists but the broker does not answer.",
+          hardened.statement,
+        ].join("\n"),
       );
       return reachable ? 0 : 5;
     }
@@ -150,35 +191,51 @@ export async function daemonCommand(
             },
           );
       }
+      let reviewerAuthority: ReviewerAuthority | undefined;
       if (action === "install") {
         const { FileVerifier } = await import("../broker/owner");
         const verifier = new FileVerifier(
           join(hardenedPaths().state, "owner.json"),
         );
-        if (!(await verifier.exists())) {
+        // A vault taken into custody makes its master password the owner
+        // password; a separate one is only needed without a vault.
+        const custodyVault = join(
+          hardenedPaths().state,
+          "workspace",
+          "homelab.kdbx",
+        );
+        if (
+          !(await verifier.exists()) &&
+          !(await Bun.file(custodyVault).exists())
+        ) {
           const first = await readPassword("New homectl owner password: ");
           if (first !== (await readPassword("Repeat it: ")))
             throw new HomectlError(2, "The passwords do not match");
           await verifier.set(first);
+          // The same reviewer authority choice as `owner init`; recommend is the default.
+          const { chooseReviewerAuthority, saveReviewerAuthority } =
+            await import("./owner-commands");
+          reviewerAuthority = await chooseReviewerAuthority();
+          const state = hardenedPaths().state;
+          if (await saveReviewerAuthority(state, reviewerAuthority))
+            await run({
+              argv: ["chown", "homectl:homectl", join(state, "policy.json")],
+            });
           await run({
-            argv: [
-              "chown",
-              "homectl:homectl",
-              join(hardenedPaths().state, "owner.json"),
-            ],
+            argv: ["chown", "homectl:homectl", join(state, "owner.json")],
           });
         }
       }
       options.emit(
-        { done: action },
-        `homectl broker ${action === "install" ? "installed and started" : "removed"}.`,
+        { done: action, ...(reviewerAuthority ? { reviewerAuthority } : {}) },
+        `homectl broker ${action === "install" ? "installed and started" : "removed"}.${reviewerAuthority ? ` Reviewer authority: ${reviewerAuthority}.` : ""}`,
       );
       return 0;
     }
     default:
       throw new HomectlError(
         2,
-        "Usage: home-ctl daemon run|status|install|uninstall [--mode compat|hardened]",
+        "Usage: home-ctl daemon run|panel|status|install|uninstall [--mode compat|hardened]",
       );
   }
 }

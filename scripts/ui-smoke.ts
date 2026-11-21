@@ -23,8 +23,10 @@ import {
   denyReadyRequest,
   editMachine,
   openRequest,
+  verifyLocalCommandPreview,
   verifySavedCommandEditor,
 } from "./ui-smoke-steps";
+import { driveOnboarding, verifyUnlock } from "./ui-smoke-onboarding";
 
 const root = await mkdtemp(join(tmpdir(), "hcui-"));
 const inventory = join(root, "inventory.yaml");
@@ -205,6 +207,7 @@ try {
   const out = process.env.UI_REVIEW_DIR ?? join(root, "review");
   await (await import("node:fs/promises")).mkdir(out, { recursive: true });
   await captureScreens(page, browser, panelOrigin, out);
+  await driveOnboarding(page);
   await verifySavedCommandEditor(page, running.hub.savedCommands);
   await page.getByRole("link", { name: /^Vault/ }).click();
   await expect(
@@ -259,13 +262,7 @@ try {
   await expect(page.getByLabel(/^Program$/)).toHaveValue("uname");
   await expect(page.getByLabel(/^Arguments/)).toHaveValue("-s");
   await page.locator("#command-impact").fill("Inspect the operating system");
-  await page.getByRole("button", { name: "Review command" }).click();
-  await expect(page.locator("#confirm-dialog")).toBeVisible();
-  await expect(
-    page.locator("#confirm-dialog button[value=confirm]"),
-  ).toBeEnabled();
-  await page.locator("#confirm-dialog button[value=cancel]").click();
-  await expect(page.locator("#confirm-dialog")).toHaveCount(0);
+  await verifyLocalCommandPreview(page);
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByRole("link", { name: /^Sync/ }).click();
   await expect(
@@ -304,7 +301,7 @@ try {
   const smokePassword = "local UI smoke password";
   const safe = page.locator("form#unlock-form");
   await safe.locator("#password").fill(smokePassword);
-  await safe.getByLabel(/^Confirm database password$/).fill(smokePassword);
+  await safe.getByLabel(/^Confirm vault password$/).fill(smokePassword);
   await safe.getByRole("button", { name: "Create and unlock safe" }).click();
   await expect(
     page.getByText("Vault created and unlocked on this device."),
@@ -750,11 +747,6 @@ try {
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
-    ),
-  ).toBe(true);
   await page.getByRole("link", { name: /^Vault/ }).click();
   await page.screenshot({ path: join(out, "mobile.png"), fullPage: true });
   await page.screenshot({ path: join(out, "mobile-viewport.png") });
@@ -766,6 +758,7 @@ try {
   await expect(
     page.getByRole("button", { name: /^More actions for/ }).first(),
   ).toBeVisible();
+  await verifyUnlock(browser, panelOrigin, smokePassword, page);
   expect(errors).toEqual([]);
   console.log(
     "UI smoke passed: desktop/mobile, filtering, machine form, pairing window, private password field, settings, approvals queue and execution, no browser errors.",

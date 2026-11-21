@@ -91,16 +91,14 @@ export async function readRemoteFile(
 ): Promise<string | undefined> {
   const read = await exec(sudo(["cat", path]));
   if (read.exitCode === 0) return read.stdout;
-  const probe = await exec(sudo(["test", "-e", path]));
-  if (probe.exitCode === 0)
-    throw new HomectlError(5, `Could not read ${path} under sudo`);
-  const sudoCheck = await exec(sudo(["true"]));
-  if (sudoCheck.exitCode !== 0)
-    throw new HomectlError(
-      5,
-      "sudo -n is unavailable; cannot read the sudoers state",
-    );
-  return undefined;
+  const absent = await exec(
+    sudo(["test", "!", "-e", path, "-a", "!", "-L", path]),
+  );
+  if (absent.exitCode === 0) return undefined;
+  throw new HomectlError(
+    5,
+    `Could not read ${path} or verify its absence under sudo`,
+  );
 }
 
 export interface DropInPlan {

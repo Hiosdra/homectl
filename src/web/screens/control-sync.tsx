@@ -19,8 +19,8 @@ export function ControlSyncSection() {
     return (
       <Section title="Control sync">
         <p className="text-muted-foreground">
-          Control sync is disabled by {sync.disabledBy} on this device. Operations that
-          have paired peers wait for a sync.
+          Control sync is disabled by {sync.disabledBy} on this device.
+          Operations that have paired peers wait for a sync.
         </p>
       </Section>
     );
@@ -37,12 +37,21 @@ export function ControlSyncSection() {
   return (
     <Section title="Control sync">
       <p className="text-muted-foreground">
-        Approvals and executions travel on this sync. It updates every 15 seconds while
-        this workspace is open.
+        Approvals and executions travel on this sync. It updates every 15
+        seconds while this workspace is open.
       </p>
       {sync.peers.length ? (
         <div className="mt-4">
-          <DataTable head={["Device", "Last sync", "Lease", "Backoff", "Status", "Action"]}>
+          <DataTable
+            head={[
+              "Device",
+              "Last sync",
+              "Lease",
+              "Backoff",
+              "Status",
+              "Action",
+            ]}
+          >
             {sync.peers.map((p) => (
               <SyncRow key={p.id} p={p} now={now} />
             ))}
@@ -57,12 +66,18 @@ export function ControlSyncSection() {
         <div className="mt-5 grid gap-3">
           <h3 className="text-[15px] font-semibold">Control conflicts</h3>
           <Note>
-            Two different handoffs were recorded for the same operation. Nobody can run it
-            until the conflict is resolved. Choose the owner here; that device must accept
-            on its own side before the resolution applies.
+            Two different handoffs were recorded for the same operation. Nobody
+            can run it until the conflict is resolved. Choose the owner here;
+            that device must accept on its own side before the resolution
+            applies.
           </Note>
           {sync.conflicts.map((c) => (
-            <ConflictRow key={c.opId} c={c} names={names} resolutions={sync.resolutions ?? []} />
+            <ConflictRow
+              key={c.opId}
+              c={c}
+              names={names}
+              resolutions={sync.resolutions ?? []}
+            />
           ))}
         </div>
       ) : (
@@ -105,10 +120,20 @@ function SyncRow({ p, now }: { p: ControlSync["peers"][number]; now: number }) {
           <span className="text-muted-foreground">—</span>
         </Cell>
         <Cell label="Status">
-          <span className="text-muted-foreground">not counted in the lease</span>
+          <span className="text-muted-foreground">
+            not counted in the lease
+          </span>
         </Cell>
-        <Cell label="Action" className="whitespace-nowrap max-[700px]:whitespace-normal">
-          <Action action="control-peer-resume" label="Resume" id={p.id} kind="quiet" />
+        <Cell
+          label="Action"
+          className="whitespace-nowrap max-[700px]:whitespace-normal"
+        >
+          <Action
+            action="control-peer-resume"
+            label="Resume"
+            id={p.id}
+            kind="quiet"
+          />
         </Cell>
       </Row>
     );
@@ -120,7 +145,9 @@ function SyncRow({ p, now }: { p: ControlSync["peers"][number]; now: number }) {
           <span className="text-muted-foreground">never (control)</span>
         </Cell>
         <Cell label="Lease">
-          <span className="text-muted-foreground">excluded from lease: re-pair required</span>
+          <span className="text-muted-foreground">
+            excluded from lease: re-pair required
+          </span>
         </Cell>
         <Cell label="Backoff">
           <span className="text-muted-foreground">—</span>
@@ -136,7 +163,9 @@ function SyncRow({ p, now }: { p: ControlSync["peers"][number]; now: number }) {
       </Row>
     );
   const retry =
-    p.nextAttemptAt !== undefined && (p.failures ?? 0) > 0 && p.nextAttemptAt > now
+    p.nextAttemptAt !== undefined &&
+    (p.failures ?? 0) > 0 &&
+    p.nextAttemptAt > now
       ? `retry ${localStamp(new Date(p.nextAttemptAt).toISOString())}`
       : "none";
   return (
@@ -147,7 +176,9 @@ function SyncRow({ p, now }: { p: ControlSync["peers"][number]; now: number }) {
         {p.leaseOk ? (
           "ok"
         ) : (
-          <span className="text-destructive-foreground">expired: waiting for sync</span>
+          <span className="text-destructive-foreground">
+            expired: waiting for sync
+          </span>
         )}
       </Cell>
       <Cell label="Backoff">{retry}</Cell>
@@ -158,7 +189,10 @@ function SyncRow({ p, now }: { p: ControlSync["peers"][number]; now: number }) {
           <Tag tone="success">ok</Tag>
         )}
       </Cell>
-      <Cell label="Action" className="whitespace-nowrap max-[700px]:whitespace-normal">
+      <Cell
+        label="Action"
+        className="whitespace-nowrap max-[700px]:whitespace-normal"
+      >
         <Action
           action="control-peer-suspend"
           label="Suspend from lease"
@@ -187,16 +221,18 @@ function ConflictRow({
         <strong>
           <code>{c.opId.slice(0, 8)}</code>
         </strong>{" "}
-        at epoch {c.epoch}: {c.candidates.map((id) => names[id] ?? id).join(", ")}
+        at epoch {c.epoch}:{" "}
+        {c.candidates.map((id) => names[id] ?? id).join(", ")}
         {mine.map((r, i) => (
           <p key={i} className="mt-1 text-xs text-muted-foreground">
-            Proposed by {names[r.resolver] ?? r.resolver}: owner {names[r.winner] ?? r.winner}.
+            Proposed by {names[r.resolver] ?? r.resolver}: owner{" "}
+            {names[r.winner] ?? r.winner}.
           </p>
         ))}
       </div>
       <div className="flex flex-wrap items-center gap-2.5 text-sm text-muted-foreground">
-        Two devices claim this operation. Resolve it from a private terminal with{" "}
-        <code>home-ctl control resolve</code>.
+        Two devices claim this operation. Resolve it from a private terminal
+        with <code>home-ctl control resolve</code>.
       </div>
     </div>
   );

@@ -15,8 +15,14 @@ const PRESETS: Record<
   Preset,
   { mode: PolicyMode; authority: ReviewerAuthority }
 > = {
+  // "Ask me first": saved rules decide, the AI helper is never called.
   conservative: { mode: "rules", authority: "recommend" },
-  routine: { mode: "rules", authority: "routine" },
+  // "AI helps with small fixes": the AI helper is consulted for requests no
+  // rule covers, within routine authority (R1-R2, inspect or mutation only).
+  // Before this was mode "rules", which never consulted the helper.
+  routine: { mode: "auto", authority: "routine" },
+  // "AI decides more": the helper is consulted, up to delegated authority
+  // (still never above R2; R3, R4 and human-only actions stay with the owner).
   delegated: { mode: "auto", authority: "delegated" },
 };
 

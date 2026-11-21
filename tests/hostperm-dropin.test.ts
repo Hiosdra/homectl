@@ -157,6 +157,14 @@ describe("planGrant", () => {
     );
   });
 
+  test("a failed absence probe cannot establish that the drop-in is missing", async () => {
+    const host = new FakeHost();
+    host.failIf = (argv) => argv[2] === "test" && argv[3] === "!";
+    await expect(planGrant(host.exec, "oskar", desiredGrant())).rejects.toThrow(
+      "verify its absence",
+    );
+  });
+
   test("a live file that cannot be read is an error, not an assumed absence", async () => {
     const host = new FakeHost();
     host.put(PATH, desiredGrant());
@@ -350,7 +358,35 @@ describe("applyGrant", () => {
     host.log.length = 0;
     const report = await applyGrant(host.exec, plan);
     expect(report.status).toBe("unchanged");
-    expect(host.log.length).toBe(0);
+    expect(report.steps.map((step) => step.id)).toEqual(["reread"]);
+  });
+
+  test("an unchanged preview refuses subsequent drift", async () => {
+    const host = new FakeHost();
+    host.put(PATH, desiredGrant(), { mode: "0440" });
+    const plan = await planGrant(host.exec, "oskar", desiredGrant());
+    host.put(PATH, desiredGrant("changed"), { mode: "0440" });
+    const report = await applyGrant(host.exec, plan);
+    expect(report.status).toBe("refused");
+    expect(report.reason).toContain("drift");
+    expect(host.text(PATH)).toBe(desiredGrant("changed"));
+  });
+
+  test("a disconnect during the swap preserves the backup for inspection", async () => {
+    const host = new FakeHost();
+    const previous = desiredGrant("old-id");
+    host.put(PATH, previous, { mode: "0440" });
+    const desired = desiredGrant("new-id");
+    const plan = await planGrant(host.exec, "oskar", desired);
+    const report = await applyGrant(async (argv, options) => {
+      const result = await host.exec(argv, options);
+      if (argv[2] === "mv" && argv.at(-1) === PATH)
+        throw new Error("connection lost");
+      return result;
+    }, plan);
+    expect(report.status).toBe("outcome-unknown");
+    expect(host.text(PATH)).toBe(desired);
+    expect(host.text("/etc/sudoers.d/.homectl-oskar.bak")).toBe(previous);
   });
 
   test("a plan for another path is rejected", async () => {
@@ -370,6 +406,15 @@ describe("revokeGrant", () => {
     expect(report.status).toBe("removed");
     expect(host.files.has(PATH)).toBe(false);
     expect(host.files.has(BAK)).toBe(false);
+  });
+
+  test("a failed absence probe preserves the backup and reports uncertainty", async () => {
+    const host = new FakeHost();
+    host.put(PATH, desiredGrant(), { mode: "0440" });
+    host.failIf = (argv) => argv[2] === "test" && argv[3] === "!";
+    const report = await revokeGrant(host.exec, "oskar");
+    expect(report.status).toBe("outcome-unknown");
+    expect(host.text(BAK)).toBe(desiredGrant());
   });
 
   test("never removes a file without the homectl header", async () => {

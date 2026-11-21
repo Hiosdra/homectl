@@ -96,14 +96,18 @@ export interface ActionRequest {
 // ---------------------------------------------------------------- policy
 
 export type Verdict = "allow" | "deny" | "ask";
-export type DecisionSource =
-  | "invariant" // fixed security rule (malformed, unknown host, forbidden)
-  | "hard-gate" // human-only kind or risk; cannot be waived
-  | "rule" // owner rule
-  | "budget" // task / aggregate budget exhausted
-  | "mode" // Manual mode, or Rules-only with no matching rule
-  | "reviewer" // optional model judge
-  | "default"; // fallback when nothing else decided
+// Where a decision came from. Listed so wire parsers can check a value.
+export const DECISION_SOURCES = [
+  "invariant", // fixed security rule (malformed, unknown host, forbidden)
+  "hard-gate", // human-only kind or risk; cannot be waived
+  "rule", // owner rule
+  "budget", // task / aggregate budget exhausted
+  "mode", // Manual mode, or Rules-only with no matching rule
+  "reviewer", // optional model judge
+  "review", // waiting on the Auto Mode reviewer; no verdict yet (not final)
+  "default", // fallback when nothing else decided
+] as const;
+export type DecisionSource = (typeof DECISION_SOURCES)[number];
 
 export interface PolicyDecision {
   verdict: Verdict;
@@ -261,12 +265,7 @@ export type SecretDestination =
   | { kind: "vault-only" };
 
 export type SecretRequestState =
-  | "pending"
-  | "provided"
-  | "declined"
-  | "cancelled"
-  | "expired"
-  | "revoked";
+  "pending" | "provided" | "declined" | "cancelled" | "expired" | "revoked";
 
 export interface SecretRequestView {
   id: string;

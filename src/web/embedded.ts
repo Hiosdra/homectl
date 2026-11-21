@@ -4,3 +4,4 @@
 // builds the panel from web/ at run time.
 export type EmbeddedPanel = { html: string; css: string; script: string };
 export const embeddedPanel: EmbeddedPanel | undefined = undefined;
+export const embeddedOwnerScript: string | undefined = undefined;

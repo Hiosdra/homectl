@@ -441,9 +441,10 @@ describe("control plane with the API transport", () => {
       expect(post?.url).toBe(
         "https://pve.example:8006/api2/json/nodes/pve-test/qemu/9003/status/start",
       );
-      expect((post?.init.headers as Record<string, string>).Authorization).toBe(
-        TOKEN,
-      );
+      expect(
+        (post?.init.headers as Record<string, string> | undefined)
+          ?.Authorization,
+      ).toBe(TOKEN);
       // The token is never part of the operation view.
       const views = JSON.stringify(await f.plane.listOperations({ all: true }));
       expect(views).not.toContain("SECRET-VALUE-123");

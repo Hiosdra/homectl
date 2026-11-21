@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { renderEmbeddedModule } from "../src/web/embed";
 import { embeddedPanel } from "../src/web/embedded";
 
+import { buildOwnerScript } from "../src/web/owner/server";
+
 describe("embedded web panel", () => {
   test("the committed placeholder is empty; a local release build may fill it", () => {
     if (embeddedPanel === undefined) expect(embeddedPanel).toBeUndefined();
@@ -20,11 +22,18 @@ describe("embedded web panel", () => {
       css: "a{content:'\n'}",
       script: "console.log('line one\\nline two');",
     };
-    const text = renderEmbeddedModule(panel);
+    const ownerScript = 'console.log("owner");';
+    const text = renderEmbeddedModule(panel, ownerScript);
     // Only the value after `undefined = ` is JSON; the type line also has braces.
-    const json = text.match(/undefined = (\{.*\});\n$/s)?.[1];
+    const json = text.match(/embeddedPanel: .* = (\{.*\});/)?.[1];
     expect(JSON.parse(json ?? "null")).toEqual(panel);
-    expect(text).toContain("export const embeddedPanel");
+    expect(text).toContain(
+      `embeddedOwnerScript: string | undefined = ${JSON.stringify(ownerScript)};`,
+    );
+  });
+
+  test("the owner panel builds for the browser", async () => {
+    expect((await buildOwnerScript()).length).toBeGreaterThan(1000);
   });
 
   test("the panel source builds for the browser", async () => {

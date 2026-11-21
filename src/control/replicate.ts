@@ -276,11 +276,7 @@ export function ownerAt(
 }
 
 export type Outcome =
-  | "applied"
-  | "stale"
-  | "rejected"
-  | "conflict"
-  | "duplicate";
+  "applied" | "stale" | "rejected" | "conflict" | "duplicate";
 
 export function applyOp(
   replica: Replica,
@@ -288,7 +284,7 @@ export function applyOp(
   devices: Record<string, string>,
 ): Outcome {
   const body = openRecord(envelope, devices);
-  if (!body || body.kind !== "op") return "rejected";
+  if (body?.kind !== "op") return "rejected";
   if (envelope.signer !== body.owner) return "rejected";
   const current = replica.ops[body.opId];
   if (!current) {
@@ -324,7 +320,7 @@ export function applyHandoff(
   devices: Record<string, string>,
 ): Outcome {
   const body = openRecord(envelope, devices);
-  if (!body || body.kind !== "handoff") return "rejected";
+  if (body?.kind !== "handoff") return "rejected";
   // The taking device signs its own takeover.
   if (envelope.signer !== body.toOwner) return "rejected";
   if (!replica.ops[body.opId]) return "rejected";
@@ -372,7 +368,7 @@ export function applySuspension(
   devices: Record<string, string>,
 ): Outcome {
   const body = openRecord(envelope, devices);
-  if (!body || body.kind !== "suspension") return "rejected";
+  if (body?.kind !== "suspension") return "rejected";
   // A device speaks only for itself: the signer must be the suspending device.
   if (envelope.signer !== body.by || body.target === body.by) return "rejected";
   if (typeof body.reason !== "string" || body.reason.length > 80)
@@ -412,7 +408,7 @@ export function applyOffer(
   devices: Record<string, string>,
 ): Outcome {
   const body = openRecord(envelope, devices);
-  if (!body || body.kind !== "offer") return "rejected";
+  if (body?.kind !== "offer") return "rejected";
   // Only the current owner offers its operation away.
   if (envelope.signer !== body.fromOwner) return "rejected";
   if (body.toOwner === body.fromOwner) return "rejected";
@@ -437,7 +433,7 @@ export function applyCancel(
   devices: Record<string, string>,
 ): Outcome {
   const body = openRecord(envelope, devices);
-  if (!body || body.kind !== "cancel") return "rejected";
+  if (body?.kind !== "cancel") return "rejected";
   const offer = replica.offers[body.offerId];
   if (!offer || offer.opId !== body.opId) return "rejected";
   if (envelope.signer !== offer.fromOwner || body.fromOwner !== offer.fromOwner)
@@ -456,7 +452,7 @@ export function applyAccept(
   devices: Record<string, string>,
 ): Outcome {
   const body = openRecord(envelope, devices);
-  if (!body || body.kind !== "accept") return "rejected";
+  if (body?.kind !== "accept") return "rejected";
   const offer = replica.offers[body.offerId];
   if (!offer || offer.opId !== body.opId) return "rejected";
   // Only the device the offer names can accept it.
@@ -504,7 +500,7 @@ export function applyResolve(
   devices: Record<string, string>,
 ): Outcome {
   const body = openRecord(envelope, devices);
-  if (!body || body.kind !== "resolve") return "rejected";
+  if (body?.kind !== "resolve") return "rejected";
   if (envelope.signer !== body.resolver) return "rejected";
   if (!replica.ops[body.opId]) return "rejected";
   if (replica.resolutions[body.resolutionId]) return "duplicate";
@@ -531,7 +527,7 @@ export function applyResolveAccept(
   devices: Record<string, string>,
 ): Outcome {
   const body = openRecord(envelope, devices);
-  if (!body || body.kind !== "resolve-accept") return "rejected";
+  if (body?.kind !== "resolve-accept") return "rejected";
   const proposal = replica.resolutions[body.resolutionId];
   if (!proposal || proposal.opId !== body.opId) return "rejected";
   // The named winner must sign its own accept.
@@ -559,7 +555,7 @@ export function applyClient(
   devices: Record<string, string>,
 ): Outcome {
   const body = openRecord(envelope, devices);
-  if (!body || body.kind !== "client") return "rejected";
+  if (body?.kind !== "client") return "rejected";
   // Only the device that holds the registration may describe it.
   if (envelope.signer !== body.device) return "rejected";
   const current = replica.clients[body.clientId];
@@ -582,7 +578,7 @@ export function applyDecision(
   devices: Record<string, string>,
 ): Outcome {
   const body = openRecord(envelope, devices);
-  if (!body || body.kind !== "decision") return "rejected";
+  if (body?.kind !== "decision") return "rejected";
   if (envelope.signer !== body.approverDevice) return "rejected";
   if (replica.seenDecisions.includes(body.decisionId)) return "duplicate";
   if (replica.inbox[body.decisionId]) return "duplicate";
