@@ -53,6 +53,12 @@ const daemon = await startDaemon({
 });
 // No vault in this fixture, so the owner password lives in owner.json.
 await (daemon.verifier as FileVerifier).set(PASSWORD);
+// A fresh broker opens the guided setup at Welcome; these checks start on Needs you,
+// so Welcome counts as seen here (setup.json holds timestamps only).
+await writeFile(
+  join(paths.state, "setup.json"),
+  JSON.stringify({ version: 1, welcomedAt: Date.now(), steps: {} }),
+);
 // The panel finds the broker through this file, not a machine-wide one.
 process.env.HOMECTL_BROKER_ENDPOINT = join(paths.state, "endpoint.json");
 const panel = await startOwnerPanel({ inventoryPath, port: panelPort });

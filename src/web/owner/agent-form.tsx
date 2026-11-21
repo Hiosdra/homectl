@@ -50,14 +50,16 @@ export function AddAssistant({
   onError,
 }: {
   clients: ClientView[];
-  // The machines in the inventory, when the caller has them (the setup wizard does).
-  // Without them, the machines the existing assistants use are offered.
+  // SSH machines from the inventory, when the caller has them. They are offered
+  // together with the machines the existing assistants already use.
   machines?: string[];
   onCreated: (result: Issued) => void;
   onError: (error: unknown) => unknown;
 }) {
   const baseId = useId();
-  const machines = inventory ?? knownMachines(clients);
+  const machines = [
+    ...new Set([...(inventory ?? []), ...knownMachines(clients)]),
+  ].sort();
   const [name, setName] = useState("");
   const [idOverride, setIdOverride] = useState<string | undefined>();
   const [picked, setPicked] = useState<string[]>([]);

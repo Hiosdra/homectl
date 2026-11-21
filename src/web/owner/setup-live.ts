@@ -1,7 +1,7 @@
 // The guided setup's live state for the panel: the status read from the broker, the
 // first-run open at Welcome, and the five-second poll while the setup page is open.
 // The status is never written to the browser's storage.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { readSetup, type SetupStatus } from "./setup-api";
 import { autoOpenTarget } from "./setup-first-run";
 
@@ -31,9 +31,13 @@ export function useSetupStatus({
   }, [onError]);
 
   // A fresh broker opens the guided setup at Welcome on the owner's first sign-in.
-  // The rule lives in setup-first-run.ts; it never replaces another section.
+  // The rule lives in setup-first-run.ts. It is tried once per panel load, when the
+  // first status arrives, so the owner can leave the wizard afterwards without being
+  // pulled back by a later refresh.
+  const tried = useRef(false);
   useEffect(() => {
-    if (!signedIn) return;
+    if (!signedIn || tried.current || setup === undefined) return;
+    tried.current = true;
     const target = autoOpenTarget(setup, location.hash);
     if (target) go(target);
   }, [setup, signedIn, go]);

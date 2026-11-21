@@ -132,26 +132,22 @@ export function AgentsScreen({
         ) : null}
       </div>
       {machines !== undefined && machines.length === 0 ? (
-        <section className="empty" aria-label="Add a machine first">
-          <h3>An assistant needs a machine to work on</h3>
-          <p>
-            Add your first machine, then come back here to connect an assistant.
-          </p>
-          <p>
-            <SetupLink step="machine">Add a machine first →</SetupLink>
-          </p>
-        </section>
-      ) : (
-        <AddAssistant
-          clients={clients ?? []}
-          machines={machines}
-          onCreated={(result) => {
-            setIssued(result);
-            void load();
-          }}
-          onError={onError}
-        />
-      )}
+        // No SSH machine yet: say so, and point at the step. The form stays for
+        // machines that are not SSH ones (the machine box then takes typed names).
+        <Notice>
+          An assistant works on machines.{" "}
+          <SetupLink step="machine">Add a machine first →</SetupLink>
+        </Notice>
+      ) : null}
+      <AddAssistant
+        clients={clients ?? []}
+        machines={machines}
+        onCreated={(result) => {
+          setIssued(result);
+          void load();
+        }}
+        onError={onError}
+      />
     </>
   );
 }

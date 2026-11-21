@@ -70,6 +70,11 @@ const daemon = await startDaemon({
   machineRunner: stub,
 });
 await (daemon.verifier as FileVerifier).set(PASSWORD);
+// Welcome of the guided setup counts as seen: these checks start on the machines.
+await writeFile(
+  join(paths.state, "setup.json"),
+  JSON.stringify({ version: 1, welcomedAt: Date.now(), steps: {} }),
+);
 process.env.HOMECTL_BROKER_ENDPOINT = join(paths.state, "endpoint.json");
 const panel = await startOwnerPanel({ inventoryPath, port: panelPort });
 const browser = await chromium.launch();
