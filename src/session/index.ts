@@ -8,8 +8,10 @@ import { available, executable, privateDirectory, windows } from "../platform";
 import { HomectlError, type Inventory } from "../types";
 import { addKey } from "./agent";
 import { sessionConfig, sessionPaths, ttlSeconds } from "./config";
+import { readPassword } from "./password";
 
 export { sessionConfig, sessionPaths, ttlSeconds } from "./config";
+export { passwordNoun, readPassword } from "./password";
 export type SessionStatus = {
   unlocked: boolean;
   startedAt?: number;
@@ -242,50 +244,6 @@ export async function privateCommand(
   } finally {
     clearTimeout(timeout);
   }
-}
-
-export async function readPassword(
-  prompt = "KeePassXC database password: ",
-): Promise<string> {
-  if (!process.stdin.isTTY)
-    throw new HomectlError(
-      5,
-      "Run this command yourself in a private interactive terminal; never send the database password to the agent",
-    );
-  const child = Bun.spawn(
-    windows
-      ? [
-          "powershell.exe",
-          "-NoProfile",
-          "-Command",
-          "$p=Read-Host -Prompt $env:HOMECTL_PROMPT -AsSecureString; $b=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($p); try {[Console]::Out.Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($b))} finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b)}",
-        ]
-      : [
-          "bash",
-          "-c",
-          'IFS= read -r -s -p "$1" password </dev/tty || exit 1; printf "\\n" >/dev/tty; printf "%s" "$password"',
-          "homectl-password",
-          prompt,
-        ],
-    {
-      env: { ...cleanEnv(), HOMECTL_PROMPT: prompt },
-      stdin: "inherit",
-      stdout: "pipe",
-      stderr: "inherit",
-    },
-  );
-  const result = await new Response(child.stdout).text();
-  if (
-    (await child.exited) ||
-    !result ||
-    result.includes("\n") ||
-    result.includes("\r")
-  )
-    throw new HomectlError(
-      2,
-      "Password entry cancelled or unsupported newline",
-    );
-  return result;
 }
 
 export async function databaseCommand(

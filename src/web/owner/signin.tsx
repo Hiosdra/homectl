@@ -48,8 +48,10 @@ export function SignInScreen({
         </div>
         <h2>Sign in to decide</h2>
         <p className="small muted">
-          Approvals, secrets and assistant access are decided here, by you. For
-          safety your session ends after 15 minutes of use.
+          Approvals, secrets and assistant access are decided here, by you. When
+          your owner password is also your vault password (the usual setup),
+          signing in also opens your vault. For safety the panel signs you out
+          after 15 minutes of inactivity.
         </p>
         {notice ? <Notice tone="warn">{notice}</Notice> : null}
         <form className="stack" method="post" onSubmit={submit}>
