@@ -9,6 +9,7 @@ import { parseArgs } from "node:util";
 import { callBroker, clientToken, findEndpoint } from "../broker/client";
 import type { Endpoint } from "../broker/paths";
 import { readPassword } from "../session";
+import { connectAgent, describeConnect } from "./agent-connect";
 import { checkLocalExecOptions } from "./exec-local-options";
 import { paths } from "../setup";
 import { HomectlError } from "../types";
@@ -159,6 +160,7 @@ export async function brokerCommand(
       summary: { type: "string" },
       hosts: { type: "string" },
       name: { type: "string" },
+      client: { type: "string" },
       mode: { type: "string" },
       authority: { type: "string" },
       endpoint: { type: "string" },
@@ -339,81 +341,49 @@ export async function brokerCommand(
         if (!["codex", "claude", "other"].includes(kind))
           throw new HomectlError(
             2,
-            "Usage: home-ctl agent connect codex|claude|other --hosts a,b",
+            "Usage: home-ctl agent connect codex|claude|other --hosts a,b [--name <id>] | home-ctl agent connect claude --client <id> --hosts a,b",
           );
         const onboard = await import("../broker/onboard");
         const hosts = (v.hosts ?? "")
           .split(",")
           .map((h) => h.trim())
           .filter(Boolean);
-        const clientId = (v.name ?? `${kind}-${hostname()}`)
-          .toLowerCase()
-          .replace(/[^a-z0-9-]/g, "-")
-          .replace(/^[^a-z]+/, "")
-          .slice(0, 63);
-        const created = await callBroker<{ token: string }>(
-          "/v1/owner/clients/create",
+        // Plans first; creates or rotates only after the owner says yes (cli/agent-connect.ts).
+        const result = await connectAgent(
           {
-            id: clientId,
-            name: `${kind} on ${hostname()}`,
-            hosts,
-            password: auth.password,
+            list: () =>
+              callBroker<{ id: string }[]>("/v1/owner/clients/list", {}, auth),
+            create: (input) =>
+              callBroker<{ token: string }>(
+                "/v1/owner/clients/create",
+                { ...input, password: auth.password },
+                auth,
+              ),
+            rotate: (id) =>
+              callBroker<{ token: string }>(
+                "/v1/owner/clients/rotate",
+                { id, password: auth.password },
+                auth,
+              ),
+            plan: onboard.planAgentConfig,
+            apply: onboard.applyAgentConfig,
+            storeToken: onboard.storeClientToken,
+            whoami: async (token) =>
+              (
+                await callBroker<{ id: string }>(
+                  "/v1/whoami",
+                  {},
+                  { endpoint: auth.endpoint, authorization: `Bearer ${token}` },
+                )
+              ).id,
+            confirm,
+            note: (line) => console.error(line),
+            setupPrompt: onboard.setupPrompt,
+            hostName: hostname(),
           },
-          auth,
+          { kind, hosts, name: v.name, client: v.client },
         );
-        // All reviewed changes apply together, or none does.
-        const changes = await onboard.planAgentConfig(kind, created.token);
-        const blocked = changes.filter((change) => !change.supported);
-        if (blocked.length) {
-          await onboard.storeClientToken(created.token);
-          const manual = blocked.flatMap((change) => change.manual ?? []);
-          emit(
-            {
-              id: clientId,
-              applied: false,
-              manual,
-              prompt: onboard.setupPrompt(kind),
-            },
-            [
-              ...manual,
-              "",
-              "Setup prompt for the agent:",
-              onboard.setupPrompt(kind),
-            ].join("\n"),
-          );
-          return 0;
-        }
-        console.error(
-          changes
-            .map(
-              (change) =>
-                `Planned change to ${change.path}:\n${change.diff.join("\n")}`,
-            )
-            .join("\n\n"),
-        );
-        if (!(await confirm("Apply these changes? [y/N] ")))
-          throw new HomectlError(
-            3,
-            "Cancelled; the client was created but not configured. Revoke it with `home-ctl agent revoke`.",
-          );
-        for (const change of changes)
-          await onboard.applyAgentConfig(change, created.token);
-        // The MCP server reads this file; the agent config holds the same token.
-        await onboard.storeClientToken(created.token);
-        const who = await callBroker<{ id: string }>(
-          "/v1/whoami",
-          {},
-          { endpoint: auth.endpoint, authorization: `Bearer ${created.token}` },
-        );
-        emit(
-          {
-            id: who.id,
-            applied: true,
-            paths: changes.map((change) => change.path),
-            verified: true,
-          },
-          `Connected ${kind} as ${who.id}. Restart the agent so it picks up the change. The MCP server runs \`home-ctl mcp\`, so home-ctl must be on the agent's PATH.`,
-        );
+        emit(result, describeConnect(result, kind));
         return 0;
       }
       if (action === "rotate") {
