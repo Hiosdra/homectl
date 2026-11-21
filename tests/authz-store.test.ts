@@ -137,7 +137,8 @@ describe("policy validation", () => {
       mode: "rules",
       reviewer: { authority: "recommend", fallback: "ask", maxRisk: "R2" },
     });
-    expect(defaultPolicy("routine").mode).toBe("rules");
+    // "AI helps with small fixes" consults the helper, so it is auto mode.
+    expect(defaultPolicy("routine").mode).toBe("auto");
     expect(defaultPolicy("routine").reviewer.authority).toBe("routine");
     expect(defaultPolicy("delegated")).toMatchObject({
       mode: "auto",
