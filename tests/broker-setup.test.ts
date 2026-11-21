@@ -14,6 +14,7 @@ import { handler } from "../src/broker/server";
 import { buildStatus, type SetupFacts } from "../src/broker/setup-detect";
 import { SetupRoutes } from "../src/broker/setup-routes";
 import {
+  isUpgradeNotice,
   sanitizeSetup,
   SetupStore,
   SETUP_STEPS,
@@ -356,6 +357,16 @@ test("assistant seen times survive a restart and do not touch the registry", asy
   expect(await second.lastSeen("codex")).toBeUndefined();
   const text = await readFile(path, "utf8");
   expect(text).not.toContain("hct_");
+});
+
+test("only a real upgrade from 0.2 with machines is announced", () => {
+  // A fresh `home-ctl setup` reads as a 0.2 workspace with no machines: no notice.
+  expect(isUpgradeNotice({ status: "migrated", from: 2 }, 0)).toBe(false);
+  // Same data version, or nothing migrated: no notice.
+  expect(isUpgradeNotice({ status: "current" }, 3)).toBe(false);
+  expect(isUpgradeNotice({ status: "initialized" }, 3)).toBe(false);
+  // A 0.2 workspace that carried machines: the owner hears about it.
+  expect(isUpgradeNotice({ status: "migrated", from: 2 }, 2)).toBe(true);
 });
 
 test("a corrupt setup file starts again without trusting anything in it", async () => {

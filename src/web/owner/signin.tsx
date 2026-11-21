@@ -46,7 +46,7 @@ export function SignInScreen({
           </span>
           <h1>homectl owner</h1>
         </div>
-        <h2>Sign in to decide</h2>
+        <h2>Sign in to open your vault and decide</h2>
         <p className="small muted">
           Approvals, secrets and assistant access are decided here, by you. When
           your owner password is also your vault password (the usual setup),

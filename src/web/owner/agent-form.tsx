@@ -45,15 +45,19 @@ export function connectCommand(id: string, hosts: string[]): string {
 
 export function AddAssistant({
   clients,
+  machines: inventory,
   onCreated,
   onError,
 }: {
   clients: ClientView[];
+  // The machines in the inventory, when the caller has them (the setup wizard does).
+  // Without them, the machines the existing assistants use are offered.
+  machines?: string[];
   onCreated: (result: Issued) => void;
   onError: (error: unknown) => unknown;
 }) {
   const baseId = useId();
-  const machines = knownMachines(clients);
+  const machines = inventory ?? knownMachines(clients);
   const [name, setName] = useState("");
   const [idOverride, setIdOverride] = useState<string | undefined>();
   const [picked, setPicked] = useState<string[]>([]);

@@ -8,7 +8,9 @@ export type Route =
   | { name: "machines" }
   | { name: "policy" }
   | { name: "workspace" }
-  | { name: "system" };
+  | { name: "system" }
+  // The guided setup. `step` is a step name ("" for the first unfinished step).
+  | { name: "setup"; step: string };
 
 export function parseRoute(hash: string): Route {
   const [section = "", id = ""] = hash.replace(/^#\/?/, "").split("/");
@@ -19,5 +21,11 @@ export function parseRoute(hash: string): Route {
   if (section === "policy") return { name: "policy" };
   if (section === "workspace") return { name: "workspace" };
   if (section === "system") return { name: "system" };
+  if (section === "setup") return { name: "setup", step: id };
   return { name: "overview" };
+}
+
+// The hash for a setup step (or the wizard's start). Section names only.
+export function setupHash(step?: string): string {
+  return step ? `#/setup/${step}` : "#/setup";
 }

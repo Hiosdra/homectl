@@ -26,12 +26,22 @@ import {
 } from "./permissions-copy";
 import { ruleCovers, ruleFacts, ruleOwner } from "./policy-sentences";
 import { CheckRules, namesOf, WhoCanDo } from "./policy-who";
+import { type SetupStatus, stepOf } from "./setup-api";
+import { SetupLink } from "./setup-checklist";
 import { Badge, Dialog, fmtTime, Notice, PasswordStep } from "./ui";
+
+// Whether the permissions step is done (saved, or kept as it is).
+function setupPermissionsDone(status: SetupStatus): boolean {
+  return stepOf(status, "permissions").state === "done";
+}
 
 export function PolicyScreen({
   onError,
+  setup,
 }: {
   onError: (error: unknown) => unknown;
+  // The guided setup's progress, when the panel has it (the review banner needs it).
+  setup?: SetupStatus;
 }) {
   const [policy, setPolicy] = useState<PolicyDocument | undefined>();
   const [clients, setClients] = useState<ClientView[]>([]);
@@ -147,6 +157,13 @@ export function PolicyScreen({
           when homectl asks you first. A change applies to the next request.
         </p>
       </div>
+      {setup && !setupPermissionsDone(setup) ? (
+        <Notice>
+          <strong>Review how much homectl decides.</strong> Keep “Ask me first”
+          or choose another level.{" "}
+          <SetupLink step="permissions">Open the setup step →</SetupLink>
+        </Notice>
+      ) : null}
       {error ? <Notice tone="bad">{error}</Notice> : null}
       {notice ? <Notice tone="good">{notice}</Notice> : null}
 

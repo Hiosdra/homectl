@@ -6,7 +6,9 @@ import { useEffect, useState } from "react";
 import { type ClientView, describeError, ownerCall } from "./api";
 import { AddAssistant, type Issued, NewKey } from "./agent-form";
 import { sharedNameIds } from "./assistant-labels";
+import { listMachines } from "./machine-api";
 import { displayName } from "./plain-words";
+import { SetupLink } from "./setup-checklist";
 import { relativeTime, toEpoch } from "./time";
 import { Badge, Dialog, Notice, PasswordStep } from "./ui";
 
@@ -29,6 +31,20 @@ export function AgentsScreen({
   const [error, setError] = useState<string | undefined>();
   const [issued, setIssued] = useState<Issued | undefined>();
   const [busy, setBusy] = useState(false);
+  // The machines in the inventory. Until they are read, the form waits.
+  const [machines, setMachines] = useState<string[] | undefined>();
+
+  useEffect(() => {
+    let current = true;
+    listMachines()
+      .then((data) => {
+        if (current) setMachines(data.machines.map((machine) => machine.name));
+      })
+      .catch(onError);
+    return () => {
+      current = false;
+    };
+  }, [onError]);
 
   const load = async () => {
     try {
@@ -115,14 +131,27 @@ export function AgentsScreen({
           </div>
         ) : null}
       </div>
-      <AddAssistant
-        clients={clients ?? []}
-        onCreated={(result) => {
-          setIssued(result);
-          void load();
-        }}
-        onError={onError}
-      />
+      {machines !== undefined && machines.length === 0 ? (
+        <section className="empty" aria-label="Add a machine first">
+          <h3>An assistant needs a machine to work on</h3>
+          <p>
+            Add your first machine, then come back here to connect an assistant.
+          </p>
+          <p>
+            <SetupLink step="machine">Add a machine first →</SetupLink>
+          </p>
+        </section>
+      ) : (
+        <AddAssistant
+          clients={clients ?? []}
+          machines={machines}
+          onCreated={(result) => {
+            setIssued(result);
+            void load();
+          }}
+          onError={onError}
+        />
+      )}
     </>
   );
 }

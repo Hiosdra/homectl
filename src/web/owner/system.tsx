@@ -3,13 +3,18 @@
 // from a button press, and shows what the browser answered.
 import { useState } from "react";
 import { alertPermission, askForAlerts, type AlertPermission } from "./alerts";
+import { type SetupStatus, stepOf } from "./setup-api";
+import { SetupLink } from "./setup-checklist";
 import { UpdatePanel } from "./update-panel";
 import { Badge, Notice } from "./ui";
 
 export function SystemScreen({
   onError,
+  setup,
 }: {
   onError: (error: unknown) => unknown;
+  // The guided setup's progress, when the panel has it (it links the optional steps).
+  setup?: SetupStatus;
 }) {
   return (
     <>
@@ -22,6 +27,23 @@ export function SystemScreen({
       </div>
       <UpdatePanel onError={onError} />
       <NotificationSection />
+      {setup && !setup.facts.workspaceServer ? (
+        <section aria-labelledby="pair-link-heading">
+          <h3 id="pair-link-heading">Second device</h3>
+          <p className="small muted">
+            Pairing a second computer and its backups is optional. Devices &amp;
+            backup appears here once this computer is a server.{" "}
+            <SetupLink step="devices">Set up a second device →</SetupLink>
+          </p>
+        </section>
+      ) : null}
+      {setup && stepOf(setup, "notifications").state !== "done" ? (
+        <p className="small muted">
+          <SetupLink step="notifications">
+            Set up alerts and updates, step by step →
+          </SetupLink>
+        </p>
+      ) : null}
     </>
   );
 }

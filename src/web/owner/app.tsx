@@ -41,6 +41,9 @@ import { type Route, parseRoute } from "./route";
 import { SecretScreen } from "./secret";
 import { SignInScreen } from "./signin";
 import { SystemScreen } from "./system";
+import { OfflineScreen } from "./offline";
+import { SetupScreen } from "./setup-screen";
+import { useSetupStatus } from "./setup-live";
 import {
   Gone,
   MainNav,
@@ -156,6 +159,14 @@ function App() {
     [signOut],
   );
 
+  // The guided setup's progress (read from the broker, never kept in the browser).
+  const { setup, setSetup, reloadSetup } = useSetupStatus({
+    signedIn,
+    onSetupPage: signedIn && route.name === "setup",
+    go,
+    onError: handle,
+  });
+
   const refresh = useCallback(async () => {
     try {
       // A failed workspace read does not hide local approvals: the last
@@ -180,10 +191,11 @@ function App() {
       setSession((current) =>
         current.state === "signed-in" ? current : { state: "signed-in" },
       );
+      void reloadSetup();
     } catch (error) {
       handle(error);
     }
-  }, [handle, server, alerts]);
+  }, [handle, server, alerts, reloadSetup]);
 
   // On load, the pending read tells whether the cookie session is still valid.
   useEffect(() => {
@@ -313,34 +325,13 @@ function App() {
     return <p className="center muted">Connecting to the homectl broker…</p>;
   if (session.state === "offline")
     return (
-      <div className="center">
-        <section className="stack">
-          <h2>homectl is not running</h2>
-          <p>
-            Start it in a terminal you keep open, then press Try again. This is
-            the command:
-          </p>
-          <p>
-            <code>home-ctl start</code>{" "}
-            <CopyButton label="command" text="home-ctl start" primary />
-          </p>
-          <Notice tone="warn">{session.message}</Notice>
-          <p className="small muted">
-            This panel only forwards owner requests to the broker and holds
-            nothing itself. It opens again once homectl is running.
-          </p>
-          <button
-            type="button"
-            className="primary"
-            onClick={() => {
-              setSession({ state: "checking" });
-              void refresh();
-            }}
-          >
-            Try again
-          </button>
-        </section>
-      </div>
+      <OfflineScreen
+        message={session.message}
+        onRetry={() => {
+          setSession({ state: "checking" });
+          void refresh();
+        }}
+      />
     );
   if (!signedIn)
     return (
@@ -417,6 +408,8 @@ function App() {
               loadedAt: data.loadedAt,
             }}
             workspaceWaiting={shownPending.length}
+            setup={setup}
+            onSetupChanged={setSetup}
             scope={scope}
             onOpen={go}
             // A one-tap decision stays on this screen; the list refreshes.
@@ -456,9 +449,21 @@ function App() {
             onBack={() => go("#/")}
           />
         ) : null}
+        {route.name === "setup" && (
+          <SetupScreen
+            step={route.step}
+            status={setup}
+            operations={shownOperations}
+            onGo={go}
+            onChanged={setSetup}
+            onError={handle}
+          />
+        )}
         {route.name === "agents" && <AgentsScreen onError={handle} />}
         {route.name === "machines" && <MachinesScreen onError={handle} />}
-        {route.name === "policy" && <PolicyScreen onError={handle} />}
+        {route.name === "policy" && (
+          <PolicyScreen onError={handle} setup={setup} />
+        )}
         {route.name === "workspace" && server === null && (
           <Notice>This broker is not a workspace server.</Notice>
         )}
@@ -479,7 +484,9 @@ function App() {
             onError={handle}
           />
         ) : null}
-        {route.name === "system" && <SystemScreen onError={handle} />}
+        {route.name === "system" && (
+          <SystemScreen onError={handle} setup={setup} />
+        )}
       </main>
       {flash ? (
         <Toast message={flash} onDismiss={() => setFlash(undefined)} />

@@ -55,6 +55,21 @@ export function emptySetup(): SetupFile {
   return { version: 1, steps: {} };
 }
 
+// Whether a startup migration was an upgrade the owner should hear about. A fresh
+// `home-ctl setup` also writes an inventory without a data marker, which the migration
+// reads as a 0.2 workspace, so "migrated" alone is not enough. An upgrade from 0.2 is
+// one that carried machines the owner has to reconnect assistants to.
+export function isUpgradeNotice(
+  migration: { status: string; from?: number },
+  machinesBefore: number,
+): boolean {
+  return (
+    migration.status === "migrated" &&
+    migration.from === 2 &&
+    machinesBefore > 0
+  );
+}
+
 function timestamp(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0
     ? value

@@ -35,7 +35,7 @@ import { SecretService } from "./secret-service";
 import { type Listen, startBrokerServer } from "./server";
 import { gatherFacts } from "./setup-facts";
 import { SetupRoutes } from "./setup-routes";
-import { SetupStore } from "./setup-state";
+import { isUpgradeNotice, SetupStore } from "./setup-state";
 import { BrokerStore } from "./store";
 import type {
   EventsPort,
@@ -100,15 +100,20 @@ export function sshExecutor(
 }
 
 export async function startDaemon(config: DaemonConfig) {
+  // Machines before any migration: an upgrade from 0.2 is one that carried machines.
+  const machinesBefore = await loadInventory(config.inventoryPath).then(
+    (inventory) => Object.keys(inventory.machines).length,
+    () => 0,
+  );
   const migration = await migrate(config.inventoryPath, {
     brokerState: config.state,
   });
   await privateDirectory(config.state);
   await ensurePrivateDirectoryOnce(config.state);
-  // Setup progress (broker/setup.json). A data migration that ran just now is shown
-  // to the owner once, in plain words, with a note to connect assistants again.
+  // Setup progress (broker/setup.json). An upgrade that ran just now is shown to the
+  // owner once, in plain words, with a note to connect assistants again.
   const setup = new SetupStore(join(config.state, "setup.json"));
-  if (migration.status === "migrated")
+  if (isUpgradeNotice(migration, machinesBefore))
     await setup.update((file, at) => {
       file.upgradedAt = at;
       delete file.upgradeAckAt;

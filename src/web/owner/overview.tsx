@@ -22,11 +22,17 @@ import { expiresIn, relativeTime, toEpoch } from "./time";
 import { Badge, MachineText, Notice } from "./ui";
 import { displayName, plainAction, riskLine } from "./plain-words";
 import { useAssistantRoster, type AssistantNames } from "./assistant-names";
+import { setupHash } from "./route";
+import { type SetupStatus } from "./setup-api";
+import { SetupChecklist, UpgradeNotice } from "./setup-checklist";
+import { wizardStep } from "./setup-copy";
 
 export function OverviewScreen({
   data,
   workspaceWaiting = 0,
   scope,
+  setup,
+  onSetupChanged,
   onOpen,
   onQuickDone,
   onError,
@@ -40,6 +46,9 @@ export function OverviewScreen({
   workspaceWaiting?: number;
   // The device context this inbox shows; the note names it.
   scope?: ViewScope;
+  // The guided setup's progress: the checklist sits at the top while it is open.
+  setup?: SetupStatus;
+  onSetupChanged?: (next: SetupStatus) => void;
   onOpen: (hash: string) => void;
   // A one-tap decision: the message names the result, the list refreshes.
   onQuickDone: (message: string) => void;
@@ -66,26 +75,48 @@ export function OverviewScreen({
         </p>
       </div>
       <ContextNote scope={scope} />
+      {setup && onSetupChanged ? (
+        <UpgradeNotice
+          status={setup}
+          onChanged={onSetupChanged}
+          onError={onError}
+        />
+      ) : null}
+      {setup && onSetupChanged ? (
+        <SetupChecklist
+          status={setup}
+          onOpen={onOpen}
+          onChanged={onSetupChanged}
+          onError={onError}
+        />
+      ) : null}
 
       {total === 0 && roster.count === 0 ? (
-        // A new install: nothing is set up yet, so "caught up" would mislead.
-        // The setup checklist replaces this hint (see the setup checklist work).
+        // A new install: nothing is set up yet, so "caught up" would mislead. The
+        // checklist above names the next step.
         <section className="empty" aria-label="Nothing needs you yet">
           <div className="empty-mark">
             <Icon name="bot" />
           </div>
-          <h3>Nothing needs you yet. Set up homectl first.</h3>
-          <p>
-            Next step: add your first machine with{" "}
-            <code>home-ctl key create &lt;name&gt;</code> in a private terminal,
-            or connect an assistant below.
-          </p>
-          <div className="row">
-            <button type="button" onClick={() => onOpen("#/agents")}>
-              <Icon name="bot" />
-              Connect an assistant
-            </button>
-          </div>
+          <h3>Nothing needs you yet.</h3>
+          {setup?.next ? (
+            <p>
+              Next:{" "}
+              <a className="setup-link" href={setupHash(setup.next)}>
+                {wizardStep(setup.next)?.title ?? "finish setup"} →
+              </a>
+            </p>
+          ) : (
+            <p>Set up homectl first: the checklist above shows each step.</p>
+          )}
+          {setup?.next ? null : (
+            <div className="row">
+              <button type="button" onClick={() => onOpen("#/agents")}>
+                <Icon name="bot" />
+                Connect an assistant
+              </button>
+            </div>
+          )}
         </section>
       ) : total === 0 ? (
         <section className="empty" aria-label="All caught up">

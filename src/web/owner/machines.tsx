@@ -12,6 +12,7 @@ import {
   RemoveDialog,
 } from "./machine-actions";
 import { type MachineRow, listMachines } from "./machine-api";
+import { SetupLink } from "./setup-checklist";
 import {
   accessLabel,
   accessSentence,
@@ -106,6 +107,10 @@ export function MachinesScreen({
             >
               Add your first machine →
             </button>
+          </p>
+          <p className="small muted">
+            New to this?{" "}
+            <SetupLink step="machine">Follow the guided setup →</SetupLink>
           </p>
         </section>
       ) : null}
