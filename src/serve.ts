@@ -37,6 +37,7 @@ import {
 import { panelAssets } from "./web/panel-assets";
 import { security } from "./web/panel-headers";
 import { handleServiceRoute } from "./web/service-route";
+import { LaunchCodes } from "./web/launch-code";
 import { handleUnlockRoute } from "./web/unlock-gate";
 import { openPanelGate, saveSession, unlockVault } from "./web/unlock-open";
 import { handleUpdateRoute, updateChecker } from "./web/update-status";
@@ -121,6 +122,7 @@ export async function serve(options: ServeOptions) {
     externalPanel?.accessToken ?? randomBytes(32).toString("base64url");
   const cookie = randomBytes(32).toString("base64url");
   const gate = await openPanelGate(options.inventoryPath, cookie);
+  const launchCodes = new LaunchCodes();
   let hub: Hub;
   let control: ControlPlane;
   let replicator: ControlReplicator | undefined;
@@ -352,6 +354,27 @@ export async function serve(options: ServeOptions) {
               const r = response({ connected: true });
               r.headers.set("Set-Cookie", gate.grantPanel());
               return r;
+            }
+            // `home-ctl panel`: the token is traded for a one-time code (POST), and
+            // the browser opens /launch?code=…, which sets the cookie and redirects.
+            if (url.pathname === "/api/launch" && req.method === "POST") {
+              if (req.headers.get("Origin") !== origin)
+                throw new HomectlError(3, "Open the local panel directly");
+              const v = await body(req);
+              if (!sameSecret(v.token, token))
+                throw new HomectlError(3, "Invalid workspace access code");
+              return response(launchCodes.issue());
+            }
+            if (url.pathname === "/launch" && req.method === "GET") {
+              if (!launchCodes.redeem(url.searchParams.get("code")))
+                return new Response(
+                  "This launch link was used or has expired. Run home-ctl panel again in your private terminal.",
+                  { status: 403, headers: { "Content-Type": "text/plain" } },
+                );
+              return new Response(null, {
+                status: 302,
+                headers: { Location: "/", "Set-Cookie": gate.grantPanel() },
+              });
             }
             const unlock = await handleUnlockRoute(
               req,

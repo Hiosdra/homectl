@@ -10,6 +10,7 @@ import { loadInventory, resolveHost, saveInventory } from "../inventory";
 import { workerArgv, writeSSHConfig } from "../operations";
 import { windows } from "../platform";
 import { run } from "../process";
+import { requestLaunchCode } from "../web/launch-code";
 import { type ProvisionRequest, planProvision, proxmox } from "../provisioners";
 import { proxmoxSSH } from "../provisioners/ssh";
 import {
@@ -338,7 +339,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
       if (!process.stdin.isTTY)
         throw new HomectlError(
           5,
-          "Run home-ctl panel yourself in a private terminal; the launch address contains a local access token",
+          "Run home-ctl panel yourself in a private terminal; it opens the local panel for you",
         );
       let existing: { peerAddress?: string } | undefined;
       try {
@@ -381,7 +382,10 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
           "utf8",
         ),
       ) as { url: string; token: string };
-      const url = `${launch.url}/#token=${encodeURIComponent(launch.token)}`;
+      // The launch token never enters the address: the panel trades it for a
+      // one-time code, which the browser spends on its first visit.
+      const code = await requestLaunchCode(launch);
+      const url = `${launch.url}/launch?code=${encodeURIComponent(code)}`;
       console.log("Opening the local home-ctl panel.");
       const child = Bun.spawn(
         windows
