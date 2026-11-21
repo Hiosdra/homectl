@@ -20,6 +20,7 @@ import {
   workspaceApprovalAlert,
 } from "./alerts";
 import { ApprovalScreen } from "./approval";
+import { CopyButton } from "./copy";
 import {
   ALL_DEVICES,
   type DeviceContext,
@@ -313,11 +314,19 @@ function App() {
     return (
       <div className="center">
         <section className="stack">
-          <h2>Broker not running</h2>
+          <h2>homectl is not running</h2>
+          <p>
+            Start it in a terminal you keep open, then press Try again. This is
+            the command:
+          </p>
+          <p>
+            <code>home-ctl start</code>{" "}
+            <CopyButton label="command" text="home-ctl start" primary />
+          </p>
           <Notice tone="warn">{session.message}</Notice>
           <p className="small muted">
             This panel only forwards owner requests to the broker and holds
-            nothing itself. Once the broker is running, try again.
+            nothing itself. It opens again once homectl is running.
           </p>
           <button
             type="button"

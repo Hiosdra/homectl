@@ -188,7 +188,7 @@ test("stdio: without a running broker, tools explain how to start it", async () 
     content: { text: string }[];
   };
   expect(reply.isError).toBe(true);
-  expect(reply.content[0]?.text).toContain("home-ctl daemon run");
+  expect(reply.content[0]?.text).toContain("home-ctl start");
 });
 
 test("stdio: without a client token, tools explain how the owner connects the agent", async () => {

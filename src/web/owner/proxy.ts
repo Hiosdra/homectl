@@ -11,7 +11,7 @@ const MAX_BODY = 64 * 1024;
 const FORWARDED_REQUEST_HEADERS = ["content-type", "accept", "last-event-id"];
 const FORWARDED_RESPONSE_HEADERS = ["content-type", "cache-control"];
 export const BROKER_OFFLINE =
-  "The homectl broker is not running. Start it with `home-ctl daemon run`.";
+  "The homectl broker is not running. Start it with: home-ctl start";
 
 export interface OwnerProxyOptions {
   // The exact panel origin. The broker only accepts this origin for cookies.

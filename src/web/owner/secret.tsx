@@ -284,7 +284,10 @@ export function SecretScreen({
             />
           </div>
           {retention === "saved" ? (
-            <Field id={`${baseId}-save`} label="Vault name">
+            <Field
+              id={`${baseId}-save`}
+              label="Save for next time, under this name"
+            >
               <input
                 id={`${baseId}-save`}
                 type="text"

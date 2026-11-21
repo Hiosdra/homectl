@@ -25,6 +25,34 @@ const SIGNATURES: readonly SignatureState[] = [
   "unknown",
 ];
 
+// Major.minor.patch, or undefined when the text is not a version.
+function parseVersion(text: string): [number, number, number] | undefined {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(text.trim());
+  if (!match) return undefined;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+// The one sentence about releases on the System screen, in plain words. A build
+// newer than the latest release is said so, rather than printed beside it as if
+// the two numbers were in conflict.
+export function releaseSentence(status: UpdateStatus): string {
+  const { current, latest, available } = status;
+  if (latest === undefined) return "Could not check for a newer release.";
+  const a = parseVersion(current);
+  const b = parseVersion(latest);
+  if (available) return `Version ${latest} is available.`;
+  if (a === undefined || b === undefined)
+    return `The latest release is ${latest}.`;
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) {
+      return (a[i] ?? 0) > (b[i] ?? 0)
+        ? `You have ${current}, a test version newer than the latest release (${latest}).`
+        : `You are up to date. The latest release is ${latest}.`;
+    }
+  }
+  return `You are up to date. The latest release is ${latest}.`;
+}
+
 // Accepts only the documented shape; anything else is treated as "no status".
 export function toUpdateStatus(value: unknown): UpdateStatus | undefined {
   if (typeof value !== "object" || value === null) return undefined;

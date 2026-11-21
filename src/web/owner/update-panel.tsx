@@ -8,6 +8,7 @@ import { PANEL_VERSION } from "./version";
 import {
   applyUpdate,
   readUpdateStatus,
+  releaseSentence,
   signatureLabel,
   type UpdateStatus,
 } from "./update-api";
@@ -85,11 +86,8 @@ export function UpdatePanel({
           <>
             <dt>Installed</dt>
             <dd>homectl {load.status.current}</dd>
-            <dt>Latest</dt>
-            <dd>
-              {load.status.latest ?? "Not reported"}
-              {load.status.available ? " · update available" : ""}
-            </dd>
+            <dt>Releases</dt>
+            <dd>{releaseSentence(load.status)}</dd>
             <dt>Signature</dt>
             <dd>
               <Badge tone={signatureLabel(load.status.signature).tone}>

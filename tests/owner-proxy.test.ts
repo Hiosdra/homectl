@@ -223,7 +223,7 @@ test("says what to do when no broker is running", async () => {
     error: { message: string; reason: string };
   };
   expect(body.error.reason).toBe("broker-offline");
-  expect(body.error.message).toContain("home-ctl daemon run");
+  expect(body.error.message).toContain("home-ctl start");
 });
 
 test("refuses a broker that was not started for this panel", async () => {

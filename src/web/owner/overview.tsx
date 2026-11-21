@@ -21,7 +21,7 @@ import { isUnderReview } from "./review";
 import { expiresIn, relativeTime, toEpoch } from "./time";
 import { Badge, MachineText, Notice } from "./ui";
 import { displayName, plainAction, riskLine } from "./plain-words";
-import { useAssistantNames, type AssistantNames } from "./assistant-names";
+import { useAssistantRoster, type AssistantNames } from "./assistant-names";
 
 export function OverviewScreen({
   data,
@@ -47,7 +47,8 @@ export function OverviewScreen({
 }) {
   // Re-render every half minute so "in 12 minutes" stays true while open.
   const [, setNow] = useState(0);
-  const names = useAssistantNames();
+  const roster = useAssistantRoster();
+  const names = roster.names;
   useEffect(() => {
     const timer = setInterval(() => setNow((tick) => tick + 1), 30_000);
     return () => clearInterval(timer);
@@ -66,7 +67,27 @@ export function OverviewScreen({
       </div>
       <ContextNote scope={scope} />
 
-      {total === 0 ? (
+      {total === 0 && roster.count === 0 ? (
+        // A new install: nothing is set up yet, so "caught up" would mislead.
+        // The setup checklist replaces this hint (see the setup checklist work).
+        <section className="empty" aria-label="Nothing needs you yet">
+          <div className="empty-mark">
+            <Icon name="bot" />
+          </div>
+          <h3>Nothing needs you yet. Set up homectl first.</h3>
+          <p>
+            Next step: add your first machine with{" "}
+            <code>home-ctl key create &lt;name&gt;</code> in a private terminal,
+            or connect an assistant below.
+          </p>
+          <div className="row">
+            <button type="button" onClick={() => onOpen("#/agents")}>
+              <Icon name="bot" />
+              Connect an assistant
+            </button>
+          </div>
+        </section>
+      ) : total === 0 ? (
         <section className="empty" aria-label="All caught up">
           <div className="empty-mark">
             <Icon name="check-circle" />

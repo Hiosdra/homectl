@@ -6,23 +6,38 @@ import { type ClientView, ownerCall } from "./api";
 
 export type AssistantNames = Readonly<Record<string, string>>;
 
-export function useAssistantNames(): AssistantNames {
-  const [names, setNames] = useState<AssistantNames>({});
+export interface AssistantRoster {
+  names: AssistantNames;
+  // undefined until the list has loaded (or when it cannot be read).
+  count: number | undefined;
+}
+
+// Names and the number of assistants, from one read of the assistant list.
+export function useAssistantRoster(): AssistantRoster {
+  const [roster, setRoster] = useState<AssistantRoster>({
+    names: {},
+    count: undefined,
+  });
   useEffect(() => {
     let current = true;
     ownerCall<ClientView[]>("/v1/owner/clients/list")
       .then((list) => {
         if (current)
-          setNames(
-            Object.fromEntries(
+          setRoster({
+            names: Object.fromEntries(
               list.map((client) => [client.id, client.name || client.id]),
             ),
-          );
+            count: list.length,
+          });
       })
       .catch(() => undefined);
     return () => {
       current = false;
     };
   }, []);
-  return names;
+  return roster;
+}
+
+export function useAssistantNames(): AssistantNames {
+  return useAssistantRoster().names;
 }

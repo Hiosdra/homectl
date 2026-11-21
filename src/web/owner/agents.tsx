@@ -235,7 +235,8 @@ function AssistantRow({
         >
           <p>
             {name} can no longer ask homectl for anything. Its key stops working
-            at once. You can add the assistant again later.
+            at once. To add an assistant like this again, use a different name:
+            this name stays reserved.
           </p>
           <div className="row">
             <button

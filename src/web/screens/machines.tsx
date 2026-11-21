@@ -94,7 +94,7 @@ function CreateKey() {
           <Input
             id="key-name"
             name="name"
-            pattern="[a-z][a-z0-9-]{0,62}"
+            pattern="[a-z][a-z0-9\-]{0,62}"
             placeholder="storage-nas"
             required
           />
@@ -248,7 +248,7 @@ export function MachineForm() {
           <Input
             id="machine-name"
             name="name"
-            pattern="[a-z][a-z0-9-]{0,62}"
+            pattern="[a-z][a-z0-9\-]{0,62}"
             defaultValue={ui.editing}
             required
             readOnly={m !== undefined}

@@ -35,11 +35,12 @@ export function knownMachines(clients: ClientView[]): string[] {
   return [...new Set(clients.flatMap((client) => client.hosts))].sort();
 }
 
-// The one command the CLI accepts for an assistant: it takes codex, claude or other.
+// The command that connects the assistant the panel just created. --client reuses
+// that id (and rotates its key) instead of creating a second assistant.
 export function connectCommand(id: string, hosts: string[]): string {
   const kind = id === "codex" || id === "claude" ? id : "other";
   const list = hosts.length > 0 ? hosts.join(",") : "<machine>";
-  return `home-ctl agent connect ${kind} --hosts ${list}`;
+  return `home-ctl agent connect ${kind} --client ${id} --hosts ${list}`;
 }
 
 export function AddAssistant({
@@ -171,7 +172,7 @@ export function AddAssistant({
             <input
               id={`${baseId}-id`}
               value={id}
-              pattern="[a-z][a-z0-9-]{0,62}"
+              pattern="[a-z][a-z0-9\-]{0,62}"
               onChange={(event) => setIdOverride(event.target.value)}
             />
           </Field>

@@ -7,7 +7,7 @@ import { HomectlError } from "../types";
 import type { AgentPort } from "./tools";
 
 export const NO_BROKER =
-  "The homectl broker is not running. Start it with `home-ctl daemon run` (or `home-ctl daemon install`), then try again.";
+  "The homectl broker is not running. Start it with `home-ctl start` in a terminal the owner keeps open (or `home-ctl daemon install` for the background service), then try again.";
 export const NO_TOKEN =
   "This agent is not connected to homectl. The owner connects it with `home-ctl agent connect codex|claude|other --hosts <list>`.";
 
