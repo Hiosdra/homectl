@@ -5,17 +5,8 @@ import { privateCommand, readPassword, sessionConfig } from ".";
 
 export const VAULT_PASSWORD_MIN = 12;
 
-export async function initDatabase(inv: Inventory, inventoryPath: string) {
-  const { database } = sessionConfig(inv, inventoryPath);
-  if (await Bun.file(database).exists())
-    throw new HomectlError(
-      3,
-      "Database already exists; it will not be overwritten",
-    );
-  if (!available("keepassxc-cli"))
-    throw new HomectlError(5, "Install KeePassXC first");
-  // The vault password is also the owner password: signing in to the panel
-  // with it opens the vault. Same minimum as the owner password (broker/owner.ts).
+// Asks for the new vault password from the terminal, then again to confirm.
+async function readVaultPassword(): Promise<string> {
   const password = await readPassword(
     "New vault password (this is also your owner password): ",
   );
@@ -26,6 +17,32 @@ export async function initDatabase(inv: Inventory, inventoryPath: string) {
     );
   if (password !== (await readPassword("Repeat the vault password: ")))
     throw new HomectlError(2, "Passwords differ");
+  return password;
+}
+
+// `suppliedPassword` is for the guided setup, which has already asked for the
+// password and checked it. Without it the password is read from the terminal.
+export async function initDatabase(
+  inv: Inventory,
+  inventoryPath: string,
+  suppliedPassword?: string,
+) {
+  const { database } = sessionConfig(inv, inventoryPath);
+  if (await Bun.file(database).exists())
+    throw new HomectlError(
+      3,
+      "Database already exists; it will not be overwritten",
+    );
+  if (!available("keepassxc-cli"))
+    throw new HomectlError(5, "Install KeePassXC first");
+  // The vault password is also the owner password: signing in to the panel
+  // with it opens the vault. Same minimum as the owner password (broker/owner.ts).
+  const password = suppliedPassword ?? (await readVaultPassword());
+  if (password.length < VAULT_PASSWORD_MIN)
+    throw new HomectlError(
+      2,
+      `Use a vault password of at least ${VAULT_PASSWORD_MIN} characters. It is also your owner password.`,
+    );
   await privateDirectory(dirname(database));
   await privateCommand(
     [

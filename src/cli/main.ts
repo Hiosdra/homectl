@@ -276,6 +276,9 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         configureFirewall: Boolean(v["configure-firewall"]),
         interface: v.interface,
       });
+      // An interactive run has printed its own steps (and, when homectl is
+      // started, ran until Ctrl+C); only scripted runs get the result object.
+      if (result.interactive) return 0;
       emit(result);
       if ("doctor" in result && result.doctor && !result.doctor.ok) return 5;
       return 0;
