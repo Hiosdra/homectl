@@ -31,12 +31,14 @@ header.topbar { position: sticky; top: 0; z-index: 10; display: flex; align-item
 .sidebar-foot { display: none; }
 
 nav[aria-label="Owner sections"] { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: grid;
-  grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; height: var(--tabbar-h);
+  grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; height: var(--tabbar-h);
   padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
   background: var(--surface); border-top: 1px solid var(--line); }
-nav[aria-label="Owner sections"] button { flex-direction: column; gap: 3px; min-height: 58px; padding: 6px 2px;
+/* Columns never grow to fit a long label: six tabs must fit a 390px screen. */
+nav[aria-label="Owner sections"] button { min-width: 0; flex-direction: column; gap: 3px; min-height: 58px; padding: 6px 2px;
   border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink-2); font-size: 12px;
   font-weight: 600; line-height: 1.2; position: relative; }
+nav[aria-label="Owner sections"] button > span:not(.nav-count) { min-width: 0; overflow-wrap: anywhere; text-align: center; }
 nav[aria-label="Owner sections"] button:hover:not(:disabled) { background: var(--surface-2); }
 nav[aria-label="Owner sections"] button .icon { width: 22px; height: 22px; }
 nav[aria-label="Owner sections"] button.active { color: var(--accent-soft-ink); background: var(--accent-soft);
