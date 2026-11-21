@@ -137,6 +137,11 @@ export async function brokerCommand(
   const argv = split < 0 ? [] : raw.slice(split + 1);
   const [command] = cliArgs;
   if (!command) return undefined;
+  if (command === "proxmox")
+    return (await import("./proxmox-commands")).proxmoxCommand(
+      cliArgs.slice(1),
+      options,
+    );
   if (cliArgs.includes("--approval"))
     throw new HomectlError(2, APPROVAL_REMOVED);
   // exec/ssh go through the broker whenever the agent is connected to one.

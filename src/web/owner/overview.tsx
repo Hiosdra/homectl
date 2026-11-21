@@ -21,6 +21,7 @@ import { isUnderReview } from "./review";
 import { expiresIn, relativeTime, toEpoch } from "./time";
 import { Badge, MachineText, Notice } from "./ui";
 import { displayName, plainAction, riskLine } from "./plain-words";
+import { proxmoxTitle } from "./proxmox";
 import { useAssistantRoster, type AssistantNames } from "./assistant-names";
 import { setupHash } from "./route";
 import { type SetupStatus } from "./setup-api";
@@ -290,7 +291,11 @@ function ApprovalCard({
       </div>
       <p className="lead">
         <MachineText
-          text={`Wants to ${plainAction(op.argv)} on ${op.host}.`}
+          text={
+            op.proxmox
+              ? `${proxmoxTitle(op).replace(/\?$/, "")}.`
+              : `Wants to ${plainAction(op.argv)} on ${op.host}.`
+          }
           machines={[op.host]}
         />
       </p>

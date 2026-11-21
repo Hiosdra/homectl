@@ -2,6 +2,8 @@
 // broker sets on sign-in: this module never reads, stores or puts a token in a
 // URL. Secrets typed into forms are passed straight to the request and dropped.
 
+import type { ProxmoxRequest } from "./proxmox";
+
 export class OwnerApiError extends Error {
   constructor(
     readonly status: number,
@@ -54,6 +56,11 @@ export interface PendingOperation {
   createdAt: number;
   expiresAt: number;
   narrative?: Untrusted;
+  // Proxmox requests: the typed request, its plain area, and whether only the
+  // owner may approve it (see proxmox.tsx).
+  proxmox?: ProxmoxRequest;
+  area?: string;
+  ownerOnly?: boolean;
 }
 
 export type SecretFieldKind = "password" | "token" | "text" | "ssh-key";

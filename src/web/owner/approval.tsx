@@ -40,6 +40,12 @@ import {
   sentenceCase,
   whyWaits,
 } from "./plain-words";
+import {
+  isProxmoxOperation,
+  OwnerOnlyNote,
+  ProxmoxDetailRows,
+  proxmoxTitle,
+} from "./proxmox";
 
 export type ApprovalDecision =
   | "approve-once"
@@ -127,7 +133,11 @@ export function ApprovalScreen({
   const missingPassword = needsStepUp && password.length === 0;
   const approveBlocked = busy || missingPassword;
   const who = displayName(operation.client, names);
-  const title = `${sentenceCase(plainAction(operation.argv))} on ${operation.host}?`;
+  // Proxmox requests are titled by what they do; they are never remembered as rules.
+  const proxmox = isProxmoxOperation(operation);
+  const title = proxmox
+    ? proxmoxTitle(operation)
+    : `${sentenceCase(plainAction(operation.argv))} on ${operation.host}?`;
   const meta = [
     asked !== undefined ? `Asked ${relativeTime(asked)}` : undefined,
     expires !== undefined ? expiresIn(expires) : undefined,
@@ -159,7 +169,10 @@ export function ApprovalScreen({
           From <strong>{who}</strong>
           {operation.task ? `, task ${operation.task}` : ""}.
         </p>
-        <h3 className="sub-title">The exact command</h3>
+        <OwnerOnlyNote operation={operation} />
+        <h3 className="sub-title">
+          {proxmox ? "The exact request" : "The exact command"}
+        </h3>
         <div className="command-block" role="group" aria-label="Exact command">
           <Argv argv={operation.argv} />
         </div>
@@ -192,6 +205,7 @@ export function ApprovalScreen({
               {operation.classification}
               {operation.sudo ? " · runs with sudo" : ""}
             </dd>
+            <ProxmoxDetailRows operation={operation} />
             <dt>Requested by</dt>
             <dd>
               <span className="mono">{operation.client}</span>
@@ -273,7 +287,7 @@ export function ApprovalScreen({
         <details className="more-options">
           <summary>More options</summary>
           <div className="stack">
-            {approveRememberOffered(decision) ? (
+            {!proxmox && approveRememberOffered(decision) ? (
               <div className="option-row">
                 <button
                   type="button"
@@ -285,17 +299,19 @@ export function ApprovalScreen({
                 <p className="small muted">{MORE_OPTIONS.rememberApprove}</p>
               </div>
             ) : null}
-            <div className="option-row">
-              <button
-                type="button"
-                className="danger"
-                disabled={busy}
-                onClick={() => setConfirming("deny-remember")}
-              >
-                Deny and remember…
-              </button>
-              <p className="small muted">{MORE_OPTIONS.rememberDeny}</p>
-            </div>
+            {proxmox ? null : (
+              <div className="option-row">
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={busy}
+                  onClick={() => setConfirming("deny-remember")}
+                >
+                  Deny and remember…
+                </button>
+                <p className="small muted">{MORE_OPTIONS.rememberDeny}</p>
+              </div>
+            )}
             <div className="option-row">
               <button
                 type="button"

@@ -256,7 +256,46 @@ const migrateSections: Section[] = [
   },
 ];
 
+const proxmoxSections: Section[] = [
+  {
+    title: "Guest actions",
+    rows: [
+      [
+        "proxmox <host> list|status|config|start|stop|reboot|shutdown|clone|create|destroy [--kind qemu|lxc] [--vmid N] ...",
+        "Plans one guest action on the provider's node: a typed catalogue action with its own checks (VMID range, protected VMIDs, storages, templates). Start, stop and reboot need the owner's approval in Needs you. Destroy and other destructive actions need the owner's password. Restore is disabled.",
+      ],
+    ],
+  },
+  {
+    title: "Full API",
+    rows: [
+      [
+        "proxmox <host> api GET|POST|PUT|DELETE <path> [--param key=value ...]",
+        "Plans one Proxmox API call from homectl's route table. Reads run without approval. Changes need the owner's approval; deletes and rollbacks are destructive. Owner-only areas (users and permissions, firewall, network, HA, cluster settings, node power, command execution, guest agent) need the owner's password and no rule or assistant can approve them. Needs operations: full on the provider, and an api block.",
+      ],
+    ],
+  },
+  {
+    title: "Options",
+    rows: [
+      [
+        "--wait <seconds>",
+        "How long to wait for the owner's decision (default 120, up to 600).",
+      ],
+      ["--task <id>", "Ties the request to an open task."],
+      ["--json", "Prints the operation view as JSON."],
+    ],
+  },
+];
+
 export const brokerHelp: Record<string, Page> = {
+  proxmox: {
+    usage:
+      "home-ctl proxmox <host> <action> [options] | home-ctl proxmox <host> api <GET|POST|PUT|DELETE> <path> [--param key=value ...]",
+    intro:
+      "Asks the broker to plan a Proxmox change as this agent client. Nothing runs until the owner approves it in Needs you (or with home-ctl approve). Refused requests are not queued. The provider and its api block are set in the inventory.",
+    sections: proxmoxSections,
+  },
   daemon: {
     usage:
       "home-ctl daemon run|panel|status|install|uninstall [--mode compat|hardened]",
