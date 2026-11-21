@@ -138,6 +138,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         scopes: { type: "string" },
         hosts: { type: "string" },
         client: { type: "string" },
+        "no-open": { type: "boolean" },
         "token-file": { type: "string" },
         to: { type: "string" },
         out: { type: "string" },

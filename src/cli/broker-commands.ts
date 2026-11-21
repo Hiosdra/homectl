@@ -18,6 +18,7 @@ import { workspaceCommand } from "./workspace-commands";
 import { verificationNote, verifyCommand } from "./verify-command";
 
 export const BROKER_COMMANDS = new Set([
+  "start",
   "daemon",
   "owner",
   "approvals",
@@ -161,6 +162,7 @@ export async function brokerCommand(
       hosts: { type: "string" },
       name: { type: "string" },
       client: { type: "string" },
+      "no-open": { type: "boolean" },
       mode: { type: "string" },
       authority: { type: "string" },
       endpoint: { type: "string" },
@@ -429,6 +431,14 @@ export async function brokerCommand(
       // stdio MCP server: stdout carries protocol messages only.
       await (await import("../mcp/stdio")).runMcpStdio({ inventoryPath });
       return 0;
+    case "start":
+      return (await import("./start-command")).startCommand({
+        inventoryPath,
+        sshConfigPath: v.inventory
+          ? `${inventoryPath}.ssh_config`
+          : paths().ssh,
+        open: !v["no-open"],
+      });
     case "daemon":
       return (await import("./daemon-command")).daemonCommand(positionals, {
         inventoryPath,

@@ -45,6 +45,10 @@ const pages: Record<string, Page> = {
         title: "Broker and workspace",
         rows: [
           [
+            "start [--no-open]",
+            "Start homectl: the broker and the owner panel in one window. Keep it open; Ctrl+C stops it.",
+          ],
+          [
             "daemon run|panel|status|install|uninstall",
             "Run the broker, its owner panel, or manage the hardened service.",
           ],
