@@ -129,6 +129,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         task: { type: "boolean" },
         "install-deps": { type: "boolean" },
         "configure-firewall": { type: "boolean" },
+        "no-path": { type: "boolean" },
         inventory: { type: "string" },
         mode: { type: "string" },
         file: { type: "string" },
@@ -275,6 +276,7 @@ export async function main(raw = process.argv.slice(2)): Promise<number> {
         installDeps: Boolean(v["install-deps"]),
         configureFirewall: Boolean(v["configure-firewall"]),
         interface: v.interface,
+        updatePath: !v["no-path"],
       });
       // An interactive run has printed its own steps (and, when homectl is
       // started, ran until Ctrl+C); only scripted runs get the result object.

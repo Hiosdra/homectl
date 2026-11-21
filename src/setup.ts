@@ -74,11 +74,19 @@ async function link(source: string, target: string) {
     });
   else await symlink(source, target);
 }
-export async function setup(home = homedir(), dryRun = false) {
+export async function setup(
+  home = homedir(),
+  dryRun = false,
+  // false (--no-path): never change the Windows user PATH. Sandboxes and tests
+  // must pass it: an overridden USERPROFILE makes homedir() point at the sandbox,
+  // so the home check alone cannot tell it from the real account.
+  updatePath = true,
+) {
   const p = paths(home);
   // Setup tests and explicit alternate-home runs must never change the real
   // Windows account's PATH.
-  const updateWindowsPath = windows && resolve(home) === resolve(homedir());
+  const updateWindowsPath =
+    updatePath && windows && resolve(home) === resolve(homedir());
   const initial: Inventory = {
     version: 1,
     session: sessionConfig({ version: 1, machines: {} }, p.inventory),

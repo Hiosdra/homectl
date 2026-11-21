@@ -54,6 +54,8 @@ export async function setupFlow(options: {
   installDeps: boolean;
   configureFirewall: boolean;
   interface?: string;
+  // false (--no-path): leave the Windows user PATH alone.
+  updatePath?: boolean;
   interactive?: boolean;
   addresses?: string[];
   ask?: (prompt: string) => Promise<string>;
@@ -114,7 +116,11 @@ export async function setupFlow(options: {
         )
       : await installLinuxDependencies(options.dryRun, interactive)
     : { missing };
-  const result = await setup(options.home, options.dryRun);
+  const result = await setup(
+    options.home,
+    options.dryRun,
+    options.updatePath ?? true,
+  );
   let firewall: unknown;
   let configure = options.configureFirewall;
   if (ip) {
