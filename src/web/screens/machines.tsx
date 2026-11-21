@@ -102,7 +102,7 @@ function CreateKey() {
         <div className="grid gap-1.5">
           <HelpLabel
             htmlFor="key-password"
-            label="Database password"
+            label="Vault password (also your owner password)"
             help="Enter the password for this device's KeePassXC database to create the SSH key."
           />
           <Input

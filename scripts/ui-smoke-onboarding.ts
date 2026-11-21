@@ -142,7 +142,7 @@ export async function verifyUnlock(
       await field.fill(WRONG_PASSWORD);
       await page.getByRole("button", UNLOCK_BUTTON).click();
       await expect(page.locator("#unlock-error")).toContainText(
-        "Unlock failed. Check the database password.",
+        "Unlock failed. Check the vault password.",
       );
       await expect(
         page.getByRole("heading", { name: "Unlock homectl", exact: true }),

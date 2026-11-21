@@ -83,13 +83,16 @@ export function UnlockDialog() {
           <DialogHeader>
             <DialogTitle>Unlock this device&apos;s vault</DialogTitle>
             <DialogDescription>
-              Enter this device&apos;s database password. After unlocking,
-              compare the devices again to review a fresh sync preview. The
-              password is sent to this workspace over the current connection.
+              Enter this device's vault password (also your owner password).
+              After unlocking, compare the devices again to review a fresh sync
+              preview. The password is sent to this workspace over the current
+              connection.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className="grid gap-2">
-            <Label htmlFor="sync-unlock-password">Database password</Label>
+            <Label htmlFor="sync-unlock-password">
+              Vault password (also your owner password)
+            </Label>
             <Input
               id="sync-unlock-password"
               type="password"

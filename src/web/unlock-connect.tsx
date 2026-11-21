@@ -140,8 +140,9 @@ export function UnlockConnect({
           </Alert>
         ) : null}
         <p className="text-muted-foreground">
-          Your database password is the only password you need here. One unlock
-          lasts the session length set in Settings (24 h by default).
+          Your vault password (also your owner password) is the only password
+          you need here. One unlock lasts the session length set in Settings (24
+          h by default).
         </p>
         {changed ? (
           <Alert id="connection-error" variant="error">
@@ -177,7 +178,7 @@ export function UnlockConnect({
           </div>
           {local ? (
             <p className="text-muted-foreground">
-              Unlock with your database password.
+              Unlock with your vault password.
             </p>
           ) : (
             <p className="text-muted-foreground">
@@ -192,7 +193,9 @@ export function UnlockConnect({
             className="grid gap-3"
             onSubmit={(event) => void unlock(event)}
           >
-            <Label htmlFor="password">Database password</Label>
+            <Label htmlFor="password">
+              Vault password (also your owner password)
+            </Label>
             <Input
               id="password"
               name="password"

@@ -138,7 +138,7 @@ function SafeBlock() {
           <div className="grid gap-1.5">
             <HelpLabel
               htmlFor="password"
-              label="Database password"
+              label="Vault password (also your owner password)"
               help="This KeePassXC database holds your SSH keys and sync credentials. The same password unlocks both; it stays on this device."
             />
             <Input
@@ -154,8 +154,8 @@ function SafeBlock() {
               <div className="grid gap-1.5">
                 <HelpLabel
                   htmlFor="password-confirm"
-                  label="Confirm database password"
-                  help="Type the same database password again, so a typing mistake does not go unnoticed."
+                  label="Confirm vault password"
+                  help="Type the same vault password again, so a typing mistake does not go unnoticed."
                 />
                 <Input
                   id="password-confirm"

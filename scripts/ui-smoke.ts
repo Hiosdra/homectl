@@ -301,7 +301,7 @@ try {
   const smokePassword = "local UI smoke password";
   const safe = page.locator("form#unlock-form");
   await safe.locator("#password").fill(smokePassword);
-  await safe.getByLabel(/^Confirm database password$/).fill(smokePassword);
+  await safe.getByLabel(/^Confirm vault password$/).fill(smokePassword);
   await safe.getByRole("button", { name: "Create and unlock safe" }).click();
   await expect(
     page.getByText("Vault created and unlocked on this device."),
