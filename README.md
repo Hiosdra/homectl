@@ -13,7 +13,7 @@ The command is `home-ctl`.
 
 ## What it does
 
-- **The broker holds the keys.** `home-ctl daemon run` owns the vault and the SSH agent. Each agent gets its own client token and reaches only the machines you name.
+- **The broker holds the keys.** `home-ctl start` (the broker and the owner panel) owns the vault and the SSH agent. Each agent gets its own client token and reaches only the machines you name.
 - **Machines have an access tier.** `observe`, `user`, `sudo-approved` or `full`. A tier describes what the agent may run; your accounts still set the real privileges. See [security](docs/security.md#host-access-tiers).
 - **Changes wait for you.** A command that needs approval returns `awaiting-approval`. You approve it in the owner panel or with `home-ctl approve <operation>`, and the agent then waits for the result.
 - **Secrets stay out of chat.** An agent asks for a secret for one destination. You provide it in the panel, and the broker injects it and redacts it from the output.
@@ -50,18 +50,21 @@ Setup creates the inventory, the launchers, the SSH include and the agent skills
 ## Quick start
 
 ```sh
-# In a private terminal, once:
-home-ctl session configure --ttl 24h
-home-ctl session init
-home-ctl key create lab-printer            # creates the machine's key in the database
+# In a private terminal, once. The guided setup checks the tools, creates your
+# vault and asks for its password. That password is also your owner password.
+home-ctl setup
+home-ctl key create lab-printer            # creates the machine's key in the vault
 home-ctl key inspect lab-printer           # install this public key through access you already have
 
 # After you verify the host key through a trusted source:
 home-ctl enroll lab-printer --file ./lab-printer.json --dry-run
 home-ctl enroll lab-printer --file ./lab-printer.json
 
-# Run the broker and connect your agent:
-home-ctl daemon run                        # keep this terminal open
+# Start homectl: the broker and the owner panel in one window (setup offers this too).
+# It opens the panel in your browser. Keep the window open; Ctrl+C stops it.
+home-ctl start
+
+# Connect your agent (or use the panel's Assistants page):
 home-ctl agent connect codex --hosts lab-printer
 ```
 

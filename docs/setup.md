@@ -78,7 +78,7 @@ home-ctl key create lab-printer        # make this machine's key, stored in the 
 home-ctl key inspect lab-printer       # show the public key to install
 ```
 
-- Choose a strong database password and keep an encrypted backup of the database file. Setup never deletes existing keys, recovery passwords or old backups.
+- Choose a strong vault password and keep an encrypted backup of the vault file. The vault password is also your owner password: signing in to the panel with it opens the vault. Setup never deletes existing keys, recovery passwords or old backups.
 - `key create` prints only the public key to disk, in `~/.config/homectl/public-keys/`. The private key stays inside the database.
 - A session lasts 24 hours from unlock by default. `--ttl until-reboot` keeps keys until you lock or the machine reboots. Unlocking again does not extend the session: the lifetime runs from the first unlock.
 - With `home-ctl serve` running, `home-ctl session unlock` also unlocks the local synchronization vault, with one password prompt. Without it, unlock covers SSH only.
@@ -96,21 +96,34 @@ home-ctl session lock
 The broker is the process that holds the vault and SSH keys and runs commands for agents. Start it before connecting an agent.
 
 ```sh
-home-ctl owner init          # only if you have no vault yet: sets the owner password, then the reviewer authority (Enter keeps recommend)
-home-ctl daemon run          # compatibility mode (default); keep this terminal open
-home-ctl daemon status
+home-ctl start               # the broker and the owner panel, in one window; keep it open
+home-ctl daemon status       # is the broker running?
 ```
 
-- If you created a vault with `session init`, its master password is the owner password, and `owner init` refuses to set another one.
+`home-ctl start` opens the owner panel in your browser. Ctrl+C stops both. It sets the panel's address for you (the first free port from 7451).
+
+- Only if you have no vault yet: `home-ctl owner init` sets the owner password, then the reviewer authority (Enter keeps recommend).
+- If you created the vault with `setup` or `session init`, its vault password is the owner password, and `owner init` refuses to set another one. Signing in to the panel with it also opens the vault.
 - The reviewer authority is only used once Auto Mode and a reviewer endpoint are set. `recommend` (the default) only recommends. Change it later with `home-ctl owner auto-mode set --authority routine|delegated`, which asks for the owner password.
 - Without an owner password, `daemon run` starts but warns that approvals are impossible until you set one.
 - `daemon run` prints where it listens. The address is also written to an endpoint file in the broker's state directory.
 
-To use the owner panel in a browser, start the panel and then start the broker with the panel's origin. The broker refuses panel sign-in from any other origin.
+Advanced: run the broker and the panel separately. The broker refuses panel sign-in from any origin other than the one it was started with, so give both the same origin.
 
 ```sh
 home-ctl daemon panel      # prints its origin, http://127.0.0.1:7451 by default (HOMECTL_OWNER_PANEL_PORT changes the port)
-HOMECTL_PANEL_ORIGIN=http://127.0.0.1:7451 home-ctl daemon run   # in another terminal, with the origin the panel printed
+```
+
+Set the origin the panel printed, then start the broker, in the same terminal:
+
+```powershell
+# PowerShell (Windows)
+$env:HOMECTL_PANEL_ORIGIN = "http://127.0.0.1:7451"; home-ctl daemon run
+```
+
+```sh
+# Bash, zsh, Git Bash
+HOMECTL_PANEL_ORIGIN=http://127.0.0.1:7451 home-ctl daemon run
 ```
 
 Hardened mode (Linux with systemd only) installs the broker as a service under its own account:
@@ -130,17 +143,21 @@ Connecting an agent creates a client identity, scopes it to the machines you nam
 home-ctl agent connect codex --hosts lab-printer
 home-ctl agent connect claude --hosts lab-printer,nas-1 --name laptop
 home-ctl agent connect other --hosts lab-printer
+home-ctl agent connect claude --client claude --hosts lab-printer   # reconnect an existing assistant with a new key
 ```
+
+`--client <id>` reconnects an assistant that already exists, for example the one the panel created. It rotates that assistant's key and writes its config, so no second assistant is created. The old key stops working.
 
 What happens:
 
 1. You enter the owner password. Creating a client requires it again.
-2. homectl prints the exact change it plans to make and asks `Apply these changes? [y/N]`. Without an interactive terminal it refuses and leaves the client created but not configured. Revoke it with `home-ctl agent revoke <id>`.
-3. The agent's configuration receives the client token:
+2. homectl prints the exact change it plans to make, and says which file will hold the assistant's key, then asks `Apply these changes? [y/N]`. Nothing is created or changed until you answer yes. Without an interactive terminal it refuses and creates nothing.
+3. If the default name is taken, including by an assistant you removed, homectl uses the next free name (`claude-2`) and says so. A removed assistant's name stays reserved: use `--name` for a new one, or reconnect with `--client`.
+4. The agent's configuration receives the client token:
    - `codex`: a managed block in `~/.codex/config.toml`.
    - `claude`: `~/.claude/settings.json`, and the homectl MCP server entry in `~/.claude.json`.
    - `other`: only the private client-token file (`~/.config/homectl/client-token`, mode 0600), plus a setup prompt to paste into your agent.
-4. homectl checks the new token against the broker before it reports success.
+5. homectl checks the new token against the broker before it reports success.
 
 Then restart the agent. The MCP server runs `home-ctl mcp`, so `home-ctl` must be on the agent's PATH.
 

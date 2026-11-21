@@ -171,7 +171,7 @@ const pages: Record<string, Page> = {
     usage:
       "home-ctl setup [--json] [--dry-run] [--install-deps] [--configure-firewall --interface IP]",
     intro:
-      "Interactive setup guides dependency installation, LAN selection and scoped firewall configuration with confirmation. Installs per-user CLI, skills and SSH configuration. --json never prompts: use --install-deps and --configure-firewall --interface IP explicitly from an administrator terminal. --dry-run previews without changing files or firewall rules. Existing configuration is preserved. Uses the standard per-user directory; --inventory is not supported.",
+      "Interactive setup checks the tools, creates your vault (its password is also your owner password, explained once), prints a summary, and asks whether to start homectl and open the owner panel. It also guides dependency installation, LAN selection and scoped firewall configuration with confirmation. Installs per-user CLI, skills and SSH configuration. --json never prompts: use --install-deps and --configure-firewall --interface IP explicitly from an administrator terminal. --dry-run previews without changing files or firewall rules. Existing configuration is preserved. Uses the standard per-user directory; --inventory is not supported.",
     sections: [
       {
         ...globalOptions,

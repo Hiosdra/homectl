@@ -122,7 +122,7 @@ export const agentHelp: Record<string, Page> = {
   },
   agent: {
     usage:
-      "home-ctl agent list | connect codex|claude|other --hosts a,b [--name NAME] | rotate <id> | revoke <id>",
+      "home-ctl agent list | connect codex|claude|other --hosts a,b [--name NAME] | connect codex|claude|other --client ID --hosts a,b | rotate <id> | revoke <id>",
     intro:
       "Owner commands for agent clients. Each one asks for the owner password privately.",
     sections: [
@@ -132,11 +132,15 @@ export const agentHelp: Record<string, Page> = {
           ["list", "Lists agent clients."],
           [
             "connect codex|claude|other --hosts a,b",
-            "Creates a client that can reach only the listed hosts. Shows the change to the agent's configuration and applies it after you answer y. The token is stored privately, not printed.",
+            "Creates a client that can reach only the listed hosts. Shows the change to the agent's configuration and applies it after you answer y; nothing is created before that. The token is stored privately, not printed.",
+          ],
+          [
+            "connect ... --client ID",
+            "Reconnects an assistant that already exists (for example the one the panel created): rotates its key and writes its configuration. No second assistant is created.",
           ],
           [
             "--name NAME",
-            "Client id; defaults to the agent kind and this computer's name.",
+            "Client id; defaults to the agent kind and this computer's name. When the default is taken (including by a removed assistant), the next free name (claude-2) is used and shown. A name you pass is refused if it is taken, with a free suggestion.",
           ],
           [
             "rotate <id>",
