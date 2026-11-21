@@ -2,11 +2,28 @@
 // origin is set for the owner (no environment variable to type), the panel opens
 // in the browser unless --no-open or there is no display, and Ctrl+C stops both.
 // `daemon run` and `daemon panel` stay for advanced use.
+import { readFile } from "node:fs/promises";
 import { createServer } from "node:net";
+import { join } from "node:path";
 import { callBroker, findEndpoint } from "../broker/client";
 import type { Endpoint } from "../broker/paths";
 import { compatPaths } from "../broker/paths";
 import { HomectlError } from "../types";
+
+// The part of the panel address the browser opens. While setup is incomplete (no
+// completion mark in broker/setup.json), it opens the guided setup; otherwise the
+// inbox. Only a section name goes in the address, never a token.
+export async function openingHash(stateDirectory: string): Promise<string> {
+  try {
+    const file = JSON.parse(
+      await readFile(join(stateDirectory, "setup.json"), "utf8"),
+    ) as { completedAt?: unknown };
+    return typeof file.completedAt === "number" ? "" : "#/setup";
+  } catch {
+    // No setup file yet: a fresh broker, so setup is incomplete.
+    return "#/setup";
+  }
+}
 
 export const PANEL_PORT_FIRST = 7451;
 export const PANEL_PORT_LAST = 7470;
@@ -168,6 +185,7 @@ async function liveBroker(
 export async function startCommand(options: StartOptions): Promise<number> {
   const env = options.env ?? process.env;
   const stop = options.waitForStop ?? waitForCtrlC;
+  const stateDir = compatPaths(options.inventoryPath).state;
   const running = await liveBroker(await findEndpoint(options.inventoryPath));
 
   if (running) {
@@ -184,7 +202,7 @@ export async function startCommand(options: StartOptions): Promise<number> {
       console.log(
         `homectl is already running. Open the owner panel: ${origin}`,
       );
-      openBrowser(options, origin, env);
+      openBrowser(options, origin + (await openingHash(stateDir)), env);
       return 0;
     }
     const { startOwnerPanel } = await import("../web/owner/server");
@@ -196,7 +214,7 @@ export async function startCommand(options: StartOptions): Promise<number> {
     console.log(
       `homectl is running. Open the owner panel: ${panel.origin}. Keep this window open. Ctrl+C stops the panel.`,
     );
-    openBrowser(options, panel.origin, env);
+    openBrowser(options, panel.origin + (await openingHash(stateDir)), env);
     await stop();
     panel.stop();
     return 0;
@@ -234,7 +252,7 @@ export async function startCommand(options: StartOptions): Promise<number> {
   console.log(
     `homectl is running. Open the owner panel: ${panel.origin}. Keep this window open. Ctrl+C stops homectl.`,
   );
-  openBrowser(options, panel.origin, env);
+  openBrowser(options, panel.origin + (await openingHash(stateDir)), env);
   await stop();
   panel.stop();
   await daemon.stop();
