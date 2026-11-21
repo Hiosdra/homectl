@@ -163,9 +163,13 @@ export function formatHuman(
   if (command === "migrate" && typeof value.status === "string")
     return formatMigration(value as unknown as MigrationResult);
   if (command === "doctor" && Array.isArray(value.checks)) {
-    const { checks: entries, ok, note, ...rest } = value;
+    const { checks: entries, ok, note, summary, ...rest } = value;
     return [
-      ok ? "Doctor: all checks passed." : "Doctor: action required.",
+      typeof summary === "string"
+        ? summary
+        : ok
+          ? "Doctor: all checks passed."
+          : "Doctor: action required.",
       checks(entries),
       Object.keys(rest).length ? tree(rest) : "",
       note,

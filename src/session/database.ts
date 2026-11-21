@@ -3,6 +3,8 @@ import { available, privateDirectory, protect } from "../platform";
 import { HomectlError, type Inventory } from "../types";
 import { privateCommand, readPassword, sessionConfig } from ".";
 
+export const VAULT_PASSWORD_MIN = 12;
+
 export async function initDatabase(inv: Inventory, inventoryPath: string) {
   const { database } = sessionConfig(inv, inventoryPath);
   if (await Bun.file(database).exists())
@@ -12,8 +14,17 @@ export async function initDatabase(inv: Inventory, inventoryPath: string) {
     );
   if (!available("keepassxc-cli"))
     throw new HomectlError(5, "Install KeePassXC first");
-  const password = await readPassword("New homelab database password: ");
-  if (password !== (await readPassword("Repeat database password: ")))
+  // The vault password is also the owner password: signing in to the panel
+  // with it opens the vault. Same minimum as the owner password (broker/owner.ts).
+  const password = await readPassword(
+    "New vault password (this is also your owner password): ",
+  );
+  if (password.length < VAULT_PASSWORD_MIN)
+    throw new HomectlError(
+      2,
+      `Use a vault password of at least ${VAULT_PASSWORD_MIN} characters. It is also your owner password.`,
+    );
+  if (password !== (await readPassword("Repeat the vault password: ")))
     throw new HomectlError(2, "Passwords differ");
   await privateDirectory(dirname(database));
   await privateCommand(
@@ -32,6 +43,6 @@ export async function initDatabase(inv: Inventory, inventoryPath: string) {
   return {
     database,
     created: true,
-    next: "Run home-ctl key create <host> in your private terminal",
+    next: "Your owner password is this vault password. Next: run home-ctl start, then sign in to the panel with it. Add a machine with home-ctl key create <name> in a private terminal.",
   };
 }

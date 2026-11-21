@@ -219,9 +219,9 @@ export async function doctor(
     "ssh",
     // A compiled executable runs without Bun; a checkout needs it.
     ...(bundled ? [] : ["bun"]),
-    ...(usesKeepass
-      ? [...(windows ? [] : ["ssh-agent"]), "ssh-add", "keepassxc-cli"]
-      : []),
+    // The vault needs KeePassXC from the first run on, so it is always checked.
+    "keepassxc-cli",
+    ...(usesKeepass ? [...(windows ? [] : ["ssh-agent"]), "ssh-add"] : []),
   ]);
   for (const tool of required) {
     if (["ssh-agent", "ssh-add", "keepassxc-cli"].includes(tool)) {
@@ -314,11 +314,47 @@ export async function doctor(
       });
     }
   }
+  const ok = checks
+    .filter((c) => required.has(c.name) || c.name.includes(":"))
+    .every((c) => c.ok);
+  const vaultExists = await Bun.file(
+    sessionConfig(inventory, configPath).database,
+  ).exists();
   return {
     checks,
-    ok: checks
-      .filter((c) => required.has(c.name) || c.name.includes(":"))
-      .every((c) => c.ok),
+    ok,
+    summary: doctorSummary({
+      ok,
+      checks,
+      required,
+      vaultExists,
+      onlyDefaultMachine: Object.keys(inventory.machines).every(
+        (name) => name === "agent-host",
+      ),
+      hostChecked: host !== undefined,
+    }),
     note: "Tool checks do not open the database. Host probes use only the managed SSH agent; run session unlock privately when needed.",
   };
+}
+
+// The first line of `doctor`, in plain words. "All checks passed" is said only
+// when something is set up and every required check passed.
+export function doctorSummary(input: {
+  ok: boolean;
+  checks: { name: string; ok: boolean }[];
+  required: ReadonlySet<string>;
+  vaultExists: boolean;
+  onlyDefaultMachine: boolean;
+  hostChecked: boolean;
+}): string {
+  const keepassMissing = input.checks.some(
+    (c) => c.name === "keepassxc-cli" && !c.ok,
+  );
+  if (keepassMissing)
+    return "KeePassXC is not installed. homectl needs it to open your vault. Install KeePassXC, then run home-ctl doctor again.";
+  if (!input.hostChecked && !input.vaultExists && input.onlyDefaultMachine)
+    return "Not set up yet. Run home-ctl setup to create your vault and add your first machine.";
+  if (!input.ok)
+    return "Action required: some checks failed. Each one below says how to fix it.";
+  return "All checks passed.";
 }
