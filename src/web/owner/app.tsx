@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AgentsScreen } from "./agents";
+import { MachinesScreen } from "./machines";
 import {
   describeError,
   type PendingOperation,
@@ -456,6 +457,7 @@ function App() {
           />
         ) : null}
         {route.name === "agents" && <AgentsScreen onError={handle} />}
+        {route.name === "machines" && <MachinesScreen onError={handle} />}
         {route.name === "policy" && <PolicyScreen onError={handle} />}
         {route.name === "workspace" && server === null && (
           <Notice>This broker is not a workspace server.</Notice>

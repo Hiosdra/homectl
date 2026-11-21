@@ -14,11 +14,13 @@ export interface NavItem {
   icon: IconName;
 }
 
-// The owner's order: what needs them first, then the assistants, the rules they
-// set, linked devices (when this broker is a workspace server) and the system.
+// The owner's order: what needs them first, then the assistants, the machines they
+// reach, the rules they set, linked devices (when this broker is a workspace
+// server) and the system.
 export const NAV: NavItem[] = [
   { label: "Needs you", hash: "#/", name: "overview", icon: "inbox" },
   { label: "Assistants", hash: "#/agents", name: "agents", icon: "bot" },
+  { label: "Machines", hash: "#/machines", name: "machines", icon: "server" },
   { label: "Permissions", hash: "#/policy", name: "policy", icon: "shield" },
 ];
 

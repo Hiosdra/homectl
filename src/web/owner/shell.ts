@@ -5,6 +5,7 @@
 import { AI_HELPER_CSS } from "./css-ai-helper";
 import { COMPONENTS_CSS } from "./css-components";
 import { LAYOUT_CSS } from "./css-layout";
+import { MACHINES_CSS } from "./css-machines";
 import { TOKENS_CSS } from "./design-tokens";
 
 export const OWNER_HTML = `<!doctype html>
@@ -30,4 +31,5 @@ export const OWNER_CSS = [
   COMPONENTS_CSS,
   LAYOUT_CSS,
   AI_HELPER_CSS,
+  MACHINES_CSS,
 ].join("\n");

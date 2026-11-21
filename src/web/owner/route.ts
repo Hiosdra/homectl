@@ -5,6 +5,7 @@ export type Route =
   | { name: "approval"; id: string }
   | { name: "secret"; id: string }
   | { name: "agents" }
+  | { name: "machines" }
   | { name: "policy" }
   | { name: "workspace" }
   | { name: "system" };
@@ -14,6 +15,7 @@ export function parseRoute(hash: string): Route {
   if (section === "approvals") return { name: "approval", id };
   if (section === "secrets") return { name: "secret", id };
   if (section === "agents") return { name: "agents" };
+  if (section === "machines") return { name: "machines" };
   if (section === "policy") return { name: "policy" };
   if (section === "workspace") return { name: "workspace" };
   if (section === "system") return { name: "system" };

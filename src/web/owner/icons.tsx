@@ -23,7 +23,9 @@ export type IconName =
   | "pencil"
   | "trash"
   | "bell"
-  | "signal";
+  | "signal"
+  | "server"
+  | "plus";
 
 function circle(cx: number, cy: number, r: number): string {
   return `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
@@ -71,6 +73,13 @@ const PATHS: Record<IconName, string[]> = {
   trash: ["M4 7h16", "M9 7V4.5h6V7", "M6.5 7l1 13h9l1-13"],
   bell: ["M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z", "M10 20.5a2 2 0 0 0 4 0"],
   signal: ["M4 19v-3", "M9 19v-7", "M14 19V8", "M19 19V4"],
+  server: [
+    "M3.5 4.5h17v6h-17z",
+    "M3.5 13.5h17v6h-17z",
+    circle(7, 7.5, 0.6),
+    circle(7, 16.5, 0.6),
+  ],
+  plus: ["M12 5v14M5 12h14"],
 };
 
 export function Icon({ name }: { name: IconName }) {

@@ -15,7 +15,7 @@
     "typecheck": "bun check",
     "lint": "bun scripts/check-file-length.ts && bun scripts/check-doc-links.ts && biome lint src tests scripts schema docker package.json tsconfig.json biome.json && bun fmt --check .",
     "format": "biome lint --write src tests scripts schema docker package.json tsconfig.json biome.json && bun fmt .",
-    "test:ui": "bun scripts/ui-smoke.ts && bun scripts/owner-ui-smoke.ts",
+    "test:ui": "bun scripts/ui-smoke.ts && bun scripts/owner-ui-smoke.ts && bun scripts/owner-ui-machines.ts",
     "lint:other": "sh scripts/lint-other.sh",
     "prepare": "bun scripts/install-hooks.ts",
     "verify": "bun check && bun run lint && bun run lint:other && bun test"
