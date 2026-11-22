@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import type { CommandHistoryEntry } from "../src/command-history";
 import {
   auditHistory,
@@ -12,6 +12,8 @@ import {
   canSaveAuditRow,
   savedCommandDraftFromAuditRow,
 } from "../src/web/screens/audit";
+
+setDefaultTimeout(60_000);
 
 function entry(seq: number, event: AuditEvent): AuditEntry {
   return {

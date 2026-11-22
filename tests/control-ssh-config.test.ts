@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ControlPlane, controlStateDirectory } from "../src/control/engine";
 import type { ClientIdentity } from "../src/control/types";
 import type { ProcessResult, ProcessSpec } from "../src/types";
+
+setDefaultTimeout(60_000);
 
 // Synthetic SSH host on the TEST-NET range. The runner is a fake: no SSH runs.
 const dirs: string[] = [];

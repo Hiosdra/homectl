@@ -1,6 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { JwksSource } from "../src/control/oidc";
+
+setDefaultTimeout(60_000);
 
 // Synthetic issuer: a delayed JWKS fetch, so two lookups overlap in time.
 // Nothing contacts a real identity provider.

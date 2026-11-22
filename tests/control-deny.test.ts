@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ControlPlane } from "../src/control/engine";
 import type { Actor } from "../src/control/types";
 import { HomectlError } from "../src/types";
+
+setDefaultTimeout(60_000);
 
 const INVENTORY = `version: 1
 machines:

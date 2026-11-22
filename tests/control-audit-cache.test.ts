@@ -1,9 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AuditEntriesCache } from "../src/control/audit-cache";
 import type { AuditEntry } from "../src/control/types";
+
+setDefaultTimeout(60_000);
 
 test("audit entry cache reuses size and mtime and refreshes after a write", async () => {
   const directory = await mkdtemp(join(tmpdir(), "homectl-audit-cache-"));

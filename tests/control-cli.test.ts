@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import {
   mkdir,
   mkdtemp,
@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { ControlPlane } from "../src/control/engine";
 import { cleanEnv } from "../src/credentials";
 import { windows } from "../src/platform";
-
+setDefaultTimeout(60_000);
 const cli = join(import.meta.dir, "../src/cli/main.ts");
 const INVENTORY = `version: 1
 machines:

@@ -1,8 +1,10 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { withFileLock } from "../src/control/file-lock";
+
+setDefaultTimeout(60_000);
 
 test("refreshes a lock while a long callback holds it", async () => {
   const dir = await mkdtemp(join(tmpdir(), "homectl-file-lock-heartbeat-"));

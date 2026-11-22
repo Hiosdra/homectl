@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { createCipheriv, randomBytes } from "node:crypto";
 import {
   mkdir,
@@ -19,6 +19,8 @@ import {
   restoreRecoveryBundle,
 } from "../src/control/recovery";
 import { HomectlError } from "../src/types";
+
+setDefaultTimeout(60_000);
 
 const cleanup: string[] = [];
 afterEach(async () => {

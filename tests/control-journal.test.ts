@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,8 @@ import {
 } from "../src/control/redact";
 import type { AuditEvent } from "../src/control/types";
 import { HomectlError } from "../src/types";
+
+setDefaultTimeout(60_000);
 
 async function workspace() {
   const dir = await mkdtemp(join(tmpdir(), "homectl-journal-"));

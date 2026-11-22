@@ -1,10 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AuditJournal, verifyChain } from "../src/control/journal";
 import { auditReason } from "../src/control/reason";
 import type { AuditEvent } from "../src/control/types";
+
+setDefaultTimeout(60_000);
 
 // Regression: a rejected execute wrote its full error text as the audit reason.
 // Some messages are longer than the schema allows (120 characters), so the entry

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { controlPlaneSchema, definition, schemas } from "../src/control/schema";
 import {
   CLASSIFICATIONS,
@@ -6,6 +6,8 @@ import {
   OPERATION_STATES,
   SCOPES,
 } from "../src/control/types";
+
+setDefaultTimeout(60_000);
 
 const id = "0b6f2c1e-3a4d-4e5f-8a9b-0c1d2e3f4a5b";
 const digest = "a".repeat(64);

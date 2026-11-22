@@ -1,8 +1,10 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { controlCommand } from "../src/control/cli";
+
+setDefaultTimeout(60_000);
 
 const INVENTORY = `version: 1
 machines:

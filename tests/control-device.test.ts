@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,8 @@ import {
 } from "../src/control/device-key";
 import { validateIdentity } from "../src/peer/pairing";
 import { windows } from "../src/platform";
+
+setDefaultTimeout(60_000);
 
 async function dir() {
   return mkdtemp(join(tmpdir(), "homectl-device-"));

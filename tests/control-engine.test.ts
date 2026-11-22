@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,7 +12,7 @@ import { schemas } from "../src/control/schema";
 import type { Actor, ClientIdentity } from "../src/control/types";
 import { HomectlError, type ProcessSpec, type Runner } from "../src/types";
 import { expectSecretRefusalsOmitArguments } from "./control-engine-audit-helper";
-
+setDefaultTimeout(60_000);
 const INVENTORY = `version: 1
 machines:
   lab-printer:

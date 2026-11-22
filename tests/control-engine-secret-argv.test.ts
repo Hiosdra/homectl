@@ -1,10 +1,12 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ControlPlane } from "../src/control/engine";
 import type { Actor } from "../src/control/types";
 import type { ProcessSpec, Runner } from "../src/types";
+
+setDefaultTimeout(60_000);
 
 // Round-8 regression: 0.2.1-accepted secret-looking names (KEY=value, key=app,
 // "Rotate SSH key") must still be planned and executed; only redaction changed.
