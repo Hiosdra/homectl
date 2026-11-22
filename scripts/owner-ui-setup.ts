@@ -1,6 +1,7 @@
 // Browser check for the owner panel's guided setup (0.3 part 3): a fresh broker opens
 // the wizard at Welcome on the first sign-in, then welcome, skip, resume, a deep link,
-// a permissions choice that the broker records, reload keeping progress, the checklist
+// the two paths on Welcome and the switch to the AI agent page (and back), a permissions
+// choice that the broker records, reload keeping progress, the checklist
 // states, the completed and upgrade states, focus order, and phone and desktop in light
 // and dark. The broker and the panel are real, and every progress mark goes to the real
 // broker. The completed and upgrade states are answered by Playwright stubs of the status
@@ -174,7 +175,11 @@ async function firstRun(page: Page, tag: string) {
   ).toBeFocused();
   await shot(page, "01-welcome", tag);
 
-  await page.getByRole("button", { name: "Start setup" }).click();
+  // Welcome offers the two paths; this run takes the step-by-step one.
+  await expect(
+    page.getByRole("button", { name: /Let your AI agent set it up for you/ }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /Set it up step by step/ }).click();
   await expect(page).toHaveURL(/#\/setup\/vault$/);
   await expect(
     page.getByRole("heading", { name: "Vault and sign-in", exact: true }),
@@ -250,6 +255,41 @@ async function firstRun(page: Page, tag: string) {
     page.getByRole("heading", { name: "Connect an assistant", exact: true }),
   ).toBeFocused();
   await shot(page, "06-assistant", tag);
+
+  // The owner switches to the AI agent path from the wizard, and back again. The
+  // choice is the broker's, so the switch is answered by the real status read.
+  await page
+    .getByRole("button", { name: "Let your AI agent set it up instead" })
+    .click();
+  await expect(page).toHaveURL(/#\/setup\/agent$/);
+  await expect(
+    page.getByRole("heading", {
+      name: "Let your AI agent set it up",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByText("home-ctl agent connect")).toBeVisible();
+  await shot(page, "10-agent-page", tag);
+  await page
+    .getByRole("button", { name: "Set it up step by step instead" })
+    .click();
+  await expect(page).not.toHaveURL(/#\/setup\/agent$/);
+}
+
+// The agent page, from any state: its four stages and the copy buttons are there.
+async function agentPage(page: Page, tag: string) {
+  await page.goto(`${panelOrigin}/#/setup/agent`);
+  await expect(
+    page.getByRole("heading", {
+      name: "Let your AI agent set it up",
+      exact: true,
+    }),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(
+    page.getByRole("button", { name: "Copy setup prompt" }),
+  ).toBeVisible();
+  await shot(page, "10-agent-page", tag);
+  await noSideScroll(page);
 }
 
 async function scenario(
@@ -282,6 +322,7 @@ async function scenario(
         }),
       ).toBeFocused();
       await shot(page, "07-notifications", tag);
+      await agentPage(page, tag);
     }
     await noSideScroll(page);
   } finally {

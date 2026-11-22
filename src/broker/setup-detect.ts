@@ -6,6 +6,7 @@ import {
   REQUIRED_STEPS,
   SETUP_STEPS,
   type SetupFile,
+  type SetupPath,
   type SetupStepId,
   type StoredStep,
 } from "./setup-state";
@@ -59,6 +60,8 @@ export interface SetupStatus {
   completed: boolean;
   completedAt?: number;
   dismissed: boolean;
+  // The owner's chosen path, or null before the owner has picked one.
+  path: SetupPath | null;
   upgrade?: { at: number; acknowledged: boolean };
   steps: StepStatus[];
   // The first required step not done, which "Continue setup" opens.
@@ -104,6 +107,7 @@ export function buildStatus(file: SetupFile, facts: SetupFacts): SetupStatus {
       ? {}
       : { completedAt: file.completedAt }),
     dismissed: file.dismissedAt !== undefined,
+    path: file.setupPath ?? null,
     ...(file.upgradedAt === undefined
       ? {}
       : {

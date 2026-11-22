@@ -35,6 +35,7 @@ import { loadReviewerSettings, reviewerFrom } from "./reviewer-settings";
 import { SecretService } from "./secret-service";
 import { type Listen, startBrokerServer } from "./server";
 import { gatherFacts } from "./setup-facts";
+import { machineSummaries } from "./setup-agent";
 import { SetupRoutes } from "./setup-routes";
 import { isUpgradeNotice, SetupStore } from "./setup-state";
 import { proxmoxExecutor } from "./proxmox-exec";
@@ -251,6 +252,7 @@ export async function startDaemon(config: DaemonConfig) {
   });
   const setupRoutes = new SetupRoutes({
     store: setup,
+    machines: async () => machineSummaries((await ownerHosts.list()).machines),
     facts: () =>
       gatherFacts({
         vaultExists: () => vault.exists(),
@@ -288,7 +290,7 @@ export async function startDaemon(config: DaemonConfig) {
         keys: reviewerKeys,
         events,
       }),
-      mcpHttpRoute({ broker, secrets }),
+      mcpHttpRoute({ broker, secrets, setup: setupRoutes }),
       new HostKeyRoutes(
         inventory,
         config.inventoryPath,

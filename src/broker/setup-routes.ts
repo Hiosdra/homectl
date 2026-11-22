@@ -5,9 +5,19 @@
 // The marks are limited on purpose: "keep this" only for permissions, "done" only
 // for notifications (a check made in the browser), and nothing that could stand in
 // for a real check such as a vault, a machine or an assistant.
+// Agents read the same status through POST /v1/setup/status and /v1/setup/machines
+// (setup-agent.ts). Those are reads only, and they show an agent only what its own
+// grant covers.
+import type { ClientIdentity } from "../control/types";
 import { HomectlError } from "../types";
 import { buildStatus, type SetupFacts, type SetupStatus } from "./setup-detect";
 import {
+  agentSetupStatus,
+  grantedMachines,
+  type MachineSummary,
+} from "./setup-agent";
+import {
+  isSetupPath,
   isSetupStep,
   type SetupFile,
   type SetupStepId,
@@ -23,12 +33,15 @@ export const SETUP_ACTIONS = [
   "done",
   "dismiss",
   "upgrade-ack",
+  "path",
 ] as const;
 export type SetupAction = (typeof SETUP_ACTIONS)[number];
 
 export interface SetupRoutesOptions {
   store: SetupStore;
   facts(): Promise<SetupFacts>;
+  // The owner's machines with their check result (no addresses are passed on).
+  machines?(): Promise<MachineSummary[]>;
 }
 
 function requireStep(value: unknown): SetupStepId {
@@ -45,6 +58,23 @@ export class SetupRoutes implements RouteExtension {
   ): Promise<unknown | undefined> {
     if (path === "/v1/owner/setup") return this.status();
     if (path === "/v1/owner/setup/step") return this.mark(input);
+    return undefined;
+  }
+
+  // Agent reads. Reading the status here never writes: only the owner's panel
+  // records the completion time. Machines come from the agent's own grant.
+  async agent(
+    path: string,
+    _input: Record<string, unknown>,
+    client: ClientIdentity,
+  ): Promise<unknown | undefined> {
+    if (path === "/v1/setup/status")
+      return agentSetupStatus((await this.read()).status);
+    if (path === "/v1/setup/machines")
+      return grantedMachines(
+        (await this.options.machines?.()) ?? [],
+        client.hosts,
+      );
     return undefined;
   }
 
@@ -80,6 +110,18 @@ export class SetupRoutes implements RouteExtension {
           if (file.upgradedAt !== undefined) file.upgradeAckAt = at;
         });
         break;
+      // Choosing a path only records the owner's preference. It changes no step and
+      // no permission, so the owner can switch later as often as they like.
+      case "path": {
+        if (!isSetupPath(input.path))
+          throw new HomectlError(2, "Choose step by step or the AI agent");
+        const chosen = input.path;
+        await this.options.store.update((file, at) => {
+          file.welcomedAt ??= at;
+          file.setupPath = chosen;
+        });
+        break;
+      }
       case "dismiss": {
         const { status } = await this.read();
         if (!status.completed)

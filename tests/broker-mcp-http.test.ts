@@ -174,6 +174,8 @@ test("tools/list offers the catalogue with closed schemas, and notifications get
     "secret_status",
     "secret_cancel",
     "secret_use",
+    "setup_status",
+    "setup_machines",
   ]);
   expect(tools.every((t) => t.inputSchema.additionalProperties === false)).toBe(
     true,

@@ -19,3 +19,5 @@ Apply this skill without routinely quoting its paragraphs, listing rule numbers 
 10. Run inspect/doctor afterwards and report actual verification. Declared tier is not proof of restricted system privileges. Do not install Codex/Claude on the new machine unless separately requested.
 
 Use session status and private user-run unlock on expiry. Lifecycle/database operations run sequentially. Ask unresolved choices/required approvals visibly in chat with concrete effects. Never request the KDBX password or bootstrap password in chat.
+
+Inside a guided agent setup (see homelab-setup, "Guided setup through the broker"), adding a machine is an owner step. Enrolment needs the owner's typed fingerprint and password, so tell the owner which machine is next and what to check on its console, then wait for them to do it in the panel. Use `setup_machines` to see the machines your grant covers. Do not scan or enroll an address the owner has not named.

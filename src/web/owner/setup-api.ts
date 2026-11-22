@@ -14,6 +14,9 @@ export type SetupStepId =
 
 export type StepState = "done" | "skipped" | "open";
 
+// How the owner is guided: step by step here, or by their AI agent.
+export type SetupPath = "manual" | "agent";
+
 export interface SetupStep {
   id: SetupStepId;
   required: boolean;
@@ -40,6 +43,8 @@ export interface SetupStatus {
   welcomed: boolean;
   completed: boolean;
   dismissed: boolean;
+  // null until the owner picks a path on Welcome.
+  path: SetupPath | null;
   upgrade?: { at: number; acknowledged: boolean };
   steps: SetupStep[];
   next: SetupStepId | null;
@@ -57,6 +62,7 @@ export type SetupMark =
   | { action: "welcome" }
   | { action: "upgrade-ack" }
   | { action: "dismiss" }
+  | { action: "path"; path: SetupPath }
   | { action: "skip" | "reopen" | "keep" | "done"; step: SetupStepId };
 
 export function readSetup(): Promise<SetupStatus> {

@@ -152,7 +152,8 @@ export class OwnerHostRoutes implements RouteExtension {
 
   // Machines and what the owner needs to see about them. No key material and
   // no key paths: the public facts and the plain probe record only.
-  private async list() {
+  // Also read by the setup routes (the agent's machine view is built from it).
+  async list() {
     const inventory = await loadInventory(this.options.inventoryPath);
     const [clients, probes, known] = await Promise.all([
       this.options.clients.list(),

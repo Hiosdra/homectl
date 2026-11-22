@@ -362,6 +362,24 @@ export const TOOLS: readonly ToolDefinition[] = [
     untrusted: true,
     run: (port, args) => port.call("/v1/secret/use", args),
   },
+  {
+    name: "setup_status",
+    description:
+      "Read the homectl setup: each step's state, whether the step is yours to do (agent) or belongs to the owner (owner), and the next step. Read only. Owner steps need the owner in the homectl panel: do not ask for passwords or keys.",
+    inputSchema: object({}),
+    readOnly: true,
+    untrusted: false,
+    run: (port) => port.call("/v1/setup/status", {}),
+  },
+  {
+    name: "setup_machines",
+    description:
+      "List the machines your grant covers, with their access level and whether each is checked and ready. Read only. No addresses or keys are shown.",
+    inputSchema: object({}),
+    readOnly: true,
+    untrusted: false,
+    run: (port) => port.call("/v1/setup/machines", {}),
+  },
 ];
 
 const ajv = new Ajv({ allErrors: false });

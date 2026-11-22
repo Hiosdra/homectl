@@ -5,7 +5,13 @@ import { useState } from "react";
 import { CopyButton } from "./copy";
 import { Icon } from "./icons";
 import { setupHash } from "./route";
-import { markSetup, type SetupStatus, type SetupStepId } from "./setup-api";
+import {
+  markSetup,
+  type SetupPath,
+  type SetupStatus,
+  type SetupStepId,
+} from "./setup-api";
+import { PathSwitch } from "./setup-path";
 import {
   progressLine,
   stateTone,
@@ -76,11 +82,14 @@ export function SetupChecklist({
   onOpen,
   onChanged,
   onError,
+  switchTo,
 }: {
   status: SetupStatus;
   onOpen: (hash: string) => void;
   onChanged: (next: SetupStatus) => void;
   onError: (error: unknown) => unknown;
+  // The path the link offers. Defaults to the other path than the one chosen.
+  switchTo?: SetupPath;
 }) {
   const [busy, setBusy] = useState(false);
   // Hidden for good once setup is complete and the owner has dismissed it.
@@ -164,6 +173,15 @@ export function SetupChecklist({
           <span className="small muted">Next: {next.title}</span>
         </div>
       ) : null}
+      <p className="path-switch-line">
+        <PathSwitch
+          to={switchTo ?? (status.path === "agent" ? "manual" : "agent")}
+          status={status}
+          onChanged={onChanged}
+          onGo={onOpen}
+          onError={onError}
+        />
+      </p>
     </section>
   );
 }

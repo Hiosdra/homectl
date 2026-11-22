@@ -5,7 +5,9 @@
 import { type ComponentType, useEffect, useRef } from "react";
 import type { PendingOperation } from "./api";
 import { setupHash } from "./route";
+import { AgentSetupPage } from "./setup-agent";
 import { markSetup, type SetupStatus, stepOf } from "./setup-api";
+import { PathChoice, PathSwitch } from "./setup-path";
 import {
   firstOpenStep,
   progressLine,
@@ -68,6 +70,20 @@ export function SetupScreen({
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
   }, [current]);
+
+  // The agent path is its own page (#/setup/agent), not a wizard step.
+  if (step === "agent") {
+    if (!status) return <p className="muted">Loading your setup…</p>;
+    return (
+      <AgentSetupPage
+        status={status}
+        operations={operations}
+        onChanged={onChanged}
+        onGo={onGo}
+        onError={onError}
+      />
+    );
+  }
 
   if (!status || current === undefined)
     return <p className="muted">Loading your setup…</p>;
@@ -168,20 +184,30 @@ export function SetupScreen({
           </h2>
           <p className="lead">{meta.line}</p>
           <Body {...bodyProps} />
+          {current === "welcome" ? (
+            <PathChoice
+              status={status}
+              onChanged={change}
+              onGo={onGo}
+              onError={onError}
+            />
+          ) : null}
+          {current !== "welcome" && current !== "done" ? (
+            <p className="path-switch-line">
+              <PathSwitch
+                to="agent"
+                status={status}
+                onChanged={change}
+                onGo={onGo}
+                onError={onError}
+              />
+            </p>
+          ) : null}
         </section>
       </div>
       <footer className="setup-foot">
         {current === "welcome" ? (
           <>
-            <button
-              type="button"
-              className="primary"
-              onClick={() =>
-                run(() => markSetup({ action: "welcome" }), setupHash("vault"))
-              }
-            >
-              Start setup
-            </button>
             <button
               type="button"
               onClick={() =>

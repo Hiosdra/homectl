@@ -39,6 +39,16 @@ export interface StoredStep {
   at: number;
 }
 
+// How the owner wants to be guided: click through the steps here ("manual"), or let
+// their AI agent do the setup work through the broker ("agent"). The choice only
+// changes what the panel shows; it grants nothing and is never read as trust.
+export const SETUP_PATHS = ["manual", "agent"] as const;
+export type SetupPath = (typeof SETUP_PATHS)[number];
+
+export function isSetupPath(value: unknown): value is SetupPath {
+  return (SETUP_PATHS as readonly unknown[]).includes(value);
+}
+
 export interface SetupFile {
   version: 1;
   welcomedAt?: number;
@@ -48,6 +58,8 @@ export interface SetupFile {
   // of its notice once the owner has read it.
   upgradedAt?: number;
   upgradeAckAt?: number;
+  // The owner's chosen path. Absent until the owner picks one on Welcome.
+  setupPath?: SetupPath;
   steps: Partial<Record<SetupStepId, StoredStep>>;
 }
 
@@ -92,6 +104,7 @@ export function sanitizeSetup(value: unknown): SetupFile {
   if (dismissedAt !== undefined) file.dismissedAt = dismissedAt;
   if (upgradedAt !== undefined) file.upgradedAt = upgradedAt;
   if (upgradeAckAt !== undefined) file.upgradeAckAt = upgradeAckAt;
+  if (isSetupPath(source.setupPath)) file.setupPath = source.setupPath;
   const steps = source.steps;
   if (steps && typeof steps === "object" && !Array.isArray(steps))
     for (const [id, entry] of Object.entries(steps)) {

@@ -16,6 +16,8 @@ export const MCP_PATH = "/mcp";
 export interface McpHttpDeps {
   broker: Broker;
   secrets: SecretService;
+  // The guided setup's agent reads (/v1/setup/*), answered by the setup routes.
+  setup?: RouteExtension;
 }
 
 export function inProcessPort(
@@ -26,7 +28,9 @@ export function inProcessPort(
     async call(path, input) {
       const result = path.startsWith("/v1/secret/")
         ? await deps.secrets.agent(path, input, client)
-        : await agentMethod(deps.broker, path, input, client);
+        : path.startsWith("/v1/setup/")
+          ? await deps.setup?.agent?.(path, input, client)
+          : await agentMethod(deps.broker, path, input, client);
       if (result === undefined) throw new HomectlError(2, "Unknown method");
       return result;
     },

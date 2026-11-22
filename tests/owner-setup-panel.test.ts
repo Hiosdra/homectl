@@ -20,6 +20,7 @@ function status(over: Partial<SetupStatus> = {}): SetupStatus {
     welcomed: false,
     completed: false,
     dismissed: false,
+    path: null,
     steps: [],
     next: "vault",
     counts: { required: 5, requiredDone: 0, optional: 2, optionalDone: 0 },

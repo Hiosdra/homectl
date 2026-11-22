@@ -19,3 +19,14 @@ Apply this skill without routinely quoting its paragraphs, listing rule numbers 
 Run lifecycle/database/inventory operations sequentially and close GUI database editing during CLI writes. Lock affects only the dedicated agent. Do not remove recovery credentials, old server keys, backups, personal vault software or broader sudo grants implicitly. Automatic key generation cleans only its own staging artifacts. Human prompts are accepted workflow protection, not hard isolation.
 
 Ask required choices/approvals visibly in chat with concrete scope. Keep passwords/session values out of transcripts, shell history and startup files. See docs/setup.md (First run) and docs/security.md (Vault and secret custody) for private initialization, daily use and storage limitations.
+
+## Guided setup through the broker (the owner chose "let my AI agent set it up")
+
+When the owner asks you to finish homectl setup and the broker is reachable as an agent client, use the MCP tools. Do not read or edit `broker/setup.json`, and do not call owner routes.
+
+1. Call `setup_status`. Each step says who acts on it. `agent` steps are yours. `owner` steps belong to the owner: the vault and its password, adding or fingerprint-checking a machine, the assistant's key, permissions, backups and notifications. For an owner step, tell the owner exactly what to click in the homectl panel or run in their own private terminal, then wait. Never ask for a password, a key or a fingerprint in chat.
+2. Call `setup_machines` for the machines your grant covers, with their access level and whether each is checked. A machine that is not listed is not yours to change. Read-only checks (`exec`, for example `uname -s`) go through the normal approval flow.
+3. Make your own requests (the first safe request, which `setup_status` lists as yours) with `exec` or `proxmox`. Each one waits in Needs you, where the owner approves or denies it. Wait for the decision, then report what happened.
+4. Call `setup_status` again when you finish, and report what is still open, in plain words, with the owner's steps first.
+
+Any change the owner has not approved in Needs you did not happen. Setup reads never change anything, and no read gives you a way past an owner step.
