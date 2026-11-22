@@ -5,6 +5,7 @@
 // ask for in chat, and which output is untrusted data.
 import Ajv, { type ValidateFunction } from "ajv";
 import { HomectlError } from "../types";
+import { SETUP_REQUEST_TOOLS } from "./setup-tools";
 
 // Where a tool sends its call: the broker over HTTP (stdio) or in process (/mcp).
 export interface AgentPort {
@@ -365,7 +366,7 @@ export const TOOLS: readonly ToolDefinition[] = [
   {
     name: "setup_status",
     description:
-      "Read the homectl setup: each step's state, whether the step is yours to do (agent) or belongs to the owner (owner), and the next step. Read only. Owner steps need the owner in the homectl panel: do not ask for passwords or keys.",
+      "Read the homectl setup: each step's state, whether the step is yours to do (agent) or belongs to the owner (owner), and the next step. It also lists the setup requests you can make (setup_scan, setup_probe, setup_enroll, setup_access, setup_preset, setup_remove) and what only the owner can do. Read only. Owner steps need the owner in the homectl panel: do not ask for passwords or keys.",
     inputSchema: object({}),
     readOnly: true,
     untrusted: false,
@@ -380,6 +381,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     untrusted: false,
     run: (port) => port.call("/v1/setup/machines", {}),
   },
+  ...SETUP_REQUEST_TOOLS,
 ];
 
 const ajv = new Ajv({ allErrors: false });

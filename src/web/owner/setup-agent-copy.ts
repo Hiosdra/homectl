@@ -49,7 +49,7 @@ export function connectCommandFor(
 // The prompt the owner pastes into the assistant. It names the MCP tools and the
 // skills, says what waits for the owner, and forbids asking for secrets.
 export const AGENT_PROMPT =
-  "Set up homectl for me through its tools. Use the homelab-setup and homelab-enroll skills. Start with setup_status and tell me what is left. Then call setup_machines and tell me what each machine still needs. Do not ask me for my vault or owner password, and do not look for one. Steps marked owner are mine: tell me exactly what to do in the homectl panel and wait for me. Every change you make waits in Needs you, where I approve it. When you finish, call setup_status again and tell me what is still open.";
+  "Set up homectl for me through its tools. Use the homelab-setup and homelab-enroll skills. Start with setup_status: it lists what is left and the requests you can make. Then call setup_machines and tell me what each machine still needs. To change something, make one request with a setup_ tool (setup_scan, setup_probe, setup_enroll, setup_access, setup_preset or setup_remove), tell me it is waiting in Needs you, and poll its status until it is final before you make the next one. Do not ask me for my vault or owner password, a key or a fingerprint, and do not look for them. Steps marked owner, and what setup_status lists as owner-only, are mine: tell me exactly what to do in the homectl panel and wait for me. When a machine's key has to be checked, tell me to compare it in Needs you; I type it there. When you finish, call setup_status again and tell me what is still open.";
 
 // One line above the checklist, saying what happens next.
 export function agentProgressLine(status: SetupStatus): string {

@@ -4,6 +4,21 @@
 
 import type { ProxmoxRequest } from "./proxmox";
 
+// A setup request (see setup-request.tsx): the validated fields and, for an
+// enrolment, the key the machine presented when the request was made.
+export interface SetupView {
+  kind: string;
+  input: {
+    name?: string;
+    address?: string;
+    port?: number;
+    user?: string;
+    access?: string;
+    preset?: string;
+  };
+  presented?: { type: string; fingerprint: string }[];
+}
+
 export class OwnerApiError extends Error {
   constructor(
     readonly status: number,
@@ -61,6 +76,8 @@ export interface PendingOperation {
   proxmox?: ProxmoxRequest;
   area?: string;
   ownerOnly?: boolean;
+  // Setup requests (setup-request.tsx). Their title and fields come from here.
+  setup?: SetupView;
 }
 
 export type SecretFieldKind = "password" | "token" | "text" | "ssh-key";

@@ -39,6 +39,7 @@ import { machineSummaries } from "./setup-agent";
 import { SetupRoutes } from "./setup-routes";
 import { isUpgradeNotice, SetupStore } from "./setup-state";
 import { proxmoxExecutor } from "./proxmox-exec";
+import { ownerSetupPort } from "./setup-exec";
 import { BrokerStore } from "./store";
 import type {
   EventsPort,
@@ -160,9 +161,18 @@ export async function startDaemon(config: DaemonConfig) {
     inventoryPort(config.inventoryPath),
     config.inventoryPath,
   );
+  // Setup requests run through the owner routes, which are built further down.
+  // The closures run only after startup, so the late binding is safe. The
+  // approval already asked for the password (decide checks step-up before any
+  // dispatch), so the routes' own step-up is settled here.
+  const settled = async () => undefined;
   const executor: ExecutorPort = config.executor ?? {
     ...sshExecutor(config.inventoryPath, config.sshConfigPath),
     proxmox: proxmoxExecutor({ inventoryPath: config.inventoryPath }),
+    setup: ownerSetupPort({
+      hosts: (path, input) => ownerHosts.owner(path, input, settled),
+      policy: (path, input) => policyRoutes.owner(path, input, settled),
+    }),
   };
   const hostSet = new Set<string>();
   const refreshHosts = async () => {
@@ -197,6 +207,7 @@ export async function startDaemon(config: DaemonConfig) {
       ),
   });
   const policy = config.policy ?? authz;
+  const policyRoutes = new PolicyRoutes(authz);
   const broker = new Broker({
     store: brokerStore,
     ledger: new NonceLedger(config.state),
@@ -274,7 +285,7 @@ export async function startDaemon(config: DaemonConfig) {
     allowedOrigins: config.panelOrigin ? [config.panelOrigin] : [],
     extensions: [
       secrets,
-      new PolicyRoutes(authz),
+      policyRoutes,
       new UpdateRoutes({ events }),
       new AutoModeRoutes({
         store: authz,

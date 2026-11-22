@@ -60,7 +60,19 @@ export async function agentMethod(
       return broker.openTask(client, input);
     case "/v1/task/close":
       return broker.closeTask(client, str(input.id, "id"));
-    default:
-      return undefined;
+    default: {
+      // Setup requests (0.3 acceptance): one route per kind, owner-approved only.
+      const prefix = "/v1/setup/request/";
+      if (!path.startsWith(prefix)) return undefined;
+      const { waitMs, ...rest } = input;
+      const view = await broker.setupRequest(
+        client,
+        path.slice(prefix.length),
+        rest,
+      );
+      return typeof waitMs === "number" && view.state !== "denied"
+        ? broker.wait(client, view.id, waitMs)
+        : view;
+    }
   }
 }

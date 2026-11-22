@@ -15,6 +15,7 @@ import type {
 import type { Machine, ProcessResult, ProviderConfig } from "../types";
 import type { ProxmoxPort } from "./proxmox-exec";
 import type { ProxmoxOperationRequest } from "./proxmox-plan";
+import type { SetupOperation, SetupRequestKind } from "./setup-request";
 
 export const OPERATION_STATES = [
   "awaiting-approval",
@@ -97,6 +98,29 @@ export interface BrokerOperation {
   providerHash?: string;
   ownerOnly?: boolean;
   area?: string;
+  // Setup requests (see setup-request.ts): the validated request, the key the
+  // machine presented, and the fingerprint the owner typed to confirm it.
+  setup?: SetupOperation;
+}
+
+export interface PresentedKey {
+  type: string;
+  fingerprint: string;
+}
+
+export interface SetupRun {
+  kind: SetupRequestKind;
+  input: Record<string, unknown>;
+  // Enrolment only: the fingerprint the owner typed, checked again by the route.
+  confirmFingerprint?: string;
+}
+
+// The owner's setup routes, as the broker reaches them. presentedKeys and keyReady
+// only read; run executes one approved request and nothing else.
+export interface SetupPort {
+  presentedKeys(address: string, port: number): Promise<PresentedKey[]>;
+  keyReady(name: string): Promise<boolean>;
+  run(request: SetupRun): Promise<ProcessResult>;
 }
 
 export interface BrokerState {
@@ -160,6 +184,8 @@ export interface ExecutorPort {
   }): Promise<ProcessResult>;
   // The Proxmox API transport. Absent: Proxmox operations fail before any request.
   proxmox?: ProxmoxPort;
+  // The owner's setup routes. Absent: setup requests are refused at planning.
+  setup?: SetupPort;
 }
 
 export interface EventsPort {
@@ -186,6 +212,8 @@ export interface DecideInput {
   surface: string;
   // True only when the owner surface re-authenticated for this decision.
   stepUp: boolean;
+  // Enrolment approvals: the fingerprint the owner typed from the card.
+  confirmFingerprint?: string;
 }
 
 export interface DecideResult {

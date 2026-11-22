@@ -22,8 +22,10 @@ import { decisionAudit } from "./decision-record";
 import { actionOf, planExec, toView, validateExecInput } from "./plan";
 import { planProxmoxRequest, proxmoxChanged } from "./proxmox-submit";
 import { isReviewPending, isUnderReview } from "./review";
+import { enrolmentConfirmation } from "./setup-decide";
+import { planSetupRequest } from "./setup-request";
 import type { BrokerStore } from "./store";
-import { type SubmitPort, submitOperation } from "./submit";
+import { type SubmitPort, submitForOwner, submitOperation } from "./submit";
 import {
   type BrokerOperation,
   type DecideInput,
@@ -161,6 +163,31 @@ export class Broker {
       this.submitPort(),
       planned.base,
       planned.request,
+      planned.narrative,
+    );
+  }
+
+  // A setup request (scan, probe, enrol, access, preset, remove). Owner-only: it
+  // waits in Needs you and never reaches the policy, rules or the reviewer.
+  async setupRequest(
+    client: ClientIdentity,
+    kind: string,
+    raw: unknown,
+  ): Promise<OperationView> {
+    const planned = await planSetupRequest(
+      {
+        port: this.options.executor.setup,
+        inventory: this.options.inventory,
+        revision: await this.options.policy.revision(),
+      },
+      client,
+      kind,
+      raw,
+    );
+    return submitForOwner(
+      this.submitPort(),
+      planned.base,
+      planned.decision,
       planned.narrative,
     );
   }
@@ -353,8 +380,8 @@ export class Broker {
         throw new HomectlError(3, "The plan changed; review it again");
       const machine = await this.options.inventory.machine(op.host);
       if (
-        !machine ||
-        fingerprint(machine) !== op.machineHash ||
+        (!machine && op.setup === undefined) ||
+        fingerprint(machine ?? null) !== op.machineHash ||
         (await proxmoxChanged(this.options.inventory, op))
       ) {
         op.state = "failed";
@@ -375,7 +402,8 @@ export class Broker {
         if (
           input.decision === "deny-remember" &&
           this.options.policy.remember &&
-          op.proxmox === undefined
+          op.proxmox === undefined &&
+          op.setup === undefined
         )
           op.rememberedRule = await this.options.policy.remember(
             actionOf(op),
@@ -387,6 +415,9 @@ export class Broker {
             3,
             "This approval needs you to confirm your identity again",
           );
+        const confirmed = enrolmentConfirmation(op, input);
+        if (confirmed !== undefined && op.setup !== undefined)
+          op.setup.confirmed = confirmed;
         if (input.decision === "approve-remember") {
           // Until the review ends, human-only is not known: no rule from it.
           if (isReviewPending(op.decision))
@@ -438,7 +469,7 @@ export class Broker {
     await this.emit(outcome.op, "operation.updated");
     if (outcome.grant) {
       const machine = await this.options.inventory.machine(outcome.op.host);
-      if (machine)
+      if (machine || outcome.op.setup !== undefined)
         this.track(
           dispatch(
             this.dispatchContext(),

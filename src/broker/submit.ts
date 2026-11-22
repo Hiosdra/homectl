@@ -54,7 +54,7 @@ export type OperationBase = Pick<
   Partial<
     Pick<
       BrokerOperation,
-      "task" | "proxmox" | "providerHash" | "ownerOnly" | "area"
+      "task" | "proxmox" | "providerHash" | "ownerOnly" | "area" | "setup"
     >
   >;
 
@@ -111,5 +111,36 @@ export async function submitOperation(
   // An owner decision made during the review has already dispatched.
   if (settled.kind === "settled" && settled.machine)
     port.track(port.dispatch(id, settled.machine));
+  return port.view(op);
+}
+
+// Owner-only requests (setup) skip the policy and the reviewer entirely: the
+// decision is fixed at planning, so no rule, auto mode or AI helper can reach it.
+// The request waits in Needs you and nothing starts until the owner approves.
+export async function submitForOwner(
+  port: SubmitPort,
+  base: OperationBase,
+  decision: BrokerOperation["decision"],
+  narrative?: string,
+): Promise<OperationView> {
+  const id = `op_${randomBytes(12).toString("base64url")}`;
+  const fp = operationFingerprint({ ...base, id });
+  const now = port.now();
+  const op = await port.store.update((state) => {
+    const record: BrokerOperation = {
+      ...base,
+      id,
+      fingerprint: fp,
+      decision,
+      state: "awaiting-approval",
+      createdAt: now,
+      expiresAt: now + PLAN_TTL_MS,
+      updatedAt: now,
+      ...(narrative ? { narrative } : {}),
+    };
+    state.operations[id] = record;
+    return record;
+  });
+  await port.emit(op, "approval.requested");
   return port.view(op);
 }

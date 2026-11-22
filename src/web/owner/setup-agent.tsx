@@ -133,7 +133,8 @@ export function AgentSetupPage({
         <h3 id="stage-2">2. Give your assistant this prompt</h3>
         <p className="small muted">
           Paste it into {choice?.label ?? "your assistant"} once the command has
-          finished.
+          finished. Each change it asks for waits in Needs you, where you
+          approve it. Adding a machine also asks you to type its fingerprint.
         </p>
         <div className="setup-prompt">
           <p>{AGENT_PROMPT}</p>

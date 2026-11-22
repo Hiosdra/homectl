@@ -49,10 +49,45 @@ async function runProxmox(
   });
 }
 
+// Setup requests run through the owner's setup routes, which re-check their own
+// inputs (a changed machine or key fails there, with a plain reason).
+async function runSetup(
+  executor: ExecutorPort,
+  op: BrokerOperation,
+): Promise<ProcessResult> {
+  if (!executor.setup || op.setup === undefined)
+    throw new HomectlError(
+      5,
+      "Setup requests are not available on this broker",
+    );
+  return executor.setup.run({
+    kind: op.setup.kind,
+    input: { ...op.setup.input },
+    ...(op.setup.confirmed === undefined
+      ? {}
+      : { confirmFingerprint: op.setup.confirmed }),
+  });
+}
+
+// Exec runs over SSH on the machine the plan named; without it nothing starts.
+async function runExec(
+  executor: ExecutorPort,
+  op: BrokerOperation,
+  machine: Machine | undefined,
+): Promise<ProcessResult> {
+  if (!machine) throw new HomectlError(3, "The machine is not in the list");
+  return executor.run({
+    host: op.host,
+    machine,
+    argv: op.argv,
+    operationId: op.id,
+  });
+}
+
 export async function dispatch(
   ctx: DispatchContext,
   id: string,
-  machine: Machine,
+  machine: Machine | undefined,
   grant?: ApprovalGrant,
   revision?: number,
 ): Promise<void> {
@@ -87,7 +122,7 @@ export async function dispatch(
         live.state === "awaiting-approval" &&
         check.ok &&
         revision === current &&
-        fingerprint(machine) === live.machineHash &&
+        fingerprint(machine ?? null) === live.machineHash &&
         (await ctx.ledger.consume(grant.nonce, grant.expiresAt));
       if (!fresh) {
         if (live.state === "awaiting-approval") {
@@ -116,14 +151,11 @@ export async function dispatch(
   let final: Partial<BrokerOperation>;
   try {
     const result =
-      op.live.proxmox === undefined
-        ? await ctx.executor.run({
-            host: op.live.host,
-            machine,
-            argv: op.live.argv,
-            operationId: op.live.id,
-          })
-        : await runProxmox(ctx.executor, op.live);
+      op.live.setup !== undefined
+        ? await runSetup(ctx.executor, op.live)
+        : op.live.proxmox !== undefined
+          ? await runProxmox(ctx.executor, op.live)
+          : await runExec(ctx.executor, op.live, machine);
     final = {
       state: result.exitCode === 0 ? "succeeded" : "failed",
       result: boundOutput(

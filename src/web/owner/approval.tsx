@@ -46,6 +46,14 @@ import {
   ProxmoxDetailRows,
   proxmoxTitle,
 } from "./proxmox";
+import {
+  FingerprintConfirm,
+  fingerprintConfirmed,
+  isSetupOperation,
+  SetupDetailRows,
+  SetupRequestBody,
+  setupTitle,
+} from "./setup-request";
 
 export type ApprovalDecision =
   | "approve-once"
@@ -94,12 +102,18 @@ export function ApprovalScreen({
   onBack?: () => void;
 }) {
   const [password, setPassword] = useState("");
+  // Enrolment only: the fingerprint typed from the card. Cleared once sent.
+  const [confirmText, setConfirmText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const names = useAssistantNames();
   const [confirming, setConfirming] = useState<ApprovalDecision | undefined>();
   const decision: Decision = operation.decision;
   const needsStepUp = decision.stepUp === true;
+  const setup = isSetupOperation(operation);
+  // Adding a machine: the approve button waits for the typed fingerprint.
+  const enrolling = operation.setup?.kind === "enroll";
+  const confirmOk = !enrolling || fingerprintConfirmed(operation, confirmText);
   const approving = (kind: ApprovalDecision) => kind.startsWith("approve");
   const risk = riskView(operation.risk);
   const expires = toEpoch(operation.expiresAt);
@@ -110,7 +124,9 @@ export function ApprovalScreen({
     if (busy) return;
     // Take the password out of the form before the request leaves.
     const typed = password;
+    const typedKey = confirmText;
     setPassword("");
+    setConfirmText("");
     setConfirming(undefined);
     setBusy(true);
     setError(undefined);
@@ -120,8 +136,17 @@ export function ApprovalScreen({
         fingerprint: operation.fingerprint,
         decision: kind,
         ...(approving(kind) && needsStepUp ? { password: typed } : {}),
+        ...(approving(kind) && enrolling
+          ? { confirmFingerprint: typedKey.trim() }
+          : {}),
       });
-      onDone(OUTCOME[result.operation.state] ?? DECISION_NOTICE[kind]);
+      onDone(
+        setup && result.operation.state === "succeeded"
+          ? "Approved. The change is done."
+          : setup && result.operation.state === "failed"
+            ? "Approved, but the change did not finish. The assistant can see why."
+            : (OUTCOME[result.operation.state] ?? DECISION_NOTICE[kind]),
+      );
     } catch (failure) {
       onError(failure);
       setError(describeError(failure));
@@ -131,13 +156,15 @@ export function ApprovalScreen({
   };
 
   const missingPassword = needsStepUp && password.length === 0;
-  const approveBlocked = busy || missingPassword;
+  const approveBlocked = busy || missingPassword || !confirmOk;
   const who = displayName(operation.client, names);
-  // Proxmox requests are titled by what they do; they are never remembered as rules.
+  // Proxmox and setup requests are titled by what they do; neither is remembered as a rule.
   const proxmox = isProxmoxOperation(operation);
-  const title = proxmox
-    ? proxmoxTitle(operation)
-    : `${sentenceCase(plainAction(operation.argv))} on ${operation.host}?`;
+  const title = setup
+    ? setupTitle(operation)
+    : proxmox
+      ? proxmoxTitle(operation)
+      : `${sentenceCase(plainAction(operation.argv))} on ${operation.host}?`;
   const meta = [
     asked !== undefined ? `Asked ${relativeTime(asked)}` : undefined,
     expires !== undefined ? expiresIn(expires) : undefined,
@@ -170,12 +197,25 @@ export function ApprovalScreen({
           {operation.task ? `, task ${operation.task}` : ""}.
         </p>
         <OwnerOnlyNote operation={operation} />
-        <h3 className="sub-title">
-          {proxmox ? "The exact request" : "The exact command"}
-        </h3>
-        <div className="command-block" role="group" aria-label="Exact command">
-          <Argv argv={operation.argv} />
-        </div>
+        {setup ? (
+          <>
+            <h3 className="sub-title">What it changes</h3>
+            <SetupRequestBody operation={operation} />
+          </>
+        ) : (
+          <>
+            <h3 className="sub-title">
+              {proxmox ? "The exact request" : "The exact command"}
+            </h3>
+            <div
+              className="command-block"
+              role="group"
+              aria-label="Exact command"
+            >
+              <Argv argv={operation.argv} />
+            </div>
+          </>
+        )}
         <p className="small">
           {riskLine(risk.stripe, false)}
           {operation.sudo ? " It runs with admin rights (sudo)." : ""}
@@ -206,6 +246,7 @@ export function ApprovalScreen({
               {operation.sudo ? " · runs with sudo" : ""}
             </dd>
             <ProxmoxDetailRows operation={operation} />
+            <SetupDetailRows operation={operation} />
             <dt>Requested by</dt>
             <dd>
               <span className="mono">{operation.client}</span>
@@ -243,6 +284,13 @@ export function ApprovalScreen({
       <section className="decision stack" aria-labelledby="decision-title">
         <h3 id="decision-title">Your decision</h3>
         {underReview ? <Notice tone="warn">{UNDER_REVIEW_NOTE}</Notice> : null}
+        {enrolling ? (
+          <FingerprintConfirm
+            operation={operation}
+            value={confirmText}
+            onChange={setConfirmText}
+          />
+        ) : null}
         {needsStepUp ? (
           <>
             <Notice tone="warn">
@@ -282,12 +330,14 @@ export function ApprovalScreen({
           ) : null}
         </div>
         <p className="small muted">
-          Approving allows this exact command once. It does not create a rule.
+          {setup
+            ? "Approving allows this request once. It does not create a rule."
+            : "Approving allows this exact command once. It does not create a rule."}
         </p>
         <details className="more-options">
           <summary>More options</summary>
           <div className="stack">
-            {!proxmox && approveRememberOffered(decision) ? (
+            {!proxmox && !setup && approveRememberOffered(decision) ? (
               <div className="option-row">
                 <button
                   type="button"
@@ -299,7 +349,7 @@ export function ApprovalScreen({
                 <p className="small muted">{MORE_OPTIONS.rememberApprove}</p>
               </div>
             ) : null}
-            {proxmox ? null : (
+            {proxmox || setup ? null : (
               <div className="option-row">
                 <button
                   type="button"

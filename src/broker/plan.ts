@@ -112,11 +112,23 @@ export function operationFingerprint(
     | "machineHash"
     | "proxmox"
     | "providerHash"
+    | "setup"
   > & { id: string },
 ): string {
-  // Proxmox fields join the fingerprint only when present, so the hash of an
-  // exec plan is unchanged.
+  // Proxmox and setup fields join the fingerprint only when present, so the hash
+  // of an exec plan is unchanged. The owner's confirmation is not part of the plan.
+  const setup =
+    op.setup === undefined
+      ? {}
+      : {
+          setup: {
+            kind: op.setup.kind,
+            input: op.setup.input,
+            presented: op.setup.presented,
+          },
+        };
   return fingerprint({
+    ...setup,
     v: "homectl.plan/v3",
     id: op.id,
     client: op.client,

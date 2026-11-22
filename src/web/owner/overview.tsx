@@ -22,6 +22,7 @@ import { expiresIn, relativeTime, toEpoch } from "./time";
 import { Badge, MachineText, Notice } from "./ui";
 import { displayName, plainAction, riskLine } from "./plain-words";
 import { proxmoxTitle } from "./proxmox";
+import { setupTitle } from "./setup-request";
 import { useAssistantRoster, type AssistantNames } from "./assistant-names";
 import { setupHash } from "./route";
 import { type SetupStatus } from "./setup-api";
@@ -292,9 +293,11 @@ function ApprovalCard({
       <p className="lead">
         <MachineText
           text={
-            op.proxmox
-              ? `${proxmoxTitle(op).replace(/\?$/, "")}.`
-              : `Wants to ${plainAction(op.argv)} on ${op.host}.`
+            op.setup
+              ? `${setupTitle(op).replace(/\?$/, "")}.`
+              : op.proxmox
+                ? `${proxmoxTitle(op).replace(/\?$/, "")}.`
+                : `Wants to ${plainAction(op.argv)} on ${op.host}.`
           }
           machines={[op.host]}
         />

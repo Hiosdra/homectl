@@ -198,6 +198,18 @@ test("an agent token is refused on every owner setup and machine route", async (
     ["/v1/owner/hosts/probe", "POST", { name: "nas" }],
     ["/v1/owner/policy/preset", "POST", { preset: "delegated" }],
     ["/v1/owner/clients/create", "POST", { id: "x", name: "x", hosts: [] }],
+    // The approval of a setup request, with its typed fingerprint: owner only.
+    [
+      "/v1/owner/decide",
+      "POST",
+      {
+        operationId: "op_none",
+        fingerprint: "f",
+        decision: "approve-once",
+        password: PASSWORD,
+        confirmFingerprint: "SHA256:none",
+      },
+    ],
   ];
   for (const [path, method, body] of routes) {
     const response = await call(method, path, {
@@ -206,6 +218,15 @@ test("an agent token is refused on every owner setup and machine route", async (
     });
     expect([401, 403]).toContain(response.status);
   }
+});
+
+test("an owner session cannot make a setup request: only an agent token can", async () => {
+  const cookie = await signedIn();
+  const response = await call("POST", "/v1/setup/request/scan", {
+    cookie,
+    body: { address: "192.0.2.44" },
+  });
+  expect(response.status).toBe(401);
 });
 
 test("an owner session cookie is not an agent token on the agent setup routes", async () => {
