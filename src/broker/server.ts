@@ -221,27 +221,33 @@ export function handler(options: BrokerServerOptions) {
         const decision = str(input.decision, "decision");
         if (!DECISIONS.has(decision))
           throw new HomectlError(2, "Unknown decision");
-        const stepUp =
-          input.password !== undefined
-            ? await owner.check(input.password)
-            : false;
-        if (input.password !== undefined && !stepUp)
-          throw new HomectlError(3, "Wrong owner password");
-        return json(
-          await broker.decide({
-            operationId: str(input.operationId, "operationId"),
-            fingerprint: str(input.fingerprint, "fingerprint"),
-            decision: decision as DecideInput["decision"],
-            surface: session.surface,
-            stepUp,
-            reviewerApiKey: input.reviewerApiKey,
-            grantFingerprint: input.grantFingerprint,
-            // Enrolment approvals: the fingerprint the owner typed from the card.
-            ...(typeof input.confirmFingerprint === "string"
-              ? { confirmFingerprint: input.confirmFingerprint }
-              : {}),
-          }),
-        );
+        let stepUp = false;
+        if (input.password !== undefined) {
+          stepUp = await owner.check(input.password);
+          if (!stepUp) throw new HomectlError(3, "Wrong owner password");
+          owner.noteStepUp(session);
+        } else if (owner.hasRecentStepUp(session)) {
+          stepUp = true;
+        }
+        const decided = await broker.decide({
+          operationId: str(input.operationId, "operationId"),
+          fingerprint: str(input.fingerprint, "fingerprint"),
+          decision: decision as DecideInput["decision"],
+          surface: session.surface,
+          stepUp,
+          reviewerApiKey: input.reviewerApiKey,
+          grantFingerprint: input.grantFingerprint,
+          // Enrolment approvals: the fingerprint the owner typed from the card.
+          ...(typeof input.confirmFingerprint === "string"
+            ? { confirmFingerprint: input.confirmFingerprint }
+            : {}),
+        });
+        return json({
+          ...decided,
+          ...(session.stepUpUntil === undefined
+            ? {}
+            : { stepUpUntil: session.stepUpUntil }),
+        });
       }
       default:
         for (const extension of options.extensions ?? []) {

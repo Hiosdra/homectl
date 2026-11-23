@@ -92,8 +92,8 @@ export function SetupChecklist({
   switchTo?: SetupPath;
 }) {
   const [busy, setBusy] = useState(false);
-  // Hidden for good once setup is complete and the owner has dismissed it.
-  if (status.completed && status.dismissed) return null;
+  // Hidden once the owner dismisses the checklist (setup stays reachable in System).
+  if (status.dismissed) return null;
 
   const dismiss = async () => {
     setBusy(true);
@@ -161,8 +161,8 @@ export function SetupChecklist({
           );
         })}
       </ol>
-      {next ? (
-        <div className="row">
+      <div className="row">
+        {next ? (
           <button
             type="button"
             className="primary"
@@ -170,9 +170,12 @@ export function SetupChecklist({
           >
             Continue setup
           </button>
-          <span className="small muted">Next: {next.title}</span>
-        </div>
-      ) : null}
+        ) : null}
+        <button type="button" onClick={dismiss} disabled={busy}>
+          Hide for now
+        </button>
+        {next ? <span className="small muted">Next: {next.title}</span> : null}
+      </div>
       <p className="path-switch-line">
         <PathSwitch
           to={switchTo ?? (status.path === "agent" ? "manual" : "agent")}

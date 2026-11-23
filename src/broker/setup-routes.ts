@@ -123,9 +123,6 @@ export class SetupRoutes implements RouteExtension {
         break;
       }
       case "dismiss": {
-        const { status } = await this.read();
-        if (!status.completed)
-          throw new HomectlError(2, "Finish setup before hiding the checklist");
         await this.options.store.update((file, at) => {
           file.dismissedAt ??= at;
         });

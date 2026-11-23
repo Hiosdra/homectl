@@ -93,6 +93,11 @@ const MORE_OPTIONS = {
   revise: "Send it back. The assistant must submit a new plan first.",
 };
 
+// Short client-side hint for the broker's 5-minute approval step-up window.
+// The broker enforces the real window on the owner session; this only avoids
+// asking the owner to retype the password on back-to-back approvals.
+let recentStepUpUntil = 0;
+
 export function ApprovalScreen({
   operation,
   onDone,
@@ -120,6 +125,9 @@ export function ApprovalScreen({
   const enrolling = operation.setup?.kind === "enroll";
   const connectingHelper = operation.setup?.kind === "ai-helper";
   const grantingSudo = operation.setup?.kind === "sudo-grant";
+  const stepUpGrace =
+    needsStepUp && !grantingSudo && Date.now() < recentStepUpUntil;
+  const requiresPassword = needsStepUp && !stepUpGrace;
   const requiresReviewerKey = operation.setup?.input.keyRequired === true;
   const confirmOk = !enrolling || fingerprintConfirmed(operation, confirmText);
   const approving = (kind: ApprovalDecision) => kind.startsWith("approve");
@@ -143,17 +151,24 @@ export function ApprovalScreen({
     setBusy(true);
     setError(undefined);
     try {
-      const result = await ownerCall<DecideResult>("/v1/owner/decide", {
-        operationId: operation.id,
-        fingerprint: operation.fingerprint,
-        decision: kind,
-        ...(approving(kind) && needsStepUp ? { password: typed } : {}),
-        ...(approving(kind) && enrolling
-          ? { confirmFingerprint: typedKey.trim() }
-          : {}),
-        ...(approving(kind) && connectingHelper ? { reviewerApiKey } : {}),
-        ...(approving(kind) && grantingSudo ? { grantFingerprint } : {}),
-      });
+      const result = await ownerCall<DecideResult & { stepUpUntil?: number }>(
+        "/v1/owner/decide",
+        {
+          operationId: operation.id,
+          fingerprint: operation.fingerprint,
+          decision: kind,
+          ...(approving(kind) && needsStepUp && typed.length > 0
+            ? { password: typed }
+            : {}),
+          ...(approving(kind) && enrolling
+            ? { confirmFingerprint: typedKey.trim() }
+            : {}),
+          ...(approving(kind) && connectingHelper ? { reviewerApiKey } : {}),
+          ...(approving(kind) && grantingSudo ? { grantFingerprint } : {}),
+        },
+      );
+      if (typeof result.stepUpUntil === "number")
+        recentStepUpUntil = result.stepUpUntil;
       onDone(
         setup && result.operation.state === "succeeded"
           ? "Approved. The change is done."
@@ -162,6 +177,7 @@ export function ApprovalScreen({
             : (OUTCOME[result.operation.state] ?? DECISION_NOTICE[kind]),
       );
     } catch (failure) {
+      recentStepUpUntil = 0;
       onError(failure);
       setError(describeError(failure));
     } finally {
@@ -169,7 +185,7 @@ export function ApprovalScreen({
     }
   };
 
-  const missingPassword = needsStepUp && password.length === 0;
+  const missingPassword = requiresPassword && password.length === 0;
   const approveBlocked =
     busy ||
     missingPassword ||
@@ -317,7 +333,7 @@ export function ApprovalScreen({
             onChange={setReviewerApiKey}
           />
         ) : null}
-        {needsStepUp ? (
+        {requiresPassword ? (
           <>
             <Notice tone="warn">
               Approving this needs your owner password.
@@ -328,6 +344,11 @@ export function ApprovalScreen({
               hint="required to approve"
             />
           </>
+        ) : stepUpGrace ? (
+          <Notice tone="good">
+            Owner password confirmed recently. You can approve without
+            re-entering it for a few minutes.
+          </Notice>
         ) : null}
         {grantingSudo ? (
           <SudoGrantPreview

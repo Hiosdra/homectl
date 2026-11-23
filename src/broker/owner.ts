@@ -14,6 +14,7 @@ export interface OwnerVerifier {
 }
 
 export const OWNER_SESSION_MS = 15 * 60_000;
+export const STEP_UP_GRACE_MS = 5 * 60_000;
 const MAX_FAILURES = 5;
 const LOCKOUT_MS = 60_000;
 
@@ -100,6 +101,7 @@ export interface OwnerSession {
   token: string;
   surface: string;
   expiresAt: number;
+  stepUpUntil?: number;
 }
 
 // In-memory sessions plus failure lockout. Restarting the daemon logs the
@@ -163,6 +165,18 @@ export class OwnerSessions {
       return undefined;
     }
     return session;
+  }
+
+  noteStepUp(session: OwnerSession): number {
+    const until = Math.min(this.now() + STEP_UP_GRACE_MS, session.expiresAt);
+    session.stepUpUntil = until;
+    return until;
+  }
+
+  hasRecentStepUp(session: OwnerSession): boolean {
+    return (
+      session.stepUpUntil !== undefined && this.now() < session.stepUpUntil
+    );
   }
 
   logout(token: string | undefined) {
