@@ -11,6 +11,7 @@ import { Field } from "./ui";
 export const SETUP_KIND_LABEL: Record<string, string> = {
   "create-key": "Create an SSH key in the vault",
   "ai-helper": "Connect the AI helper",
+  "sudo-grant": "Apply managed sudo rules",
   scan: "Look for a machine's SSH key",
   probe: "Check that a machine answers",
   enroll: "Add a machine to homectl",
@@ -57,6 +58,8 @@ export function setupTitle(operation: PendingOperation): string {
   switch (setup.kind) {
     case "ai-helper":
       return "Connect the AI helper?";
+    case "sudo-grant":
+      return `Apply the managed sudo rules on ${input.name}?`;
     case "create-key":
       return `Create an SSH key for ${input.name}?`;
     case "scan":
@@ -83,6 +86,8 @@ export function setupBodyText(operation: PendingOperation): string {
   const setup = operation.setup;
   if (!setup) return "";
   switch (setup.kind) {
+    case "sudo-grant":
+      return "Review the live sudoers diff before you approve. Homectl validates the rules on the machine and checks the installed file.";
     case "ai-helper":
       return "This provider can receive request details and review them within your current AI permission settings.";
     case "create-key":

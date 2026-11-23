@@ -12,7 +12,11 @@ import {
 } from "../src/broker/host-permissions";
 import { renderDropIn } from "../src/hostperm";
 import { HomectlError, type Machine, type Runner } from "../src/types";
-import { FakeHost, writeTargets } from "./hostperm-fake-remote";
+import {
+  FakeHost,
+  unquoteSshCommand,
+  writeTargets,
+} from "./hostperm-fake-remote";
 
 const host = "lab";
 const DROP_IN = "/etc/sudoers.d/homectl-oskar";
@@ -50,18 +54,10 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-// The SSH spec carries one POSIX-quoted command; turn it back into argv.
-function unquote(command: string): string[] {
-  const words: string[] = [];
-  for (const match of command.matchAll(/'((?:[^']|'\\'')*)'/g))
-    words.push((match[1] ?? "").replaceAll("'\\''", "'"));
-  return words;
-}
-
 function routes() {
   const runner: Runner = async (spec) => {
     expect(spec.argv).toContain("StrictHostKeyChecking=yes");
-    return remote.exec(unquote(spec.argv.at(-1) ?? ""), {
+    return remote.exec(unquoteSshCommand(spec.argv.at(-1) ?? ""), {
       ...(spec.stdin === undefined ? {} : { stdin: spec.stdin }),
     });
   };

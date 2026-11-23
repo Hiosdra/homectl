@@ -327,3 +327,11 @@ export class FakeHost {
       : result(1);
   }
 }
+
+// The SSH spec carries one POSIX-quoted command; turn it back into argv.
+export function unquoteSshCommand(command: string): string[] {
+  const words: string[] = [];
+  for (const match of command.matchAll(/'((?:[^']|'\\'')*)'/g))
+    words.push((match[1] ?? "").replaceAll("'\\''", "'"));
+  return words;
+}

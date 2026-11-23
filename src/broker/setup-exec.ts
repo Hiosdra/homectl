@@ -23,6 +23,7 @@ export interface SetupExecDeps {
   // The owner's settings routes (approval-wait).
   settings: OwnerCall;
   aiHelper?: OwnerCall;
+  permissions?: OwnerCall;
 }
 
 const PRESET_LABEL: Record<string, string> = {
@@ -30,6 +31,8 @@ const PRESET_LABEL: Record<string, string> = {
   routine: "AI helps with small fixes",
   delegated: "AI decides more",
 };
+
+class GrantOutcomeUnknown extends Error {}
 
 const KEYS_CHANGED =
   "The machine now shows a different key from the one on the card. Nothing was added. Ask for a new scan.";
@@ -73,6 +76,8 @@ function summary(
       return `The AI permission setting is now ${PRESET_LABEL[String(input.preset)] ?? String(input.preset)}.`;
     case "create-key":
       return "The machine key is ready. The owner can retrieve its public half from Machines. The private key stays in the vault.";
+    case "sudo-grant":
+      return "The managed sudo rules were validated and verified on the machine.";
     case "ai-helper":
       return "The AI helper connection was saved. The key, if provided, is in the vault.";
     case "approval-wait":
@@ -86,6 +91,7 @@ export function ownerSetupPort(deps: SetupExecDeps): SetupPort {
       present?: boolean;
     };
   return {
+    supportsSudoGrant: deps.permissions !== undefined,
     async lastScan(address, port) {
       return deps.scans.last(address, port);
     },
@@ -104,6 +110,7 @@ export function ownerSetupPort(deps: SetupExecDeps): SetupPort {
           stderr: "",
         };
       } catch (error) {
+        if (error instanceof GrantOutcomeUnknown) throw error;
         return {
           exitCode: 1,
           stdout: "",
@@ -181,6 +188,30 @@ async function execute(
       return deps.hosts("/v1/owner/hosts/remove", { name: input.name });
     case "preset":
       return deps.policy("/v1/owner/policy/preset", { preset: input.preset });
+    case "sudo-grant": {
+      if (!deps.permissions || !request.grantFingerprint)
+        throw new HomectlError(
+          3,
+          "The sudo grant has no owner-reviewed preview",
+        );
+      const { apply } = (await deps.permissions("/v1/owner/hosts/apply-grant", {
+        host: input.name,
+        fingerprint: request.grantFingerprint,
+      })) as { apply?: { status?: string } };
+      if (
+        apply?.status === "outcome-unknown" ||
+        apply?.status === "restore-failed"
+      )
+        throw new GrantOutcomeUnknown(
+          "The machine's sudo grant could not be verified",
+        );
+      if (apply?.status !== "applied" && apply?.status !== "unchanged")
+        throw new HomectlError(
+          3,
+          "The sudo grant did not apply. Check the owner audit history.",
+        );
+      return apply;
+    }
     case "ai-helper":
       if (!deps.aiHelper)
         throw new HomectlError(5, "The AI helper is unavailable");

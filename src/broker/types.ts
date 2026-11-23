@@ -116,6 +116,7 @@ export interface SetupRun {
   confirmFingerprint?: string;
   // AI helper only. This is passed in memory and is never part of an operation.
   reviewerApiKey?: string;
+  grantFingerprint?: string;
   // Enrolment only: the keys the card showed (from the recorded scan). Execution
   // reads the machine again and refuses when its keys differ.
   presented?: PresentedKey[];
@@ -125,6 +126,7 @@ export interface SetupRun {
 // only read local records and files, never the network; run executes one
 // approved request and nothing else.
 export interface SetupPort {
+  supportsSudoGrant?: boolean;
   lastScan(address: string, port: number): Promise<ScanRecord | undefined>;
   keyReady(name: string): Promise<boolean>;
   run(request: SetupRun): Promise<ProcessResult>;
@@ -222,6 +224,7 @@ export interface DecideInput {
   // Enrolment approvals: the fingerprint the owner typed from the card.
   confirmFingerprint?: string;
   reviewerApiKey?: unknown;
+  grantFingerprint?: unknown;
 }
 
 export interface DecideResult {

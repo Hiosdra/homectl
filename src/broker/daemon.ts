@@ -173,6 +173,16 @@ export async function startDaemon(config: DaemonConfig) {
   // approval already asked for the password (decide checks step-up before any
   // dispatch), so the routes' own step-up is settled here.
   const settled = async () => undefined;
+  const hostPermissions = hasVault
+    ? new HostPermissionRoutes(
+        inventory,
+        config.inventoryPath,
+        config.state,
+        vault.gate,
+        config.machineRunner,
+        events,
+      )
+    : undefined;
   const settingsRoutes = new SettingsRoutes(config.state);
   const executor: ExecutorPort = config.executor ?? {
     ...sshExecutor(config.inventoryPath, config.sshConfigPath),
@@ -183,6 +193,12 @@ export async function startDaemon(config: DaemonConfig) {
       scans: new ScanRecords(config.state),
       settings: (path, input) => settingsRoutes.owner(path, input, settled),
       aiHelper: (path, input) => aiHelperRoutes.owner(path, input, settled),
+      ...(hostPermissions === undefined
+        ? {}
+        : {
+            permissions: (path, input) =>
+              hostPermissions.owner(path, input, settled),
+          }),
     }),
   };
   const hostSet = new Set<string>();
@@ -342,19 +358,8 @@ export async function startDaemon(config: DaemonConfig) {
       ownerHosts,
       setupRoutes,
       ...workspace.extensions,
-      ...(hasVault
-        ? [
-            vault,
-            new HostPermissionRoutes(
-              inventory,
-              config.inventoryPath,
-              config.state,
-              vault.gate,
-              undefined,
-              events,
-            ),
-          ]
-        : []),
+      ...(hasVault ? [vault] : []),
+      ...(hostPermissions ? [hostPermissions] : []),
     ],
     events: log,
     onAgentSeen: (id) => seen.note(id),

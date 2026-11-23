@@ -72,6 +72,8 @@ export const OWNER_ONLY_STEPS: readonly string[] = [
 
 function approvalText(kind: SetupRequestKind): string {
   const spec = SETUP_SPECS[kind];
+  if (kind === "sudo-grant")
+    return "Owner previews the live sudo diff and approves with the password";
   if (kind === "enroll")
     return "Owner approves with the password and the typed fingerprint";
   return spec.password
@@ -82,6 +84,8 @@ function approvalText(kind: SetupRequestKind): string {
 // Enrolment starts only from a recent scan of its address that the owner approved.
 // The broker refuses it otherwise, so the agent asks for the scan first.
 const REQUIRES: Partial<Record<SetupRequestKind, string>> = {
+  "sudo-grant":
+    "The machine is in your grant and the owner has set its managed sudo rules.",
   enroll:
     "A scan of the address that the owner approved, made within the last 30 minutes. Request setup_scan first; without it the request is refused.",
 };

@@ -42,6 +42,7 @@ export const SETUP_REQUESTS = [
   "approval-wait",
   "create-key",
   "ai-helper",
+  "sudo-grant",
 ] as const;
 export type SetupRequestKind = (typeof SETUP_REQUESTS)[number];
 
@@ -109,6 +110,13 @@ export const SETUP_SPECS: Record<SetupRequestKind, SetupRequestSpec> = {
     classification: "mutation",
     area: "Machines",
   },
+  "sudo-grant": {
+    label: "Apply the machine's sudo permissions",
+    risk: "R4",
+    password: true,
+    classification: "mutation",
+    area: "Machine permissions",
+  },
   "ai-helper": {
     label: "Connect the AI helper",
     risk: "R3",
@@ -140,6 +148,7 @@ const FIELDS: Record<SetupRequestKind, readonly string[]> = {
   "create-key": ["name", "narrative"],
   "approval-wait": ["wait", "narrative"],
   "ai-helper": ["provider", "baseUrl", "model", "narrative"],
+  "sudo-grant": ["name", "narrative"],
 };
 
 // Agents may propose these levels. Admin with your approval needs an allowed-command
@@ -226,6 +235,7 @@ export function validateSetupInput(
     "create-key": ["name"],
     "approval-wait": ["waitMs"],
     "ai-helper": ["provider", "model"],
+    "sudo-grant": ["name"],
   };
   for (const field of required[kind])
     if (out[field] === undefined)
@@ -241,6 +251,7 @@ export interface SetupOperation {
   presented?: PresentedKey[];
   // The fingerprint the owner typed on the approval card (enrolment only).
   confirmed?: string;
+  grantFingerprint?: string;
 }
 
 // Owner-only: every setup request is a hard-gate decision. The password is asked
@@ -307,11 +318,29 @@ export async function planSetupRequest(
   if (!hasScope(client, "plan:create")) throw new HomectlError(3, NOT_GRANTED);
   const spec = SETUP_SPECS[kind];
   let machine: Machine | undefined;
-  if (kind === "probe" || kind === "access" || kind === "remove") {
+  if (
+    kind === "probe" ||
+    kind === "access" ||
+    kind === "remove" ||
+    kind === "sudo-grant"
+  ) {
     const name = input.name ?? "";
     if (!permitsHost(client, name)) throw new HomectlError(3, NOT_GRANTED);
     machine = await ctx.inventory.machine(name);
     if (!machine) throw new HomectlError(3, NOT_GRANTED);
+  }
+  if (kind === "sudo-grant") {
+    if (!port.supportsSudoGrant)
+      throw new HomectlError(5, "Sudo grant requests need a broker vault");
+    if (
+      machine?.transport !== "ssh" ||
+      machine.access !== "sudo-approved" ||
+      !machine.sudo_allow?.length
+    )
+      throw new HomectlError(
+        3,
+        "The owner must set the machine's managed sudo rules before you can request applying them",
+      );
   }
   if (kind === "access") {
     if (machine?.user === "root" && input.access !== "full")

@@ -31,7 +31,7 @@ export function enrolmentConfirmation(
   return typed;
 }
 
-export function reviewerKeyForApproval(
+function reviewerKeyForApproval(
   op: BrokerOperation,
   input: DecideInput,
 ): string | undefined {
@@ -45,4 +45,23 @@ export function reviewerKeyForApproval(
   if (key === undefined && op.setup.input.keyRequired)
     throw new HomectlError(2, "Enter the API key for this provider");
   return key;
+}
+
+export function prepareSetupApproval(
+  op: BrokerOperation,
+  input: DecideInput,
+): string | undefined {
+  if (!op.setup) return undefined;
+  const typed = enrolmentConfirmation(op, input);
+  if (typed !== undefined) op.setup.confirmed = typed;
+  if (op.setup.kind === "sudo-grant") {
+    const digest = input.grantFingerprint;
+    if (typeof digest !== "string" || !/^[a-f0-9]{64}$/.test(digest))
+      throw new HomectlError(
+        3,
+        "Preview the exact sudo grant in Needs you before approving",
+      );
+    op.setup.grantFingerprint = digest;
+  }
+  return reviewerKeyForApproval(op, input);
 }

@@ -67,6 +67,9 @@ async function runSetup(
     kind: op.setup.kind,
     input: { ...op.setup.input },
     ...(reviewerApiKey === undefined ? {} : { reviewerApiKey }),
+    ...(op.setup.grantFingerprint === undefined
+      ? {}
+      : { grantFingerprint: op.setup.grantFingerprint }),
     ...(op.setup.confirmed === undefined
       ? {}
       : { confirmFingerprint: op.setup.confirmed }),

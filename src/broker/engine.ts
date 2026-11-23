@@ -22,7 +22,7 @@ import { actionOf, planExec, toView, validateExecInput } from "./plan";
 import { planProxmoxRequest } from "./proxmox-submit";
 import { approvalRefusal, type CurrentClient } from "./request-authority";
 import { isReviewPending, isUnderReview } from "./review";
-import { enrolmentConfirmation, reviewerKeyForApproval } from "./setup-decide";
+import { prepareSetupApproval } from "./setup-decide";
 import { planSetupRequest } from "./setup-request";
 import type { BrokerStore } from "./store";
 import { APPROVAL_WAIT_DEFAULT_MS } from "./approval-wait";
@@ -418,10 +418,7 @@ export class Broker {
             3,
             "This approval needs you to confirm your identity again",
           );
-        const confirmed = enrolmentConfirmation(op, input);
-        reviewerApiKey = reviewerKeyForApproval(op, input);
-        if (confirmed !== undefined && op.setup !== undefined)
-          op.setup.confirmed = confirmed;
+        reviewerApiKey = prepareSetupApproval(op, input);
         if (input.decision === "approve-remember") {
           if (isReviewPending(op.decision))
             throw new HomectlError(

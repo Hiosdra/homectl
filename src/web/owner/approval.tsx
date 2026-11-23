@@ -56,6 +56,8 @@ import {
   setupTitle,
 } from "./setup-request";
 
+import { SudoGrantPreview } from "./sudo-grant-preview";
+
 export type ApprovalDecision =
   | "approve-once"
   | "approve-remember"
@@ -106,6 +108,7 @@ export function ApprovalScreen({
   // Enrolment only: the fingerprint typed from the card. Cleared once sent.
   const [confirmText, setConfirmText] = useState("");
   const [reviewerApiKey, setReviewerApiKey] = useState("");
+  const [grantFingerprint, setGrantFingerprint] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const names = useAssistantNames();
@@ -116,6 +119,7 @@ export function ApprovalScreen({
   // Adding a machine: the approve button waits for the typed fingerprint.
   const enrolling = operation.setup?.kind === "enroll";
   const connectingHelper = operation.setup?.kind === "ai-helper";
+  const grantingSudo = operation.setup?.kind === "sudo-grant";
   const requiresReviewerKey = operation.setup?.input.keyRequired === true;
   const confirmOk = !enrolling || fingerprintConfirmed(operation, confirmText);
   const approving = (kind: ApprovalDecision) => kind.startsWith("approve");
@@ -134,6 +138,7 @@ export function ApprovalScreen({
     setPassword("");
     setConfirmText("");
     setReviewerApiKey("");
+    setGrantFingerprint(undefined);
     setConfirming(undefined);
     setBusy(true);
     setError(undefined);
@@ -147,6 +152,7 @@ export function ApprovalScreen({
           ? { confirmFingerprint: typedKey.trim() }
           : {}),
         ...(approving(kind) && connectingHelper ? { reviewerApiKey } : {}),
+        ...(approving(kind) && grantingSudo ? { grantFingerprint } : {}),
       });
       onDone(
         setup && result.operation.state === "succeeded"
@@ -168,6 +174,7 @@ export function ApprovalScreen({
     busy ||
     missingPassword ||
     !confirmOk ||
+    (grantingSudo && grantFingerprint === undefined) ||
     (connectingHelper && requiresReviewerKey && reviewerApiKey.trim() === "");
   const who = displayName(operation.client, names);
   // Proxmox and setup requests are titled by what they do; neither is remembered as a rule.
@@ -321,6 +328,14 @@ export function ApprovalScreen({
               hint="required to approve"
             />
           </>
+        ) : null}
+        {grantingSudo ? (
+          <SudoGrantPreview
+            host={operation.host}
+            password={password}
+            onReview={setGrantFingerprint}
+            onError={onError}
+          />
         ) : null}
         {error ? <Notice tone="bad">{error}</Notice> : null}
         <div className="decision-actions">

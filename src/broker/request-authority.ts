@@ -32,7 +32,8 @@ export async function authorityRefusal(
     kind === undefined ||
     kind === "access" ||
     kind === "probe" ||
-    kind === "remove";
+    kind === "remove" ||
+    kind === "sudo-grant";
   if (needsHost && !client.hosts.includes(op.host))
     return "client-grant-changed";
   return undefined;

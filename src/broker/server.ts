@@ -235,6 +235,7 @@ export function handler(options: BrokerServerOptions) {
             surface: session.surface,
             stepUp,
             reviewerApiKey: input.reviewerApiKey,
+            grantFingerprint: input.grantFingerprint,
             // Enrolment approvals: the fingerprint the owner typed from the card.
             ...(typeof input.confirmFingerprint === "string"
               ? { confirmFingerprint: input.confirmFingerprint }

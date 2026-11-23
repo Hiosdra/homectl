@@ -132,6 +132,13 @@ export const SETUP_REQUEST_TOOLS: readonly ToolDefinition[] = [
     ["name"],
   ),
   request(
+    "setup_sudo_grant",
+    "sudo-grant",
+    "Ask to apply the exact managed sudo rules the owner has already set for a machine in your grant. Only the owner can preview the live diff and approve it with their password. No remote changes are made by submitting this request.",
+    { name: NAME },
+    ["name"],
+  ),
+  request(
     "setup_ai_helper",
     "ai-helper",
     "Propose the AI helper provider and model. A custom provider also needs its exact base address. The owner reviews the destination and enters any key privately in Needs you on this device. This does not enable Auto Mode or widen reviewer authority.",
