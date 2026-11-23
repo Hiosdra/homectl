@@ -328,10 +328,17 @@ export function secretIntentState(
   }
 }
 
-export function listWorkspaceSecrets(): Promise<WorkspacePendingSecret[]> {
-  return ownerCall<WorkspacePendingSecret[]>(
-    "/v1/owner/workspace/secrets/pending",
-  );
+export async function listWorkspaceSecrets(): Promise<
+  WorkspacePendingSecret[]
+> {
+  try {
+    return await ownerCall<WorkspacePendingSecret[]>(
+      "/v1/owner/workspace/secrets/pending",
+    );
+  } catch (error) {
+    if (error instanceof OwnerApiError && error.status === 404) return [];
+    throw error;
+  }
 }
 
 export function provideWorkspaceSecret(input: {
