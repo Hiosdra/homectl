@@ -248,7 +248,9 @@ function SessionCard() {
             >
               Cancel
             </Button>
-            <Button type="submit">Save length</Button>
+            <Button type="submit" disabled={ui.busy}>
+              Save length
+            </Button>
           </div>
           <Note>
             Changing the session length locks the current SSH session.
@@ -346,7 +348,9 @@ function PanelCard() {
           />
         </div>
         <div className="flex items-end justify-end">
-          <Button type="submit">Save name</Button>
+          <Button type="submit" disabled={ui.busy}>
+            Save name
+          </Button>
         </div>
       </form>
       <dl className="mt-4 grid grid-cols-[120px_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">

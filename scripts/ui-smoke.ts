@@ -499,8 +499,9 @@ try {
     .click();
   expect(running.hub.pending.has(proposed.id)).toBe(false);
   await page.getByRole("link", { name: "Settings", exact: true }).click();
-  await page.getByLabel(/^Device name$/).fill("Linux · demo");
+  await page.getByLabel(/^Device name$/).fill("Linux demo renamed");
   await page.getByRole("button", { name: "Save name" }).click();
+  await expect.poll(() => running.hub.state.name).toBe("Linux demo renamed");
   await expect(page.getByRole("status")).toContainText("Changes saved");
   await page.getByRole("button", { name: "Change length" }).click();
   await page.getByLabel(/^Session length$/).click();
