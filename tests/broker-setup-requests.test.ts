@@ -60,6 +60,8 @@ let evaluations: number;
 let remembered: number;
 let presented: PresentedKey[];
 let keysReady: Set<string>;
+// When the owner's last scan ran (undefined: no scan on record).
+let scannedAt: number | undefined;
 
 // A policy that counts every call it is asked to make. Setup requests must never
 // reach it: no evaluation, no remembered rule.
@@ -77,8 +79,12 @@ class SpyPolicy extends BasicPolicy {
   }
 }
 
+// Enrolment reads the scan record (never the network): the keys of the last scan.
 const setupPort: SetupPort = {
-  presentedKeys: async () => presented,
+  lastScan: async (address, port) =>
+    scannedAt === undefined
+      ? undefined
+      : { address, port, at: scannedAt, keys: presented },
   keyReady: async (name) => keysReady.has(name),
   run: async (request) => {
     runs.push(request);
@@ -145,6 +151,7 @@ beforeEach(async () => {
   remembered = 0;
   presented = [{ type: "ssh-ed25519", fingerprint: FP_PRESENTED }];
   keysReady = new Set(["new-box"]);
+  scannedAt = clock;
 });
 
 afterEach(async () => {

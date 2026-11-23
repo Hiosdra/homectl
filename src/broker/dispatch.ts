@@ -66,6 +66,9 @@ async function runSetup(
     ...(op.setup.confirmed === undefined
       ? {}
       : { confirmFingerprint: op.setup.confirmed }),
+    ...(op.setup.presented === undefined
+      ? {}
+      : { presented: op.setup.presented }),
   });
 }
 

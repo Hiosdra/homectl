@@ -40,6 +40,7 @@ import { SetupRoutes } from "./setup-routes";
 import { isUpgradeNotice, SetupStore } from "./setup-state";
 import { proxmoxExecutor } from "./proxmox-exec";
 import { ownerSetupPort } from "./setup-exec";
+import { ScanRecords } from "./scan-records";
 import { BrokerStore } from "./store";
 import type {
   EventsPort,
@@ -172,6 +173,7 @@ export async function startDaemon(config: DaemonConfig) {
     setup: ownerSetupPort({
       hosts: (path, input) => ownerHosts.owner(path, input, settled),
       policy: (path, input) => policyRoutes.owner(path, input, settled),
+      scans: new ScanRecords(config.state),
     }),
   };
   const hostSet = new Set<string>();

@@ -59,6 +59,77 @@ export function riskView(level: string | undefined): RiskView {
   }
 }
 
+// The badge on a Needs-you card says what the action does, in plain words. The
+// risk tier (R1-R4) still sets the card's colour and the approval rules, and it stays
+// in Details under "Risk level".
+export type ActionLabel =
+  | "Just looks"
+  | "Changes things"
+  | "Changes permissions"
+  | "Gives access"
+  | "Removes"
+  | "Deletes"
+  | "Needs a look";
+
+const SETUP_ACTION: Record<string, ActionLabel> = {
+  scan: "Just looks",
+  probe: "Just looks",
+  enroll: "Gives access",
+  access: "Changes permissions",
+  preset: "Changes permissions",
+  remove: "Removes",
+};
+
+const CLASS_ACTION: Record<string, ActionLabel> = {
+  inspect: "Just looks",
+  mutation: "Changes things",
+  destructive: "Deletes",
+  opaque: "Needs a look",
+};
+
+const ACTION_ICON: Record<ActionLabel, IconName> = {
+  "Just looks": "eye",
+  "Changes things": "pencil",
+  "Changes permissions": "key",
+  "Gives access": "key",
+  Removes: "trash",
+  Deletes: "trash",
+  "Needs a look": "info",
+};
+
+// The action's label: a setup request by its kind, anything else by its class. A
+// card with no class (a linked client's request) falls back to its risk tier.
+const TIER_ACTION: Record<string, ActionLabel> = {
+  R0: "Just looks",
+  R1: "Just looks",
+  R2: "Changes things",
+  R3: "Changes things",
+  R4: "Deletes",
+};
+
+export function actionLabel(operation: {
+  risk: string;
+  classification?: string;
+  setup?: { kind: string };
+}): ActionLabel {
+  const kind = operation.setup?.kind;
+  if (kind !== undefined && SETUP_ACTION[kind] !== undefined)
+    return SETUP_ACTION[kind];
+  if (operation.classification !== undefined)
+    return CLASS_ACTION[operation.classification] ?? "Needs a look";
+  return TIER_ACTION[operation.risk] ?? "Needs a look";
+}
+
+// The card's badge: the action's words and icon, with the tier's colour.
+export function actionView(operation: {
+  risk: string;
+  classification?: string;
+  setup?: { kind: string };
+}): RiskView {
+  const label = actionLabel(operation);
+  return { ...riskView(operation.risk), label, icon: ACTION_ICON[label] };
+}
+
 // Whether one tap may approve a request straight from the list. Only small or
 // lower-risk requests that need no owner password qualify. Everything else is
 // approved on its detail screen, where the exact command is shown first.

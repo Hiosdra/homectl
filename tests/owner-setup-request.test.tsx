@@ -94,6 +94,7 @@ describe("setup requests: titles and body text", () => {
 
   test("the body says what changes and what does not", () => {
     expect(setupBodyText(enroll)).toContain("Compare the key");
+    expect(setupBodyText(enroll)).toContain("the scan you approved");
     expect(
       setupBodyText(
         pending({ setup: { kind: "probe", input: { name: "nas" } } }),

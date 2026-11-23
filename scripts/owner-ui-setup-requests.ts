@@ -1,8 +1,9 @@
 // Browser check for agent setup requests (0.3 acceptance). An agent asks, over the
 // broker's own HTTP route with its bearer token, for a scan, for a new machine and for
-// a permission setting. The owner approves each one in Needs you: the scan with no
-// password, the new machine with the password and the fingerprint typed from the
-// card, and the setting with the password. The broker, the panel and the owner routes
+// a permission setting. Adding a machine is refused until the owner has approved a
+// scan of its address. The owner approves each one in Needs you, in this order: the
+// scan with no password, the new machine with the password and the fingerprint typed
+// from the card, and the setting with the password. The broker, the panel and the owner routes
 // are real; every ssh and keyscan call goes to a stub, and the addresses are
 // documentation addresses, so no machine is contacted and no AI provider is called.
 // Screenshots (desktop and phone) go to OWNER_SETUP_SHOTS.
@@ -170,17 +171,31 @@ async function pass(
     colorScheme: "light",
   });
   const page = await context.newPage();
-  const scanAddress = `192.0.2.${mobile ? 60 : 50}`;
+  // The address this pass adds. It is scanned and approved before the enrolment.
+  const addAddress = `192.0.2.${mobile ? 46 : 45}`;
   try {
+    // 0. An enrolment before any scan is refused, and the refusal says to scan first.
+    await expect(
+      agentCall("/v1/setup/request/enroll", {
+        name: `${machine}-early`,
+        address: addAddress,
+        user: "operator",
+        access: "user",
+      }),
+    ).rejects.toThrow("Ask for a scan of that address first");
+
     // 1. Scan: no password.
     const scan = await agentCall("/v1/setup/request/scan", {
-      address: scanAddress,
+      address: addAddress,
       narrative: "The owner asked me to look at this address.",
     });
     expect(scan.state).toBe("awaiting-approval");
     await signIn(page);
-    await openRequest(page, `Look for the SSH key at ${scanAddress}`);
+    await openRequest(page, `Look for the SSH key at ${addAddress}`);
     await expect(page.getByLabel("Owner password")).toHaveCount(0);
+    await expect(
+      page.getByText("Just looks", { exact: true }).first(),
+    ).toBeVisible();
     await shot(page, tag, "01-scan-card");
     await noHorizontalScroll(page);
     await page.getByRole("button", { name: "Approve once" }).click();
@@ -192,7 +207,7 @@ async function pass(
     // 2. Add a machine: the card asks for the typed fingerprint and the password.
     const add = await agentCall("/v1/setup/request/enroll", {
       name: machine,
-      address: "192.0.2.45",
+      address: addAddress,
       user: "operator",
       access: "user",
       narrative: "The owner wants this box on the list.",
@@ -200,6 +215,11 @@ async function pass(
     expect(add.state).toBe("awaiting-approval");
     await page.goto(`${panelOrigin}/`);
     await openRequest(page, `Add ${machine} to homectl`);
+    // The badge says what the change does; the risk code stays in Details.
+    await expect(
+      page.getByText("Gives access", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(page.getByText("Destructive", { exact: true })).toHaveCount(0);
     const approve = page.getByRole("button", { name: "Approve once" });
     await expect(approve).toBeDisabled();
     await shot(page, tag, "02-add-card");
@@ -230,6 +250,9 @@ async function pass(
       page,
       "Change the AI permission setting to AI decides more",
     );
+    await expect(
+      page.getByText("Changes permissions", { exact: true }).first(),
+    ).toBeVisible();
     await expect(page.getByLabel("Owner password")).toBeVisible();
     await expect(
       page.getByLabel("Type the fingerprint to confirm"),
@@ -248,7 +271,7 @@ async function pass(
     // The agent reads back plain sentences only: no address, no key.
     const everything =
       JSON.stringify(after) + JSON.stringify(await statusOf(add.id));
-    expect(everything).not.toContain("192.0.2.45");
+    expect(everything).not.toContain(addAddress);
     expect(everything).not.toContain(FP);
   } finally {
     await context.close();

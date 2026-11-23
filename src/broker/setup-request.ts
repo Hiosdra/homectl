@@ -17,6 +17,7 @@ import {
   checkName,
   checkPort,
 } from "./owner-hosts-input";
+import { isRecentScan } from "./scan-records";
 import type { OperationBase } from "./submit";
 import type {
   BrokerOperation,
@@ -203,7 +204,13 @@ export interface SetupPlanContext {
   port: SetupPort | undefined;
   inventory: InventoryPort;
   revision: number;
+  now: () => number;
 }
+
+const NO_SCAN =
+  "Ask for a scan of that address first (setup_scan). When the owner has approved it, ask to add the machine.";
+const STALE_SCAN =
+  "The last scan of that address is more than 30 minutes old. Ask for a new scan first (setup_scan), then ask to add the machine.";
 
 export interface PlannedSetup {
   base: OperationBase;
@@ -219,8 +226,9 @@ function riskOf(kind: SetupRequestKind, input: SetupInput): Risk {
 }
 
 // Plans one request: checks the client's grant and the request, reads what the
-// owner will need to see (the presented key for an enrolment), and returns the
-// record to queue. Refusals happen before anything is queued.
+// owner will need to see (the key a recent approved scan recorded, for an
+// enrolment), and returns the record to queue. Planning makes no network or runner
+// call for any kind. Refusals happen before anything is queued.
 export async function planSetupRequest(
   ctx: SetupPlanContext,
   client: ClientIdentity,
@@ -259,7 +267,12 @@ export async function planSetupRequest(
     // The name must be free. The same refusal covers a taken name and a hidden one.
     if (await ctx.inventory.machine(input.name ?? ""))
       throw new HomectlError(3, "That name is already in use");
-    presented = await port.presentedKeys(input.address ?? "", input.port ?? 22);
+    // Planning never contacts the address. It needs a scan the owner approved, and
+    // the card shows the keys that scan recorded.
+    const scan = await port.lastScan(input.address ?? "", input.port ?? 22);
+    if (!scan) throw new HomectlError(3, NO_SCAN);
+    if (!isRecentScan(scan, ctx.now())) throw new HomectlError(3, STALE_SCAN);
+    presented = scan.keys;
     if (presented.length === 0)
       throw new HomectlError(
         3,

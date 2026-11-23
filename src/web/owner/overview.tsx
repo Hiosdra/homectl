@@ -16,7 +16,7 @@ import { type ViewScope } from "./context";
 import { ContextNote } from "./context-switcher";
 import { DECISION_NOTICE, OUTCOME, type ApprovalDecision } from "./approval";
 import { Icon } from "./icons";
-import { canApproveFromList, riskView } from "./risk";
+import { actionView, canApproveFromList } from "./risk";
 import { isUnderReview } from "./review";
 import { expiresIn, relativeTime, toEpoch } from "./time";
 import { Badge, MachineText, Notice } from "./ui";
@@ -249,7 +249,8 @@ function ApprovalCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const risk = riskView(op.risk);
+  // The badge says what the action does; the stripe colour still follows the tier.
+  const risk = actionView(op);
   const expires = toEpoch(op.expiresAt);
   const asked = toEpoch(op.createdAt);
   const quick = canApproveFromList(op);

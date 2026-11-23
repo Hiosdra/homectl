@@ -15,7 +15,7 @@ import {
 } from "./api";
 import { Icon } from "./icons";
 import { useAssistantNames } from "./assistant-names";
-import { riskView } from "./risk";
+import { actionView, riskView } from "./risk";
 import {
   approveRememberOffered,
   isUnderReview,
@@ -115,7 +115,9 @@ export function ApprovalScreen({
   const enrolling = operation.setup?.kind === "enroll";
   const confirmOk = !enrolling || fingerprintConfirmed(operation, confirmText);
   const approving = (kind: ApprovalDecision) => kind.startsWith("approve");
-  const risk = riskView(operation.risk);
+  // The badge says what the action does; the risk tier is kept for Details.
+  const risk = actionView(operation);
+  const tier = riskView(operation.risk);
   const expires = toEpoch(operation.expiresAt);
   const asked = toEpoch(operation.createdAt);
   const underReview = isUnderReview(decision.source);
@@ -238,7 +240,7 @@ export function ApprovalScreen({
             </dd>
             <dt>Risk level</dt>
             <dd>
-              <span className="mono">{operation.risk}</span> · {risk.label}
+              <span className="mono">{operation.risk}</span> · {tier.label}
             </dd>
             <dt>Classification</dt>
             <dd>

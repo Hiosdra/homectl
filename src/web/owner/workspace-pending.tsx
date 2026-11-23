@@ -8,7 +8,7 @@
 // reason and can be decided again.
 import { untrustedText } from "./api";
 import { Icon } from "./icons";
-import { riskView } from "./risk";
+import { actionView } from "./risk";
 import { UNDER_REVIEW_NOTE, isUnderReview } from "./review";
 import {
   decisionKey,
@@ -79,7 +79,8 @@ function PendingItem({
   ) => Promise<unknown>;
 }) {
   const offer = decisionOffer(operation, client);
-  const risk = riskView(operation.risk);
+  // A linked client's request has no class here, so its badge follows the tier.
+  const risk = actionView(operation);
   const state = intentState(operation.intent);
   // A queued or delivered decision blocks new ones; an applied one ends the item.
   const locked = state?.blocks === true;

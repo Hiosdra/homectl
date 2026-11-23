@@ -39,6 +39,8 @@ export interface AgentRequest {
   label: string;
   risk: Risk;
   approval: string;
+  // What must already be true for the broker to accept this request.
+  requires?: string;
 }
 
 export interface AgentSetupStatus {
@@ -78,12 +80,20 @@ function approvalText(kind: SetupRequestKind): string {
     : "Owner approves; no password";
 }
 
+// Enrolment starts only from a recent scan of its address that the owner approved.
+// The broker refuses it otherwise, so the agent asks for the scan first.
+const REQUIRES: Partial<Record<SetupRequestKind, string>> = {
+  enroll:
+    "A scan of the address that the owner approved, made within the last 30 minutes. Request setup_scan first; without it the request is refused.",
+};
+
 export const AGENT_REQUESTS: readonly AgentRequest[] = SETUP_REQUESTS.map(
   (kind) => ({
     kind,
     label: SETUP_SPECS[kind].label,
     risk: SETUP_SPECS[kind].risk,
     approval: approvalText(kind),
+    ...(REQUIRES[kind] === undefined ? {} : { requires: REQUIRES[kind] }),
   }),
 );
 

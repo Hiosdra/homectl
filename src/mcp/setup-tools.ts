@@ -68,7 +68,7 @@ export const SETUP_REQUEST_TOOLS: readonly ToolDefinition[] = [
   request(
     "setup_scan",
     "scan",
-    "Ask the owner to look at a new address and show the SSH key it presents, so they can compare it with a trusted source. Looking pins and trusts nothing.",
+    "Ask the owner to look at a new address and show the SSH key it presents, so they can compare it with a trusted source. Nothing contacts the address until the owner approves. Looking pins and trusts nothing. An approved scan is what setup_enroll needs for the same address, for 30 minutes.",
     { address: ADDRESS },
     ["address"],
   ),
@@ -82,7 +82,7 @@ export const SETUP_REQUEST_TOOLS: readonly ToolDefinition[] = [
   request(
     "setup_enroll",
     "enroll",
-    "Propose adding a new machine: its name, address, login and access level. The owner checks the fingerprint the machine presents against a trusted source, types it, and confirms with their password. You never supply the fingerprint.",
+    "Propose adding a new machine: its name, address, login and access level. It needs an approved setup_scan of the same address made within the last 30 minutes; without one the request is refused, so scan first. The owner checks the fingerprint that scan recorded against a trusted source, types it, and confirms with their password. You never supply the fingerprint.",
     {
       name: NAME,
       address: ADDRESS,

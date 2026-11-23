@@ -2,12 +2,28 @@
 // kind maps to one owner route; enrolment carries the typed fingerprint; results
 // and failures reach the agent as plain sentences with no address or key in them.
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { HomectlError } from "../src/types";
-import { ownerSetupPort, type OwnerCall } from "../src/broker/setup-exec";
+import { ScanRecords } from "../src/broker/scan-records";
+import {
+  ownerSetupPort as withScans,
+  type OwnerCall,
+  type SetupExecDeps,
+} from "../src/broker/setup-exec";
 import type { SetupRun } from "../src/broker/types";
 
 const ADDRESS = "192.0.2.77";
 const FP = `SHA256:${"C".repeat(43)}`;
+
+// The port with no scan on record: the state directory does not exist, so every
+// lookup finds nothing. The scan-record test below uses a real store instead.
+const ownerSetupPort = (deps: Omit<SetupExecDeps, "scans">) =>
+  withScans({
+    ...deps,
+    scans: new ScanRecords(join(tmpdir(), "homectl-no-such-state", "x")),
+  });
 
 function recorder(replies: Record<string, unknown | Error>) {
   const calls: { path: string; input: Record<string, unknown> }[] = [];
@@ -54,6 +70,9 @@ describe("approved setup requests reach the owner routes", () => {
 
   test("enrolment passes the typed fingerprint, never one the agent made up", async () => {
     const hosts = recorder({
+      "/v1/owner/hosts/scan": {
+        keys: [{ type: "ssh-ed25519", fingerprint: FP }],
+      },
       "/v1/owner/hosts/enroll": {
         name: "new-box",
         os: "Linux",
@@ -68,9 +87,10 @@ describe("approved setup requests reach the owner routes", () => {
       kind: "enroll",
       input: { name: "new-box", address: ADDRESS, user: "ops", access: "user" },
       confirmFingerprint: FP,
+      presented: [{ type: "ssh-ed25519", fingerprint: FP }],
     });
     expect(result.exitCode).toBe(0);
-    expect(hosts.calls[0]?.input).toEqual({
+    expect(hosts.calls[1]?.input).toEqual({
       name: "new-box",
       address: ADDRESS,
       user: "ops",
@@ -138,6 +158,9 @@ describe("what the agent reads back", () => {
 
   test("a failing route reaches the agent with the address taken out", async () => {
     const hosts = recorder({
+      "/v1/owner/hosts/scan": {
+        keys: [{ type: "ssh-ed25519", fingerprint: FP }],
+      },
       "/v1/owner/hosts/enroll": new HomectlError(
         3,
         `Could not reach ${ADDRESS} to pin its key`,
@@ -151,6 +174,7 @@ describe("what the agent reads back", () => {
       kind: "enroll",
       input: { name: "new-box", address: ADDRESS, user: "ops", access: "user" },
       confirmFingerprint: FP,
+      presented: [{ type: "ssh-ed25519", fingerprint: FP }],
     });
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe("Could not reach that address to pin its key");
@@ -170,32 +194,29 @@ describe("what the agent reads back", () => {
     );
   });
 
-  test("presented keys are read through the scan route; a failed scan is one plain refusal", async () => {
-    const good = recorder({
-      "/v1/owner/hosts/scan": {
-        keys: [{ type: "ssh-ed25519", fingerprint: FP }],
-      },
-    });
-    const port = ownerSetupPort({
-      hosts: good.call,
-      policy: recorder({}).call,
-    });
-    expect(await port.presentedKeys(ADDRESS, 22)).toEqual([
-      { type: "ssh-ed25519", fingerprint: FP },
-    ]);
-
-    const bad = recorder({
-      "/v1/owner/hosts/scan": new Error(`no route to ${ADDRESS}`),
-    });
-    const refused = ownerSetupPort({
-      hosts: bad.call,
-      policy: recorder({}).call,
-    });
-    await expect(refused.presentedKeys(ADDRESS, 22)).rejects.toThrow(
-      "did not present a host key",
-    );
-    const error = await refused.presentedKeys(ADDRESS, 22).catch((e) => e);
-    expect(String(error.message)).not.toContain(ADDRESS);
+  test("the last scan is read from the record, never from the address", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "homectl-exec-scan-"));
+    try {
+      const scans = new ScanRecords(dir);
+      const keys = [{ type: "ssh-ed25519", fingerprint: FP }];
+      await scans.set({ address: ADDRESS, port: 22, at: 1_000, keys });
+      const hosts = recorder({});
+      const port = withScans({
+        hosts: hosts.call,
+        policy: recorder({}).call,
+        scans,
+      });
+      expect(await port.lastScan(ADDRESS, 22)).toEqual({
+        address: ADDRESS,
+        port: 22,
+        at: 1_000,
+        keys,
+      });
+      expect(await port.lastScan("192.0.2.78", 22)).toBeUndefined();
+      expect(hosts.calls).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test("the key-ready check reads the owner's key status", async () => {

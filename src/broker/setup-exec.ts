@@ -3,6 +3,7 @@
 // by the approval (decide checks it before dispatch). Results and failures are
 // returned as plain sentences: no address, key or probe text reaches the agent.
 import { HomectlError, type ProcessResult } from "../types";
+import type { ScanRecords } from "./scan-records";
 import type { PresentedKey, SetupPort, SetupRun } from "./types";
 
 export type OwnerCall = (
@@ -15,6 +16,8 @@ export interface SetupExecDeps {
   hosts: OwnerCall;
   // The policy routes (preset).
   policy: OwnerCall;
+  // The scans the owner's scan route recorded. Read only: planning uses it.
+  scans: ScanRecords;
 }
 
 const PRESET_LABEL: Record<string, string> = {
@@ -22,6 +25,9 @@ const PRESET_LABEL: Record<string, string> = {
   routine: "AI helps with small fixes",
   delegated: "AI decides more",
 };
+
+const KEYS_CHANGED =
+  "The machine now shows a different key from the one on the card. Nothing was added. Ask for a new scan.";
 
 interface ScanReply {
   keys?: { type: string; fingerprint: string }[];
@@ -69,22 +75,8 @@ export function ownerSetupPort(deps: SetupExecDeps): SetupPort {
       present?: boolean;
     };
   return {
-    async presentedKeys(address, port): Promise<PresentedKey[]> {
-      try {
-        const reply = (await deps.hosts("/v1/owner/hosts/scan", {
-          address,
-          port,
-        })) as ScanReply;
-        return (reply.keys ?? []).map((key) => ({
-          type: key.type,
-          fingerprint: key.fingerprint,
-        }));
-      } catch {
-        throw new HomectlError(
-          3,
-          "The address did not present a host key, so nothing was queued",
-        );
-      }
+    async lastScan(address, port) {
+      return deps.scans.last(address, port);
     },
     async keyReady(name) {
       return (await keyStatus(name)).present === true;
@@ -111,6 +103,31 @@ export function ownerSetupPort(deps: SetupExecDeps): SetupPort {
   };
 }
 
+// Enrolment reads the machine's keys again. They must be exactly the keys the card
+// showed (the recorded scan) and include the one the owner typed; otherwise the
+// owner's confirmation no longer describes this machine, and nothing is added.
+async function keysUnchanged(
+  deps: SetupExecDeps,
+  request: SetupRun,
+  typed: string,
+): Promise<void> {
+  const recorded = (request.presented ?? [])
+    .map((key: PresentedKey) => key.fingerprint)
+    .sort();
+  if (recorded.length === 0 || !recorded.includes(typed))
+    throw new HomectlError(3, KEYS_CHANGED);
+  const reply = (await deps.hosts("/v1/owner/hosts/scan", {
+    address: request.input.address,
+    port: request.input.port ?? 22,
+  })) as ScanReply;
+  const now = (reply.keys ?? []).map((key) => key.fingerprint).sort();
+  if (
+    now.length !== recorded.length ||
+    now.some((fingerprint, index) => fingerprint !== recorded[index])
+  )
+    throw new HomectlError(3, KEYS_CHANGED);
+}
+
 // One approved request, through one owner route. Enrolment passes the fingerprint
 // the owner typed; the route checks it against a fresh scan before it pins anything.
 async function execute(
@@ -126,16 +143,19 @@ async function execute(
       });
     case "probe":
       return deps.hosts("/v1/owner/hosts/probe", { name: input.name });
-    case "enroll":
-      if (request.confirmFingerprint === undefined)
+    case "enroll": {
+      const typed = request.confirmFingerprint;
+      if (typed === undefined)
         throw new HomectlError(
           3,
           "The owner has not confirmed the machine's fingerprint",
         );
+      await keysUnchanged(deps, request, typed);
       return deps.hosts("/v1/owner/hosts/enroll", {
         ...input,
-        fingerprint: request.confirmFingerprint,
+        fingerprint: typed,
       });
+    }
     case "access":
       return deps.hosts("/v1/owner/hosts/access", {
         name: input.name,

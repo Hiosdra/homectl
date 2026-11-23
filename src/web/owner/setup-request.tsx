@@ -67,7 +67,7 @@ export function setupBodyText(operation: PendingOperation): string {
     case "probe":
       return "It runs one read-only check on the machine. Nothing changes.";
     case "enroll":
-      return "It trusts the key the machine shows, adds it to your list and runs a check. Compare the key with a trusted source before you approve.";
+      return "It trusts the key that the scan you approved recorded for this address, adds the machine to your list and runs a check. Compare the key with a trusted source before you approve.";
     case "access":
       return "It changes what the assistant may ask this machine to do. Your machine is not changed.";
     case "preset":

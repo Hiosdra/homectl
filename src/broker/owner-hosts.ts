@@ -7,6 +7,7 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ClientView } from "../control/types";
+import { ScanRecords } from "./scan-records";
 import { enroll, probeMachine } from "../enroll";
 import { collectHostKeys, hostAddress } from "../peer/hostkeys";
 import { loadInventory, parseInventory, saveInventory } from "../inventory";
@@ -108,12 +109,14 @@ export class OwnerHostRoutes implements RouteExtension {
   private readonly runner: Runner;
   private readonly knownHosts: string;
   private readonly probes: ProbeStore;
+  private readonly scans: ScanRecords;
   private readonly now: () => number;
 
   constructor(private readonly options: OwnerHostsOptions) {
     this.runner = options.runner ?? run;
     this.knownHosts = join(dirname(options.inventoryPath), "known_hosts");
     this.probes = new ProbeStore(options.state);
+    this.scans = new ScanRecords(options.state);
     this.now = options.now ?? Date.now;
   }
 
@@ -226,11 +229,17 @@ export class OwnerHostRoutes implements RouteExtension {
     }
   }
 
-  // What an address presents now. Shown as unverified; pins nothing.
+  // What an address presents now. Shown as unverified; pins nothing. The result is
+  // recorded: an enrolment may start only from a recent scan (scan-records.ts).
   private async scan(input: Record<string, unknown>) {
     const address = checkAddress(input.address);
     const port = checkPort(input.port);
     const keys = await scanHostKeys(this.runner, address, port);
+    const fingerprints = keys.map(({ type, fingerprint }) => ({
+      type,
+      fingerprint,
+    }));
+    await this.scans.set({ address, port, at: this.now(), keys: fingerprints });
     const stored = await readKnownHosts(this.knownHosts);
     const shape = sshShape(address, port);
     const pinned = Object.values(collectHostKeys(stored, { host: shape }));

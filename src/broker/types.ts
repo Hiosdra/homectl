@@ -15,6 +15,7 @@ import type {
 import type { Machine, ProcessResult, ProviderConfig } from "../types";
 import type { ProxmoxPort } from "./proxmox-exec";
 import type { ProxmoxOperationRequest } from "./proxmox-plan";
+import type { ScanRecord } from "./scan-records";
 import type { SetupOperation, SetupRequestKind } from "./setup-request";
 
 export const OPERATION_STATES = [
@@ -113,12 +114,16 @@ export interface SetupRun {
   input: Record<string, unknown>;
   // Enrolment only: the fingerprint the owner typed, checked again by the route.
   confirmFingerprint?: string;
+  // Enrolment only: the keys the card showed (from the recorded scan). Execution
+  // reads the machine again and refuses when its keys differ.
+  presented?: PresentedKey[];
 }
 
-// The owner's setup routes, as the broker reaches them. presentedKeys and keyReady
-// only read; run executes one approved request and nothing else.
+// The owner's setup routes, as the broker reaches them. lastScan and keyReady
+// only read local records and files, never the network; run executes one
+// approved request and nothing else.
 export interface SetupPort {
-  presentedKeys(address: string, port: number): Promise<PresentedKey[]>;
+  lastScan(address: string, port: number): Promise<ScanRecord | undefined>;
   keyReady(name: string): Promise<boolean>;
   run(request: SetupRun): Promise<ProcessResult>;
 }

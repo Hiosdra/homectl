@@ -179,6 +179,7 @@ export class Broker {
         port: this.options.executor.setup,
         inventory: this.options.inventory,
         revision: await this.options.policy.revision(),
+        now: this.now,
       },
       client,
       kind,
