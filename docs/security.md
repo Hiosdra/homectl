@@ -202,7 +202,7 @@ Destination kinds:
 | `http-header` | One HTTPS request header                                                                |
 | `vault-only`  | Kept in the vault. The broker has no injection plan for it, so `secret_use` refuses it. |
 
-Retention is `ephemeral` (the value lives for 1 hour in memory) or `saved` (stored under `homectl/secrets/requests` in the vault). Each save creates a separate entry with the name you choose and a unique suffix. The request reference is valid only in the current broker process. A locked vault refuses delivery. The broker refuses a secret request for a host the client may not use, with the same error exec gives, so a client cannot probe which hosts exist.
+Retention is `ephemeral` (the value lives for 1 hour in memory) or `saved` (stored under `homectl/secrets/requests` in the vault). Each save creates a separate entry with the name you choose and a unique suffix. The request reference is valid only in the current broker process. If you explicitly allow reuse when saving, the same assistant may request a new reference for the same task, exact destination, inventory target and field types after the broker restarts. Review and revoke these grants under **Saved secret reuse** in **System**. Revocation invalidates the live references and preserves the encrypted value in the vault. A locked vault refuses delivery. The broker refuses a secret request for a host the client may not use, with the same error exec gives, so a client cannot probe which hosts exist.
 
 Providing a value (`/v1/owner/secrets/provide`) is a step-up route: the owner password must be sent in the same request, and an owner session alone is refused before anything is stored. The panel must send the password too.
 

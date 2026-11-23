@@ -4,7 +4,9 @@
 
 import type {
   SecretDestination,
+  SecretField,
   SecretFieldKind,
+  SecretRequestState,
   SecretRequestView,
 } from "../core/contracts";
 
@@ -56,6 +58,16 @@ export interface SecretVaultMeta {
   destination: SecretDestination;
   fields: string[];
   createdAt: number;
+  reuseBinding?: string;
+}
+
+export interface SavedSecretGrant {
+  id: string;
+  fields: string[];
+  name: string;
+  client: string;
+  task?: string;
+  destination: SecretDestination;
 }
 
 // Persistent store for explicitly saved secrets. The broker never writes
@@ -67,6 +79,9 @@ export interface VaultPort {
     meta: SecretVaultMeta,
   ): Promise<string>;
   load(secretId: string): Promise<Record<string, string> | undefined>;
+  findReuse?(binding: string): string | undefined;
+  listReuse?(): SavedSecretGrant[];
+  revokeReuse?(id: string): Promise<void>;
 }
 
 // The request view plus the absolute expiry of any in-memory value. The
@@ -90,6 +105,7 @@ export interface SecretUseOptions {
 export interface SecretProvideOptions {
   retention: SecretRetention;
   saveName?: string;
+  reuse?: boolean;
 }
 
 export interface SecretRawHandoffOptions {
@@ -123,4 +139,28 @@ export interface SecretBrokerOptions {
   vault?: VaultPort;
   // Injected for tests. Must return exactly `bytes` random bytes.
   random?: (bytes: number) => Uint8Array;
+}
+
+export interface SecretEntry {
+  id: string;
+  client: string;
+  task?: string;
+  purpose: string;
+  destination: SecretDestination;
+  fields: SecretField[];
+  admin: boolean;
+  targetBinding?: string;
+  dedupeKey: string;
+  createdAt: number;
+  requestExpiresAt: number;
+  state: SecretRequestState;
+  // True while provide() awaits the vault. Blocks decline, cancel and sweep.
+  busy: boolean;
+  retention?: SecretRetention;
+  ref?: string;
+  // In-memory copy. Dropped on expiry, lock, cancel and revoke.
+  values?: Record<string, string>;
+  valueExpiresAt?: number;
+  savedSecretId?: string;
+  reusable?: boolean;
 }

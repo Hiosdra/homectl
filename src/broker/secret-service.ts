@@ -7,7 +7,7 @@
 // provided the value, so providing it is the approval for that one use path.
 import { randomUUID } from "node:crypto";
 import { fingerprint } from "../control/canonical";
-import { permitsHost } from "../control/clients";
+import { hasScope, permitsHost } from "../control/clients";
 import type { ClientIdentity } from "../control/types";
 import type { SecretDestination } from "../core/contracts";
 import { injectionPlan, makeRedactor, type SecretBroker } from "../secrets";
@@ -30,6 +30,7 @@ export interface SecretServiceOptions {
   fetch?: typeof fetch;
   gate?: () => string | undefined;
   vaultUnlocked?: () => boolean;
+  isTaskOpen?: (id: string, client: string) => Promise<boolean>;
   // Refreshes the host set the secret broker checks synchronously.
   refreshHosts?: () => Promise<void>;
 }
@@ -67,6 +68,15 @@ export class SecretService implements RouteExtension {
       throw new HomectlError(3, "Host not granted to this client");
   }
 
+  private async requireOpenTask(client: ClientIdentity, task: unknown) {
+    if (task === undefined) return;
+    if (
+      typeof task !== "string" ||
+      (await this.options.isTaskOpen?.(task, client.id)) === false
+    )
+      throw new HomectlError(3, "The task is not open for this assistant");
+  }
+
   private async target(destination: unknown) {
     const host = hostOf(destination);
     if (host === undefined) return undefined;
@@ -95,11 +105,20 @@ export class SecretService implements RouteExtension {
     client: ClientIdentity,
   ): Promise<unknown> {
     if (!path.startsWith("/v1/secret/")) return undefined;
+    if (
+      (path === "/v1/secret/request" || path === "/v1/secret/use") &&
+      !hasScope(client, "plan:create")
+    )
+      throw new HomectlError(
+        3,
+        "Secret delivery is not granted to this assistant",
+      );
     await this.options.refreshHosts?.();
     const { secrets } = this.options;
     switch (path) {
       case "/v1/secret/request": {
         this.requireHost(client, input.destination);
+        await this.requireOpenTask(client, input.task);
         const target = await this.target(input.destination);
         const view = secrets.request({
           client: client.id,
@@ -112,7 +131,7 @@ export class SecretService implements RouteExtension {
             ? { requestTtlMs: input.ttlMs }
             : {}),
         });
-        await this.notify(view.id, client.id);
+        if (view.state === "pending") await this.notify(view.id, client.id);
         return view;
       }
       case "/v1/secret/status":
@@ -121,6 +140,7 @@ export class SecretService implements RouteExtension {
         return secrets.cancel(str(input.id, "id"), client.id);
       case "/v1/secret/use":
         this.requireHost(client, input.destination);
+        await this.requireOpenTask(client, input.task);
         return this.use(client, input);
       default:
         return undefined;
@@ -147,12 +167,19 @@ export class SecretService implements RouteExtension {
         await stepUp(input.password);
         return secrets.provide(str(input.id, "id"), input.values, {
           retention: input.retention === "saved" ? "saved" : "ephemeral",
+          reuse: input.reuse === true,
           ...(typeof input.saveName === "string"
             ? { saveName: input.saveName }
             : {}),
         });
       case "/v1/owner/secrets/decline":
         return secrets.decline(str(input.id, "id"));
+      case "/v1/owner/secrets/saved-grants":
+        return secrets.savedGrants();
+      case "/v1/owner/secrets/revoke-grant":
+        await stepUp(input.password);
+        await secrets.revokeSavedGrant(str(input.id, "id"));
+        return { revoked: true };
       case "/v1/owner/secrets/revoke":
         secrets.revoke(str(input.ref, "ref"));
         return { revoked: true };
@@ -185,6 +212,7 @@ export class SecretService implements RouteExtension {
     const clean = (text: string) => redact(text).slice(0, OUTPUT_LIMIT);
     const plan = injectionPlan(destination, values);
     if (plan.kind === "http-header") {
+      await this.requireOpenTask(client, input.task);
       this.requireVaultAccess();
       const response = await (this.options.fetch ?? fetch)(plan.url, {
         method: "POST",
@@ -210,6 +238,7 @@ export class SecretService implements RouteExtension {
         : plan.steps;
     let last = { exitCode: 0, stdout: "", stderr: "" };
     for (const step of steps) {
+      await this.requireOpenTask(client, input.task);
       this.requireVaultAccess();
       last = await this.options.executor.run({
         host: plan.host,

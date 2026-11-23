@@ -208,11 +208,61 @@ async function runBlockedWithReason(harness: Harness, viewport: Viewport) {
   }
 }
 
-// System: every update answer the panel can show, at one viewport.
+async function runSecretGrant(harness: Harness, viewport: Viewport) {
+  const { context, page } = await open(harness, viewport);
+  const received: Json[] = [];
+  const grant = {
+    id: "fixture-grant",
+    name: "Fixture API token",
+    client: "fixture-agent",
+    fields: ["token"],
+    destination: {
+      kind: "http-header",
+      url: "https://provider.example.test/v1",
+      header: "Authorization",
+    },
+  };
+  try {
+    await page.route("**/v1/owner/secrets/saved-grants", (route) =>
+      route.fulfill({ json: [grant] }),
+    );
+    await page.route("**/v1/owner/secrets/revoke-grant", (route) => {
+      received.push(route.request().postDataJSON());
+      return route.fulfill({ json: { revoked: true } });
+    });
+    await signIn(page, harness);
+    await page.getByRole("button", { name: "System" }).click();
+    const section = page.getByRole("region", { name: "Saved secret reuse" });
+    await expect(
+      section.getByRole("heading", { name: grant.name }),
+    ).toBeVisible();
+    await expect(
+      section.getByText(/https:\/\/provider.example.test\/v1/).first(),
+    ).toBeVisible();
+    await section.getByRole("button", { name: "Revoke reuse" }).click();
+    const confirm = section.getByRole("button", { name: "Confirm revoke" });
+    await expect(confirm).toBeDisabled();
+    await section.getByLabel("Owner password").fill(harness.password);
+    await confirm.click();
+    await expect(
+      section.getByText("Reuse revoked. The secret stays in the vault."),
+    ).toBeVisible();
+    expect(received).toEqual([{ id: grant.id, password: harness.password }]);
+    await expect(
+      section.getByRole("heading", { name: grant.name }),
+    ).toHaveCount(0);
+    await noOverflow(page);
+  } finally {
+    await context.close();
+  }
+}
+
+// System: update, approval timing and saved reuse at one viewport.
 export async function runSystemScenario(harness: Harness, viewport: Viewport) {
   await runRealBroker(harness, viewport);
   await runNoRoute(harness, viewport);
   await runVerifiedUpdate(harness, viewport);
   await runFailedSignature(harness, viewport);
   await runBlockedWithReason(harness, viewport);
+  await runSecretGrant(harness, viewport);
 }

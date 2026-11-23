@@ -189,6 +189,12 @@ export class VaultSession {
     return ops.readFields(entry);
   }
 
+  getField(id: string, name: string): string | undefined {
+    const entry = this.lookupById(this.active(), id);
+    if (ops.isAdmin(entry)) this.requirePrivileged();
+    return ops.text(entry.fields.get(name)) || undefined;
+  }
+
   putSecret(
     name: string,
     values: SecretValues,

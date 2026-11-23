@@ -77,8 +77,11 @@ export function plainDestination(destination: SecretDestination): string {
   }
 }
 
-export function DestinationBlock({ request }: { request: PendingSecret }) {
-  const destination = request.destination;
+export function DestinationBlock({
+  destination,
+}: {
+  destination: SecretDestination;
+}) {
   const details = (() => {
     switch (destination.kind) {
       case "ssh-stdin":
@@ -163,6 +166,10 @@ export function SecretScreen({
   const [values, setValues] = useState<Record<string, string>>({});
   const [retention, setRetention] = useState<Retention>("ephemeral");
   const [saveName, setSaveName] = useState("");
+  const [reuse, setReuse] = useState(false);
+  const canReuse =
+    request.destination.kind !== "vault-only" &&
+    !request.fields.some((field) => field.kind === "ssh-key");
   // Providing a value is a step-up: the owner password goes with the request.
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -191,9 +198,12 @@ export function SecretScreen({
         values: payload,
         retention,
         password: secret,
-        ...(retention === "saved" ? { saveName: saveName.trim() } : {}),
+        ...(retention === "saved"
+          ? { saveName: saveName.trim(), reuse: canReuse && reuse }
+          : {}),
       });
       setSaveName("");
+      setReuse(false);
       onDone(
         retention === "saved"
           ? "Saved to the vault. The assistant can now use it for this destination."
@@ -233,7 +243,7 @@ export function SecretScreen({
           text={untrustedText(request.purpose)}
         />
         <h3 className="sub-title">Where the value goes</h3>
-        <DestinationBlock request={request} />
+        <DestinationBlock destination={request.destination} />
       </section>
 
       <section className="stack" aria-label="Values">
@@ -286,18 +296,32 @@ export function SecretScreen({
             ) : null}
           </div>
           {retention === "saved" ? (
-            <Field
-              id={`${baseId}-save`}
-              label="Save for next time, under this name"
-            >
-              <input
+            <div className="stack">
+              <Field
                 id={`${baseId}-save`}
-                type="text"
-                autoComplete="off"
-                value={saveName}
-                onChange={(event) => setSaveName(event.target.value)}
-              />
-            </Field>
+                label="Save for next time, under this name"
+              >
+                <input
+                  id={`${baseId}-save`}
+                  type="text"
+                  autoComplete="off"
+                  value={saveName}
+                  onChange={(event) => setSaveName(event.target.value)}
+                />
+              </Field>
+              {canReuse ? (
+                <label className="row small">
+                  <input
+                    name="reuse"
+                    type="checkbox"
+                    checked={reuse}
+                    onChange={(event) => setReuse(event.target.checked)}
+                  />
+                  Let this assistant reuse it for the same task, destination and
+                  fields.
+                </label>
+              ) : null}
+            </div>
           ) : null}
         </fieldset>
 

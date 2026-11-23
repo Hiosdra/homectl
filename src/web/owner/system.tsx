@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { alertPermission, askForAlerts, type AlertPermission } from "./alerts";
 import { ApprovalWaitSection } from "./approval-wait";
+import { SavedSecretGrants } from "./secret-grants";
 import { type SetupStatus, stepOf } from "./setup-api";
 import { SetupLink } from "./setup-checklist";
 import { UpdatePanel } from "./update-panel";
@@ -24,6 +25,7 @@ export function SystemScreen({
         <p>Approval timing, updates and browser notifications.</p>
       </div>
       <ApprovalWaitSection onError={onError} />
+      <SavedSecretGrants onError={onError} />
       <UpdatePanel onError={onError} />
       <NotificationSection />
       {setup && !setup.facts.workspaceServer ? (

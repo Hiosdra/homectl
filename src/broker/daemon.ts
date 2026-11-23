@@ -203,6 +203,15 @@ export async function startDaemon(config: DaemonConfig) {
     executor,
     refreshHosts,
     events,
+    isTaskOpen: async (id, client) => {
+      const { tasks } = await brokerStore.load();
+      const task = Object.hasOwn(tasks, id) ? tasks[id] : undefined;
+      return (
+        task?.client === client &&
+        task.state === "open" &&
+        Date.now() < task.expiresAt
+      );
+    },
     ...(hasVault ? { gate: vault.gate, vaultUnlocked: vault.unlocked } : {}),
   });
   // The owner's policy file. The engine uses it unless a test injects another.
