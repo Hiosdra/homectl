@@ -70,6 +70,8 @@ function summary(
       return "Removed the machine from homectl.";
     case "preset":
       return `The AI permission setting is now ${PRESET_LABEL[String(input.preset)] ?? String(input.preset)}.`;
+    case "create-key":
+      return "The machine key is ready. The owner can retrieve its public half from Machines. The private key stays in the vault.";
     case "approval-wait":
       return `Requests now wait for you up to ${describeApprovalWait(Number(input.waitMs))}.`;
   }
@@ -147,6 +149,8 @@ async function execute(
         address: input.address,
         port: input.port ?? 22,
       });
+    case "create-key":
+      return deps.hosts("/v1/owner/hosts/create-key", { name: input.name });
     case "probe":
       return deps.hosts("/v1/owner/hosts/probe", { name: input.name });
     case "enroll": {

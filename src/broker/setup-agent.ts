@@ -65,7 +65,7 @@ export const OWNER_NOTE =
 export const OWNER_ONLY_STEPS: readonly string[] = [
   "Create or unlock the vault and set the owner password",
   "Store the AI helper key",
-  "Make a machine's key in your private terminal (home-ctl key create NAME)",
+  "Install a machine's public key through trusted access to that machine",
   "Confirm a new machine's fingerprint: type it from the card, then your password",
   "Restore a backup",
   "Pair devices and turn on notifications in the panel",

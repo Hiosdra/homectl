@@ -80,6 +80,13 @@ export const SETUP_REQUEST_TOOLS: readonly ToolDefinition[] = [
     ["name"],
   ),
   request(
+    "setup_create_key",
+    "create-key",
+    "Ask the owner to create an SSH key for a machine in the broker vault. This never contacts the machine. The owner installs its public half through trusted access before enrolling the machine.",
+    { name: NAME },
+    ["name"],
+  ),
+  request(
     "setup_enroll",
     "enroll",
     "Propose adding a new machine: its name, address, login and access level. It needs an approved setup_scan of the same address made within the last 30 minutes; without one the request is refused, so scan first. The owner checks the fingerprint that scan recorded against a trusted source, types it, and confirms with their password. You never supply the fingerprint.",

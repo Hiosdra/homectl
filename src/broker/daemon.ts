@@ -266,7 +266,10 @@ export async function startDaemon(config: DaemonConfig) {
     events,
     onInventoryChanged: refreshHosts,
     ...(hasVault
-      ? { loadKey: (entry: string) => vault.loadMachineKey(entry) }
+      ? {
+          createKey: vault.createMachineKey,
+          loadKey: (entry: string) => vault.loadMachineKey(entry),
+        }
       : {}),
   });
   const setupRoutes = new SetupRoutes({

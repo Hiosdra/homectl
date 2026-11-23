@@ -35,6 +35,7 @@ export const SETUP_REQUESTS = [
   "preset",
   "remove",
   "approval-wait",
+  "create-key",
 ] as const;
 export type SetupRequestKind = (typeof SETUP_REQUESTS)[number];
 
@@ -95,6 +96,13 @@ export const SETUP_SPECS: Record<SetupRequestKind, SetupRequestSpec> = {
     classification: "destructive",
     area: "Machines",
   },
+  "create-key": {
+    label: "Create an SSH key in the vault",
+    risk: "R3",
+    password: true,
+    classification: "mutation",
+    area: "Machines",
+  },
   "approval-wait": {
     label: "Change how long requests wait for you",
     risk: "R2",
@@ -116,6 +124,7 @@ const FIELDS: Record<SetupRequestKind, readonly string[]> = {
   access: ["name", "access", "narrative"],
   preset: ["preset", "narrative"],
   remove: ["name", "narrative"],
+  "create-key": ["name", "narrative"],
   "approval-wait": ["wait", "narrative"],
 };
 
@@ -179,6 +188,7 @@ export function validateSetupInput(
     access: ["name", "access"],
     preset: ["preset"],
     remove: ["name"],
+    "create-key": ["name"],
     "approval-wait": ["waitMs"],
   };
   for (const field of required[kind])
@@ -295,7 +305,7 @@ export async function planSetupRequest(
     if (!(await port.keyReady(input.name ?? "")))
       throw new HomectlError(
         2,
-        `No key named ${input.name} yet. The owner makes one in a private terminal with: home-ctl key create ${input.name}`,
+        `No key named ${input.name} yet. Request setup_create_key so the owner can create it in Needs you`,
       );
   }
   const name = input.name ?? input.address ?? input.preset ?? "";

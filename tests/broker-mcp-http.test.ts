@@ -178,6 +178,7 @@ test("tools/list offers the catalogue with closed schemas, and notifications get
     "setup_machines",
     "setup_scan",
     "setup_probe",
+    "setup_create_key",
     "setup_enroll",
     "setup_access",
     "setup_preset",

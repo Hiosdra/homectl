@@ -15,6 +15,7 @@ import {
   passwordSource,
   type VaultSession,
 } from "../vault";
+import { createMachineKey } from "../vault/machine-key";
 import type { OwnerVerifier } from "./owner";
 import { type ReviewerKeyStore, vaultReviewerKey } from "./reviewer-key";
 import type { RouteExtension } from "./server";
@@ -184,6 +185,9 @@ export class VaultService implements OwnerVerifier, RouteExtension {
   // Loads one managed key (a machine's key, made after the owner's `key create`)
   // into the session agent, so a probe can use it. A locked vault refuses; the
   // caller decides whether a missing key matters.
+  createMachineKey = (name: string) =>
+    createMachineKey(this.options.session, this.options.inventoryPath, name);
+
   async loadMachineKey(entry: string): Promise<void> {
     const { session, agent, now } = this.options;
     if (!session.check()) throw new HomectlError(5, "Vault is locked");

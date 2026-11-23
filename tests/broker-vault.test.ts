@@ -13,7 +13,13 @@ import { startDaemon } from "../src/broker/daemon";
 import { compatPaths, type Endpoint } from "../src/broker/paths";
 import type { KeyAgentPort } from "../src/broker/vault-service";
 import { saveInventory } from "../src/inventory";
-import { ADMIN_TAG, createDatabase, passwordSource } from "../src/vault";
+import {
+  ADMIN_TAG,
+  createDatabase,
+  openDatabase,
+  passwordSource,
+} from "../src/vault";
+import { findUnique, managedEntries, readSshKey } from "../src/vault/entries";
 
 const PASSWORD = "vault master password for tests";
 const SMALL = { memory: 1024, iterations: 1, parallelism: 1 };
@@ -108,16 +114,20 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-async function start(log: AgentLog) {
+async function start(log: AgentLog, realSetup = false) {
   const daemon = await startDaemon({
     mode: "compat",
     ...compatPaths(inventoryPath),
     inventoryPath,
     sshConfigPath: join(dir, "ssh_config"),
     keyAgent: fakeAgent(log),
-    executor: {
-      run: async () => ({ exitCode: 0, stdout: "ok", stderr: "" }),
-    },
+    ...(realSetup
+      ? {}
+      : {
+          executor: {
+            run: async () => ({ exitCode: 0, stdout: "ok", stderr: "" }),
+          },
+        }),
   });
   stops.push(daemon.stop);
   return daemon;
@@ -218,4 +228,76 @@ test("a restart starts locked and admin keys stay locked after sign-in", async (
   );
   expect(status.unlocked).toBe(true);
   expect(second.added.length).toBe(1);
+});
+
+test("an agent can request a new machine key, but only the owner can create or read it", async () => {
+  const daemon = await start({ starts: 0, added: [], clears: 0 }, true);
+  const owner = await signIn(daemon.endpoint);
+  const { token } = await callBroker<{ token: string }>(
+    "/v1/owner/clients/create",
+    {
+      id: "setup-agent",
+      name: "Setup agent",
+      hosts: ["web"],
+      password: PASSWORD,
+    },
+    owner,
+  );
+  const agent = { endpoint: daemon.endpoint, authorization: `Bearer ${token}` };
+  const request = await callBroker<{
+    id: string;
+    fingerprint: string;
+    state: string;
+  }>("/v1/setup/request/create-key", { name: "new-box" }, agent);
+  expect(request.state).toBe("awaiting-approval");
+  const keyStatus = () =>
+    callBroker<{ present: boolean; publicKey?: string }>(
+      "/v1/owner/hosts/key-status",
+      { name: "new-box" },
+      owner,
+    );
+  expect((await keyStatus()).present).toBe(false);
+  await expect(
+    callBroker("/v1/owner/hosts/key-status", { name: "new-box" }, agent),
+  ).rejects.toThrow();
+  const decision = {
+    operationId: request.id,
+    fingerprint: request.fingerprint,
+    decision: "approve-once",
+  };
+  await expect(
+    callBroker("/v1/owner/decide", decision, owner),
+  ).rejects.toThrow();
+  expect((await keyStatus()).present).toBe(false);
+  await callBroker(
+    "/v1/owner/decide",
+    { ...decision, password: PASSWORD },
+    owner,
+  );
+  const result = await callBroker<{
+    state: string;
+    result: { stdout: string };
+  }>("/v1/wait", { id: request.id, timeoutMs: 5000 }, agent);
+  expect(result.state).toBe("succeeded");
+  const projected = await keyStatus();
+  expect(projected.publicKey).toMatch(/^ssh-ed25519 /);
+  expect(result.result.stdout).not.toContain(projected.publicKey ?? "");
+  await callBroker(
+    "/v1/owner/hosts/create-key",
+    { name: "new-box", password: PASSWORD },
+    owner,
+  );
+  expect(await keyStatus()).toEqual(projected);
+  const database = await openDatabase(
+    join(dir, "homelab.kdbx"),
+    passwordSource(PASSWORD),
+  );
+  const entry = findUnique(managedEntries(database.db), "homectl-new-box");
+  if (!entry) throw new Error("Key not persisted in the vault");
+  const privateKey = readSshKey(entry);
+  try {
+    expect(privateKey.publicKey).toBe(projected.publicKey ?? "");
+  } finally {
+    privateKey.privateKey.fill(0);
+  }
 });

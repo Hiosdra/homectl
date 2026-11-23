@@ -404,7 +404,7 @@ describe("refusals", () => {
         user: "ops",
         access: "user",
       }),
-    ).rejects.toThrow("home-ctl key create no-key");
+    ).rejects.toThrow("Request setup_create_key");
     presented = [];
     await expect(
       broker.setupRequest(agent, "enroll", {

@@ -13,7 +13,7 @@ import { collectHostKeys, hostAddress } from "../peer/hostkeys";
 import { loadInventory, parseInventory, saveInventory } from "../inventory";
 import { writeSSHConfig } from "../operations";
 import { run } from "../process";
-import { normalizePublicKey } from "../session/public-key";
+import { readMachineKey } from "./machine-key-status";
 import { keyReference } from "../session/keys";
 import {
   appendKnownHost,
@@ -56,6 +56,8 @@ export interface OwnerHostsOptions {
   events?: EventsPort;
   // Runs after the set of machines changes, so the broker's host list follows.
   onInventoryChanged?: () => Promise<void>;
+  // Creates a managed key in the broker vault, with a public file for the owner.
+  createKey?: (name: string) => Promise<void>;
   // Loads a managed key into the broker's agent before a probe (vault only).
   loadKey?: (entry: string) => Promise<void>;
   now?: () => number;
@@ -72,10 +74,6 @@ function sshShape(address: string, port: number): Machine {
     address,
     ...(port === 22 ? {} : { port }),
   };
-}
-
-function isMissing(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
 // The fingerprint of the pinned key for a machine: ed25519 when both are pinned.
@@ -131,7 +129,31 @@ export class OwnerHostRoutes implements RouteExtension {
       case "/v1/owner/hosts":
         return this.list();
       case "/v1/owner/hosts/key-status":
-        return this.keyStatus(input);
+        return readMachineKey(
+          this.options.inventoryPath,
+          checkName(input.name),
+        );
+      case "/v1/owner/hosts/create-key": {
+        await stepUp(input.password);
+        const name = checkName(input.name);
+        if (!this.options.createKey)
+          throw new HomectlError(
+            3,
+            "Set up the broker vault before creating a machine key",
+          );
+        if (
+          Object.hasOwn(
+            (await loadInventory(this.options.inventoryPath)).machines,
+            name,
+          )
+        )
+          throw new HomectlError(
+            3,
+            "This machine is already enrolled. Use a new name for a new machine key.",
+          );
+        await this.options.createKey(name);
+        return readMachineKey(this.options.inventoryPath, name);
+      }
       case "/v1/owner/hosts/scan":
         await stepUp(input.password);
         return this.scan(input);
@@ -203,32 +225,6 @@ export class OwnerHostRoutes implements RouteExtension {
     };
   }
 
-  // The public key for a machine's managed key, once `home-ctl key create` has
-  // made it in the owner's private terminal. Never the private key.
-  private async keyStatus(input: Record<string, unknown>) {
-    const name = checkName(input.name);
-    const auth = keyReference(name, this.options.inventoryPath);
-    try {
-      const publicKey = normalizePublicKey(
-        await readFile(auth.public_key, "utf8"),
-      );
-      return {
-        name,
-        present: true,
-        publicKey,
-        fingerprint: keyFingerprint(publicKey.split(" ")[1] ?? ""),
-      };
-    } catch (error) {
-      if (isMissing(error)) return { name, present: false };
-      return {
-        name,
-        present: false,
-        reason:
-          "The key file is there but is not a public key homectl can use. Make the key again with a new name in your private terminal.",
-      };
-    }
-  }
-
   // What an address presents now. Shown as unverified; pins nothing. The result is
   // recorded: an enrolment may start only from a recent scan (scan-records.ts).
   private async scan(input: Record<string, unknown>) {
@@ -286,7 +282,7 @@ export class OwnerHostRoutes implements RouteExtension {
         3,
         `A machine named ${name} is already in your list.`,
       );
-    const key = await this.keyStatus({ name });
+    const key = await readMachineKey(this.options.inventoryPath, name);
     if (!key.present)
       throw new HomectlError(
         2,

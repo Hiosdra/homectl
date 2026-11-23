@@ -9,6 +9,7 @@ import type { PendingOperation } from "./api";
 import { Field } from "./ui";
 
 export const SETUP_KIND_LABEL: Record<string, string> = {
+  "create-key": "Create an SSH key in the vault",
   scan: "Look for a machine's SSH key",
   probe: "Check that a machine answers",
   enroll: "Add a machine to homectl",
@@ -53,6 +54,8 @@ export function setupTitle(operation: PendingOperation): string {
   if (!setup) return "";
   const input = setup.input;
   switch (setup.kind) {
+    case "create-key":
+      return `Create an SSH key for ${input.name}?`;
     case "scan":
       return `Look for the SSH key at ${input.address ?? "that address"}?`;
     case "probe":
@@ -77,6 +80,8 @@ export function setupBodyText(operation: PendingOperation): string {
   const setup = operation.setup;
   if (!setup) return "";
   switch (setup.kind) {
+    case "create-key":
+      return "The private key stays in the vault. You install the public key through trusted access to the machine.";
     case "scan":
       return "It only looks. The key the address shows is listed for you to compare. Nothing is trusted or added.";
     case "probe":
