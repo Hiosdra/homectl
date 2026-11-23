@@ -14,6 +14,10 @@ import { clientTokenPath } from "./paths";
 
 export type AgentKind = "codex" | "claude" | "other";
 
+// Used only to build the preview (the token is masked there). It is never a
+// real key: applyAgentConfig refuses to write any config that still holds it.
+export const PLANNING_TOKEN = "planning-placeholder";
+
 const BEGIN = "# >>> homectl (managed; edit with home-ctl agent connect)";
 const END = "# <<< homectl";
 // The MCP server every agent starts: `home-ctl mcp` over stdio.
@@ -264,6 +268,11 @@ export async function planAgentConfig(
 export async function applyAgentConfig(change: ConfigChange, token: string) {
   if (!change.supported)
     throw new HomectlError(3, "This configuration needs manual setup");
+  if (token === PLANNING_TOKEN || change.after?.includes(PLANNING_TOKEN))
+    throw new HomectlError(
+      3,
+      "Refusing to write a placeholder token. Run agent connect again.",
+    );
   if (change.agent === "other") {
     await storeClientToken(token, change.path);
     return;

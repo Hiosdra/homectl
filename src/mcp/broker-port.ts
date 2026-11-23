@@ -2,6 +2,7 @@
 // calls its agent API with this agent's client token. Discovery happens on
 // every call, so a broker started after the MCP server still works.
 import { callBroker, clientToken, findEndpoint } from "../broker/client";
+import { callWithWait } from "../broker/long-wait";
 import type { Endpoint } from "../broker/paths";
 import { HomectlError } from "../types";
 import type { AgentPort } from "./tools";
@@ -27,10 +28,15 @@ export function brokerPort(options: BrokerPortOptions = {}): AgentPort {
       if (!found) throw new HomectlError(5, NO_BROKER);
       const secret = await token();
       if (!secret) throw new HomectlError(3, NO_TOKEN);
-      return callBroker(path, input, {
-        endpoint: found,
-        authorization: `Bearer ${secret}`,
-      });
+      return callWithWait(
+        (p, body) =>
+          callBroker(p, body, {
+            endpoint: found,
+            authorization: `Bearer ${secret}`,
+          }),
+        path,
+        input,
+      );
     },
   };
 }

@@ -3,6 +3,7 @@
 // the agent's own client token. It never touches credentials or state files.
 import { readFile } from "node:fs/promises";
 import { HomectlError } from "../types";
+import { UNREACHABLE_MESSAGE } from "./long-wait";
 import { clientTokenPath, type Endpoint, endpointCandidates } from "./paths";
 
 export async function findEndpoint(
@@ -61,10 +62,7 @@ export async function callBroker<T>(
       ...(endpoint.transport === "unix" ? { unix: endpoint.address } : {}),
     } as RequestInit);
   } catch {
-    throw new HomectlError(
-      5,
-      "The homectl broker is not reachable; start it with `home-ctl daemon start` or check `home-ctl doctor`",
-    );
+    throw new HomectlError(5, UNREACHABLE_MESSAGE);
   }
   const data = (await response.json().catch(() => ({}))) as {
     error?: { code: number; message: string; details?: unknown };

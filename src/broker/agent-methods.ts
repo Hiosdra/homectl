@@ -4,6 +4,7 @@
 import type { ClientIdentity } from "../control/types";
 import { HomectlError } from "../types";
 import type { Broker } from "./engine";
+import { WAIT_CHUNK_MS } from "./long-wait";
 
 export function str(value: unknown, field: string): string {
   if (typeof value !== "string" || !value || value.length > 200)
@@ -34,7 +35,7 @@ export async function agentMethod(
           ? await broker.exec(client, rest)
           : await broker.proxmox(client, rest);
       return typeof waitMs === "number" && view.state !== "denied"
-        ? broker.wait(client, view.id, waitMs)
+        ? broker.wait(client, view.id, Math.min(waitMs, WAIT_CHUNK_MS))
         : view;
     }
     case "/v1/status":
@@ -48,7 +49,10 @@ export async function agentMethod(
       return broker.wait(
         client,
         str(input.id, "id"),
-        typeof input.timeoutMs === "number" ? input.timeoutMs : 60_000,
+        // One request waits at most WAIT_CHUNK_MS; callers poll for the rest.
+        typeof input.timeoutMs === "number"
+          ? Math.min(input.timeoutMs, WAIT_CHUNK_MS)
+          : 60_000,
       );
     case "/v1/cancel":
       return broker.cancel(client, str(input.id, "id"));
@@ -71,7 +75,7 @@ export async function agentMethod(
         rest,
       );
       return typeof waitMs === "number" && view.state !== "denied"
-        ? broker.wait(client, view.id, waitMs)
+        ? broker.wait(client, view.id, Math.min(waitMs, WAIT_CHUNK_MS))
         : view;
     }
   }

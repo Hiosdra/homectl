@@ -4,6 +4,7 @@
 // approves it in Needs you or with `home-ctl approve`.
 import { parseArgs } from "node:util";
 import { callBroker, clientToken, findEndpoint } from "../broker/client";
+import { callWithWait } from "../broker/long-wait";
 import { HomectlError } from "../types";
 
 type Emit = (value: unknown, human?: string) => void;
@@ -170,9 +171,9 @@ export async function proxmoxCommand(
       5,
       "Proxmox requests go through the homectl broker as an agent client. Start the broker and connect this agent with `home-ctl agent connect`.",
     );
-  const view = await callBroker<
-    Parameters<typeof describe>[0] & { host: string }
-  >(
+  const view = await callWithWait(
+    (path, body) =>
+      callBroker(path, body, { endpoint, authorization: `Bearer ${token}` }),
     "/v1/proxmox",
     {
       ...parsed.body,
@@ -180,7 +181,6 @@ export async function proxmoxCommand(
       ...(parsed.task ? { task: parsed.task } : {}),
       waitMs: parsed.waitMs,
     },
-    { endpoint, authorization: `Bearer ${token}` },
   );
   options.emit(view, describe(view));
   return 0;

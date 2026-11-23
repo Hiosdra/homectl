@@ -3,7 +3,11 @@
 // and write its config. A "no" leaves nothing behind. Ids that are taken, or that
 // belong to a removed assistant, are never reused silently: the next free id is
 // chosen and the owner is told which one it is.
-import type { AgentKind, ConfigChange } from "../broker/onboard";
+import {
+  type AgentKind,
+  type ConfigChange,
+  PLANNING_TOKEN,
+} from "../broker/onboard";
 import { HomectlError } from "../types";
 
 export interface ConnectDeps {
@@ -50,8 +54,36 @@ export type ConnectResult =
       idNote?: string;
     };
 
-// The token is masked in the plan, so a placeholder shows the same diff.
-const PLANNING_TOKEN = "planning-placeholder";
+// The re-plan made after create or rotate must match the preview the owner
+// approved: the same files, the same contents before the change, the same masked
+// diff, and the real token (not the placeholder) in every config it writes.
+export function assertSamePlan(
+  previewed: ConfigChange[],
+  final: ConfigChange[],
+  token: string,
+): void {
+  const same =
+    previewed.length === final.length &&
+    previewed.every((change, i) => {
+      const next = final[i];
+      if (next === undefined) return false;
+      const sameShape =
+        next.path === change.path &&
+        next.supported === change.supported &&
+        next.before === change.before &&
+        next.diff.join("\n") === change.diff.join("\n");
+      if (!sameShape) return false;
+      if (next.after === undefined) return change.after === undefined;
+      if (next.after.includes(PLANNING_TOKEN)) return false;
+      const previewHadToken = change.after?.includes(PLANNING_TOKEN) ?? false;
+      return !previewHadToken || next.after.includes(token);
+    });
+  if (!same)
+    throw new HomectlError(
+      3,
+      "The config changed since the preview, so nothing was written. Run agent connect again.",
+    );
+}
 
 // Lowercase letters, digits and hyphens, starting with a letter, at most 63.
 export function normalizeClientId(raw: string): string {
@@ -105,6 +137,7 @@ export async function connectAgent(
   const name = `${kind} on ${deps.hostName}`;
 
   // Plan first. Nothing is created or rotated before the owner has seen the change.
+  // The preview holds a placeholder token; the masked diff is the same either way.
   const changes = await deps.plan(kind, PLANNING_TOKEN);
   const blocked = changes.filter((change) => !change.supported);
   if (blocked.length) {
@@ -138,7 +171,10 @@ export async function connectAgent(
     ? await deps.rotate(id)
     : await deps.create({ id, name, hosts });
   try {
-    for (const change of changes) await deps.apply(change, token);
+    // Re-plan with the real token and apply that plan, never the preview.
+    const final = await deps.plan(kind, token);
+    assertSamePlan(changes, final, token);
+    for (const change of final) await deps.apply(change, token);
   } catch (error) {
     throw new HomectlError(
       3,
