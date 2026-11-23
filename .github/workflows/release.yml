@@ -34,7 +34,7 @@ jobs:
       - run: bun install --frozen-lockfile
 
       - name: The tag matches package.json
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: |
           version="$(bun -e 'console.log(require("./package.json").version)')"
           if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
@@ -73,12 +73,17 @@ jobs:
           test "$status" -eq 2
 
       # The manifest lists every archive; builds install only a manifest whose signature
-      # verifies. Without the HOMECTL_SIGNING_KEY secret the signing step skips with a notice.
+      # verifies. Tag builds must sign with an active key trusted by the updater.
       - run: bun scripts/release-manifest.ts dist
       - name: Sign the release manifest
         env:
           HOMECTL_SIGNING_KEY: ${{ secrets.HOMECTL_SIGNING_KEY }}
-        run: bun scripts/sign-release.ts dist
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v* ]]; then
+            bun scripts/sign-release.ts dist --require-trusted
+          else
+            bun scripts/sign-release.ts dist
+          fi
 
       # Software bill of materials for the source tree and its locked dependencies.
       - name: Generate the SBOM
@@ -102,7 +107,7 @@ jobs:
           path: dist/*
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -118,10 +123,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         # No checkout in this job, so gh needs the repository named explicitly.
         # Named files only: dist/packaging is a folder and gh release create takes files.
-        # manifest.json.sig is absent when the release is unsigned; dist/manifest.json* matches what exists.
         run: |
           gh release create "$GITHUB_REF_NAME" \
             dist/*.tar.gz dist/*.zip dist/*.deb dist/*.rpm dist/*.apk dist/*.pkg.tar.zst dist/SHA256SUMS \
-            dist/manifest.json* dist/sbom.spdx.json \
+            dist/manifest.json dist/manifest.json.sig dist/sbom.spdx.json \
             dist/packaging/homectl.rb dist/packaging/winget/*.yaml \
             --repo "$GITHUB_REPOSITORY" --title "homectl ${GITHUB_REF_NAME}" --generate-notes
