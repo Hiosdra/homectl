@@ -19,7 +19,11 @@ import {
   workspaceAddress,
 } from "./channel";
 import { type RestoreOutcome, takeRestore } from "./client-restore";
-import { ClientDecisions, type DecisionOutcome } from "./client-decisions";
+import {
+  ClientDecisions,
+  type DecisionAcceptance,
+  type DecisionOutcome,
+} from "./client-decisions";
 import type { RestoreTarget } from "./restore-files";
 import type { RevocationSet } from "./revocations";
 import {
@@ -42,7 +46,7 @@ const MAX_CLIENT_PENDING = 200;
 
 export interface WorkspaceClientDeps {
   pending(): Promise<BrokerOperation[]>;
-  decide(input: DecideInput): Promise<unknown>;
+  decide(input: DecideInput): Promise<DecisionAcceptance>;
   events: { since(after: number): Promise<SinceResult> };
   backupFiles(): Promise<SnapshotInput[]>;
   restore: RestoreTarget;

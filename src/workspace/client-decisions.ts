@@ -18,11 +18,18 @@ export interface DecisionOutcome {
   reason?: string;
 }
 
+export interface DecisionAcceptance {
+  accepted: boolean;
+  reason?: string;
+}
+
 export class ClientDecisions {
   constructor(
     private readonly file: ClientLinkFile,
     private readonly load: () => Promise<ClientLink>,
-    private readonly decide: (input: DecideInput) => Promise<unknown>,
+    private readonly decide: (
+      input: DecideInput,
+    ) => Promise<DecisionAcceptance>,
     private readonly now: () => number,
   ) {}
 
@@ -58,7 +65,7 @@ export class ClientDecisions {
     if (intent.expiresAt < this.now())
       return { status: "refused", reason: "expired" };
     try {
-      await this.decide({
+      const result = await this.decide({
         operationId: intent.operationId,
         fingerprint: intent.fingerprint,
         decision: intent.decision,
@@ -66,7 +73,12 @@ export class ClientDecisions {
         // A server's re-authentication never satisfies local step-up.
         stepUp: false,
       });
-      return { status: "applied" };
+      return result.accepted
+        ? { status: "applied" }
+        : {
+            status: "refused",
+            reason: result.reason ?? "The local decision was refused",
+          };
     } catch (error) {
       return {
         status: "refused",

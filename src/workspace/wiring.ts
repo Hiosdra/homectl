@@ -78,7 +78,19 @@ export async function startWorkspace(
 ): Promise<WorkspaceWiring> {
   const client = new WorkspaceClient(options.state, {
     pending: () => options.broker.pending(),
-    decide: (input) => options.broker.decide(input),
+    decide: async (input) => {
+      const result = await options.broker.decide(input);
+      const accepted =
+        input.decision === "deny-once"
+          ? result.operation.state === "denied"
+          : result.grant !== undefined;
+      return {
+        accepted,
+        ...(result.operation.reason === undefined
+          ? {}
+          : { reason: result.operation.reason }),
+      };
+    },
     events: { since: (after) => options.log.since(after) },
     backupFiles: () => backupFiles(options.inventoryPath, options.state),
     restore: fileRestoreTarget(options.inventoryPath, options.state),

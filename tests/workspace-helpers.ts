@@ -155,7 +155,7 @@ export async function fixture(
         pending: async () => harness.ops,
         decide: async (input) => {
           harness.decisions.push(input);
-          return { applied: true };
+          return { accepted: true };
         },
         events: { since: async () => [] },
         backupFiles: async () => harness.files,
@@ -176,7 +176,7 @@ export async function fixture(
     pending: async () => harness.ops,
     decide: async (input) => {
       harness.decisions.push(input);
-      return { applied: true };
+      return { accepted: true };
     },
     events: {
       since: async (after) => {
