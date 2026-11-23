@@ -4,7 +4,13 @@
 // Requester text stays untrusted (`narrative`), and no password is kept after
 // a request is sent.
 import type { DecisionSource } from "../../core/contracts";
-import { OwnerApiError, ownerCall, type Untrusted } from "./api";
+import {
+  OwnerApiError,
+  ownerCall,
+  type SecretDestination,
+  type SecretField,
+  type Untrusted,
+} from "./api";
 
 export interface WorkspaceServerInfo {
   id: string;
@@ -256,4 +262,109 @@ export function decisionOffer(
 // The key a decision is tracked under on this page.
 export function decisionKey(origin: string, operationId: string): string {
   return `${origin}:${operationId}`;
+}
+
+export interface WorkspaceSecretIntent {
+  id: string;
+  action: "provide" | "decline";
+  status: WorkspaceIntentStatus;
+  reason?: string;
+  expiresAt: number;
+}
+
+export interface WorkspacePendingSecret {
+  origin: string;
+  originName: string;
+  id: string;
+  client: string;
+  task?: string;
+  purpose: Untrusted;
+  destination: SecretDestination;
+  fields: SecretField[];
+  admin: boolean;
+  canSave: boolean;
+  requestExpiresAt: number;
+  intent: WorkspaceSecretIntent | null;
+}
+
+export function secretIntentState(
+  intent: WorkspaceSecretIntent | null | undefined,
+): IntentState | undefined {
+  if (!intent) return undefined;
+  const word = intent.action === "provide" ? "Secret" : "Decline";
+  switch (intent.status) {
+    case "queued":
+      return {
+        text: `${word} queued for the client. It applies at the client's next sync.`,
+        tone: "warn",
+        blocks: true,
+        applied: false,
+        refused: false,
+      };
+    case "delivered":
+      return {
+        text: `${word} delivered to the client. Waiting for it to apply.`,
+        tone: "warn",
+        blocks: true,
+        applied: false,
+        refused: false,
+      };
+    case "applied":
+      return {
+        text: `${word} applied by the client.`,
+        tone: "good",
+        blocks: false,
+        applied: true,
+        refused: false,
+      };
+    case "refused":
+      return {
+        text: `${word} refused by the client${intent.reason ? `: ${intent.reason}` : "."}`,
+        tone: "bad",
+        blocks: false,
+        applied: false,
+        refused: true,
+      };
+  }
+}
+
+export function listWorkspaceSecrets(): Promise<WorkspacePendingSecret[]> {
+  return ownerCall<WorkspacePendingSecret[]>(
+    "/v1/owner/workspace/secrets/pending",
+  );
+}
+
+export function provideWorkspaceSecret(input: {
+  client: string;
+  id: string;
+  values: Record<string, string>;
+  retention: "ephemeral" | "saved";
+  saveName?: string;
+  reuse?: boolean;
+  password: string;
+}): Promise<WorkspaceSecretIntent> {
+  return ownerCall<WorkspaceSecretIntent>(
+    "/v1/owner/workspace/secrets/provide",
+    input,
+  );
+}
+
+export function declineWorkspaceSecret(input: {
+  client: string;
+  id: string;
+}): Promise<WorkspaceSecretIntent> {
+  return ownerCall<WorkspaceSecretIntent>(
+    "/v1/owner/workspace/secrets/decline",
+    input,
+  );
+}
+
+export async function readWorkspaceSnapshot() {
+  const [clients, pending, secrets, intents] = await Promise.all([
+    listWorkspaceClients(),
+    listWorkspacePending(),
+    listWorkspaceSecrets(),
+    listWorkspaceIntents(),
+  ]);
+  return { clients, pending, secrets, intents };
 }

@@ -11,6 +11,10 @@ import type { DecisionSource, EventEnvelope } from "../core/contracts";
 import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
 import type { RestoreFileDigest } from "./restore-files";
+import type {
+  PendingSecretSummary,
+  SecretIntentRecord,
+} from "./secret-intents";
 
 // What a client publishes about one operation awaiting its owner's decision.
 // Requester narrative is untrusted and shown as such.
@@ -99,6 +103,8 @@ export interface LinkedClient {
   mirror: { lastSeq: number; events: EventEnvelope[]; gaps?: number };
   pending: PendingSummary[];
   intents: Intent[];
+  pendingSecrets?: PendingSecretSummary[];
+  secretIntents?: SecretIntentRecord[];
   backupReport?: BackupReport;
   // Set by an owner; delivered once in the next sync reply.
   backupRequested?: boolean;

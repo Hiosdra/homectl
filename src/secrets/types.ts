@@ -88,6 +88,7 @@ export interface VaultPort {
 // contract's `expiresAt` stays the request (unanswered) expiry.
 export interface BrokerRequestView extends SecretRequestView {
   valueExpiresAt?: number;
+  admin?: boolean;
 }
 
 export interface SecretUseGrant {

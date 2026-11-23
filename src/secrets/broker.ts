@@ -477,6 +477,7 @@ export class SecretBroker {
     if (entry.ref !== undefined) view.ref = entry.ref;
     if (entry.valueExpiresAt !== undefined)
       view.valueExpiresAt = entry.valueExpiresAt;
+    if (entry.admin) view.admin = true;
     return view;
   }
 

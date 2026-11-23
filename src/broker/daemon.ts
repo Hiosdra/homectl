@@ -286,8 +286,10 @@ export async function startDaemon(config: DaemonConfig) {
   if (config.listen.kind === "unix")
     await rm(config.listen.path, { force: true });
   const owner = new OwnerSessions(verifier);
+  let clearWorkspaceSecrets: (() => void) | undefined;
   onLocked.run = async (reason, cause) => {
     secretBroker.lock();
+    clearWorkspaceSecrets?.();
     owner.clear();
     if (cause !== "idle") await broker.invalidatePending(reason);
   };
@@ -302,9 +304,11 @@ export async function startDaemon(config: DaemonConfig) {
     broker,
     log,
     events,
+    secrets: secretBroker,
     ...(hasVault ? { vaultUnlocked: () => vault.unlocked() } : {}),
     ...(config.workspace ? { config: config.workspace } : {}),
   });
+  clearWorkspaceSecrets = () => workspace.clearSecrets();
   const ownerHosts = new OwnerHostRoutes({
     inventoryPath: config.inventoryPath,
     configPath: config.sshConfigPath,

@@ -53,13 +53,8 @@ import {
 import { readLastSection, writeLastSection } from "./last-section";
 import { Notice, Toast } from "./ui";
 import {
-  listWorkspaceClients,
-  listWorkspaceIntents,
-  listWorkspacePending,
   probeWorkspace,
-  type WorkspaceClient,
-  type WorkspaceIntentRow,
-  type WorkspacePending,
+  readWorkspaceSnapshot,
   type WorkspaceServerInfo,
 } from "./workspace-api";
 import { WorkspaceScreen } from "./workspace";
@@ -74,11 +69,7 @@ interface Data {
   operations: PendingOperation[];
   secrets: PendingSecret[];
   // Present only when this broker is a workspace server.
-  workspace?: {
-    clients: WorkspaceClient[];
-    pending: WorkspacePending[];
-    intents: WorkspaceIntentRow[];
-  };
+  workspace?: Awaited<ReturnType<typeof readWorkspaceSnapshot>>;
   loadedAt: number;
 }
 
@@ -86,15 +77,7 @@ const SIGNED_OUT_NOTICE = "Your owner session ended. Sign in again.";
 // Linked clients reach the server by sync, not by this broker's stream, so the
 // workspace is re-read on a timer while the panel is open.
 const WORKSPACE_POLL_MS = 10_000;
-
-async function readWorkspace(): Promise<Data["workspace"]> {
-  const [clients, pending, intents] = await Promise.all([
-    listWorkspaceClients(),
-    listWorkspacePending(),
-    listWorkspaceIntents(),
-  ]);
-  return { clients, pending, intents };
-}
+const readWorkspace = readWorkspaceSnapshot;
 
 function useRoute(): [Route, (hash: string) => void] {
   const [route, setRoute] = useState(() => parseRoute(location.hash));
@@ -245,7 +228,9 @@ function App() {
     if (!sameContext(resolved, context)) chooseContext(resolved);
   }, [context, clientsLoaded, chooseContext]);
 
-  const workspaceWaiting = data.workspace?.pending.length ?? 0;
+  const workspaceWaiting =
+    (data.workspace?.pending.length ?? 0) +
+    (data.workspace?.secrets.length ?? 0);
   const attention =
     data.operations.length + data.secrets.length + workspaceWaiting;
   const nav: NavItem[] = [
@@ -298,6 +283,11 @@ function App() {
     data.workspace?.pending ?? [],
     (row) => row.origin,
   );
+  const shownWorkspaceSecrets = scopeRows(
+    view,
+    data.workspace?.secrets ?? [],
+    (row) => row.origin,
+  );
   const shownClients = scopeRows(
     view,
     data.workspace?.clients ?? [],
@@ -309,7 +299,10 @@ function App() {
     (row) => row.client,
   );
   const shownAttention =
-    shownOperations.length + shownSecrets.length + shownPending.length;
+    shownOperations.length +
+    shownSecrets.length +
+    shownPending.length +
+    shownWorkspaceSecrets.length;
   const scope =
     server && data.workspace
       ? viewScope(view, data.workspace.clients, attention - shownAttention)
@@ -401,7 +394,9 @@ function App() {
               secrets: shownSecrets,
               loadedAt: data.loadedAt,
             }}
-            workspaceWaiting={shownPending.length}
+            workspaceWaiting={
+              shownPending.length + shownWorkspaceSecrets.length
+            }
             setup={setup}
             onSetupChanged={setSetup}
             scope={scope}
@@ -478,6 +473,7 @@ function App() {
             server={server}
             clients={shownClients}
             pending={shownPending}
+            secrets={shownWorkspaceSecrets}
             intents={shownIntents}
             scope={scope}
             onChanged={refresh}

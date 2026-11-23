@@ -36,6 +36,7 @@ import {
 } from "./retired";
 import { clientRows } from "./server-status";
 import { applySync, type SyncOutcome } from "./server-sync";
+import { handleSecretOwnerRoute, SecretIntentVault } from "./secret-intents";
 import {
   INTENT_LIST_DEFAULT,
   INTENT_LIST_MAX,
@@ -69,6 +70,7 @@ export class WorkspaceServer implements RouteExtension {
   private readonly quota: ChunkQuota;
   private readonly audit: WorkspaceAudit;
   private readonly restores: RestoreService;
+  private readonly secretVault = new SecretIntentVault();
   private readonly ready: Promise<void>;
   private readonly now: () => number;
   private readonly events: Pick<EventsPort, "emit"> | undefined;
@@ -270,11 +272,15 @@ export class WorkspaceServer implements RouteExtension {
       throw new HomectlError(3, "Unknown workspace client");
   }
 
+  clearSecrets(): void {
+    this.secretVault.clear();
+  }
+
   private async sync(client: string, input: Record<string, unknown>) {
     const request = v.parseSync(input);
     const now = this.now();
     const outcome = await this.file.update((state) =>
-      applySync(state, client, request, now),
+      applySync(state, client, request, now, this.secretVault),
     );
     await this.announce(client, outcome);
     return outcome.reply;
@@ -372,7 +378,12 @@ export class WorkspaceServer implements RouteExtension {
       case "/v1/owner/workspace/server":
         return this.describe();
       default:
-        return undefined;
+        return handleSecretOwnerRoute(path, input, stepUp, {
+          file: this.file,
+          vault: this.secretVault,
+          load: () => this.load(),
+          now: this.now,
+        });
     }
   }
 

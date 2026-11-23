@@ -9,6 +9,11 @@ import {
   publicIntent,
 } from "./intents";
 import {
+  applySecretSync,
+  type SecretIntentVault,
+  type ServerSecretIntent,
+} from "./secret-intents";
+import {
   ingestEvents,
   type Intent,
   linked,
@@ -21,6 +26,7 @@ export interface SyncReply {
   ack: number;
   gap: boolean;
   intents?: ReturnType<typeof publicIntent>[];
+  secretIntents?: ServerSecretIntent[];
   backupRequested?: boolean;
 }
 
@@ -38,6 +44,7 @@ export function applySync(
   client: string,
   request: SyncRequest,
   now: number,
+  secretVault?: SecretIntentVault,
 ): SyncOutcome {
   const current = linked(state, client);
   if (!current) throw new HomectlError(3, "Unknown workspace client");
@@ -69,6 +76,15 @@ export function applySync(
   for (const intent of intents)
     if (intent.status === "queued") intent.status = "delivered";
   pruneIntents(current);
+  const secretIntents = secretVault
+    ? applySecretSync(
+        current,
+        request.pendingSecrets ?? [],
+        request.secretIntentResults ?? [],
+        now,
+        secretVault,
+      )
+    : [];
   // A requested backup is delivered once, then cleared.
   const backupRequested = current.backupRequested === true;
   current.backupRequested = false;
@@ -78,6 +94,7 @@ export function applySync(
       ack: ingest.lastSeq,
       gap: false,
       intents: intents.map(publicIntent),
+      ...(secretIntents.length === 0 ? {} : { secretIntents }),
       backupRequested,
     },
   };

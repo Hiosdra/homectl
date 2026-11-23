@@ -10,6 +10,12 @@ import {
 import { MAX_EVENT_DATA_BYTES } from "../events/log";
 import { HomectlError } from "../types";
 import type { BackupReport, PendingSummary, Revocations } from "./state";
+import {
+  type PendingSecretSummary,
+  parsePendingSecrets,
+  parseServerSecretIntents,
+  type ServerSecretIntent,
+} from "./secret-intents";
 
 export const MAX_SYNC_EVENTS = 500;
 export const MAX_REVOKED_KEYS = 256;
@@ -46,7 +52,9 @@ export interface SyncRequest {
   after?: number;
   events: EventEnvelope[];
   pending: PendingSummary[];
+  pendingSecrets?: PendingSecretSummary[];
   intentResults: IntentResult[];
+  secretIntentResults?: IntentResult[];
   status: {
     remoteApproval: boolean;
     vaultUnlocked: boolean;
@@ -329,7 +337,13 @@ export function parseSync(value: unknown): SyncRequest {
       : { after: integer(body.after, "after") }),
     events: parseEvents(body.events),
     pending: parsePending(body.pending),
+    ...(body.pendingSecrets === undefined
+      ? {}
+      : { pendingSecrets: parsePendingSecrets(body.pendingSecrets) }),
     intentResults: parseResults(body.intentResults),
+    ...(body.secretIntentResults === undefined
+      ? {}
+      : { secretIntentResults: parseResults(body.secretIntentResults) }),
     status: parseStatus(body.status),
   };
 }
@@ -339,6 +353,7 @@ export function parseReply(value: unknown): {
   ack: number;
   gap: boolean;
   intents: ServerIntent[];
+  secretIntents: ServerSecretIntent[];
   backupRequested: boolean;
 } {
   const reply = record(value, "sync reply");
@@ -363,6 +378,7 @@ export function parseReply(value: unknown): {
               expiresAt: finite(intent.expiresAt, "expiry"),
             };
           }),
+    secretIntents: parseServerSecretIntents(reply.secretIntents),
   };
 }
 

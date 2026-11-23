@@ -10,12 +10,14 @@ import { InviteSection } from "./workspace-invite";
 import { IntentHistory } from "./workspace-intents";
 import { PendingSection } from "./workspace-pending";
 import { RestoreFlow } from "./workspace-restore";
+import { WorkspaceSecretsSection } from "./workspace-secrets";
 import {
   decideWorkspace,
   type WorkspaceClient,
   type WorkspaceDecision,
   type WorkspaceIntentRow,
   type WorkspacePending,
+  type WorkspacePendingSecret,
   type WorkspaceServerInfo,
 } from "./workspace-api";
 import { Notice } from "./ui";
@@ -24,6 +26,7 @@ export function WorkspaceScreen({
   server,
   clients,
   pending,
+  secrets,
   intents,
   scope,
   onChanged,
@@ -33,6 +36,7 @@ export function WorkspaceScreen({
   // Already filtered to the device context in `scope`.
   clients: WorkspaceClient[];
   pending: WorkspacePending[];
+  secrets: WorkspacePendingSecret[];
   intents: WorkspaceIntentRow[];
   // The device context this view shows; absent means All devices.
   scope?: ViewScope;
@@ -103,6 +107,12 @@ export function WorkspaceScreen({
             clients={clients}
             busy={busy}
             onDecide={decide}
+          />
+          <WorkspaceSecretsSection
+            secrets={secrets}
+            clients={clients}
+            onChanged={onChanged}
+            onError={onError}
           />
           <IntentHistory intents={intents} clients={clients} />
           <ClientsSection

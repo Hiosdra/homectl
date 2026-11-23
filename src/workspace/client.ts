@@ -4,8 +4,7 @@
 // policy. It uploads scoped files as sealed chunks; the server never sees the
 // backup key in clear.
 
-import { type BackupServer, backup, type SnapshotInput } from "../backup";
-import { isExcluded } from "../backup/policy";
+import type { SnapshotInput } from "../backup";
 import type { RouteExtension } from "../broker/server";
 import type { BrokerOperation, DecideInput } from "../broker/types";
 import type { EventEnvelope } from "../core/contracts";
@@ -18,16 +17,20 @@ import {
   type Post,
   workspaceAddress,
 } from "./channel";
+import { type BackupRun, runClientBackup } from "./client-backup";
 import { type RestoreOutcome, takeRestore } from "./client-restore";
 import {
   ClientDecisions,
   type DecisionAcceptance,
   type DecisionOutcome,
 } from "./client-decisions";
+import {
+  ClientSecretDecisions,
+  type WorkspaceClientSecretPort,
+} from "./client-secrets";
 import type { RestoreTarget } from "./restore-files";
 import type { RevocationSet } from "./revocations";
 import {
-  backupClientId,
   type ClientLink,
   type ClientLinkFile,
   clientLinkFile,
@@ -50,6 +53,7 @@ export interface WorkspaceClientDeps {
   events: { since(after: number): Promise<SinceResult> };
   backupFiles(): Promise<SnapshotInput[]>;
   restore: RestoreTarget;
+  secrets?: WorkspaceClientSecretPort;
   vaultUnlocked?: () => boolean;
   // The revocations this device holds now, reported with each sync.
   revocations?: () => Promise<RevocationSet | undefined>;
@@ -58,12 +62,7 @@ export interface WorkspaceClientDeps {
   now?: () => number;
 }
 
-export interface BackupRun {
-  seq: number;
-  uploaded: number;
-  reused: number;
-  baseline: boolean;
-}
+export type { BackupRun } from "./client-backup";
 
 export class WorkspaceClient implements RouteExtension {
   private readonly file: ClientLinkFile;
@@ -71,6 +70,7 @@ export class WorkspaceClient implements RouteExtension {
   private readonly now: () => number;
   private readonly post: (address: string) => Post;
   private readonly decisions: ClientDecisions;
+  private readonly secretDecisions: ClientSecretDecisions | undefined;
   private outcomes: DecisionOutcome[] = [];
   private syncRun: Promise<void> | undefined;
   private backupRun: Promise<BackupRun | undefined> | undefined;
@@ -92,6 +92,14 @@ export class WorkspaceClient implements RouteExtension {
       deps.decide,
       this.now,
     );
+    this.secretDecisions = deps.secrets
+      ? new ClientSecretDecisions(
+          this.file,
+          () => this.load(),
+          deps.secrets,
+          this.now,
+        )
+      : undefined;
   }
 
   private async load(): Promise<ClientLink> {
@@ -167,6 +175,7 @@ export class WorkspaceClient implements RouteExtension {
       next.lastSyncError = undefined;
     });
     this.outcomes = [];
+    this.secretDecisions?.clearOutcomes();
     let backupKey: "registered" | "pending" = "registered";
     try {
       await this.registerBackupKey();
@@ -239,6 +248,7 @@ export class WorkspaceClient implements RouteExtension {
       next.restore = undefined;
     });
     this.outcomes = [];
+    this.secretDecisions?.clearOutcomes();
     return this.status();
   }
 
@@ -328,7 +338,9 @@ export class WorkspaceClient implements RouteExtension {
     const pending = (await this.deps.pending())
       .slice(0, MAX_CLIENT_PENDING)
       .map(summarize);
+    const pendingSecrets = this.secretDecisions?.pendingSummaries(100);
     const sent = this.outcomes.slice();
+    const sentSecrets = this.secretDecisions?.peekOutcomes() ?? [];
     const revocations = await this.revocationReport();
     const reply = v.parseReply(
       await channelRequest(
@@ -340,7 +352,9 @@ export class WorkspaceClient implements RouteExtension {
           after: batch.after,
           events: batch.events,
           pending,
+          ...(pendingSecrets ? { pendingSecrets } : {}),
           intentResults: sent,
+          ...(sentSecrets.length ? { secretIntentResults: sentSecrets } : {}),
           status: {
             remoteApproval: server.remoteApproval,
             vaultUnlocked: this.deps.vaultUnlocked?.() ?? false,
@@ -351,6 +365,7 @@ export class WorkspaceClient implements RouteExtension {
       ),
     );
     this.outcomes.splice(0, sent.length);
+    this.secretDecisions?.ackOutcomes(sentSecrets.length);
     const now = this.now();
     await this.file.update((next) => {
       if (next.server?.id !== server.id) return;
@@ -365,6 +380,11 @@ export class WorkspaceClient implements RouteExtension {
       this.outcomes.push(outcome);
       applied = true;
     }
+    if (
+      this.secretDecisions &&
+      (await this.secretDecisions.applyAll(reply.secretIntents, server.id))
+    )
+      applied = true;
     // The owner asked for a backup now; it runs in the background.
     if (reply.backupRequested) this.backupOnce().catch(() => undefined);
     return applied;
@@ -400,71 +420,14 @@ export class WorkspaceClient implements RouteExtension {
   }
 
   private async runBackup(): Promise<BackupRun | undefined> {
-    const link = await this.load();
-    const server = link.server;
-    if (!server) return undefined;
-    try {
-      if (!link.backupKeyRegistered) await this.registerBackupKey();
-      const files = (await this.deps.backupFiles()).filter(
-        (file) => !isExcluded(file.path),
-      );
-      const transport = this.post(server.address);
-      const peer = peerOf(server);
-      const call = (action: string, payload: unknown) =>
-        channelRequest(transport, link.id, peer, action, payload);
-      const adapter: BackupServer = {
-        missing: async (ids) =>
-          v.list(
-            await call("backup.missing", { ids: [...ids] }),
-            "missing ids",
-            v.MAX_MISSING_IDS,
-            (id) => v.hex(id, "chunk id"),
-          ),
-        putChunk: async (id, blob) => {
-          await call("backup.chunk", {
-            id,
-            blob: Buffer.from(blob).toString("base64"),
-          });
-        },
-        commit: async (request) =>
-          v.parseCommit(
-            await call("backup.commit", {
-              header: request.header,
-              sealed: request.sealed,
-            }),
-          ),
-      };
-      const outcome = await backup(adapter, files, {
-        client: backupClientId(link.id),
-        key: Buffer.from(link.backup.key, "hex"),
-        seq: link.backup.seq + 1,
-        parent: link.backup.parent,
-        now: this.now(),
-      });
-      const header = outcome.snapshot.header;
-      const at = this.now();
-      await this.file.update((next) => {
-        if (!next.server) return;
-        next.backup = {
-          ...next.backup,
-          seq: header.seq,
-          parent: header.manifestHash,
-          lastAt: at,
-          lastError: undefined,
-        };
-      });
-      return {
-        seq: header.seq,
-        uploaded: outcome.uploaded,
-        reused: outcome.reused,
-        baseline: outcome.baseline,
-      };
-    } catch (error) {
-      await this.file.update((next) => {
-        next.backup = { ...next.backup, lastError: errorText(error) };
-      });
-      throw error;
-    }
+    return runClientBackup({
+      link: await this.load(),
+      file: this.file,
+      post: this.post,
+      backupFiles: () => this.deps.backupFiles(),
+      registerBackupKey: () => this.registerBackupKey(),
+      now: this.now,
+    });
   }
 
   // Timers never throw: failures are recorded in the link state.

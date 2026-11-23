@@ -12,6 +12,7 @@ import type { EventsPort } from "../broker/types";
 import type { EventLog } from "../events/log";
 import { HomectlError } from "../types";
 import { WorkspaceClient } from "./client";
+import type { WorkspaceClientSecretPort } from "./client-secrets";
 import { fileRestoreTarget } from "./restore-files";
 import { readRevocations } from "./revocations";
 import { WorkspaceServer } from "./server";
@@ -32,12 +33,14 @@ export interface WorkspaceWiringOptions {
   // The server broker's event port, for live owner events. Unset, the port is
   // built from the log exactly as the daemon's default port is.
   events?: Pick<EventsPort, "emit">;
+  secrets?: WorkspaceClientSecretPort;
   vaultUnlocked?: () => boolean;
   config?: WorkspaceConfig;
 }
 
 export interface WorkspaceWiring {
   extensions: RouteExtension[];
+  clearSecrets(): void;
   stop(): Promise<void>;
 }
 
@@ -99,14 +102,16 @@ export async function startWorkspace(
         join(dirname(options.inventoryPath), "known_hosts"),
         join(options.state, "policy.json"),
       ),
+    ...(options.secrets ? { secrets: options.secrets } : {}),
     ...(options.vaultUnlocked ? { vaultUnlocked: options.vaultUnlocked } : {}),
   });
   const extensions: RouteExtension[] = [client];
   let listener: { stop(closeActive?: boolean): void } | undefined;
+  let server: WorkspaceServer | undefined;
   const serverConfig = options.config?.server;
   if (serverConfig) {
     const { quotaBytes, listen } = serverConfig;
-    const server = new WorkspaceServer(options.state, {
+    server = new WorkspaceServer(options.state, {
       ...(quotaBytes === undefined ? {} : { quotaBytes }),
       events: options.events ?? logEvents(options.log),
     });
@@ -120,7 +125,11 @@ export async function startWorkspace(
   client.start();
   return {
     extensions,
+    clearSecrets() {
+      server?.clearSecrets();
+    },
     async stop() {
+      server?.clearSecrets();
       client.stop();
       listener?.stop(true);
     },
