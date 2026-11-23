@@ -21,7 +21,6 @@ import type {
 import type { ActionRequest } from "../core/contracts";
 import { HomectlError, type Machine } from "../types";
 
-export const PLAN_TTL_MS = 15 * 60_000;
 export const CLIENT_WINDOW_MS = 60 * 60_000;
 
 // What the engine lends to one submission.
@@ -30,6 +29,8 @@ export interface SubmitPort {
   policy: PolicyPort;
   inventory: InventoryPort;
   now: () => number;
+  // How long a request waits for the owner (see approval-wait.ts).
+  approvalWaitMs(): Promise<number>;
   emit(
     op: BrokerOperation,
     type: "approval.requested" | "operation.updated",
@@ -77,6 +78,7 @@ export async function submitOperation(
   const id = `op_${randomBytes(12).toString("base64url")}`;
   const fp = operationFingerprint({ ...base, id });
   const deps = reviewDeps(port);
+  const waitMs = await port.approvalWaitMs();
   const first = await port.store.update(async (state) => {
     const snapshot = await captureReview(
       state,
@@ -92,7 +94,7 @@ export async function submitOperation(
       decision: pendingDecision(base.risk, snapshot.revision),
       state: "awaiting-approval",
       createdAt: snapshot.now,
-      expiresAt: snapshot.now + PLAN_TTL_MS,
+      expiresAt: snapshot.now + waitMs,
       updatedAt: snapshot.now,
       ...(narrative ? { narrative } : {}),
     };
@@ -126,6 +128,7 @@ export async function submitForOwner(
   const id = `op_${randomBytes(12).toString("base64url")}`;
   const fp = operationFingerprint({ ...base, id });
   const now = port.now();
+  const waitMs = await port.approvalWaitMs();
   const op = await port.store.update((state) => {
     const record: BrokerOperation = {
       ...base,
@@ -134,7 +137,7 @@ export async function submitForOwner(
       decision,
       state: "awaiting-approval",
       createdAt: now,
-      expiresAt: now + PLAN_TTL_MS,
+      expiresAt: now + waitMs,
       updatedAt: now,
       ...(narrative ? { narrative } : {}),
     };

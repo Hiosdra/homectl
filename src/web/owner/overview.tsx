@@ -18,7 +18,7 @@ import { DECISION_NOTICE, OUTCOME, type ApprovalDecision } from "./approval";
 import { Icon } from "./icons";
 import { canApproveFromList, riskView } from "./risk";
 import { isUnderReview } from "./review";
-import { expiresIn, relativeTime, toEpoch } from "./time";
+import { relativeTime, toEpoch, waitingUntil } from "./time";
 import { Badge, MachineText, Notice } from "./ui";
 import { displayName, plainAction, riskLine } from "./plain-words";
 import { proxmoxTitle } from "./proxmox";
@@ -227,7 +227,7 @@ function AssistantTag({ id, names }: { id: string; names: AssistantNames }) {
 function RequestMeta({ asked, expires }: { asked?: number; expires?: number }) {
   const parts = [
     asked !== undefined ? `Asked ${relativeTime(asked)}` : undefined,
-    expires !== undefined ? expiresIn(expires) : undefined,
+    expires !== undefined ? waitingUntil(expires) : undefined,
   ].filter((part): part is string => part !== undefined);
   return parts.length > 0 ? (
     <p className="request-meta">{parts.join(" · ")}</p>

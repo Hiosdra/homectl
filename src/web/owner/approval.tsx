@@ -21,7 +21,7 @@ import {
   isUnderReview,
   UNDER_REVIEW_NOTE,
 } from "./review";
-import { expiresIn, relativeTime, toEpoch } from "./time";
+import { expiresIn, relativeTime, toEpoch, waitingUntil } from "./time";
 import {
   Argv,
   Badge,
@@ -167,7 +167,7 @@ export function ApprovalScreen({
       : `${sentenceCase(plainAction(operation.argv))} on ${operation.host}?`;
   const meta = [
     asked !== undefined ? `Asked ${relativeTime(asked)}` : undefined,
-    expires !== undefined ? expiresIn(expires) : undefined,
+    expires !== undefined ? waitingUntil(expires) : undefined,
   ]
     .filter((part): part is string => part !== undefined)
     .join(" · ");

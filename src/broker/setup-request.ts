@@ -17,6 +17,7 @@ import {
   checkName,
   checkPort,
 } from "./owner-hosts-input";
+import { parseApprovalWait } from "./approval-wait";
 import type { OperationBase } from "./submit";
 import type {
   BrokerOperation,
@@ -32,6 +33,7 @@ export const SETUP_REQUESTS = [
   "access",
   "preset",
   "remove",
+  "approval-wait",
 ] as const;
 export type SetupRequestKind = (typeof SETUP_REQUESTS)[number];
 
@@ -92,6 +94,13 @@ export const SETUP_SPECS: Record<SetupRequestKind, SetupRequestSpec> = {
     classification: "destructive",
     area: "Machines",
   },
+  "approval-wait": {
+    label: "Change how long requests wait for you",
+    risk: "R2",
+    password: true,
+    classification: "mutation",
+    area: "Settings",
+  },
 };
 
 // The permission settings an agent may ask for (the owner's own presets).
@@ -106,6 +115,7 @@ const FIELDS: Record<SetupRequestKind, readonly string[]> = {
   access: ["name", "access", "narrative"],
   preset: ["preset", "narrative"],
   remove: ["name", "narrative"],
+  "approval-wait": ["wait", "narrative"],
 };
 
 // Agents may propose these levels. Admin with your approval needs an allowed-command
@@ -123,6 +133,8 @@ export interface SetupInput {
   access?: Access;
   preset?: string;
   narrative?: string;
+  // The approval wait, in milliseconds (approval-wait only).
+  waitMs?: number;
 }
 
 export function validateSetupInput(
@@ -153,6 +165,7 @@ export function validateSetupInput(
       throw new HomectlError(2, "Unknown permission setting");
     out.preset = input.preset as string;
   }
+  if (input.wait !== undefined) out.waitMs = parseApprovalWait(input.wait);
   if (input.narrative !== undefined) {
     if (typeof input.narrative !== "string" || input.narrative.length > 2000)
       throw new HomectlError(2, "narrative must be text up to 2000 characters");
@@ -165,6 +178,7 @@ export function validateSetupInput(
     access: ["name", "access"],
     preset: ["preset"],
     remove: ["name"],
+    "approval-wait": ["waitMs"],
   };
   for (const field of required[kind])
     if (out[field] === undefined)

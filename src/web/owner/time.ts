@@ -33,6 +33,41 @@ export function expiresIn(at: number, now = Date.now()): string {
   return `expires in ${spanOf(diff)}`;
 }
 
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+const pad = (n: number) => String(n).padStart(2, "0");
+
+// The exact local time a request waits for the owner until: "Waiting for you
+// until 14:05", or with the day when it is not today: "Waiting for you until
+// Tue 24 Nov, 14:05". Once the time has passed: "Expired".
+export function waitingUntil(at: number, now = Date.now()): string {
+  if (at - now <= 0) return "Expired";
+  const date = new Date(at);
+  const today = new Date(now);
+  const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const sameDay =
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate();
+  const when = sameDay
+    ? clock
+    : `${WEEKDAYS[date.getDay()]} ${date.getDate()} ${MONTHS[date.getMonth()]}, ${clock}`;
+  return `Waiting for you until ${when}`;
+}
+
 // Accepts the broker's epoch milliseconds or an ISO string. Undefined when the
 // value cannot be read, so callers can fall back to the raw text.
 export function toEpoch(

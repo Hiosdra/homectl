@@ -234,7 +234,12 @@ describe("owner decisions", () => {
       host: "nas",
       argv: ["systemctl", "restart", "x"],
     });
+    // The default wait is 24 hours (approval-wait.ts), not 15 minutes.
     clock += 16 * 60_000;
+    expect((await broker.status(agent, view.id)).state).toBe(
+      "awaiting-approval",
+    );
+    clock += 24 * 60 * 60_000;
     expect((await broker.status(agent, view.id)).state).toBe("expired");
   });
 

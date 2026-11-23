@@ -4,6 +4,8 @@
 import { randomUUID } from "node:crypto";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { readApprovalWait } from "./approval-wait";
+import { SettingsRoutes } from "./settings-routes";
 import { NonceLedger } from "../approvals/ledger";
 import { ClientRegistry } from "../control/clients";
 import { fingerprintOf, loadOrCreateDeviceKey } from "../control/device-key";
@@ -166,12 +168,14 @@ export async function startDaemon(config: DaemonConfig) {
   // approval already asked for the password (decide checks step-up before any
   // dispatch), so the routes' own step-up is settled here.
   const settled = async () => undefined;
+  const settingsRoutes = new SettingsRoutes(config.state);
   const executor: ExecutorPort = config.executor ?? {
     ...sshExecutor(config.inventoryPath, config.sshConfigPath),
     proxmox: proxmoxExecutor({ inventoryPath: config.inventoryPath }),
     setup: ownerSetupPort({
       hosts: (path, input) => ownerHosts.owner(path, input, settled),
       policy: (path, input) => policyRoutes.owner(path, input, settled),
+      settings: (path, input) => settingsRoutes.owner(path, input, settled),
     }),
   };
   const hostSet = new Set<string>();
@@ -221,6 +225,7 @@ export async function startDaemon(config: DaemonConfig) {
     executor,
     events,
     ...(hasVault ? { gate: vault.gate } : {}),
+    approvalWaitMs: () => readApprovalWait(config.state),
     ...(config.panelOrigin
       ? { approvalSurface: `${config.panelOrigin}/#/approvals` }
       : {}),
@@ -286,6 +291,7 @@ export async function startDaemon(config: DaemonConfig) {
     extensions: [
       secrets,
       policyRoutes,
+      settingsRoutes,
       new UpdateRoutes({ events }),
       new AutoModeRoutes({
         store: authz,

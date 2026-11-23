@@ -182,6 +182,7 @@ test("tools/list offers the catalogue with closed schemas, and notifications get
     "setup_access",
     "setup_preset",
     "setup_remove",
+    "setup_approval_wait",
   ]);
   expect(tools.every((t) => t.inputSchema.additionalProperties === false)).toBe(
     true,
