@@ -133,8 +133,7 @@ export function ApprovalScreen({
   const enrolling = operation.setup?.kind === "enroll";
   const connectingHelper = operation.setup?.kind === "ai-helper";
   const grantingSudo = operation.setup?.kind === "sudo-grant";
-  const stepUpGrace =
-    needsStepUp && !grantingSudo && Date.now() < recentStepUpUntil;
+  const stepUpGrace = needsStepUp && !setup && Date.now() < recentStepUpUntil;
   const requiresPassword = needsStepUp && !stepUpGrace;
   const requiresReviewerKey = operation.setup?.input.keyRequired === true;
   const confirmOk = !enrolling || fingerprintConfirmed(operation, confirmText);

@@ -221,16 +221,20 @@ export function handler(options: BrokerServerOptions) {
         const decision = str(input.decision, "decision");
         if (!DECISIONS.has(decision))
           throw new HomectlError(2, "Unknown decision");
+        const operationId = str(input.operationId, "operationId");
         let stepUp = false;
         if (input.password !== undefined) {
           stepUp = await owner.check(input.password);
           if (!stepUp) throw new HomectlError(3, "Wrong owner password");
           owner.noteStepUp(session);
-        } else if (owner.hasRecentStepUp(session)) {
+        } else if (
+          owner.hasRecentStepUp(session) &&
+          (await broker.operation(operationId))?.setup === undefined
+        ) {
           stepUp = true;
         }
         const decided = await broker.decide({
-          operationId: str(input.operationId, "operationId"),
+          operationId,
           fingerprint: str(input.fingerprint, "fingerprint"),
           decision: decision as DecideInput["decision"],
           surface: session.surface,
