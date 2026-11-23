@@ -304,6 +304,9 @@ async function pass(
     await expect(reviewerKey).toHaveValue("");
     await page.getByRole("button", { name: "Deny", exact: true }).click();
     expect((await statusOf(other.id)).state).toBe("denied");
+    await expect(
+      page.locator("div.item").filter({ hasText: "Connect the AI helper" }),
+    ).toHaveCount(1, { timeout: 15_000 });
     await openRequest(page, "Connect the AI helper");
     await expect(reviewerKey).toHaveValue("");
     await page.getByLabel("Owner password").fill(PASSWORD);
