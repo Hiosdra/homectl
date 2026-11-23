@@ -88,7 +88,7 @@ main.main { flex: 1; width: 100%; max-width: var(--column-max); margin: 0 auto; 
   .sidebar-foot { display: flex; margin-top: auto; padding: 12px 20px 24px; border-top: 1px solid var(--line); }
   .sidebar-foot .sign-out { width: 100%; justify-content: flex-start; min-height: var(--touch); }
   main.main { grid-column: 2; grid-row: 1; max-width: var(--column-max); padding: 40px 40px 72px; }
-  .decision-actions { position: static; margin: 0; padding: 0; background: transparent; border: 0; box-shadow: none; }
+  .decision-actions { position: static; margin: 14px 0 0; padding: 0; background: transparent; border: 0; box-shadow: none; }
   .decision { position: static; margin: 0 0 16px; padding: 18px; border-radius: var(--r); border: 1px solid var(--line);
     box-shadow: var(--shadow); }
 }
