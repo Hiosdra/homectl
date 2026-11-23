@@ -60,6 +60,7 @@ interface Entry {
   destination: SecretDestination;
   fields: SecretField[];
   admin: boolean;
+  targetBinding?: string;
   dedupeKey: string;
   createdAt: number;
   requestExpiresAt: number;
@@ -97,6 +98,10 @@ export class SecretBroker {
     this.grants = new SecretGrants(options.knownHost);
   }
 
+  get canSave(): boolean {
+    return this.vault !== undefined;
+  }
+
   // ------------------------------------------------------------ requests
 
   request(input: SecretRequestInput): BrokerRequestView {
@@ -114,6 +119,7 @@ export class SecretBroker {
       client,
       task ?? null,
       destinationKey(destination),
+      input.targetBinding ?? null,
       fields.map((field) => `${field.name}:${field.kind}`).sort(),
       admin,
     ]);
@@ -136,6 +142,7 @@ export class SecretBroker {
       destination,
       fields,
       admin,
+      targetBinding: input.targetBinding,
       dedupeKey,
       createdAt: now,
       requestExpiresAt: now + ttl,
@@ -296,6 +303,10 @@ export class SecretBroker {
     const destination = this.matchDestination(options.destination);
     const sameRequester =
       entry.client === options.client && entry.task === options.task;
+    if (entry.targetBinding !== options.targetBinding)
+      throw refusal(
+        "The destination configuration changed. Request the secret again",
+      );
     const sameTarget =
       destinationKey(entry.destination) === destinationKey(destination);
     if (sameRequester && sameTarget) {

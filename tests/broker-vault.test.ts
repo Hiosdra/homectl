@@ -411,3 +411,67 @@ test("an AI helper setup approval keeps its key private and applies the reviewed
   expect(settings).not.toContain(first);
   expect(settings).not.toContain(second);
 });
+
+test("saving a requested value uses the encrypted vault, and delivery stops while locked", async () => {
+  const value = "fixture-saved-secret";
+  const daemon = await start({ starts: 0, added: [], clears: 0 });
+  const owner = await signIn(daemon.endpoint);
+  const { token } = await callBroker<{ token: string }>(
+    "/v1/owner/clients/create",
+    {
+      id: "secret-agent",
+      name: "Secret agent",
+      hosts: ["web"],
+      password: PASSWORD,
+    },
+    owner,
+  );
+  const agent = { endpoint: daemon.endpoint, authorization: `Bearer ${token}` };
+  const destination = {
+    kind: "ssh-stdin",
+    host: "web",
+    argv: ["fixture-receive"],
+  };
+  const request = await callBroker<{ id: string }>(
+    "/v1/secret/request",
+    {
+      purpose: "Fixture credential delivery",
+      destination,
+      fields: [{ name: "token" }],
+    },
+    agent,
+  );
+  expect(
+    await callBroker("/v1/owner/secrets/pending", {}, owner),
+  ).toMatchObject([{ id: request.id, canSave: true }]);
+  const saved = await callBroker<{ ref: string }>(
+    "/v1/owner/secrets/provide",
+    {
+      id: request.id,
+      values: { token: value },
+      retention: "saved",
+      saveName: "fixture-token",
+      password: PASSWORD,
+    },
+    owner,
+  );
+  const vaultFile = join(dir, "homelab.kdbx");
+  const database = await openDatabase(vaultFile, passwordSource(PASSWORD));
+  const entry = managedEntries(database.db).find((item) =>
+    String(item.fields.get("Title")).startsWith("fixture-token ("),
+  );
+  if (!entry) throw new Error("The encrypted vault entry was not saved");
+  expect(readFields(entry).token).toBe(value);
+  expect((await readFile(vaultFile)).includes(Buffer.from(value))).toBe(false);
+  expect(JSON.stringify(saved)).not.toContain(value);
+
+  await callBroker("/v1/owner/vault/lock", {}, owner);
+  const use = { ref: saved.ref, destination };
+  await expect(callBroker("/v1/secret/use", use, agent)).rejects.toThrow(
+    "Unlock the vault",
+  );
+  await signIn(daemon.endpoint);
+  const delivered = await callBroker("/v1/secret/use", use, agent);
+  expect(delivered).toMatchObject({ exitCode: 0 });
+  expect(JSON.stringify(delivered)).not.toContain(value);
+});

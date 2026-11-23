@@ -274,14 +274,16 @@ export function SecretScreen({
               title="One hour, in memory only"
               detail="The default. It is dropped after an hour."
             />
-            <RadioRow
-              name={`${baseId}-retention`}
-              value="saved"
-              checked={retention === "saved"}
-              onChange={() => setRetention("saved")}
-              title="Save to the encrypted vault"
-              detail="Kept until you remove it."
-            />
+            {request.canSave !== false ? (
+              <RadioRow
+                name={`${baseId}-retention`}
+                value="saved"
+                checked={retention === "saved"}
+                onChange={() => setRetention("saved")}
+                title="Save to the encrypted vault"
+                detail="Kept until you remove it."
+              />
+            ) : null}
           </div>
           {retention === "saved" ? (
             <Field

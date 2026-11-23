@@ -101,6 +101,7 @@ export type SecretDestination =
 // One secret request waiting for the owner (from /v1/owner/secrets/pending).
 export interface PendingSecret {
   id: string;
+  canSave?: boolean;
   client: string;
   task?: string;
   purpose: Untrusted;

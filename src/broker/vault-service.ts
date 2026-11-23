@@ -16,6 +16,7 @@ import {
   type VaultSession,
 } from "../vault";
 import { createMachineKey } from "../vault/machine-key";
+import { requestSecretVault } from "./request-secret-vault";
 import type { OwnerVerifier } from "./owner";
 import { type ReviewerKeyStore, vaultReviewerKey } from "./reviewer-key";
 import type { RouteExtension } from "./server";
@@ -78,6 +79,10 @@ export class VaultService implements OwnerVerifier, RouteExtension {
   // when no vault has been set up yet.
   reviewerKeys(present: boolean): ReviewerKeyStore {
     return vaultReviewerKey(this.options.session, present);
+  }
+
+  requestSecrets() {
+    return requestSecretVault(this.options.session);
   }
 
   // Dispatch gate: a reason while locked, undefined when work may start.

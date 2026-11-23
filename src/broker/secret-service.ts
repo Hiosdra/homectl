@@ -6,6 +6,7 @@
 // output it returns. The exact destination was shown to the owner when they
 // provided the value, so providing it is the approval for that one use path.
 import { randomUUID } from "node:crypto";
+import { fingerprint } from "../control/canonical";
 import { permitsHost } from "../control/clients";
 import type { ClientIdentity } from "../control/types";
 import type { SecretDestination } from "../core/contracts";
@@ -27,6 +28,8 @@ export interface SecretServiceOptions {
   executor: ExecutorPort;
   events?: EventsPort;
   fetch?: typeof fetch;
+  gate?: () => string | undefined;
+  vaultUnlocked?: () => boolean;
   // Refreshes the host set the secret broker checks synchronously.
   refreshHosts?: () => Promise<void>;
 }
@@ -64,6 +67,22 @@ export class SecretService implements RouteExtension {
       throw new HomectlError(3, "Host not granted to this client");
   }
 
+  private async target(destination: unknown) {
+    const host = hostOf(destination);
+    if (host === undefined) return undefined;
+    const machine = await this.options.inventory.machine(host);
+    if (!machine) throw new HomectlError(3, "Host not granted to this client");
+    return { machine, binding: fingerprint(machine) };
+  }
+
+  private requireVaultAccess() {
+    if (this.options.gate?.() !== undefined)
+      throw new HomectlError(
+        5,
+        "Unlock the vault before delivering this secret",
+      );
+  }
+
   private async notify(subject: string, client: string) {
     await this.options.events?.emit("secret.requested", subject, [client], {
       id: subject,
@@ -81,11 +100,13 @@ export class SecretService implements RouteExtension {
     switch (path) {
       case "/v1/secret/request": {
         this.requireHost(client, input.destination);
+        const target = await this.target(input.destination);
         const view = secrets.request({
           client: client.id,
           purpose: str(input.purpose, "purpose"),
           destination: input.destination as SecretDestination,
           fields: input.fields as never,
+          targetBinding: target?.binding,
           ...(typeof input.task === "string" ? { task: input.task } : {}),
           ...(typeof input.ttlMs === "number"
             ? { requestTtlMs: input.ttlMs }
@@ -118,6 +139,7 @@ export class SecretService implements RouteExtension {
         return secrets.pending().map((view) => ({
           ...view,
           purpose: { untrusted: view.purpose },
+          canSave: secrets.canSave,
         }));
       case "/v1/owner/secrets/provide":
         // Providing a value approves one use path, so the owner password is
@@ -145,10 +167,17 @@ export class SecretService implements RouteExtension {
     client: ClientIdentity,
     input: Record<string, unknown>,
   ): Promise<SecretUseResult> {
+    if (this.options.vaultUnlocked?.() === false)
+      throw new HomectlError(
+        5,
+        "Unlock the vault before delivering this secret",
+      );
     const destination = input.destination as SecretDestination;
+    const target = await this.target(destination);
     const values = await this.options.secrets.use(str(input.ref, "ref"), {
       client: client.id,
       destination,
+      targetBinding: target?.binding,
       ...(typeof input.task === "string" ? { task: input.task } : {}),
     });
     const redact = makeRedactor(Object.values(values));
@@ -156,6 +185,7 @@ export class SecretService implements RouteExtension {
     const clean = (text: string) => redact(text).slice(0, OUTPUT_LIMIT);
     const plan = injectionPlan(destination, values);
     if (plan.kind === "http-header") {
+      this.requireVaultAccess();
       const response = await (this.options.fetch ?? fetch)(plan.url, {
         method: "POST",
         headers: plan.headers,
@@ -168,17 +198,22 @@ export class SecretService implements RouteExtension {
         body: clean(await response.text()),
       };
     }
-    const machine = await this.options.inventory.machine(plan.host);
-    if (!machine) throw new HomectlError(3, "Host not granted to this client");
+    const current = await this.target(destination);
+    if (!current || current.binding !== target?.binding)
+      throw new HomectlError(
+        3,
+        "The destination configuration changed. Request the secret again",
+      );
     const steps =
       plan.kind === "ssh-stdin"
         ? [{ argv: plan.argv, stdin: plan.stdin }]
         : plan.steps;
     let last = { exitCode: 0, stdout: "", stderr: "" };
     for (const step of steps) {
+      this.requireVaultAccess();
       last = await this.options.executor.run({
         host: plan.host,
-        machine,
+        machine: current.machine,
         argv: step.argv,
         operationId: `secret-${randomUUID()}`,
         ...(step.stdin === undefined ? {} : { stdin: step.stdin }),

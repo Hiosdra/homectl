@@ -46,6 +46,7 @@ export interface SecretRequestInput {
   fields: SecretFieldInput[];
   requestTtlMs?: number;
   admin?: boolean;
+  targetBinding?: string;
 }
 
 // Metadata only. Values are never part of the vault meta.
@@ -83,6 +84,7 @@ export interface SecretUseOptions {
   client: string;
   task?: string;
   destination: SecretDestination;
+  targetBinding?: string;
 }
 
 export interface SecretProvideOptions {

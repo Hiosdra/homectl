@@ -1,7 +1,7 @@
 // Secret request → owner provides → agent uses, over the running daemon.
 // The agent must never see the value, even when the remote command echoes it.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callBroker } from "../src/broker/client";
@@ -160,4 +160,13 @@ test("a secret reaches only its bound destination and never the agent", async ()
   expect(used.exitCode).toBe(0);
   const agentSaw = JSON.stringify([request, pending, status, used]);
   expect(canaryLeaks([agentSaw], [SECRET])).toEqual([]);
+  const inventory = await readFile(inventoryPath, "utf8");
+  await writeFile(
+    inventoryPath,
+    inventory.replace("access: user", "access: observe"),
+  );
+  await expect(
+    callBroker("/v1/secret/use", { ref: status.ref, destination }, asAgent),
+  ).rejects.toThrow("destination configuration changed");
+  expect(received).toHaveLength(1);
 });

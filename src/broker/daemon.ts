@@ -195,6 +195,7 @@ export async function startDaemon(config: DaemonConfig) {
   const secretBroker = new SecretBroker({
     now: Date.now,
     knownHost: (host) => hostSet.has(host),
+    ...(hasVault ? { vault: vault.requestSecrets() } : {}),
   });
   const secrets = new SecretService({
     secrets: secretBroker,
@@ -202,6 +203,7 @@ export async function startDaemon(config: DaemonConfig) {
     executor,
     refreshHosts,
     events,
+    ...(hasVault ? { gate: vault.gate, vaultUnlocked: vault.unlocked } : {}),
   });
   // The owner's policy file. The engine uses it unless a test injects another.
   // The reviewer is built from the Auto Mode settings on every evaluation;
