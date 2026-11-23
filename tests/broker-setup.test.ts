@@ -251,7 +251,7 @@ test("keep and done are limited to the steps they describe", async () => {
   expect(doneNotifications.status).toBe(200);
 });
 
-test("dismiss only after setup is complete", async () => {
+test("dismiss works even before setup is complete", async () => {
   cookieJar = await signedIn();
   const early = await call(
     "POST",
@@ -259,7 +259,13 @@ test("dismiss only after setup is complete", async () => {
     { action: "dismiss" },
     cookieJar,
   );
-  expect(early.status).toBe(400);
+  expect(early.status).toBe(200);
+  const earlyBody = (await early.json()) as {
+    dismissed: boolean;
+    completed: boolean;
+  };
+  expect(earlyBody.completed).toBe(false);
+  expect(earlyBody.dismissed).toBe(true);
   facts = { ...ready };
   const late = await call(
     "POST",

@@ -17,8 +17,11 @@ export async function openingHash(stateDirectory: string): Promise<string> {
   try {
     const file = JSON.parse(
       await readFile(join(stateDirectory, "setup.json"), "utf8"),
-    ) as { completedAt?: unknown };
-    return typeof file.completedAt === "number" ? "" : "#/setup";
+    ) as { completedAt?: unknown; dismissedAt?: unknown };
+    return typeof file.completedAt === "number" ||
+      typeof file.dismissedAt === "number"
+      ? ""
+      : "#/setup";
   } catch {
     // No setup file yet: a fresh broker, so setup is incomplete.
     return "#/setup";

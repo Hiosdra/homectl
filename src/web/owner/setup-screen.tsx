@@ -255,7 +255,15 @@ export function SetupScreen({
           <a className="button" href="#/">
             Back to Needs you
           </a>
-        ) : null}
+        ) : (
+          <button
+            type="button"
+            className="quiet"
+            onClick={() => run(() => markSetup({ action: "dismiss" }), "#/")}
+          >
+            Skip setup
+          </button>
+        )}
       </footer>
     </>
   );

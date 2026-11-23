@@ -32,7 +32,7 @@ export interface SetupFacts {
 export function detectSteps(facts: SetupFacts): Record<SetupStepId, boolean> {
   return {
     vault: facts.vault,
-    machine: facts.readyMachines > 0,
+    machine: facts.machines > 0 || facts.readyMachines > 0,
     assistant: facts.connectedAssistants > 0,
     "first-request": facts.requests > 0 && facts.resolvedApprovals > 0,
     // Saved changes bump the policy revision from 0. "Keep this" is a stored mark.
