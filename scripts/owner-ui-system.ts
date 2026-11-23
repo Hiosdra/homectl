@@ -23,6 +23,24 @@ async function runRealBroker(harness: Harness, viewport: Viewport) {
     await signIn(page, harness);
     await page.getByRole("button", { name: "System" }).click();
     await expect(page.getByRole("heading", { name: "System" })).toBeVisible();
+    const form = page.getByRole("form", {
+      name: "How long requests wait for you",
+    });
+    const duration = form.getByLabel("Approval window");
+    await expect(duration).toHaveValue("24h");
+    await duration.fill("90m");
+    await form.getByLabel("Owner password").fill(harness.password);
+    await form.getByRole("button", { name: "Save approval window" }).click();
+    await expect(
+      page.getByText("New requests will wait 90 minutes."),
+    ).toBeVisible();
+    await expect(form.getByLabel("Owner password")).toHaveValue("");
+    await page.reload();
+    await expect(duration).toHaveValue("90m");
+    await duration.fill("24h");
+    await form.getByLabel("Owner password").fill(harness.password);
+    await form.getByRole("button", { name: "Save approval window" }).click();
+    await expect(page.getByText("New requests will wait 1 day.")).toBeVisible();
     await expect(
       page.getByText(/This broker runs from a source checkout/),
     ).toBeVisible({ timeout: 15_000 });
@@ -109,7 +127,10 @@ async function runVerifiedUpdate(harness: Harness, viewport: Viewport) {
     await page.getByRole("button", { name: "Update to 0.3.1…" }).click();
     const install = page.getByRole("button", { name: "Update homectl" });
     await expect(install).toBeDisabled();
-    await page.getByLabel("Owner password").fill(harness.password);
+    await page
+      .getByRole("dialog", { name: "Update to 0.3.1?" })
+      .getByLabel("Owner password")
+      .fill(harness.password);
     await expect(install).toBeEnabled();
     await install.click();
     await expect(

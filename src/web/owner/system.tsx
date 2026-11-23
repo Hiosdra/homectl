@@ -3,6 +3,7 @@
 // from a button press, and shows what the browser answered.
 import { useState } from "react";
 import { alertPermission, askForAlerts, type AlertPermission } from "./alerts";
+import { ApprovalWaitSection } from "./approval-wait";
 import { type SetupStatus, stepOf } from "./setup-api";
 import { SetupLink } from "./setup-checklist";
 import { UpdatePanel } from "./update-panel";
@@ -20,11 +21,9 @@ export function SystemScreen({
     <>
       <div className="page-head">
         <h2>System</h2>
-        <p>
-          Updates for this homectl and whether this browser may tell you when
-          something needs you.
-        </p>
+        <p>Approval timing, updates and browser notifications.</p>
       </div>
+      <ApprovalWaitSection onError={onError} />
       <UpdatePanel onError={onError} />
       <NotificationSection />
       {setup && !setup.facts.workspaceServer ? (
