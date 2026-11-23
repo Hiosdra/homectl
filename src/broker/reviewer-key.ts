@@ -6,10 +6,15 @@
 import { HomectlError } from "../types";
 import type { VaultSession } from "../vault";
 import { GROUPS } from "../vault/groups";
-import { REVIEWER_API_KEY_ENV } from "./reviewer-settings";
+import {
+  environmentReviewerKey,
+  keyEndpointOf,
+  type ReviewerSettings,
+} from "./reviewer-settings";
 
 export const REVIEWER_KEY_ENTRY = "homectl/reviewer-api-key";
 export const REVIEWER_KEY_FIELD = "API key";
+const ENDPOINT_FIELD = "Reviewer endpoint";
 
 export const LOCKED_MESSAGE =
   "Unlock homectl to use the AI helper. Until then, you decide each request.";
@@ -22,8 +27,8 @@ export interface ReviewerKeyStore {
   state(): VaultState;
   // The saved key, or undefined when none is saved. Throws the locked message
   // when the vault is closed.
-  read(): string | undefined;
-  save(value: string): Promise<void>;
+  read(endpoint: string, legacyEndpoint?: string): string | undefined;
+  save(value: string, endpoint: string): Promise<void>;
   remove(): Promise<void>;
 }
 
@@ -38,24 +43,23 @@ export interface KeyStatus {
 
 export function keyStatus(
   env: Record<string, string | undefined>,
-  store: ReviewerKeyStore,
+  store: ReviewerKeyStore | undefined,
+  settings: ReviewerSettings,
 ): KeyStatus {
-  if (envKey(env) !== undefined)
+  if (environmentReviewerKey(env, settings) !== undefined)
     return { source: "environment", locked: false };
+  if (store === undefined || settings.endpoint === undefined)
+    return { source: "none", locked: false };
   const state = store.state();
   if (state === "locked") return { source: "none", locked: true };
   if (state === "absent") return { source: "none", locked: false };
   return {
-    source: store.read() === undefined ? "none" : "vault",
+    source:
+      store.read(settings.endpoint, keyEndpointOf(settings)) === undefined
+        ? "none"
+        : "vault",
     locked: false,
   };
-}
-
-export function envKey(
-  env: Record<string, string | undefined>,
-): string | undefined {
-  const key = env[REVIEWER_API_KEY_ENV];
-  return key && key.length > 0 ? key : undefined;
 }
 
 // The key the reviewer uses: the environment first, then the vault. A closed
@@ -64,11 +68,13 @@ export function envKey(
 export async function reviewerApiKey(
   env: Record<string, string | undefined>,
   store: ReviewerKeyStore,
+  settings: ReviewerSettings,
 ): Promise<string | undefined> {
-  const fromEnv = envKey(env);
+  if (settings.endpoint === undefined) return undefined;
+  const fromEnv = environmentReviewerKey(env, settings);
   if (fromEnv !== undefined) return fromEnv;
   if (store.state() === "locked") throw new HomectlError(5, LOCKED_MESSAGE);
-  return store.read();
+  return store.read(settings.endpoint, keyEndpointOf(settings));
 }
 
 // The store over an open VaultSession. The session expires and locks itself,
@@ -88,15 +94,18 @@ export function vaultReviewerKey(
       if (!present) return "absent";
       return session.check() ? "open" : "locked";
     },
-    read() {
+    read(endpoint, legacyEndpoint) {
       if (!present) return undefined;
       if (!session.check()) throw new HomectlError(5, LOCKED_MESSAGE);
       const id = entryId();
       if (id === undefined) return undefined;
-      const value = session.getSecret(id)[REVIEWER_KEY_FIELD];
+      const fields = session.getSecret(id);
+      if ((fields[ENDPOINT_FIELD] ?? legacyEndpoint) !== endpoint)
+        return undefined;
+      const value = fields[REVIEWER_KEY_FIELD];
       return value && value.length > 0 ? value : undefined;
     },
-    async save(value) {
+    async save(value, endpoint) {
       if (!present)
         throw new HomectlError(
           5,
@@ -105,7 +114,7 @@ export function vaultReviewerKey(
       if (!session.check()) throw new HomectlError(5, LOCKED_MESSAGE);
       await session.putSecret(
         REVIEWER_KEY_ENTRY,
-        { [REVIEWER_KEY_FIELD]: value },
+        { [REVIEWER_KEY_FIELD]: value, [ENDPOINT_FIELD]: endpoint },
         { group: GROUPS.api },
       );
     },

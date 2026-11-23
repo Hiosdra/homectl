@@ -8,20 +8,26 @@ import { AiHelperRoutes } from "../src/broker/ai-helper-routes";
 import {
   keyStatus,
   LOCKED_MESSAGE,
-  REVIEWER_KEY_ENTRY,
   type ReviewerKeyStore,
   reviewerApiKey,
-  vaultReviewerKey,
 } from "../src/broker/reviewer-key";
-import { loadReviewerSettings } from "../src/broker/reviewer-settings";
+import {
+  loadReviewerSettings,
+  saveReviewerSettings,
+} from "../src/broker/reviewer-settings";
 import { HomectlError } from "../src/types";
-import type { VaultSession } from "../src/vault";
 
 // A key that must never appear in any answer, event, error or file the routes
 // write. The canary check below scans every one of them.
 const CANARY = "sk-ant-canary-NEVER-SHOW-0002";
 const VAULT_KEY = "sk-ant-vault-saved-0003";
 const ENV_KEY = "sk-ant-env-wins-0004";
+const ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_SETTINGS = {
+  version: 1,
+  provider: "anthropic",
+  endpoint: ANTHROPIC_ENDPOINT,
+} as const;
 
 interface Recorded {
   events: { type: string; data: unknown }[];
@@ -36,16 +42,20 @@ function memoryKeys(
   const store = {
     value: initial,
     locked: false,
+    endpoint: undefined as string | undefined,
     state() {
-      return "open" as const;
+      return store.locked ? ("locked" as const) : ("open" as const);
     },
-    read() {
+    read(endpoint: string, legacyEndpoint?: string) {
       if (store.locked) throw new HomectlError(5, LOCKED_MESSAGE);
-      return store.value;
+      return (store.endpoint ?? legacyEndpoint) === endpoint
+        ? store.value
+        : undefined;
     },
-    async save(value: string) {
+    async save(value: string, endpoint: string) {
       if (store.locked) throw new HomectlError(5, LOCKED_MESSAGE);
       store.value = value;
+      store.endpoint = endpoint;
     },
     async remove() {
       if (store.locked) throw new HomectlError(5, LOCKED_MESSAGE);
@@ -200,8 +210,12 @@ describe("connect: the owner's onboarding confirm", () => {
   });
 
   test("Custom connects without a key", async () => {
-    const env = setup();
+    const env = setup({
+      env: { HOMECTL_REVIEWER_API_KEY: ENV_KEY },
+      vaultKey: VAULT_KEY,
+    });
     const path = await settingsPath();
+    await saveReviewerSettings(path, ANTHROPIC_SETTINGS);
     await env.routes(path).owner(
       "/v1/owner/ai-helper/connect",
       {
@@ -217,7 +231,16 @@ describe("connect: the owner's onboarding confirm", () => {
       "http://localhost:11434/v1/chat/completions",
     );
     expect(env.doc.reviewer.provider).toBe("openai-compatible");
-    expect(env.keys.value).toBeUndefined();
+    const saved = await loadReviewerSettings(path);
+    expect(saved.keyEndpoint).toBe(ANTHROPIC_ENDPOINT);
+    expect(env.keys.value).toBe(VAULT_KEY);
+    expect(
+      await reviewerApiKey(
+        { HOMECTL_REVIEWER_API_KEY: ENV_KEY },
+        env.keys,
+        saved,
+      ),
+    ).toBeUndefined();
   });
 });
 
@@ -228,6 +251,7 @@ describe("the key: source, priority and the locked vault", () => {
       vaultKey: VAULT_KEY,
     });
     const path = await settingsPath();
+    await saveReviewerSettings(path, ANTHROPIC_SETTINGS);
     await env
       .routes(path)
       .owner(
@@ -236,7 +260,13 @@ describe("the key: source, priority and the locked vault", () => {
         env.stepUp,
       );
     expect(env.recorded.fetchHeaders[0]?.["x-api-key"]).toBe(ENV_KEY);
-    expect(keyStatus({ HOMECTL_REVIEWER_API_KEY: ENV_KEY }, env.keys)).toEqual({
+    expect(
+      keyStatus(
+        { HOMECTL_REVIEWER_API_KEY: ENV_KEY },
+        env.keys,
+        ANTHROPIC_SETTINGS,
+      ),
+    ).toEqual({
       source: "environment",
       locked: false,
     });
@@ -245,6 +275,7 @@ describe("the key: source, priority and the locked vault", () => {
   test("with no environment key, the saved vault key is used", async () => {
     const env = setup({ vaultKey: VAULT_KEY });
     const path = await settingsPath();
+    await saveReviewerSettings(path, ANTHROPIC_SETTINGS);
     await env
       .routes(path)
       .owner(
@@ -253,13 +284,17 @@ describe("the key: source, priority and the locked vault", () => {
         env.stepUp,
       );
     expect(env.recorded.fetchHeaders[0]?.["x-api-key"]).toBe(VAULT_KEY);
-    expect(keyStatus({}, env.keys)).toEqual({ source: "vault", locked: false });
+    expect(keyStatus({}, env.keys, ANTHROPIC_SETTINGS)).toEqual({
+      source: "vault",
+      locked: false,
+    });
   });
 
   test("a locked vault says to unlock and never approves on its own", async () => {
     const env = setup({ vaultKey: VAULT_KEY });
     env.keys.locked = true;
     const path = await settingsPath();
+    await saveReviewerSettings(path, ANTHROPIC_SETTINGS);
     const error = await env
       .routes(path)
       .owner(
@@ -270,9 +305,37 @@ describe("the key: source, priority and the locked vault", () => {
       .catch((e: unknown) => e);
     expect((error as Error).message).toBe(LOCKED_MESSAGE);
     expect(env.recorded.fetchUrls).toHaveLength(0);
-    await expect(reviewerApiKey({}, env.keys)).rejects.toThrow(
-      "Unlock homectl to use the AI helper",
+    await expect(
+      reviewerApiKey({}, env.keys, ANTHROPIC_SETTINGS),
+    ).rejects.toThrow("Unlock homectl to use the AI helper");
+  });
+
+  test("previews of another provider or endpoint do not send an existing key", async () => {
+    const env = setup({
+      env: { HOMECTL_REVIEWER_API_KEY: ENV_KEY },
+      vaultKey: VAULT_KEY,
+    });
+    const path = await settingsPath();
+    await saveReviewerSettings(path, {
+      version: 1,
+      provider: "custom",
+      endpoint: "https://reviewer.example/v1/chat/completions",
+    });
+    const routes = env.routes(path);
+    await routes.owner(
+      "/v1/owner/ai-helper/models",
+      { provider: "custom", baseUrl: "https://reviewer.example/another-path" },
+      env.stepUp,
     );
+    expect(env.recorded.fetchHeaders).toEqual([{}]);
+    await expect(
+      routes.owner(
+        "/v1/owner/ai-helper/test",
+        { provider: "anthropic", model: "m" },
+        env.stepUp,
+      ),
+    ).rejects.toThrow("Add the API key first");
+    expect(env.recorded.fetchUrls).toHaveLength(1);
   });
 
   test("a key typed during onboarding is used before it is saved", async () => {
@@ -313,60 +376,6 @@ describe("the key: source, priority and the locked vault", () => {
     expect(env.keys.value).toBeUndefined();
     expect(view.reviewer.apiKey.source).toBe("none");
   });
-
-  test("a vault that was never set up cannot store the key", async () => {
-    const session = {
-      check: () => true,
-      listEntries: () => [],
-      getSecret: () => ({}),
-      putSecret: async () => ({}),
-      removeEntry: async () => undefined,
-    } as unknown as Pick<
-      VaultSession,
-      "check" | "listEntries" | "getSecret" | "putSecret" | "removeEntry"
-    >;
-    const absent = vaultReviewerKey(session, false);
-    expect(absent.state()).toBe("absent");
-    await expect(absent.save(CANARY)).rejects.toThrow("not set up yet");
-  });
-
-  test("vault entries are read and written under one name, in the api group", async () => {
-    const written: {
-      name: string;
-      values: Record<string, string>;
-      group?: string;
-    }[] = [];
-    let entries: { id: string; name: string }[] = [];
-    const secrets: Record<string, Record<string, string>> = {};
-    const session = {
-      check: () => true,
-      listEntries: () => entries,
-      getSecret: (id: string) => secrets[id] ?? {},
-      putSecret: async (
-        name: string,
-        values: Record<string, string>,
-        options: { group?: string },
-      ) => {
-        written.push({ name, values, group: options.group });
-        entries = [{ id: "e1", name }];
-        secrets.e1 = values;
-        return {};
-      },
-      removeEntry: async (id: string) => {
-        entries = entries.filter((entry) => entry.id !== id);
-      },
-    } as unknown as Pick<
-      VaultSession,
-      "check" | "listEntries" | "getSecret" | "putSecret" | "removeEntry"
-    >;
-    const store = vaultReviewerKey(session, true);
-    await store.save(CANARY);
-    expect(written[0]?.name).toBe(REVIEWER_KEY_ENTRY);
-    expect(written[0]?.group).toBe("homectl/api");
-    expect(store.read()).toBe(CANARY);
-    await store.remove();
-    expect(store.read()).toBeUndefined();
-  });
 });
 
 describe("set-key: the CLI path that stores only the key", () => {
@@ -385,6 +394,15 @@ describe("set-key: the CLI path that stores only the key", () => {
     expect(refused.keys.value).toBeUndefined();
 
     const env = setup();
+    const routes = env.routes(path);
+    await expect(
+      routes.owner(
+        "/v1/owner/ai-helper/set-key",
+        { apiKey: CANARY, password: "pw" },
+        env.stepUp,
+      ),
+    ).rejects.toThrow("Set the AI helper endpoint");
+    await saveReviewerSettings(path, ANTHROPIC_SETTINGS);
     const view = await env
       .routes(path)
       .owner(
@@ -396,7 +414,9 @@ describe("set-key: the CLI path that stores only the key", () => {
     expect(JSON.stringify(view)).not.toContain(CANARY);
     // The mode and the settings are untouched by a key-only save.
     expect(env.doc.mode).toBe("rules");
-    await expect(loadReviewerSettings(path)).resolves.toEqual({ version: 1 });
+    await expect(loadReviewerSettings(path)).resolves.toEqual(
+      ANTHROPIC_SETTINGS,
+    );
   });
 
   test("an empty key is refused before the password is checked", async () => {

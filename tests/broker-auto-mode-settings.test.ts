@@ -212,6 +212,16 @@ describe("planning and endpoint validation", () => {
     );
   });
 
+  test("changing or removing an endpoint preserves the old credential binding", () => {
+    const endpoint = "https://api.example.com/v1";
+    const original: ReviewerSettings = { version: 1, endpoint, model: "m" };
+    const removed = planAutoMode(doc(), original, { endpoint: null }).settings;
+    const switched = planAutoMode(doc(), removed, {
+      endpoint: "https://other.example.com/v1",
+    }).settings;
+    expect(switched.keyEndpoint).toBe(endpoint);
+  });
+
   test("a missing or damaged settings file means no reviewer", async () => {
     const path = join(dir, "reviewer.json");
     expect(await loadReviewerSettings(path)).toEqual({ version: 1 });
@@ -323,6 +333,33 @@ describe("the HTTP reviewer end to end", () => {
     });
 
     expect(await readFile(settingsPath, "utf8")).not.toContain(KEY_CANARY);
+  });
+
+  test("the configured environment key stays off requests to a new endpoint", async () => {
+    const seen: (string | null)[] = [];
+    server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(request) {
+        seen.push(request.headers.get("authorization"));
+        return Response.json({ choices: [] });
+      },
+    });
+    const endpoint = `http://127.0.0.1:${server.port}/v1/chat/completions`;
+    const reviewer = reviewerFrom(
+      {
+        version: 1,
+        endpoint,
+        keyEndpoint: "https://original.example.test/v1/chat/completions",
+        model: "test-model",
+      },
+      { HOMECTL_REVIEWER_API_KEY: KEY_CANARY },
+    );
+    await reviewer?.review(
+      { kind: "exec", risk: "R1" },
+      AbortSignal.timeout(1500),
+    );
+    expect(seen).toEqual([null]);
   });
 
   test("a damaged reviewer settings file asks the owner instead of failing", async () => {

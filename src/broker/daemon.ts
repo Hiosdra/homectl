@@ -33,7 +33,11 @@ import { OwnerHostRoutes } from "./owner-hosts";
 import { FileVerifier, OwnerSessions } from "./owner";
 import type { BrokerMode, Endpoint } from "./paths";
 import { PolicyRoutes } from "./policy-routes";
-import { loadReviewerSettings, reviewerFrom } from "./reviewer-settings";
+import {
+  keyEndpointOf,
+  loadReviewerSettings,
+  reviewerFrom,
+} from "./reviewer-settings";
 import { SecretService } from "./secret-service";
 import { type Listen, startBrokerServer } from "./server";
 import { gatherFacts } from "./setup-facts";
@@ -205,12 +209,14 @@ export async function startDaemon(config: DaemonConfig) {
   const authz = new AuthzPolicy({
     path: join(config.state, "policy.json"),
     now: Date.now,
-    reviewer: async () =>
-      reviewerFrom(
-        await loadReviewerSettings(reviewerSettingsPath),
-        process.env,
-        async () => reviewerKeys.read(),
-      ),
+    reviewer: async () => {
+      const settings = await loadReviewerSettings(reviewerSettingsPath);
+      const endpoint = settings.endpoint;
+      if (endpoint === undefined) return undefined;
+      return reviewerFrom(settings, process.env, async () =>
+        reviewerKeys.read(endpoint, keyEndpointOf(settings)),
+      );
+    },
   });
   const policy = config.policy ?? authz;
   const policyRoutes = new PolicyRoutes(authz);

@@ -21,6 +21,9 @@ export interface ReviewerSettings {
   provider?: AiProvider;
   // Normalized https URL, or loopback http. Never carries credentials.
   endpoint?: string;
+  // Destination for credentials stored before keys carried their own binding,
+  // and for the broker's environment key. Keep it across endpoint changes.
+  keyEndpoint?: string;
   model?: string;
 }
 
@@ -87,6 +90,8 @@ function parseSettings(value: unknown): ReviewerSettings {
     }
     if (raw.endpoint !== undefined)
       settings.endpoint = normalizeEndpoint(raw.endpoint);
+    if (raw.keyEndpoint !== undefined)
+      settings.keyEndpoint = normalizeEndpoint(raw.keyEndpoint);
     if (raw.model !== undefined) settings.model = normalizeModel(raw.model);
   } catch {
     throw corrupt();
@@ -136,6 +141,23 @@ export function providerOf(settings: ReviewerSettings): AiProvider | undefined {
   return settings.provider ?? "custom";
 }
 
+export function keyEndpointOf(settings: ReviewerSettings): string | undefined {
+  return settings.keyEndpoint ?? settings.endpoint;
+}
+
+export function environmentReviewerKey(
+  env: Record<string, string | undefined>,
+  settings: ReviewerSettings,
+): string | undefined {
+  const key = env[REVIEWER_API_KEY_ENV];
+  return settings.endpoint !== undefined &&
+    settings.endpoint === keyEndpointOf(settings) &&
+    key &&
+    key.length > 0
+    ? key
+    : undefined;
+}
+
 export const NO_KEY_MESSAGE =
   "Add an API key for the AI helper in the owner panel. Until then, you decide each request.";
 
@@ -151,13 +173,13 @@ export function reviewerFrom(
   if (settings.endpoint === undefined || settings.model === undefined)
     return undefined;
   const provider = providerOf(settings) ?? "custom";
-  const fromEnv = env[REVIEWER_API_KEY_ENV];
+  const fromEnv = environmentReviewerKey(env, settings);
   return httpReviewer({
     url: settings.endpoint,
     model: settings.model,
     protocol: provider === "anthropic" ? "anthropic-messages" : "openai-chat",
     getApiKey: async () => {
-      const key = fromEnv && fromEnv.length > 0 ? fromEnv : await readVault?.();
+      const key = fromEnv ?? (await readVault?.());
       if (key === undefined && provider !== "custom")
         throw new HomectlError(5, NO_KEY_MESSAGE);
       return key;

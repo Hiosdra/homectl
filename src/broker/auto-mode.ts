@@ -11,6 +11,7 @@ import { HomectlError } from "../types";
 import { policyProviderId } from "./ai-providers";
 import {
   emptyReviewerSettings,
+  keyEndpointOf,
   normalizeEndpoint,
   normalizeModel,
   providerOf,
@@ -106,6 +107,8 @@ export function planAutoMode(
     );
   const nextSettings: ReviewerSettings = emptyReviewerSettings();
   if (endpoint !== undefined) nextSettings.endpoint = endpoint;
+  const keyEndpoint = keyEndpointOf(settings) ?? endpoint;
+  if (keyEndpoint !== undefined) nextSettings.keyEndpoint = keyEndpoint;
   if (model !== undefined) nextSettings.model = model;
   // A provider survives only while its address is unchanged; a new address
   // set from the command line is a Custom one.

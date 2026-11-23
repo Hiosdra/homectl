@@ -20,13 +20,14 @@ import {
 import type { PolicyDocumentStore } from "./policy-routes";
 import {
   keyStatus,
-  type KeyStatus,
   type ReviewerKeyStore,
   reviewerApiKey,
 } from "./reviewer-key";
 import {
+  keyEndpointOf,
   loadReviewerSettings,
   normalizeModel,
+  providerOf,
   type ReviewerSettings,
   saveReviewerSettings,
 } from "./reviewer-settings";
@@ -133,15 +134,21 @@ export class AiHelperRoutes implements RouteExtension {
     }
   }
 
-  // The key for one call: the one typed during onboarding, else the environment
-  // or the vault. A hosted provider with no key stops here, plainly.
+  // A key typed into this form is for this request. An existing key may only
+  // be sent to the currently configured provider and chat endpoint.
   private async keyFor(
     request: ProviderRequest,
     spec: ProviderSpec,
+    settings: ReviewerSettings,
   ): Promise<string | undefined> {
+    const matches =
+      providerOf(settings) === request.provider &&
+      settings.endpoint === spec.chatUrl;
     const key =
       request.apiKey ??
-      (await reviewerApiKey(this.options.env, this.options.keys));
+      (matches
+        ? await reviewerApiKey(this.options.env, this.options.keys, settings)
+        : undefined);
     if (key === undefined && spec.keyRequired)
       throw new HomectlError(
         2,
@@ -152,7 +159,11 @@ export class AiHelperRoutes implements RouteExtension {
 
   private async models(request: ProviderRequest) {
     const spec = providerSpec(request.provider, request.baseUrl);
-    const key = await this.keyFor(request, spec);
+    const key = await this.keyFor(
+      request,
+      spec,
+      await loadReviewerSettings(this.options.settingsPath),
+    );
     return listModels(spec, key, this.fetchImpl);
   }
 
@@ -160,19 +171,18 @@ export class AiHelperRoutes implements RouteExtension {
     if (request.model === undefined)
       throw new HomectlError(2, "Choose a model first");
     const spec = providerSpec(request.provider, request.baseUrl);
-    const key = await this.keyFor(request, spec);
+    const key = await this.keyFor(
+      request,
+      spec,
+      await loadReviewerSettings(this.options.settingsPath),
+    );
     await testReviewer(spec, request.model, key, this.fetchImpl);
     return { ready: true };
   }
 
-  // The current key source for the view. Never the key.
-  keySource(): KeyStatus {
-    const { env, keys } = this.options;
-    return keyStatus(env, keys);
-  }
-
   private view(doc: PolicyDocument, settings: ReviewerSettings) {
-    return autoModeView(doc, settings, this.keySource());
+    const { env, keys } = this.options;
+    return autoModeView(doc, settings, keyStatus(env, keys, settings));
   }
 
   private async connect(
@@ -195,10 +205,19 @@ export class AiHelperRoutes implements RouteExtension {
     // The owner password comes first: it also opens a locked vault, so the
     // key check below can read it. Nothing is written before this passes.
     await stepUp(input.password);
-    if (request.apiKey === undefined && spec.keyRequired)
-      await this.keyFor(request, spec);
-    if (request.apiKey !== undefined)
-      await this.options.keys.save(request.apiKey);
+    const current = await loadReviewerSettings(this.options.settingsPath);
+    const settings: ReviewerSettings = {
+      version: 1,
+      provider: request.provider,
+      endpoint: spec.chatUrl,
+      keyEndpoint: keyEndpointOf(current) ?? spec.chatUrl,
+      model: request.model,
+    };
+    if (request.apiKey === undefined && spec.keyRequired) {
+      await this.keyFor(request, spec, settings);
+    } else if (request.apiKey !== undefined) {
+      await this.options.keys.save(request.apiKey, spec.chatUrl);
+    }
     const doc = await this.options.store.document();
     const target =
       preset === undefined ? undefined : defaultPolicy(preset, Date.now());
@@ -210,12 +229,6 @@ export class AiHelperRoutes implements RouteExtension {
         ...(target ? { authority: target.reviewer.authority } : {}),
         provider: policyProviderId(request.provider),
       },
-    };
-    const settings: ReviewerSettings = {
-      version: 1,
-      provider: request.provider,
-      endpoint: spec.chatUrl,
-      model: request.model,
     };
     const saved = await this.options.store.save(next);
     await saveReviewerSettings(this.options.settingsPath, settings);
@@ -269,9 +282,14 @@ export class AiHelperRoutes implements RouteExtension {
     if (apiKey === undefined)
       throw new HomectlError(2, "Paste the key first; it is not empty");
     await stepUp(input.password);
-    await this.options.keys.save(apiKey);
-    const doc = await this.options.store.document();
     const settings = await loadReviewerSettings(this.options.settingsPath);
+    if (settings.endpoint === undefined)
+      throw new HomectlError(
+        2,
+        "Set the AI helper endpoint before saving its key",
+      );
+    await this.options.keys.save(apiKey, settings.endpoint);
+    const doc = await this.options.store.document();
     await this.options.events?.emit(
       "settings.updated",
       "ai-helper",
