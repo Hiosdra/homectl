@@ -174,8 +174,8 @@ A restore brings a **reset** client's scoped state back onto a fresh device. It 
    - the revocations it last reported are kept with the restore (see **Revocations** below);
    - a pairing code is printed, valid for 5 minutes.
 3. **Join the fresh device.** Run `home-ctl workspace join <server> <code>` on the reset device and enter that device's owner password. The device gets a new client id and a new backup key. The restore waits for this device for 10 minutes after it pairs. Then the device does one of two things:
-   - **It holds none of the restorable files:** it fetches them, writes them, and acknowledges the write. The server ends the restore only on that acknowledgment.
-   - **It holds any of them:** it declines. The server retires the fresh identity, and the device unlinks itself and gets a new identity, so nothing stale remains. The join output says what to do: move the files aside, have the owner issue the restore again, and join with the new code.
+   - **It holds no restorable files beyond the empty inventory that setup creates:** it fetches them, writes them, and acknowledges the write. The server ends the restore only on that acknowledgment.
+   - **It holds a configured inventory or another restorable file:** it declines. The server retires the fresh identity, and the device unlinks itself and gets a new identity, so nothing stale remains. The join output says what to do: move the files aside, have the owner issue the restore again, and join with the new code.
 
 **What is restored.** Only `inventory.yaml`, `known_hosts` and `policy.json`, the same files a client backs up. Anything else in a snapshot is listed by the preview and not delivered. Live sessions, pending approvals, ephemeral secrets and device or owner key material are never restored, so the reset client starts with none of them.
 
@@ -201,7 +201,7 @@ The join output lists what was changed, and always says that revocations made af
 - Every decryption, the retirement, the issue, each delivery, each acknowledgment and each decline is written to `workspace-audit.jsonl` in the server's state directory. It is a SHA-256 hash chain of JSON lines with identifiers, reasons and outcomes, and never backup contents.
 - Effects of operations that ran before the reset are not reconciled automatically. The owner must check them.
 
-**Not verified.** The restore path is covered by in-process tests only: `tests/workspace-restore.test.ts`, `tests/workspace-revocations.test.ts`, `tests/workspace-retired.test.ts` and `tests/workspace-cli.test.ts`. The `--reason` option reaches the workspace commands through the CLI parser (`src/cli/broker-commands.ts`). A full restore between two real machines has not been run; it belongs to the release gate.
+**Verification.** The restore protocol is covered by in-process tests in `tests/workspace-restore.test.ts`, `tests/workspace-revocations.test.ts`, `tests/workspace-retired.test.ts` and `tests/workspace-cli.test.ts`. The `--reason` option reaches the workspace commands through the CLI parser (`src/cli/broker-commands.ts`). A loopback integration test runs three actual brokers against separate disposable workspaces and checks a backup, a reset-client restore and retirement of the old client. A full restore between two physical machines still belongs to the release gate.
 
 ## Lost server
 
