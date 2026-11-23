@@ -19,6 +19,7 @@ import { execute } from "../operations";
 import { atomicReplace, privateDirectory } from "../platform";
 import { planExecution } from "../policies";
 import { SecretBroker } from "../secrets";
+import type { LockReason } from "../vault";
 import { startWorkspace, type WorkspaceConfig } from "../workspace/wiring";
 import type { Runner } from "../types";
 import { AssistantSeen } from "./assistant-seen";
@@ -77,6 +78,8 @@ export interface DaemonConfig {
   // Tests and the browser smoke: the ssh and keyscan runner for machine checks.
   // The default runs the real ssh; nothing in the smoke reaches a real machine.
   machineRunner?: Runner;
+  // Tests: injectable clock for idle and absolute vault lock timing.
+  now?: () => number;
 }
 
 export function inventoryPort(inventoryPath: string): InventoryPort {
@@ -135,16 +138,19 @@ export async function startDaemon(config: DaemonConfig) {
   const brokerStore = new BrokerStore(config.state);
   const keys = join(config.state, "keys");
   const key = await loadOrCreateDeviceKey(keys);
+  const now = config.now ?? Date.now;
   // Late-bound: the vault's lock handler needs parts created further down.
-  const onLocked: { run: (reason: string) => Promise<void> } = {
+  const onLocked: {
+    run: (reason: string, cause: LockReason) => Promise<void>;
+  } = {
     run: async () => undefined,
   };
   const vault = await createVault({
     inventoryPath: config.inventoryPath,
     mode: config.mode,
-    now: Date.now,
+    now,
     ...(config.keyAgent ? { agent: config.keyAgent } : {}),
-    onLocked: (reason) => onLocked.run(reason),
+    onLocked: (reason, cause) => onLocked.run(reason, cause),
   });
   // With a vault, its master password is the owner credential (A3);
   // owner.json is only for workspaces that have no vault yet.
@@ -209,7 +215,7 @@ export async function startDaemon(config: DaemonConfig) {
   };
   await refreshHosts();
   const secretBroker = new SecretBroker({
-    now: Date.now,
+    now,
     knownHost: (host) => hostSet.has(host),
     ...(hasVault ? { vault: vault.requestSecrets() } : {}),
   });
@@ -225,7 +231,7 @@ export async function startDaemon(config: DaemonConfig) {
       return (
         task?.client === client &&
         task.state === "open" &&
-        Date.now() < task.expiresAt
+        now() < task.expiresAt
       );
     },
     ...(hasVault ? { gate: vault.gate, vaultUnlocked: vault.unlocked } : {}),
@@ -236,7 +242,7 @@ export async function startDaemon(config: DaemonConfig) {
   const reviewerSettingsPath = join(config.state, "reviewer.json");
   const authz = new AuthzPolicy({
     path: join(config.state, "policy.json"),
-    now: Date.now,
+    now,
     reviewer: async () => {
       const settings = await loadReviewerSettings(reviewerSettingsPath);
       const endpoint = settings.endpoint;
@@ -268,6 +274,7 @@ export async function startDaemon(config: DaemonConfig) {
     inventory,
     executor,
     events,
+    now,
     ...(hasVault ? { gate: vault.gate } : {}),
     currentClient: async (id) => (await registry.load())[id],
     approvalWaitMs: () => readApprovalWait(config.state),
@@ -279,10 +286,10 @@ export async function startDaemon(config: DaemonConfig) {
   if (config.listen.kind === "unix")
     await rm(config.listen.path, { force: true });
   const owner = new OwnerSessions(verifier);
-  onLocked.run = async (reason) => {
+  onLocked.run = async (reason, cause) => {
     secretBroker.lock();
     owner.clear();
-    await broker.invalidatePending(reason);
+    if (cause !== "idle") await broker.invalidatePending(reason);
   };
   const admin = new ClientAdmin(
     registry,

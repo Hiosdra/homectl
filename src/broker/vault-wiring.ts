@@ -14,7 +14,7 @@ import {
 import { addKey } from "../session/agent";
 import { idleSeconds, ttlSeconds } from "../session/config";
 import type { Machine } from "../types";
-import { VaultSession } from "../vault";
+import { type LockReason, VaultSession } from "../vault";
 import type { BrokerMode } from "./paths";
 import type { InventoryPort } from "./types";
 import { type KeyAgentPort, VaultService } from "./vault-service";
@@ -96,7 +96,7 @@ export async function createVault(options: {
   mode: BrokerMode;
   now: () => number;
   agent?: KeyAgentPort;
-  onLocked: (reason: string) => Promise<void>;
+  onLocked: (reason: string, cause: LockReason) => Promise<void>;
 }): Promise<VaultService> {
   const inventory = await loadInventory(options.inventoryPath);
   const session = inventory.session;

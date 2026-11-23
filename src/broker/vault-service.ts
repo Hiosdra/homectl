@@ -5,12 +5,13 @@
 // worker already uses). Admin-tagged keys load only after an explicit
 // elevation, with an ssh-agent lifetime equal to the privileged window.
 // Locking clears the agent, drops in-memory secrets, ends owner sessions,
-// cancels queued approvals and stops new dispatch.
+// stops new dispatch, and cancels queued approvals except on idle timeout.
 import { loadInventory } from "../inventory";
 import { apiTokenSecretName } from "../session";
 import { HomectlError, type Inventory } from "../types";
 import {
   type CredentialSource,
+  type LockReason,
   openDatabase,
   passwordSource,
   type VaultSession,
@@ -36,7 +37,7 @@ export interface VaultServiceOptions {
   agent: KeyAgentPort;
   now: () => number;
   // Called after every lock, whatever its cause (manual, idle, absolute).
-  onLocked: (reason: string) => Promise<void>;
+  onLocked: (reason: string, cause: LockReason) => Promise<void>;
 }
 
 const LOCKED = "vault-locked";
@@ -52,7 +53,7 @@ export class VaultService implements OwnerVerifier, RouteExtension {
       void options.agent
         .clear()
         .catch(() => undefined)
-        .then(() => options.onLocked(`${LOCKED}:${reason}`))
+        .then(() => options.onLocked(`${LOCKED}:${reason}`, reason))
         .catch(() => undefined);
     });
     this.sweep = setInterval(() => options.session.check(), 15_000);
