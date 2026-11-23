@@ -190,12 +190,12 @@ async function runScenario(
     expect(approval.state).toBe("awaiting-approval");
     const secret = await requestSecret(name);
     await expect(
-      approvalItem(page, argv).getByRole("button", { name: "Review" }),
+      approvalItem(page, argv).getByRole("button", { name: "Details" }),
     ).toBeVisible({ timeout: 10_000 });
 
     // Approval with step-up: the button stays disabled until the password is typed.
     await approvalItem(page, argv)
-      .getByRole("button", { name: "Review" })
+      .getByRole("button", { name: "Details" })
       .click();
     await expect(page.locator("#approval-title")).toBeVisible();
     await expect(page.getByText("smoke-tool", { exact: true })).toBeVisible();

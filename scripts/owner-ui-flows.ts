@@ -45,7 +45,7 @@ export async function runRememberScenario(
     const opaque = await harness.requestCommandAs(agent, opaqueFor(label));
     expect(opaque.state).toBe("awaiting-approval");
     await approvalItem(page, opaqueFor(label))
-      .getByRole("button", { name: "Review" })
+      .getByRole("button", { name: "Details" })
       .click();
     await expect(page.locator("#approval-title")).toBeVisible();
     await expect(
@@ -68,7 +68,7 @@ export async function runRememberScenario(
     const requested = await harness.requestCommandAs(agent, argv);
     expect(requested.state).toBe("awaiting-approval");
     await approvalItem(page, argv)
-      .getByRole("button", { name: "Review" })
+      .getByRole("button", { name: "Details" })
       .click();
     await expect(page.locator("#approval-title")).toBeVisible();
     await openMoreOptions(page);
@@ -166,7 +166,7 @@ export async function runRememberScenario(
     // not on the Permissions view this scenario ended on.
     await page.getByRole("button", { name: /^Needs you/ }).click();
     await approvalItem(page, [...argv, "--extra"])
-      .getByRole("button", { name: "Review" })
+      .getByRole("button", { name: "Details" })
       .click();
     await page.getByRole("button", { name: "Deny", exact: true }).click();
     await expect.poll(() => harness.waitingOnBroker()).toBe(before);
@@ -202,7 +202,7 @@ export async function runAttentionScenario(
       .toBe(before + 1);
 
     await approvalItem(page, argv)
-      .getByRole("button", { name: "Review" })
+      .getByRole("button", { name: "Details" })
       .click();
     await page.getByLabel("Owner password").fill(harness.password);
     await page.getByRole("button", { name: "Approve once" }).click();
@@ -279,7 +279,7 @@ export async function runOfflineScenario(harness: Harness, viewport: Viewport) {
     // Clean up: deny the request this scenario left waiting, and check the broker
     // is back where this scenario found it.
     await approvalItem(page, argv)
-      .getByRole("button", { name: "Review" })
+      .getByRole("button", { name: "Details" })
       .click();
     await page.getByRole("button", { name: "Deny", exact: true }).click();
     await expect.poll(() => harness.waitingOnBroker()).toBe(before);

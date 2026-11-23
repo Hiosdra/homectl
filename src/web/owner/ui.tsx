@@ -124,6 +124,7 @@ export function Argv({ argv }: { argv: string[] }) {
     <code className="cmd-line" aria-label="Command arguments">
       {argv.map((token, index) => (
         <span className="cmd-item" key={`${index}-${token}`}>
+          {index > 0 ? " " : null}
           {renderArgvToken(token, index)}
         </span>
       ))}

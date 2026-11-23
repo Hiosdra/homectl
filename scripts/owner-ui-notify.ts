@@ -82,7 +82,7 @@ export async function runNotificationScenario(
     await page.getByRole("button", { name: "Needs you" }).click();
     // This run's own approval, not the first one on the page.
     await expect(
-      approvalItem(page, argv).getByRole("button", { name: "Review" }),
+      approvalItem(page, argv).getByRole("button", { name: "Details" }),
     ).toBeVisible({
       timeout: 10_000,
     });
@@ -125,7 +125,7 @@ export async function runNotificationScenario(
     await page.getByRole("button", { name: "Decline", exact: true }).click();
     await page.getByRole("button", { name: "Needs you" }).click();
     await approvalItem(page, argv)
-      .getByRole("button", { name: "Review" })
+      .getByRole("button", { name: "Details" })
       .click();
     await page.getByRole("button", { name: "Deny", exact: true }).click();
     await expect.poll(() => harness.waitingOnBroker()).toBe(before);
