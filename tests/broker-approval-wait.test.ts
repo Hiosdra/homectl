@@ -188,6 +188,37 @@ describe("approval wait: how long a request waits", () => {
     expect((await broker.status(agent, view.id)).state).toBe("expired");
   });
 
+  test("an expired task cannot run even though its request is still pending", async () => {
+    const broker = await brokerWithWait();
+    const task = await broker.openTask(agent, {
+      title: "Short task",
+      ttlMs: HOUR,
+    });
+    const view = await broker.exec(agent, {
+      host: "nas",
+      argv: ["systemctl", "restart", "nginx"],
+      task: task.id,
+    });
+    clock += 2 * HOUR;
+    expect((await broker.status(agent, view.id)).state).toBe(
+      "awaiting-approval",
+    );
+    const decided = await broker.decide({
+      operationId: view.id,
+      fingerprint: view.fingerprint,
+      decision: "approve-once",
+      surface: "panel",
+      stepUp: false,
+    });
+    expect(decided.operation).toMatchObject({
+      state: "failed",
+      reason: "task-no-longer-open",
+    });
+    expect(decided.grant).toBeUndefined();
+    await broker.settled();
+    expect(calls).toHaveLength(0);
+  });
+
   test("after a long wait a changed machine is refused, not run", async () => {
     const broker = await brokerWithWait();
     const view = await broker.exec(agent, {

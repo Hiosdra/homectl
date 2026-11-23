@@ -155,8 +155,37 @@ test("agent and owner flows through the running daemon", async () => {
     (await poll("/v1/owner/events/poll", `Bearer ${created.token}`)).status,
   ).toBe(401);
 
+  const queued = await callBroker<{
+    id: string;
+    fingerprint: string;
+    state: string;
+  }>(
+    "/v1/exec",
+    { host: "pc", argv: ["systemctl", "--user", "restart", "queued"] },
+    asAgent,
+  );
+  expect(queued.state).toBe("awaiting-approval");
   // Revocation takes effect on the next request.
   await callBroker("/v1/owner/clients/revoke", { id: "codex-pc" }, asOwner);
+  const refused = await callBroker<{
+    operation: { state: string; reason: string };
+    grant?: unknown;
+  }>(
+    "/v1/owner/decide",
+    {
+      operationId: queued.id,
+      fingerprint: queued.fingerprint,
+      decision: "approve-once",
+      password: PASSWORD,
+    },
+    asOwner,
+  );
+  expect(refused.operation).toMatchObject({
+    state: "failed",
+    reason: "client-grant-changed",
+  });
+  expect(refused.grant).toBeUndefined();
+  expect(ran).toHaveLength(2);
   await expect(callBroker("/v1/whoami", {}, asAgent)).rejects.toThrow(
     "Client token required",
   );

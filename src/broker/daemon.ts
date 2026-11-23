@@ -214,6 +214,7 @@ export async function startDaemon(config: DaemonConfig) {
   });
   const policy = config.policy ?? authz;
   const policyRoutes = new PolicyRoutes(authz);
+  const registry = new ClientRegistry(join(config.state, "clients.json"));
   const broker = new Broker({
     store: brokerStore,
     ledger: new NonceLedger(config.state),
@@ -227,6 +228,7 @@ export async function startDaemon(config: DaemonConfig) {
     executor,
     events,
     ...(hasVault ? { gate: vault.gate } : {}),
+    currentClient: async (id) => (await registry.load())[id],
     approvalWaitMs: () => readApprovalWait(config.state),
     ...(config.panelOrigin
       ? { approvalSurface: `${config.panelOrigin}/#/approvals` }
@@ -241,7 +243,6 @@ export async function startDaemon(config: DaemonConfig) {
     owner.clear();
     await broker.invalidatePending(reason);
   };
-  const registry = new ClientRegistry(join(config.state, "clients.json"));
   const admin = new ClientAdmin(
     registry,
     inventoryPort(config.inventoryPath),

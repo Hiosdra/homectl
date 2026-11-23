@@ -5,7 +5,6 @@
 // verifying and consuming it. Nothing is retried automatically.
 import { issueGrant } from "../approvals/grant";
 import type { NonceLedger } from "../approvals/ledger";
-import { fingerprint } from "../control/canonical";
 import { hasScope, permitsHost } from "../control/clients";
 import type { DeviceKey } from "../control/device-key";
 import type { ClientIdentity } from "../control/types";
@@ -20,7 +19,8 @@ import { HomectlError } from "../types";
 import { type DispatchContext, dispatch } from "./dispatch";
 import { decisionAudit } from "./decision-record";
 import { actionOf, planExec, toView, validateExecInput } from "./plan";
-import { planProxmoxRequest, proxmoxChanged } from "./proxmox-submit";
+import { planProxmoxRequest } from "./proxmox-submit";
+import { approvalRefusal, type CurrentClient } from "./request-authority";
 import { isReviewPending, isUnderReview } from "./review";
 import { enrolmentConfirmation } from "./setup-decide";
 import { planSetupRequest } from "./setup-request";
@@ -52,10 +52,9 @@ export interface BrokerOptions {
   executor: ExecutorPort;
   events?: EventsPort;
   now?: () => number;
-  // Shown to agents so they can tell the user where to approve.
   approvalSurface?: string;
-  // See DispatchContext.gate.
   gate?: () => string | undefined;
+  currentClient?: CurrentClient;
   approvalWaitMs?: () => Promise<number>;
 }
 
@@ -153,7 +152,6 @@ export class Broker {
     return submitOperation(this.submitPort(), base, request, input.narrative);
   }
 
-  // A Proxmox request (kind proxmox): the same queue, review and approval as exec.
   async proxmox(client: ClientIdentity, raw: unknown): Promise<OperationView> {
     const planned = await planProxmoxRequest(
       this.options.inventory,
@@ -211,14 +209,9 @@ export class Broker {
 
   private dispatchContext(): DispatchContext {
     return {
-      store: this.options.store,
-      ledger: this.options.ledger,
-      key: this.options.key,
-      policy: this.options.policy,
-      executor: this.options.executor,
+      ...this.options,
       now: this.now,
       emit: (op) => this.emit(op, "operation.updated"),
-      ...(this.options.gate ? { gate: this.options.gate } : {}),
     };
   }
 
@@ -382,16 +375,23 @@ export class Broker {
         throw new HomectlError(3, "This operation was already decided");
       if (op.fingerprint !== input.fingerprint)
         throw new HomectlError(3, "The plan changed; review it again");
-      const machine = await this.options.inventory.machine(op.host);
-      if (
-        (!machine && op.setup === undefined) ||
-        fingerprint(machine ?? null) !== op.machineHash ||
-        (await proxmoxChanged(this.options.inventory, op))
-      ) {
-        op.state = "failed";
-        op.reason = "plan-changed";
-        op.finishedAt = now;
-        op.updatedAt = now;
+      const approving =
+        input.decision === "approve-once" ||
+        input.decision === "approve-remember";
+      const reason = await approvalRefusal(
+        op,
+        state,
+        now,
+        approving,
+        this.options,
+      );
+      if (reason) {
+        Object.assign(op, {
+          state: "failed",
+          reason,
+          finishedAt: now,
+          updatedAt: now,
+        });
         return { op, grant: undefined };
       }
       if (input.decision === "revise") {
