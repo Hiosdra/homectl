@@ -182,6 +182,7 @@ export async function startDaemon(config: DaemonConfig) {
       policy: (path, input) => policyRoutes.owner(path, input, settled),
       scans: new ScanRecords(config.state),
       settings: (path, input) => settingsRoutes.owner(path, input, settled),
+      aiHelper: (path, input) => aiHelperRoutes.owner(path, input, settled),
     }),
   };
   const hostSet = new Set<string>();
@@ -220,6 +221,13 @@ export async function startDaemon(config: DaemonConfig) {
   });
   const policy = config.policy ?? authz;
   const policyRoutes = new PolicyRoutes(authz);
+  const aiHelperRoutes = new AiHelperRoutes({
+    store: authz,
+    settingsPath: reviewerSettingsPath,
+    env: process.env,
+    keys: reviewerKeys,
+    events,
+  });
   const registry = new ClientRegistry(join(config.state, "clients.json"));
   const broker = new Broker({
     store: brokerStore,
@@ -312,13 +320,7 @@ export async function startDaemon(config: DaemonConfig) {
         keys: reviewerKeys,
         events,
       }),
-      new AiHelperRoutes({
-        store: authz,
-        settingsPath: reviewerSettingsPath,
-        env: process.env,
-        keys: reviewerKeys,
-        events,
-      }),
+      aiHelperRoutes,
       mcpHttpRoute({ broker, secrets, setup: setupRoutes }),
       new HostKeyRoutes(
         inventory,

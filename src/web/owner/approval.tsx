@@ -50,6 +50,7 @@ import {
   FingerprintConfirm,
   fingerprintConfirmed,
   isSetupOperation,
+  ReviewerKeyField,
   SetupDetailRows,
   SetupRequestBody,
   setupTitle,
@@ -104,6 +105,7 @@ export function ApprovalScreen({
   const [password, setPassword] = useState("");
   // Enrolment only: the fingerprint typed from the card. Cleared once sent.
   const [confirmText, setConfirmText] = useState("");
+  const [reviewerApiKey, setReviewerApiKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const names = useAssistantNames();
@@ -113,6 +115,8 @@ export function ApprovalScreen({
   const setup = isSetupOperation(operation);
   // Adding a machine: the approve button waits for the typed fingerprint.
   const enrolling = operation.setup?.kind === "enroll";
+  const connectingHelper = operation.setup?.kind === "ai-helper";
+  const requiresReviewerKey = operation.setup?.input.keyRequired === true;
   const confirmOk = !enrolling || fingerprintConfirmed(operation, confirmText);
   const approving = (kind: ApprovalDecision) => kind.startsWith("approve");
   // The badge says what the action does; the risk tier is kept for Details.
@@ -129,6 +133,7 @@ export function ApprovalScreen({
     const typedKey = confirmText;
     setPassword("");
     setConfirmText("");
+    setReviewerApiKey("");
     setConfirming(undefined);
     setBusy(true);
     setError(undefined);
@@ -141,6 +146,7 @@ export function ApprovalScreen({
         ...(approving(kind) && enrolling
           ? { confirmFingerprint: typedKey.trim() }
           : {}),
+        ...(approving(kind) && connectingHelper ? { reviewerApiKey } : {}),
       });
       onDone(
         setup && result.operation.state === "succeeded"
@@ -158,7 +164,11 @@ export function ApprovalScreen({
   };
 
   const missingPassword = needsStepUp && password.length === 0;
-  const approveBlocked = busy || missingPassword || !confirmOk;
+  const approveBlocked =
+    busy ||
+    missingPassword ||
+    !confirmOk ||
+    (connectingHelper && requiresReviewerKey && reviewerApiKey.trim() === "");
   const who = displayName(operation.client, names);
   // Proxmox and setup requests are titled by what they do; neither is remembered as a rule.
   const proxmox = isProxmoxOperation(operation);
@@ -291,6 +301,13 @@ export function ApprovalScreen({
             operation={operation}
             value={confirmText}
             onChange={setConfirmText}
+          />
+        ) : null}
+        {connectingHelper ? (
+          <ReviewerKeyField
+            required={requiresReviewerKey}
+            value={reviewerApiKey}
+            onChange={setReviewerApiKey}
           />
         ) : null}
         {needsStepUp ? (

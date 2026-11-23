@@ -3,6 +3,7 @@
 // machine presented when the request was made. The agent cannot reach this path:
 // decide is an owner route, and an agent token is refused there.
 import { HomectlError } from "../types";
+import { parseApiKey } from "./ai-helper-routes";
 import type { BrokerOperation, DecideInput } from "./types";
 
 const APPROVALS = new Set(["approve-once", "approve-remember"]);
@@ -28,4 +29,20 @@ export function enrolmentConfirmation(
       "The typed fingerprint does not match the one the machine presented; nothing was approved",
     );
   return typed;
+}
+
+export function reviewerKeyForApproval(
+  op: BrokerOperation,
+  input: DecideInput,
+): string | undefined {
+  if (op.setup?.kind !== "ai-helper") return undefined;
+  if (input.reviewerApiKey === undefined)
+    throw new HomectlError(
+      3,
+      "Review this request in the owner panel on the originating device",
+    );
+  const key = parseApiKey(input.reviewerApiKey);
+  if (key === undefined && op.setup.input.keyRequired)
+    throw new HomectlError(2, "Enter the API key for this provider");
+  return key;
 }

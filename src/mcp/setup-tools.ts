@@ -132,6 +132,20 @@ export const SETUP_REQUEST_TOOLS: readonly ToolDefinition[] = [
     ["name"],
   ),
   request(
+    "setup_ai_helper",
+    "ai-helper",
+    "Propose the AI helper provider and model. A custom provider also needs its exact base address. The owner reviews the destination and enters any key privately in Needs you on this device. This does not enable Auto Mode or widen reviewer authority.",
+    {
+      provider: {
+        type: "string",
+        enum: ["anthropic", "openai", "openrouter", "custom"],
+      },
+      baseUrl: { type: "string", minLength: 1, maxLength: 500 },
+      model: { type: "string", minLength: 1, maxLength: 100 },
+    },
+    ["provider", "model"],
+  ),
+  request(
     "setup_approval_wait",
     "approval-wait",
     "Propose how long requests wait for the owner before they expire: 5 minutes to 7 days, for example 90m, 24h or 7d. The owner approves with their password. Requests the owner has not answered in time expire.",

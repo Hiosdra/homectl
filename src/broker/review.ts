@@ -80,6 +80,7 @@ export function isUnderReview(
   return (
     op !== undefined &&
     op.state === "awaiting-approval" &&
+    op.grantId === undefined &&
     isReviewPending(op.decision)
   );
 }

@@ -56,6 +56,7 @@ async function runProxmox(
 async function runSetup(
   executor: ExecutorPort,
   op: BrokerOperation,
+  reviewerApiKey: string | undefined,
 ): Promise<ProcessResult> {
   if (!executor.setup || op.setup === undefined)
     throw new HomectlError(
@@ -65,6 +66,7 @@ async function runSetup(
   return executor.setup.run({
     kind: op.setup.kind,
     input: { ...op.setup.input },
+    ...(reviewerApiKey === undefined ? {} : { reviewerApiKey }),
     ...(op.setup.confirmed === undefined
       ? {}
       : { confirmFingerprint: op.setup.confirmed }),
@@ -95,6 +97,7 @@ export async function dispatch(
   machine: Machine | undefined,
   grant?: ApprovalGrant,
   revision?: number,
+  reviewerApiKey?: string,
 ): Promise<void> {
   const op = await ctx.store.update(async (state) => {
     const live = state.operations[id];
@@ -127,6 +130,7 @@ export async function dispatch(
       });
       const fresh =
         live.state === "awaiting-approval" &&
+        live.grantId === grant.id &&
         now < live.expiresAt &&
         check.ok &&
         revision === current &&
@@ -160,7 +164,7 @@ export async function dispatch(
   try {
     const result =
       op.live.setup !== undefined
-        ? await runSetup(ctx.executor, op.live)
+        ? await runSetup(ctx.executor, op.live, reviewerApiKey)
         : op.live.proxmox !== undefined
           ? await runProxmox(ctx.executor, op.live)
           : await runExec(ctx.executor, op.live, machine);

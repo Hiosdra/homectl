@@ -60,11 +60,10 @@ export interface AgentSetupStatus {
 export const OWNER_NOTE =
   "Steps marked owner belong to the owner. Tell them what to do in the homectl panel and wait: do not ask for the owner password, the vault password or any key, and do not try to make a change those steps need. Steps marked agent are yours: make your requests through homectl (the requests list) and wait for the owner to approve each one in Needs you. Then poll its status until it is final.";
 
-// Owner-only, in plain words. None of these can be requested: the agent is told
-// to point the owner at the panel instead.
+// Actions that require the owner. The agent may prepare some of these requests.
 export const OWNER_ONLY_STEPS: readonly string[] = [
   "Create or unlock the vault and set the owner password",
-  "Store the AI helper key",
+  "Privately enter the AI helper key on an AI helper setup request in Needs you",
   "Install a machine's public key through trusted access to that machine",
   "Confirm a new machine's fingerprint: type it from the card, then your password",
   "Restore a backup",

@@ -1,6 +1,4 @@
-// Owner panel entry point. One session gate, one live-updated data set, and
-// hash routes (no secrets or tokens in the URL). Everything the owner decides
-// goes to the broker through the same-origin proxy.
+// Owner panel session and live data. Decisions use the same-origin broker proxy.
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AgentsScreen } from "./agents";
@@ -125,8 +123,7 @@ function App() {
   );
   const [route, go] = useRoute();
   const [flash, setFlash] = useState<string | undefined>();
-  // The device context the inbox and workspace views show. Remembered per
-  // viewer; it filters what is shown and changes no decision.
+  // The inbox and workspace filter is remembered per viewer.
   const [context, setContext] = useState<DeviceContext>(loadContext);
   const chooseContext = useCallback((next: DeviceContext) => {
     saveContext(next);
@@ -270,11 +267,8 @@ function App() {
       icon: "sliders" as const,
     },
   ];
-  // The section a viewer used last is remembered (section only, never a secret),
-  // but never over something that waits: "Needs you" opens first while attention
-  // is above zero. Only the first load of a session restores it.
-  // The decision is made once per session, after the first load. Only then
-  // does what is shown get remembered, so the stored section is read first.
+  // Restore the last section once per session, unless Needs you has items.
+  // Read the stored section before saving the one displayed.
   const [restored, setRestored] = useState(false);
   useEffect(() => {
     if (restored || !signedIn || data.loadedAt === 0) return;
@@ -425,6 +419,7 @@ function App() {
         ) : null}
         {route.name === "approval" && operation ? (
           <ApprovalScreen
+            key={operation.id}
             operation={operation}
             onDone={done}
             onError={handle}
@@ -441,7 +436,12 @@ function App() {
           <p className="muted">Loading…</p>
         ) : null}
         {route.name === "secret" && secret ? (
-          <SecretScreen request={secret} onDone={done} onError={handle} />
+          <SecretScreen
+            key={secret.id}
+            request={secret}
+            onDone={done}
+            onError={handle}
+          />
         ) : null}
         {route.name === "secret" && !secret && data.loadedAt > 0 ? (
           <Gone

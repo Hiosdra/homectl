@@ -114,6 +114,8 @@ export interface SetupRun {
   input: Record<string, unknown>;
   // Enrolment only: the fingerprint the owner typed, checked again by the route.
   confirmFingerprint?: string;
+  // AI helper only. This is passed in memory and is never part of an operation.
+  reviewerApiKey?: string;
   // Enrolment only: the keys the card showed (from the recorded scan). Execution
   // reads the machine again and refuses when its keys differ.
   presented?: PresentedKey[];
@@ -219,6 +221,7 @@ export interface DecideInput {
   stepUp: boolean;
   // Enrolment approvals: the fingerprint the owner typed from the card.
   confirmFingerprint?: string;
+  reviewerApiKey?: unknown;
 }
 
 export interface DecideResult {

@@ -22,7 +22,7 @@ import { actionOf, planExec, toView, validateExecInput } from "./plan";
 import { planProxmoxRequest } from "./proxmox-submit";
 import { approvalRefusal, type CurrentClient } from "./request-authority";
 import { isReviewPending, isUnderReview } from "./review";
-import { enrolmentConfirmation } from "./setup-decide";
+import { enrolmentConfirmation, reviewerKeyForApproval } from "./setup-decide";
 import { planSetupRequest } from "./setup-request";
 import type { BrokerStore } from "./store";
 import { APPROVAL_WAIT_DEFAULT_MS } from "./approval-wait";
@@ -67,22 +67,23 @@ export class Broker {
     this.now = options.now ?? Date.now;
   }
 
-  // Startup recovery: work interrupted by a crash has an unknown outcome. A
-  // review that was running is gone and nothing ran: the agent resubmits.
+  // Report interrupted dispatches and discard approvals and reviews in flight.
   async init(): Promise<void> {
     await this.options.store.update((state) => {
-      for (const op of Object.values(state.operations))
-        if (op.state === "dispatching") {
-          op.state = "unknown";
-          op.reason = "interrupted";
-          op.finishedAt = this.now();
-          op.updatedAt = op.finishedAt;
-        } else if (isUnderReview(op)) {
-          op.state = "cancelled";
-          op.reason = "review-interrupted";
-          op.finishedAt = this.now();
-          op.updatedAt = op.finishedAt;
-        }
+      for (const op of Object.values(state.operations)) {
+        const started = op.state === "dispatching";
+        const approved =
+          op.state === "awaiting-approval" && op.grantId !== undefined;
+        if (!started && !approved && !isUnderReview(op)) continue;
+        op.state = started ? "unknown" : "cancelled";
+        op.reason = started
+          ? "interrupted"
+          : approved
+            ? "approval-interrupted"
+            : "review-interrupted";
+        op.finishedAt = this.now();
+        op.updatedAt = op.finishedAt;
+      }
     });
   }
 
@@ -114,8 +115,6 @@ export class Broker {
     op.updatedAt = now;
     return true;
   }
-
-  // ---------------------------------------------------------------- agent
 
   // The policy may call a slow reviewer, so it never runs under the state lock
   // (see review.ts). The operation is recorded first, awaiting review; the
@@ -362,16 +361,16 @@ export class Broker {
     return (await this.options.store.load()).operations[id];
   }
 
-  // Called only by an owner surface after it authenticated the owner.
   async decide(input: DecideInput): Promise<DecideResult> {
     const now = this.now();
     let revision = await this.options.policy.revision();
+    let reviewerApiKey: string | undefined;
     const outcome = await this.options.store.update(async (state) => {
       const op = state.operations[input.operationId];
       if (!op) throw new HomectlError(3, "Unknown operation");
       if (this.expire(op, now))
         return { op, grant: undefined as ApprovalGrant | undefined };
-      if (op.state !== "awaiting-approval")
+      if (op.state !== "awaiting-approval" || op.grantId !== undefined)
         throw new HomectlError(3, "This operation was already decided");
       if (op.fingerprint !== input.fingerprint)
         throw new HomectlError(3, "The plan changed; review it again");
@@ -420,10 +419,10 @@ export class Broker {
             "This approval needs you to confirm your identity again",
           );
         const confirmed = enrolmentConfirmation(op, input);
+        reviewerApiKey = reviewerKeyForApproval(op, input);
         if (confirmed !== undefined && op.setup !== undefined)
           op.setup.confirmed = confirmed;
         if (input.decision === "approve-remember") {
-          // Until the review ends, human-only is not known: no rule from it.
           if (isReviewPending(op.decision))
             throw new HomectlError(
               3,
@@ -442,7 +441,6 @@ export class Broker {
             actionOf(op),
             "allow",
           );
-          // Saving the rule bumped the policy revision; bind the grant to it.
           revision = await this.options.policy.revision();
         }
         const grant = issueGrant(this.options.key, {
@@ -481,6 +479,7 @@ export class Broker {
             machine,
             outcome.grant,
             revision,
+            reviewerApiKey,
           ),
         );
     }

@@ -22,6 +22,7 @@ export interface SetupExecDeps {
   scans: ScanRecords;
   // The owner's settings routes (approval-wait).
   settings: OwnerCall;
+  aiHelper?: OwnerCall;
 }
 
 const PRESET_LABEL: Record<string, string> = {
@@ -72,6 +73,8 @@ function summary(
       return `The AI permission setting is now ${PRESET_LABEL[String(input.preset)] ?? String(input.preset)}.`;
     case "create-key":
       return "The machine key is ready. The owner can retrieve its public half from Machines. The private key stays in the vault.";
+    case "ai-helper":
+      return "The AI helper connection was saved. The key, if provided, is in the vault.";
     case "approval-wait":
       return `Requests now wait for you up to ${describeApprovalWait(Number(input.waitMs))}.`;
   }
@@ -104,7 +107,10 @@ export function ownerSetupPort(deps: SetupExecDeps): SetupPort {
         return {
           exitCode: 1,
           stdout: "",
-          stderr: plainFailure(error, address),
+          stderr:
+            kind === "ai-helper"
+              ? "The AI helper connection could not be saved. Check the owner panel."
+              : plainFailure(error, address),
         };
       }
     },
@@ -175,6 +181,17 @@ async function execute(
       return deps.hosts("/v1/owner/hosts/remove", { name: input.name });
     case "preset":
       return deps.policy("/v1/owner/policy/preset", { preset: input.preset });
+    case "ai-helper":
+      if (!deps.aiHelper)
+        throw new HomectlError(5, "The AI helper is unavailable");
+      return deps.aiHelper("/v1/owner/ai-helper/connect", {
+        provider: input.provider,
+        baseUrl: input.baseUrl,
+        model: input.model,
+        ...(request.reviewerApiKey === undefined
+          ? {}
+          : { apiKey: request.reviewerApiKey }),
+      });
     case "approval-wait":
       return deps.settings(APPROVAL_WAIT_PATH, { waitMs: input.waitMs });
   }

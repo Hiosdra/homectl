@@ -1,7 +1,5 @@
-// Agent requests for the setup write steps (0.3 acceptance). An agent may ask for
-// six things: look for a machine's key, check a machine, add a machine, change a
-// machine's access level, choose the permission setting, or remove a machine. Each
-// request is planned here and waits for the owner in Needs you; it runs only after
+// Agent requests for guided setup. Each request is planned here and waits
+// for the owner in Needs you. It runs only after
 // the owner approves it. Every one is a hard-gated owner decision: no AI helper,
 // rule or "remember" can approve it. The agent never supplies a password, a typed
 // fingerprint or a key; those fields are refused as unknown.
@@ -17,6 +15,13 @@ import {
   checkName,
   checkPort,
 } from "./owner-hosts-input";
+import {
+  type AiProvider,
+  isAiProvider,
+  normalizeBaseUrl,
+  providerSpec,
+} from "./ai-providers";
+import { normalizeModel } from "./reviewer-settings";
 import { isRecentScan } from "./scan-records";
 import { parseApprovalWait } from "./approval-wait";
 import type { OperationBase } from "./submit";
@@ -36,6 +41,7 @@ export const SETUP_REQUESTS = [
   "remove",
   "approval-wait",
   "create-key",
+  "ai-helper",
 ] as const;
 export type SetupRequestKind = (typeof SETUP_REQUESTS)[number];
 
@@ -103,6 +109,13 @@ export const SETUP_SPECS: Record<SetupRequestKind, SetupRequestSpec> = {
     classification: "mutation",
     area: "Machines",
   },
+  "ai-helper": {
+    label: "Connect the AI helper",
+    risk: "R3",
+    password: true,
+    classification: "mutation",
+    area: "Permissions",
+  },
   "approval-wait": {
     label: "Change how long requests wait for you",
     risk: "R2",
@@ -126,6 +139,7 @@ const FIELDS: Record<SetupRequestKind, readonly string[]> = {
   remove: ["name", "narrative"],
   "create-key": ["name", "narrative"],
   "approval-wait": ["wait", "narrative"],
+  "ai-helper": ["provider", "baseUrl", "model", "narrative"],
 };
 
 // Agents may propose these levels. Admin with your approval needs an allowed-command
@@ -145,6 +159,11 @@ export interface SetupInput {
   narrative?: string;
   // The approval wait, in milliseconds (approval-wait only).
   waitMs?: number;
+  provider?: AiProvider;
+  baseUrl?: string;
+  model?: string;
+  endpoint?: string;
+  keyRequired?: boolean;
 }
 
 export function validateSetupInput(
@@ -158,6 +177,22 @@ export function validateSetupInput(
     if (!FIELDS[kind].includes(key))
       throw new HomectlError(2, `Unknown field: ${key}`);
   const out: SetupInput = {};
+  if (kind === "ai-helper") {
+    if (!isAiProvider(input.provider))
+      throw new HomectlError(
+        2,
+        "Choose anthropic, openai, openrouter or custom",
+      );
+    if (input.provider === "custom")
+      out.baseUrl = normalizeBaseUrl(input.baseUrl);
+    else if (input.baseUrl !== undefined)
+      throw new HomectlError(2, "Only a custom provider accepts an address");
+    out.provider = input.provider;
+    out.model = normalizeModel(input.model);
+    const spec = providerSpec(out.provider, out.baseUrl);
+    out.endpoint = spec.chatUrl;
+    out.keyRequired = spec.keyRequired;
+  }
   if (input.name !== undefined) out.name = checkName(input.name);
   if (input.address !== undefined) out.address = checkAddress(input.address);
   if (input.port !== undefined) out.port = checkPort(input.port);
@@ -190,6 +225,7 @@ export function validateSetupInput(
     remove: ["name"],
     "create-key": ["name"],
     "approval-wait": ["waitMs"],
+    "ai-helper": ["provider", "model"],
   };
   for (const field of required[kind])
     if (out[field] === undefined)

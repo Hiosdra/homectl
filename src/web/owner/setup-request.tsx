@@ -10,6 +10,7 @@ import { Field } from "./ui";
 
 export const SETUP_KIND_LABEL: Record<string, string> = {
   "create-key": "Create an SSH key in the vault",
+  "ai-helper": "Connect the AI helper",
   scan: "Look for a machine's SSH key",
   probe: "Check that a machine answers",
   enroll: "Add a machine to homectl",
@@ -54,6 +55,8 @@ export function setupTitle(operation: PendingOperation): string {
   if (!setup) return "";
   const input = setup.input;
   switch (setup.kind) {
+    case "ai-helper":
+      return "Connect the AI helper?";
     case "create-key":
       return `Create an SSH key for ${input.name}?`;
     case "scan":
@@ -80,6 +83,8 @@ export function setupBodyText(operation: PendingOperation): string {
   const setup = operation.setup;
   if (!setup) return "";
   switch (setup.kind) {
+    case "ai-helper":
+      return "This provider can receive request details and review them within your current AI permission settings.";
     case "create-key":
       return "The private key stays in the vault. You install the public key through trusted access to the machine.";
     case "scan":
@@ -206,10 +211,51 @@ export function SetupRequestBody({
   return (
     <div className="stack">
       <p className="small">{setupBodyText(operation)}</p>
+      {operation.setup?.kind === "ai-helper" ? (
+        <dl className="details">
+          <dt>Provider</dt>
+          <dd>{operation.setup.input.provider}</dd>
+          <dt>Address</dt>
+          <dd className="mono">{operation.setup.input.endpoint}</dd>
+          <dt>Model</dt>
+          <dd className="mono">{operation.setup.input.model}</dd>
+        </dl>
+      ) : null}
       <p className="small muted">
         {SETUP_KIND_LABEL[operation.setup?.kind ?? ""] ?? "Setup change"}
       </p>
     </div>
+  );
+}
+
+export function ReviewerKeyField({
+  required,
+  value,
+  onChange,
+}: {
+  required: boolean;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const id = useId();
+  return (
+    <Field
+      id={id}
+      label={required ? "AI helper API key" : "AI helper API key (optional)"}
+      hint="Use a key issued for the address above. The broker stores it in the encrypted vault."
+    >
+      <input
+        id={id}
+        name="reviewerApiKey"
+        type="password"
+        autoComplete="new-password"
+        spellCheck={false}
+        maxLength={500}
+        required={required}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </Field>
   );
 }
 

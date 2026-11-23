@@ -83,6 +83,8 @@ Run `home-ctl setup` in a private terminal. At the end it offers to start homect
 
 Each step can be skipped and reopened. The broker keeps the progress in `broker/setup.json` (booleans and timestamps only), so a new browser keeps your place. A step counts as done only when homectl can see the real state, such as a machine that is pinned and answered its check. Two marks come from you alone: keeping "Ask me first", and allowing notifications in the browser. After an upgrade from 0.2 that carried machines, the panel says once what changed and asks you to connect each assistant again.
 
+Once an assistant is connected, it can prepare additional machine setup and AI helper requests. For `setup_ai_helper`, review the exact provider address and model in **Needs you** on the originating device. Enter any key there and approve with your owner password. The request saves the connection without enabling Auto Mode or widening its authority.
+
 ## First run
 
 Run the secret-handling commands in a **private terminal** yourself. They prompt for passwords, and an agent must never see those prompts.

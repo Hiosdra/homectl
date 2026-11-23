@@ -77,6 +77,7 @@ const SETUP_ACTION: Record<string, ActionLabel> = {
   enroll: "Gives access",
   access: "Changes permissions",
   preset: "Changes permissions",
+  "ai-helper": "Changes permissions",
   remove: "Removes",
 };
 

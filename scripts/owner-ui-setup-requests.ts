@@ -26,10 +26,7 @@ const ED =
   "AAAAC3NzaC1lZDI1NTE5AAAAIBVnTGs5JuBXNWbmPAEQX0mCqMnIDoNtKLkV0w8ptQaH";
 const FP = keyFingerprint(ED);
 const WRONG = `SHA256:${"Q".repeat(43)}`;
-// Set OWNER_SETUP_SHOTS to keep the screenshots; by default they go to a temp folder.
-const shots =
-  process.env.OWNER_SETUP_SHOTS ??
-  join(tmpdir(), "homectl-setup-requests-shots");
+const shots = process.env.OWNER_SETUP_SHOTS;
 
 const root = await mkdtemp(join(tmpdir(), "hcsetupreq-"));
 const inventoryPath = join(root, "inventory.yaml");
@@ -137,6 +134,7 @@ async function openRequest(page: Page, title: string) {
 }
 
 async function shot(page: Page, tag: string, label: string) {
+  if (shots === undefined) return;
   await mkdir(join(shots, tag), { recursive: true });
   await page.evaluate(() =>
     Promise.all(
@@ -273,6 +271,45 @@ async function pass(
       JSON.stringify(after) + JSON.stringify(await statusOf(add.id));
     expect(everything).not.toContain(addAddress);
     expect(everything).not.toContain(FP);
+
+    // A keyless Custom provider exercises the owner-only form without network calls.
+    const model = `fixture-reviewer-${tag}`;
+    const baseUrl = "https://custom-provider.example.test/v1";
+    const helper = await agentCall("/v1/setup/request/ai-helper", {
+      provider: "custom",
+      baseUrl,
+      model,
+    });
+    await page.goto(`${panelOrigin}/`);
+    await openRequest(page, "Connect the AI helper");
+    await expect(
+      page.getByText(`${baseUrl}/chat/completions`, { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText(model, { exact: true })).toBeVisible();
+    const reviewerKey = page.getByLabel("AI helper API key (optional)");
+    await expect(reviewerKey).toHaveAttribute("type", "password");
+    await expect(reviewerKey).toHaveValue("");
+    await reviewerKey.fill("fixture-key-must-stay-on-this-card");
+    const other = await agentCall("/v1/setup/request/ai-helper", {
+      provider: "custom",
+      baseUrl,
+      model: `${model}-other`,
+    });
+    await page.evaluate((id) => {
+      location.hash = `#/approvals/${id}`;
+    }, other.id);
+    await expect(
+      page.getByText(`${model}-other`, { exact: true }),
+    ).toBeVisible();
+    await expect(reviewerKey).toHaveValue("");
+    await page.getByRole("button", { name: "Deny", exact: true }).click();
+    expect((await statusOf(other.id)).state).toBe("denied");
+    await openRequest(page, "Connect the AI helper");
+    await expect(reviewerKey).toHaveValue("");
+    await page.getByLabel("Owner password").fill(PASSWORD);
+    await noHorizontalScroll(page);
+    await approve.click();
+    expect((await statusOf(helper.id)).state).toBe("succeeded");
   } finally {
     await context.close();
   }
@@ -282,7 +319,7 @@ try {
   await pass("desktop", { width: 1280, height: 900 }, false, "office-box");
   await pass("phone", { width: 390, height: 844 }, true, "office-box-m");
   console.log("owner-ui-setup-requests: ok");
-  console.log(`screenshots: ${shots}`);
+  if (shots !== undefined) console.log(`screenshots: ${shots}`);
 } finally {
   await browser.close();
   await panel.stop?.();

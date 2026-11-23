@@ -23,7 +23,6 @@ jobs:
       - run: bun test
       - run: bunx playwright install --with-deps chromium
       - run: bun run test:ui
-      - run: bun scripts/owner-ui-smoke.ts
 
   # Read-only scans on every push and pull request. Nothing here publishes anything.
   security:

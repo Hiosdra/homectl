@@ -5,12 +5,16 @@
 // locked with admin keys still locked.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callBroker } from "../src/broker/client";
 import { startDaemon } from "../src/broker/daemon";
 import { compatPaths, type Endpoint } from "../src/broker/paths";
+import {
+  REVIEWER_KEY_ENTRY,
+  REVIEWER_KEY_FIELD,
+} from "../src/broker/reviewer-key";
 import type { KeyAgentPort } from "../src/broker/vault-service";
 import { saveInventory } from "../src/inventory";
 import {
@@ -19,7 +23,12 @@ import {
   openDatabase,
   passwordSource,
 } from "../src/vault";
-import { findUnique, managedEntries, readSshKey } from "../src/vault/entries";
+import {
+  findUnique,
+  managedEntries,
+  readFields,
+  readSshKey,
+} from "../src/vault/entries";
 
 const PASSWORD = "vault master password for tests";
 const SMALL = { memory: 1024, iterations: 1, parallelism: 1 };
@@ -300,4 +309,105 @@ test("an agent can request a new machine key, but only the owner can create or r
   } finally {
     privateKey.privateKey.fill(0);
   }
+});
+
+test("an AI helper setup approval keeps its key private and applies the reviewed destination once", async () => {
+  const first = "fixture-ai-helper-key-first";
+  const second = "fixture-ai-helper-key-second";
+  const daemon = await start({ starts: 0, added: [], clears: 0 }, true);
+  const owner = await signIn(daemon.endpoint);
+  const { token } = await callBroker<{ token: string }>(
+    "/v1/owner/clients/create",
+    {
+      id: "helper-agent",
+      name: "Helper agent",
+      hosts: ["web"],
+      password: PASSWORD,
+    },
+    owner,
+  );
+  const agent = { endpoint: daemon.endpoint, authorization: `Bearer ${token}` };
+  const requestBody = { provider: "openai", model: "fixture-model" };
+  const path = "/v1/setup/request/ai-helper";
+  await expect(
+    callBroker(path, { ...requestBody, apiKey: first }, agent),
+  ).rejects.toThrow("Unknown field");
+  const request = await callBroker<{
+    id: string;
+    fingerprint: string;
+    state: string;
+  }>(path, requestBody, agent);
+  expect(request.state).toBe("awaiting-approval");
+  const review = await callBroker("/v1/owner/pending", {}, owner);
+  expect(review).toMatchObject([
+    {
+      setup: {
+        input: {
+          provider: "openai",
+          endpoint: "https://api.openai.com/v1/chat/completions",
+          model: "fixture-model",
+        },
+      },
+    },
+  ]);
+  const decision = {
+    operationId: request.id,
+    fingerprint: request.fingerprint,
+    decision: "approve-once",
+  };
+  await expect(
+    callBroker("/v1/owner/decide", { ...decision, password: PASSWORD }, owner),
+  ).rejects.toThrow("originating device");
+  await expect(
+    callBroker(
+      "/v1/owner/decide",
+      { ...decision, password: "bad", reviewerApiKey: first },
+      owner,
+    ),
+  ).rejects.toThrow("Wrong owner password");
+  await expect(
+    callBroker(
+      "/v1/owner/decide",
+      { ...decision, reviewerApiKey: first },
+      agent,
+    ),
+  ).rejects.toThrow();
+  const results = await Promise.allSettled(
+    [first, second].map((reviewerApiKey) =>
+      callBroker(
+        "/v1/owner/decide",
+        { ...decision, password: PASSWORD, reviewerApiKey },
+        owner,
+      ),
+    ),
+  );
+  const successAt = results.findIndex((item) => item.status === "fulfilled");
+  expect(results.filter((item) => item.status === "fulfilled")).toHaveLength(1);
+  const result = await callBroker<{ state: string }>(
+    "/v1/wait",
+    { id: request.id, timeoutMs: 5000 },
+    agent,
+  );
+  expect(result.state).toBe("succeeded");
+  const database = await openDatabase(
+    join(dir, "homelab.kdbx"),
+    passwordSource(PASSWORD),
+  );
+  const entry = findUnique(managedEntries(database.db), REVIEWER_KEY_ENTRY);
+  if (!entry) throw new Error("AI helper key was not persisted");
+  expect(readFields(entry)[REVIEWER_KEY_FIELD]).toBe(
+    [first, second][successAt],
+  );
+  const state = compatPaths(inventoryPath).state;
+  for (const response of [request, review, results, result]) {
+    expect(JSON.stringify(response)).not.toContain(first);
+    expect(JSON.stringify(response)).not.toContain(second);
+  }
+  const operations = await readFile(join(state, "broker-state.json"), "utf8");
+  expect(operations).not.toContain(first);
+  expect(operations).not.toContain(second);
+  const settings = await readFile(join(state, "reviewer.json"), "utf8");
+  expect(settings).toContain("https://api.openai.com/v1/chat/completions");
+  expect(settings).not.toContain(first);
+  expect(settings).not.toContain(second);
 });
