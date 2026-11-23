@@ -108,7 +108,21 @@ button.primary:disabled { background: var(--surface-2); border-color: var(--line
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { font-family: var(--mono); font-size: 14px; padding: 4px 10px; border-radius: 6px; background: var(--surface-2);
   border: 1px solid var(--line); word-break: break-all; }
-.command-block { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 12px; }
+.command-block { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 11px 14px; }
+.cmd-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; font-family: var(--mono);
+  font-size: 13.5px; line-height: 1.65; overflow-wrap: anywhere; }
+.cmd-item { display: inline; max-width: 100%; }
+.cmd-tok { border-radius: 4px; padding: 1px 2px; transition: background-color .12s var(--ease); }
+.cmd-tok:hover { background: var(--accent-soft); }
+.cmd-bin { color: var(--accent); font-weight: 700; }
+.cmd-sub { color: var(--ink); font-weight: 650; }
+.cmd-flag { color: var(--warn); font-weight: 600; }
+.cmd-key { color: var(--untrusted); font-weight: 600; }
+.cmd-val { color: var(--ink); }
+.cmd-url { color: var(--accent); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
+.cmd-path { color: var(--ok); }
+.cmd-arg { color: var(--ink); }
+.cmd-empty { color: var(--ink-2); font-style: italic; }
 .untrusted { border: 1px dashed var(--untrusted); background: var(--untrusted-bg); border-radius: var(--r-sm); padding: 12px 14px; }
 .untrusted .label { color: var(--untrusted); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
 .untrusted p { white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; }

@@ -79,16 +79,55 @@ export function Toast({
   );
 }
 
-// Argv as one chip per token, so spaces and quotes stay visible.
+function renderArgvToken(token: string, index: number) {
+  if (token === "") return <span className="cmd-tok cmd-empty">""</span>;
+  const display = /\s/.test(token) ? JSON.stringify(token) : token;
+  if (index === 0) return <span className="cmd-tok cmd-bin">{display}</span>;
+  if (/^https?:\/\//.test(token))
+    return <span className="cmd-tok cmd-url">{display}</span>;
+  if (token.startsWith("-")) {
+    const eq = token.indexOf("=");
+    if (eq > 1) {
+      return (
+        <span className="cmd-tok">
+          <span className="cmd-flag">{token.slice(0, eq + 1)}</span>
+          <span className="cmd-val">{token.slice(eq + 1)}</span>
+        </span>
+      );
+    }
+    return <span className="cmd-tok cmd-flag">{display}</span>;
+  }
+  const eq = token.indexOf("=");
+  if (eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(token.slice(0, eq))) {
+    return (
+      <span className="cmd-tok">
+        <span className="cmd-key">{token.slice(0, eq + 1)}</span>
+        <span className="cmd-val">{token.slice(eq + 1)}</span>
+      </span>
+    );
+  }
+  if (
+    token.startsWith("/") ||
+    token.startsWith("./") ||
+    token.startsWith("../")
+  )
+    return <span className="cmd-tok cmd-path">{display}</span>;
+  if (index === 1 && /^[a-z][a-z0-9_-]*$/.test(token))
+    return <span className="cmd-tok cmd-sub">{display}</span>;
+  return <span className="cmd-tok cmd-arg">{display}</span>;
+}
+
+// Argv rendered as a readable, syntax-highlighted terminal command line while
+// keeping every token intact and quoting whitespace/empty tokens verbatim.
 export function Argv({ argv }: { argv: string[] }) {
   return (
-    <div className="chips" aria-label="Command arguments">
+    <code className="cmd-line" aria-label="Command arguments">
       {argv.map((token, index) => (
-        <span className="chip" key={`${index}-${token}`}>
-          {token === "" ? '""' : token}
+        <span className="cmd-item" key={`${index}-${token}`}>
+          {renderArgvToken(token, index)}
         </span>
       ))}
-    </div>
+    </code>
   );
 }
 

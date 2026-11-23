@@ -14,12 +14,19 @@ import {
 } from "./api";
 import { type ViewScope } from "./context";
 import { ContextNote } from "./context-switcher";
-import { DECISION_NOTICE, OUTCOME, type ApprovalDecision } from "./approval";
+import {
+  DECISION_NOTICE,
+  getRecentStepUpUntil,
+  OUTCOME,
+  setRecentStepUpUntil,
+  type ApprovalDecision,
+} from "./approval";
 import { Icon } from "./icons";
 import { actionView, canApproveFromList } from "./risk";
 import { isUnderReview } from "./review";
 import { relativeTime, toEpoch, waitingUntil } from "./time";
-import { Badge, MachineText, Notice } from "./ui";
+import { InlineApprovalPassword } from "./inline-password";
+import { Argv, Badge, MachineText, Notice } from "./ui";
 import { displayName, plainAction, riskLine } from "./plain-words";
 import { proxmoxTitle } from "./proxmox";
 import { setupTitle } from "./setup-request";
@@ -249,33 +256,54 @@ function ApprovalCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [askingPassword, setAskingPassword] = useState(false);
   // The badge says what the action does; the stripe colour still follows the tier.
   const risk = actionView(op);
   const expires = toEpoch(op.expiresAt);
   const asked = toEpoch(op.createdAt);
   const quick = canApproveFromList(op);
+  const needsStepUp = op.decision.stepUp === true;
+  const stepUpGrace = needsStepUp && Date.now() < getRecentStepUpUntil();
+  const canInlineApprove = !op.setup;
 
-  // Approve or deny without the password step. Remembering a rule is never
-  // offered here: that stays on the detail screen.
   const decide = async (
     kind: Extract<ApprovalDecision, "approve-once" | "deny-once">,
+    typedPassword?: string,
   ) => {
     if (busy) return;
     setBusy(true);
     setError(undefined);
     try {
-      const result = await ownerCall<DecideResult>("/v1/owner/decide", {
-        operationId: op.id,
-        fingerprint: op.fingerprint,
-        decision: kind,
-      });
+      const result = await ownerCall<DecideResult & { stepUpUntil?: number }>(
+        "/v1/owner/decide",
+        {
+          operationId: op.id,
+          fingerprint: op.fingerprint,
+          decision: kind,
+          ...(kind === "approve-once" && typedPassword
+            ? { password: typedPassword }
+            : {}),
+        },
+      );
+      if (typeof result.stepUpUntil === "number")
+        setRecentStepUpUntil(result.stepUpUntil);
+      setAskingPassword(false);
       onDone(OUTCOME[result.operation.state] ?? DECISION_NOTICE[kind]);
     } catch (failure) {
+      setRecentStepUpUntil(0);
       onError(failure);
       setError(describeError(failure));
     } finally {
       setBusy(false);
     }
+  };
+
+  const approveClick = () => {
+    if (needsStepUp && !stepUpGrace) {
+      setAskingPassword(true);
+      return;
+    }
+    void decide("approve-once");
   };
 
   return (
@@ -303,61 +331,73 @@ function ApprovalCard({
           machines={[op.host]}
         />
       </p>
-      <p className="command-line">
-        <span className="command">{op.argv.join(" ")}</span>
-      </p>
+      <div className="command-block">
+        <Argv argv={op.argv} />
+      </div>
       <p className="small muted">{riskLine(risk.stripe, !quick)}</p>
       <RequestMeta asked={asked} expires={expires} />
       {error ? <Notice tone="bad">{error}</Notice> : null}
-      <div className="request-actions">
-        {quick ? (
-          <>
-            <button
-              type="button"
-              className="primary"
-              disabled={busy}
-              onClick={() => void decide("approve-once")}
-            >
-              Approve
-            </button>
-            <button
-              type="button"
-              className="danger"
-              disabled={busy}
-              onClick={() => void decide("deny-once")}
-            >
-              Deny
-            </button>
-            <button
-              type="button"
-              className="quiet"
-              disabled={busy}
-              onClick={() => onOpen(`#/approvals/${encodeURIComponent(op.id)}`)}
-            >
-              Review
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              className="primary"
-              disabled={busy}
-              onClick={() => onOpen(`#/approvals/${encodeURIComponent(op.id)}`)}
-            >
-              Review
-            </button>
-            <button
-              type="button"
-              className="danger"
-              disabled={busy}
-              onClick={() => void decide("deny-once")}
-            >
-              Deny
-            </button>
-          </>
-        )}
-      </div>
+      {askingPassword ? (
+        <InlineApprovalPassword
+          busy={busy}
+          onConfirm={(typed) => void decide("approve-once", typed)}
+          onCancel={() => setAskingPassword(false)}
+        />
+      ) : (
+        <div className="request-actions">
+          {canInlineApprove ? (
+            <>
+              <button
+                type="button"
+                className="primary"
+                disabled={busy}
+                onClick={approveClick}
+              >
+                Approve
+              </button>
+              <button
+                type="button"
+                className="danger"
+                disabled={busy}
+                onClick={() => void decide("deny-once")}
+              >
+                Deny
+              </button>
+              <button
+                type="button"
+                className="quiet"
+                disabled={busy}
+                onClick={() =>
+                  onOpen(`#/approvals/${encodeURIComponent(op.id)}`)
+                }
+              >
+                Details
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="primary"
+                disabled={busy}
+                onClick={() =>
+                  onOpen(`#/approvals/${encodeURIComponent(op.id)}`)
+                }
+              >
+                Review
+              </button>
+              <button
+                type="button"
+                className="danger"
+                disabled={busy}
+                onClick={() => void decide("deny-once")}
+              >
+                Deny
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

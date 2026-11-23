@@ -122,7 +122,7 @@ function outcome(view: {
   decision?: { reason: string };
 }) {
   if (view.state === "awaiting-approval")
-    return `Still waiting for approval, op id ${view.id}${view.approvalSurface ? ` (approve at ${view.approvalSurface})` : ""}. Ask the user to approve it, then run: home-ctl wait ${view.id}`;
+    return `Still waiting for approval, op id ${view.id}${view.approvalSurface ? ` (approve at ${view.approvalSurface})` : ""}. Show the user the approval link mid-turn and wait actively without ending the conversation: home-ctl wait ${view.id}`;
   if (view.result)
     return `${view.result.stdout}${view.result.stderr}`.trimEnd();
   return `Operation ${view.id}: ${view.state}${view.reason ? ` (${view.reason})` : ""}${view.decision ? ` - ${view.decision.reason}` : ""}`;

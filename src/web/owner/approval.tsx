@@ -98,6 +98,14 @@ const MORE_OPTIONS = {
 // asking the owner to retype the password on back-to-back approvals.
 let recentStepUpUntil = 0;
 
+export function getRecentStepUpUntil(): number {
+  return recentStepUpUntil;
+}
+
+export function setRecentStepUpUntil(until: number): void {
+  recentStepUpUntil = until;
+}
+
 export function ApprovalScreen({
   operation,
   onDone,

@@ -153,7 +153,7 @@ function describe(view: {
   decision?: { reason: string };
 }) {
   if (view.state === "awaiting-approval")
-    return `Waiting for the owner to approve operation ${view.id}${view.approvalSurface ? ` at ${view.approvalSurface}` : ""}. Ask the user to approve it, then run: home-ctl wait ${view.id}`;
+    return `Waiting for the owner to approve operation ${view.id}${view.approvalSurface ? ` at ${view.approvalSurface}` : ""}. Show the user the approval link mid-turn and wait actively without ending the conversation: home-ctl wait ${view.id}`;
   if (view.result)
     return `${view.result.stdout}${view.result.stderr}`.trimEnd();
   return `Operation ${view.id}: ${view.state}${view.reason ? ` (${view.reason})` : ""}${view.decision ? ` - ${view.decision.reason}` : ""}`;
