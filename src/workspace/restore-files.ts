@@ -1,6 +1,6 @@
 ﻿// Restore only the scoped persistent files a client backs up. Live sessions,
 // pending approvals, ephemeral values and device credentials are excluded.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { link, lstat, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RestoredFile } from "../backup";
@@ -19,8 +19,23 @@ export function isRestorable(path: string): path is RestorableFile {
   return (RESTORABLE_FILES as readonly string[]).includes(path);
 }
 
+export interface RestoreFileDigest {
+  path: string;
+  bytes: number;
+  sha256: string;
+}
+
+export function restoreDigest(file: RestoredFile): RestoreFileDigest {
+  return {
+    path: file.path,
+    bytes: file.data.length,
+    sha256: createHash("sha256").update(file.data).digest("hex"),
+  };
+}
+
 export interface RestoreTarget {
   existing(): Promise<string[]>;
+  matches(expected: RestoreFileDigest[]): Promise<boolean>;
   write(files: RestoredFile[]): Promise<void>;
 }
 
@@ -104,6 +119,23 @@ export function fileRestoreTarget(
   };
   return {
     existing,
+    async matches(expected) {
+      if (expected.length === 0) return false;
+      const allowed = new Set(expected.map((file) => file.path));
+      if ((await existing()).some((name) => !allowed.has(name))) return false;
+      for (const file of expected) {
+        if (!isRestorable(file.path)) return false;
+        const path = paths[file.path];
+        const info = await fileInfo(path);
+        if (!info?.isFile() || info.size !== file.bytes) return false;
+        const digest = restoreDigest({
+          path: file.path,
+          data: await readFile(path),
+        });
+        if (digest.sha256 !== file.sha256) return false;
+      }
+      return true;
+    },
     async write(files) {
       const unique = new Map<RestorableFile, Uint8Array>();
       for (const file of files) {

@@ -3,15 +3,18 @@
 //   - if it already holds a restorable file: it declines. The server retires
 //     this fresh identity, and the device is unlinked with a new identity so
 //     it can join again once the owner issues the restore anew;
-//   - if it wrote the files for this restore but was never acknowledged: it
-//     only acknowledges again;
-//   - otherwise it fetches the files (the grant is not consumed), writes them,
-//     records what it wrote, and acknowledges. Only the acknowledgment ends the
-//     grant on the server.
+//   - if it previously started the restore, it verifies all expected bytes
+//     before acknowledging. Unexpected changes are left for the owner;
+//   - otherwise it fetches the files, records the intent, writes and verifies
+//     them. Only acknowledgment ends the grant on the server.
 // Nothing here throws: a failure is reported in the outcome and the link stays.
 import { HomectlError } from "../types";
 import { channelRequest, type LinkPeer, type Post } from "./channel";
-import { isRestorable, type RestoreTarget } from "./restore-files";
+import {
+  isRestorable,
+  restoreDigest,
+  type RestoreTarget,
+} from "./restore-files";
 import { type ClientLink, freshIdentity } from "./state";
 import { errorText, peerOf } from "./summary";
 import * as v from "./validate";
@@ -73,32 +76,54 @@ async function restoreFromServer(
   }
   const seq = waiting.seq;
   const taken = await target.existing();
-  if (
-    receipt?.seq === seq &&
-    taken.length > 0 &&
-    taken.every((name) => receipt.files.includes(name))
-  )
-    return acknowledge(post, self, server, seq, receipt.files, [], update);
-  if (taken.length > 0) return decline(post, self, server, seq, taken, update);
+  const prior = receipt?.seq === seq ? receipt : undefined;
+  if (prior?.expected && (await target.matches(prior.expected)))
+    return acknowledge(post, self, server, seq, prior.files, [], update);
+  if (!prior && taken.length > 0)
+    return decline(post, self, server, seq, taken, update);
+  if (prior?.expected && taken.length > 0)
+    throw new HomectlError(
+      5,
+      "Restore files are incomplete or have changed. Review them before starting a new restore.",
+    );
 
   const delivery = v.parseRestoreDelivery(
     await channelRequest(post, self, server, "restore.fetch", {}),
   );
   if (delivery.status === "none" || delivery.seq === undefined)
     return { status: "none" };
-  const files = delivery.files ?? [];
-  if (!files.every((file) => isRestorable(file.path)))
-    throw new HomectlError(3, "The server sent a file that cannot be restored");
-  await target.write(
-    files.map((file) => ({
-      path: file.path,
-      data: new Uint8Array(Buffer.from(file.data, "base64")),
-    })),
-  );
+  if (delivery.seq !== seq)
+    throw new HomectlError(
+      3,
+      "The server returned a different restore version",
+    );
+  const files = (delivery.files ?? []).map((file) => ({
+    path: file.path,
+    data: Buffer.from(file.data, "base64"),
+  }));
   const written = files.map((file) => file.path);
-  await update((next) => {
-    next.restore = { seq: delivery.seq ?? seq, files: written };
-  });
+  if (
+    files.length === 0 ||
+    new Set(written).size !== files.length ||
+    !files.every((file) => isRestorable(file.path))
+  )
+    throw new HomectlError(3, "The server sent invalid restore files");
+  const expected = files.map(restoreDigest);
+  const remember = () =>
+    update((next) => {
+      next.restore = { seq, files: written, expected };
+    });
+  const resumingLegacy = prior !== undefined && taken.length > 0;
+  if (!resumingLegacy) {
+    await remember();
+    await target.write(files);
+  }
+  if (!(await target.matches(expected)))
+    throw new HomectlError(
+      5,
+      "The restored files do not match the verified snapshot",
+    );
+  if (resumingLegacy) await remember();
   return acknowledge(
     post,
     self,

@@ -163,7 +163,7 @@ The client backs up `inventory.yaml`, `known_hosts` and the policy file. Tests c
 
 ## Restore
 
-A restore brings a **reset** client's scoped state back onto a fresh device. It runs on the server, is owner-only, and is never automatic. Files are written only to a device that holds none of them yet.
+A restore brings a **reset** client's scoped state back onto a fresh device. A retry verifies the installed files against the snapshot before confirming recovery. If any installed file is missing or has changed, the client keeps the files for your review and leaves the restore unconfirmed. It runs on the server, is owner-only, and is never automatic. Files are written only to a device that holds none of them yet.
 
 **Steps.**
 

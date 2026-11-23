@@ -13,7 +13,10 @@ import type { EventEnvelope } from "../src/core/contracts";
 import { HomectlError } from "../src/types";
 import type { Post } from "../src/workspace/channel";
 import { WorkspaceClient } from "../src/workspace/client";
-import type { RestoreTarget } from "../src/workspace/restore-files";
+import {
+  restoreDigest,
+  type RestoreTarget,
+} from "../src/workspace/restore-files";
 import type { RevocationSet } from "../src/workspace/revocations";
 import { WorkspaceServer } from "../src/workspace/server";
 import {
@@ -48,6 +51,18 @@ export function memoryRestore(taken: string[] = []): MemoryRestore {
     failWrites: 0,
     async existing() {
       return [...new Set([...target.taken, ...target.written.keys()])];
+    },
+    async matches(expected) {
+      const existing = await target.existing();
+      if (existing.length !== expected.length) return false;
+      return expected.every((file) => {
+        const data = target.written.get(file.path);
+        return (
+          data !== undefined &&
+          data.length === file.bytes &&
+          restoreDigest({ path: file.path, data }).sha256 === file.sha256
+        );
+      });
     },
     async write(files: RestoredFile[]) {
       if (target.failWrites > 0) {

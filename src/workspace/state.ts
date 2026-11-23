@@ -10,6 +10,7 @@ import { join } from "node:path";
 import type { DecisionSource, EventEnvelope } from "../core/contracts";
 import { atomicReplace } from "../platform";
 import { HomectlError } from "../types";
+import type { RestoreFileDigest } from "./restore-files";
 
 // What a client publishes about one operation awaiting its owner's decision.
 // Requester narrative is untrusted and shown as such.
@@ -161,8 +162,9 @@ export interface ClientLink {
   };
   // The server confirmed it holds this link's wrapped backup key.
   backupKeyRegistered?: boolean;
-  // A restore was written to this device but the server has not confirmed it.
-  restore?: { seq: number; files: string[] };
+  // Recorded before file installation. A retry verifies every file before it
+  // acknowledges the restore. Older receipts have no digests.
+  restore?: { seq: number; files: string[]; expected?: RestoreFileDigest[] };
   // The server may still hold a restore for this device: check again on sync.
   restorePending?: boolean;
   lastSyncAt?: number;

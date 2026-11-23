@@ -341,8 +341,10 @@ What the repository checks automatically (`.github/workflows`):
 - **Windows CI**: typecheck, lint, a subset of the tests, and PowerShell, CMD and Git Bash smoke tests.
 - **Release**: Linux packages installed in clean containers, with `home-ctl help` run in each.
 
+- **macOS CI** checks the compiled binary on a runner. LaunchAgent behavior on physical hardware remains unverified.
+- **WSL2** smoke on Arch Linux (2026-11-23) ran a compiled Linux x64 candidate with a disposable inventory. The broker's Unix socket required a client token and the embedded owner panel served on loopback.
+
 Not verified yet:
 
-- The macOS runtime, including the LaunchAgent and archives.
 - Windows named pipes, file ACLs, the WinSW service and WSL networking on real hardware.
 - Two real devices that pair, sync and operate each other over a LAN.
