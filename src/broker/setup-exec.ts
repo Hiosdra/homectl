@@ -4,6 +4,8 @@
 // returned as plain sentences: no address, key or probe text reaches the agent.
 import { HomectlError, type ProcessResult } from "../types";
 import type { ScanRecords } from "./scan-records";
+import { describeApprovalWait } from "./approval-wait";
+import { APPROVAL_WAIT_PATH } from "./settings-routes";
 import type { PresentedKey, SetupPort, SetupRun } from "./types";
 
 export type OwnerCall = (
@@ -18,6 +20,8 @@ export interface SetupExecDeps {
   policy: OwnerCall;
   // The scans the owner's scan route recorded. Read only: planning uses it.
   scans: ScanRecords;
+  // The owner's settings routes (approval-wait).
+  settings: OwnerCall;
 }
 
 const PRESET_LABEL: Record<string, string> = {
@@ -66,6 +70,8 @@ function summary(
       return "Removed the machine from homectl.";
     case "preset":
       return `The AI permission setting is now ${PRESET_LABEL[String(input.preset)] ?? String(input.preset)}.`;
+    case "approval-wait":
+      return `Requests now wait for you up to ${describeApprovalWait(Number(input.waitMs))}.`;
   }
 }
 
@@ -165,5 +171,7 @@ async function execute(
       return deps.hosts("/v1/owner/hosts/remove", { name: input.name });
     case "preset":
       return deps.policy("/v1/owner/policy/preset", { preset: input.preset });
+    case "approval-wait":
+      return deps.settings(APPROVAL_WAIT_PATH, { waitMs: input.waitMs });
   }
 }

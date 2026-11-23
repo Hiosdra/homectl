@@ -15,6 +15,8 @@ export interface SetupView {
     user?: string;
     access?: string;
     preset?: string;
+    // The approval wait in milliseconds (approval-wait requests only).
+    waitMs?: number;
   };
   presented?: { type: string; fingerprint: string }[];
 }

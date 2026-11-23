@@ -17,6 +17,19 @@ export const SETUP_KIND_LABEL: Record<string, string> = {
   remove: "Remove a machine from homectl",
 };
 
+// "24 hours", "90 minutes", "7 days": the plain words for an approval wait.
+// Mirrors describeApprovalWait in the broker, which the panel cannot import.
+export function approvalWaitLabel(ms: number | undefined): string {
+  if (ms === undefined) return "the new time";
+  const day = 24 * 60 * 60_000;
+  const hour = 60 * 60_000;
+  const unit = (count: number, word: string) =>
+    `${count} ${word}${count === 1 ? "" : "s"}`;
+  if (ms % day === 0) return unit(ms / day, "day");
+  if (ms % hour === 0) return unit(ms / hour, "hour");
+  return unit(ms / 60_000, "minute");
+}
+
 const PRESET_LABEL: Record<string, string> = {
   conservative: "Ask me first",
   routine: "AI helps with small fixes",
@@ -52,6 +65,8 @@ export function setupTitle(operation: PendingOperation): string {
       return `Change the AI permission setting to ${PRESET_LABEL[input.preset ?? ""] ?? input.preset}?`;
     case "remove":
       return `Remove ${input.name} from homectl?`;
+    case "approval-wait":
+      return `Let requests wait for you for ${approvalWaitLabel(input.waitMs)}?`;
     default:
       return "Make a setup change?";
   }
@@ -74,6 +89,8 @@ export function setupBodyText(operation: PendingOperation): string {
       return "It changes which AI requests run without asking you. Saved rules stay.";
     case "remove":
       return "It takes the machine off your list and forgets its trusted key. The machine itself is not changed.";
+    case "approval-wait":
+      return "Requests you have not answered yet expire after this long. Nothing else changes, and you confirm with your password.";
     default:
       return "";
   }

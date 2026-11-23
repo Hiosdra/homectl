@@ -124,4 +124,18 @@ export const SETUP_REQUEST_TOOLS: readonly ToolDefinition[] = [
     { name: NAME },
     ["name"],
   ),
+  request(
+    "setup_approval_wait",
+    "approval-wait",
+    "Propose how long requests wait for the owner before they expire: 5 minutes to 7 days, for example 90m, 24h or 7d. The owner approves with their password. Requests the owner has not answered in time expire.",
+    {
+      wait: {
+        type: "string",
+        minLength: 1,
+        maxLength: 8,
+        description: "The wait: a number with m, h or d, for example 24h.",
+      },
+    },
+    ["wait"],
+  ),
 ];

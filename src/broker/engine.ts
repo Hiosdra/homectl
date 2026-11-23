@@ -25,6 +25,7 @@ import { isReviewPending, isUnderReview } from "./review";
 import { enrolmentConfirmation } from "./setup-decide";
 import { planSetupRequest } from "./setup-request";
 import type { BrokerStore } from "./store";
+import { APPROVAL_WAIT_DEFAULT_MS } from "./approval-wait";
 import { type SubmitPort, submitForOwner, submitOperation } from "./submit";
 import {
   type BrokerOperation,
@@ -38,7 +39,6 @@ import {
   type PolicyPort,
 } from "./types";
 
-export { CLIENT_WINDOW_MS, PLAN_TTL_MS } from "./submit";
 // Same text for unknown and ungranted hosts: no enumeration.
 const NOT_GRANTED = "Host is not in this client's grants";
 
@@ -56,6 +56,7 @@ export interface BrokerOptions {
   approvalSurface?: string;
   // See DispatchContext.gate.
   gate?: () => string | undefined;
+  approvalWaitMs?: () => Promise<number>;
 }
 
 export class Broker {
@@ -199,6 +200,8 @@ export class Broker {
       policy: this.options.policy,
       inventory: this.options.inventory,
       now: this.now,
+      approvalWaitMs:
+        this.options.approvalWaitMs ?? (async () => APPROVAL_WAIT_DEFAULT_MS),
       emit: (op, type) => this.emit(op, type),
       track: (work) => this.track(work),
       dispatch: (id, machine) => dispatch(this.dispatchContext(), id, machine),

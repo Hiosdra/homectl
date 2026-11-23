@@ -47,7 +47,11 @@ describe("approved setup requests reach the owner routes", () => {
       "/v1/owner/hosts/remove": { removed: true },
     });
     const policy = recorder({ "/v1/owner/policy/preset": { mode: "auto" } });
-    const port = ownerSetupPort({ hosts: hosts.call, policy: policy.call });
+    const port = ownerSetupPort({
+      hosts: hosts.call,
+      policy: policy.call,
+      settings: recorder({}).call,
+    });
 
     const cases: SetupRun[] = [
       { kind: "scan", input: { address: ADDRESS, port: 22 } },
@@ -82,6 +86,7 @@ describe("approved setup requests reach the owner routes", () => {
     const port = ownerSetupPort({
       hosts: hosts.call,
       policy: recorder({}).call,
+      settings: recorder({}).call,
     });
     const result = await port.run({
       kind: "enroll",
@@ -104,6 +109,7 @@ describe("approved setup requests reach the owner routes", () => {
     const port = ownerSetupPort({
       hosts: hosts.call,
       policy: recorder({}).call,
+      settings: recorder({}).call,
     });
     const result = await port.run({
       kind: "enroll",
@@ -125,6 +131,7 @@ describe("what the agent reads back", () => {
     const port = ownerSetupPort({
       hosts: hosts.call,
       policy: recorder({}).call,
+      settings: recorder({}).call,
     });
     const result = await port.run({
       kind: "scan",
@@ -147,6 +154,7 @@ describe("what the agent reads back", () => {
     const port = ownerSetupPort({
       hosts: hosts.call,
       policy: recorder({}).call,
+      settings: recorder({}).call,
     });
     const result = await port.run({ kind: "probe", input: { name: "nas" } });
     expect(result.exitCode).toBe(0);
@@ -169,6 +177,7 @@ describe("what the agent reads back", () => {
     const port = ownerSetupPort({
       hosts: hosts.call,
       policy: recorder({}).call,
+      settings: recorder({}).call,
     });
     const result = await port.run({
       kind: "enroll",
@@ -187,6 +196,7 @@ describe("what the agent reads back", () => {
     const port = ownerSetupPort({
       hosts: hosts.call,
       policy: recorder({}).call,
+      settings: recorder({}).call,
     });
     const result = await port.run({ kind: "remove", input: { name: "nas" } });
     expect(result.stderr).toBe(
@@ -205,6 +215,7 @@ describe("what the agent reads back", () => {
         hosts: hosts.call,
         policy: recorder({}).call,
         scans,
+        settings: recorder({}).call,
       });
       expect(await port.lastScan(ADDRESS, 22)).toEqual({
         address: ADDRESS,
@@ -226,6 +237,7 @@ describe("what the agent reads back", () => {
     const port = ownerSetupPort({
       hosts: hosts.call,
       policy: recorder({}).call,
+      settings: recorder({}).call,
     });
     expect(await port.keyReady("new-box")).toBe(true);
     expect(hosts.calls[0]?.input).toEqual({ name: "new-box" });

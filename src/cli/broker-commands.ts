@@ -7,6 +7,7 @@ import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import { callBroker, clientToken, findEndpoint } from "../broker/client";
+import { callWithWait, waitInChunks } from "../broker/long-wait";
 import type { Endpoint } from "../broker/paths";
 import { readPassword } from "../session";
 import { connectAgent, describeConnect } from "./agent-connect";
@@ -121,7 +122,7 @@ function outcome(view: {
   decision?: { reason: string };
 }) {
   if (view.state === "awaiting-approval")
-    return `Waiting for the owner to approve operation ${view.id}${view.approvalSurface ? ` at ${view.approvalSurface}` : ""}. Ask the user to approve it, then run: home-ctl wait ${view.id}`;
+    return `Still waiting for approval, op id ${view.id}${view.approvalSurface ? ` (approve at ${view.approvalSurface})` : ""}. Ask the user to approve it, then run: home-ctl wait ${view.id}`;
   if (view.result)
     return `${view.result.stdout}${view.result.stderr}`.trimEnd();
   return `Operation ${view.id}: ${view.state}${view.reason ? ` (${view.reason})` : ""}${view.decision ? ` - ${view.decision.reason}` : ""}`;
@@ -189,9 +190,9 @@ export async function brokerCommand(
       const [host] = positionals;
       if (!host || !argv.length)
         throw new HomectlError(2, "Usage: home-ctl exec <host> -- <argv...>");
-      const view = await callBroker<
-        Parameters<typeof describe>[0] & { result?: { exitCode: number } }
-      >(
+      const auth = await agentAuth(inventoryPath);
+      const view = await callWithWait(
+        (path, body) => callBroker(path, body, auth),
         "/v1/exec",
         {
           host,
@@ -200,7 +201,6 @@ export async function brokerCommand(
           ...(v.task ? { task: v.task } : {}),
           waitMs,
         },
-        await agentAuth(inventoryPath),
       );
       emit(view, describe(view));
       return exitFor(view);
@@ -210,13 +210,17 @@ export async function brokerCommand(
       const [id] = positionals;
       if (!id)
         throw new HomectlError(2, `Usage: home-ctl ${command} <operation>`);
-      const view = await callBroker<
-        Parameters<typeof describe>[0] & { result?: { exitCode: number } }
-      >(
-        command === "wait" ? "/v1/wait" : "/v1/status",
-        command === "wait" ? { id, timeoutMs: waitMs } : { id },
-        await agentAuth(inventoryPath),
-      );
+      const auth = await agentAuth(inventoryPath);
+      const view =
+        command === "wait"
+          ? await waitInChunks(
+              (path, body) => callBroker(path, body, auth),
+              id,
+              waitMs,
+            )
+          : await callBroker<
+              Parameters<typeof describe>[0] & { result?: { exitCode: number } }
+            >("/v1/status", { id }, auth);
       emit(view, describe(view));
       return exitFor(view);
     }

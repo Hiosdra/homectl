@@ -92,6 +92,7 @@ function setupPortFor(routes: OwnerHostRoutes, policy?: OwnerCall) {
     hosts: (path, input) => routes.owner(path, input, async () => undefined),
     policy: policy ?? (async () => undefined),
     scans: new ScanRecords(dir),
+    settings: async () => undefined,
   });
 }
 
@@ -282,6 +283,7 @@ describe("execution re-reads the key", () => {
       hosts,
       policy: async () => undefined,
       scans: new ScanRecords(dir),
+      settings: async () => undefined,
     });
     const request: SetupRun = {
       kind: "enroll",

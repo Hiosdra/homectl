@@ -5,6 +5,7 @@
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { defaultPolicy, savePolicy } from "../authz";
+import { parseApprovalWait } from "../broker/approval-wait";
 import { AUTHORITIES, MODES } from "../broker/auto-mode";
 import { callBroker } from "../broker/client";
 import { ownerHostCommand } from "../broker/host-permissions";
@@ -201,6 +202,37 @@ async function autoModeCommand(
   return 0;
 }
 
+const APPROVAL_WAIT_USAGE =
+  "Usage: home-ctl owner approval-wait [get] | owner approval-wait set <duration> (5m to 7d, for example 90m, 24h or 7d)";
+
+// `owner approval-wait [get]` or `owner approval-wait set <duration>`: how long a
+// request waits for the owner before it expires. Changing it needs the owner
+// password, which the call sends. The bounds are checked before it is asked.
+async function approvalWaitCommand(
+  args: string[],
+  ctx: OwnerCommandContext,
+): Promise<number> {
+  const [sub = "get", value] = args;
+  if (args.length === 0 || (sub === "get" && args.length === 1)) {
+    const auth = await ctx.auth();
+    ctx.emit(
+      await callBroker("/v1/owner/settings/approval-wait/get", {}, auth),
+    );
+    return 0;
+  }
+  if (sub !== "set" || args.length !== 2 || value === undefined)
+    throw new HomectlError(2, APPROVAL_WAIT_USAGE);
+  parseApprovalWait(value);
+  const auth = await ctx.auth();
+  const view = await callBroker<{ label: string }>(
+    "/v1/owner/settings/approval-wait",
+    { wait: value, password: auth.password },
+    auth,
+  );
+  ctx.emit(view, `Requests now wait for you up to ${view.label}.`);
+  return 0;
+}
+
 export async function ownerCommand(
   positionals: string[],
   ctx: OwnerCommandContext,
@@ -214,10 +246,12 @@ export async function ownerCommand(
     return 0;
   }
   if (action === "auto-mode") return autoModeCommand(positionals.slice(1), ctx);
+  if (action === "approval-wait")
+    return approvalWaitCommand(positionals.slice(1), ctx);
   if (action !== "init")
     throw new HomectlError(
       2,
-      "Usage: home-ctl owner init | auto-mode [get|set …] | scan-host-keys <host> | pin-host-key <host> <SHA256:…> | inspect-host <host> | preview-host-grant <host> | apply-host-grant <host> <fingerprint> | revoke-host-grant <host> | repair-host-grant <host> [fingerprint]",
+      "Usage: home-ctl owner init | auto-mode [get|set …] | approval-wait [get|set <duration>] | scan-host-keys <host> | pin-host-key <host> <SHA256:…> | inspect-host <host> | preview-host-grant <host> | apply-host-grant <host> <fingerprint> | revoke-host-grant <host> | repair-host-grant <host> [fingerprint]",
     );
   return initOwner(ctx);
 }
