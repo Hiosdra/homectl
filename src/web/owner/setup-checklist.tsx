@@ -21,7 +21,7 @@ import {
   WIZARD_STEPS,
   wizardStep,
 } from "./setup-copy";
-import { Badge } from "./ui";
+import { Argv, Badge } from "./ui";
 
 // A link into a setup step, for the empty states ("Add a machine first →").
 export function SetupLink({
@@ -202,8 +202,10 @@ export function TerminalHint({
 }) {
   return (
     <div className="setup-command">
-      <code>{command}</code>
-      <CopyButton label={label} text={command} />
+      <div className="command-block row between">
+        <Argv argv={command.trim().split(/\s+/)} />
+        <CopyButton label={label} text={command} />
+      </div>
       {note ? <p className="small muted">{note}</p> : null}
     </div>
   );

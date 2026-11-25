@@ -9,6 +9,7 @@ import { markSetup, stepOf } from "./setup-api";
 import { TerminalHint, UpgradeNotice } from "./setup-checklist";
 import { wizardStep } from "./setup-copy";
 import { DoneLine, type StepProps } from "./setup-steps";
+import { WorkspaceJoinCard } from "./workspace-join";
 import { Badge, Notice } from "./ui";
 
 export function WelcomeBody({ status, onChanged, onError }: StepProps) {
@@ -136,7 +137,7 @@ export function PermissionsBody({ status, onChanged, onError }: StepProps) {
   );
 }
 
-export function DevicesBody({ status }: StepProps) {
+export function DevicesBody({ status, onError }: StepProps) {
   const serving = status.facts.workspaceServer;
   const paired = status.facts.pairedDevices;
   return (
@@ -154,32 +155,17 @@ export function DevicesBody({ status }: StepProps) {
         </DoneLine>
       ) : (
         <p>
-          Optional. Pair another computer to keep an encrypted copy of your
-          vault there, and to approve requests from it. Only pair devices you
-          own.
+          Optional. Pair another computer to keep encrypted backups of your
+          inventory, known hosts, and policy there, and to approve requests from
+          it. Only pair devices you own.
         </p>
       )}
-      {serving ? null : (
-        <>
-          <h4>1. Start this computer as the server</h4>
-          <TerminalHint
-            label="server command"
-            command='$env:HOMECTL_WORKSPACE_LISTEN = "0.0.0.0:7450"; home-ctl start'
-            note="Run it in PowerShell. Only do this on your home network; the port is reachable from it."
-          />
-          <h4>2. On the other device, join</h4>
-          <TerminalHint
-            label="join command"
-            command="home-ctl workspace join <server-address> <code>"
-            note="The code comes from this server, and it expires after 5 minutes."
-          />
-        </>
-      )}
+      {serving ? null : <WorkspaceJoinCard onError={onError} />}
       <details className="setup-details">
         <summary>Details: backups</summary>
         <p className="small muted">
-          Backups stay encrypted. A restore needs the owner password on the
-          device being restored, and it is shown in Devices &amp; backup once
+          Backups stay encrypted. Starting a restore needs the owner password on
+          the workspace server. Backups appear in Devices &amp; backup once
           paired.
         </p>
       </details>

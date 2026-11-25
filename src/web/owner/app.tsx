@@ -58,6 +58,7 @@ import {
   type WorkspaceServerInfo,
 } from "./workspace-api";
 import { WorkspaceScreen } from "./workspace";
+import { WorkspaceJoinCard } from "./workspace-join";
 
 type Session =
   | { state: "checking" }
@@ -460,7 +461,7 @@ function App() {
           <PolicyScreen onError={handle} setup={setup} />
         )}
         {route.name === "workspace" && server === null && (
-          <Notice>This broker is not a workspace server.</Notice>
+          <WorkspaceJoinCard onError={handle} />
         )}
         {route.name === "workspace" && server === undefined ? (
           <p className="muted">Checking…</p>

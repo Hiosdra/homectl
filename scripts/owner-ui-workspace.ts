@@ -184,7 +184,7 @@ export async function runWorkspaceScenario(
     });
     await expect(page.getByText(/^Expires in .*It works once\./)).toBeVisible();
     await expect(
-      page.getByText("On the other device, open a terminal."),
+      page.getByText(/On the other device, open System in its homectl panel/),
     ).toBeVisible();
     await page.getByRole("button", { name: "I have entered it" }).click();
     await expect(page.getByLabel("Invite code")).toHaveCount(0);

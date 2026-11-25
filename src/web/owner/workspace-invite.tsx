@@ -4,10 +4,19 @@
 // closes.
 import { type FormEvent, useEffect, useState } from "react";
 import { describeError } from "./api";
+import { CopyButton } from "./copy";
 import { PairCode } from "./pair-code";
 import { createWorkspaceInvite, type WorkspaceInvite } from "./workspace-api";
-import { Notice, PasswordStep } from "./ui";
+import { Argv, Notice, PasswordStep } from "./ui";
 import { toEpoch } from "./time";
+
+function suggestedServerAddress(): string {
+  if (typeof location === "undefined") return "<server address>";
+  const host = location.hostname;
+  if (!host || host === "127.0.0.1" || host === "localhost" || host === "[::1]")
+    return "<server address>";
+  return `http://${host}:7450`;
+}
 
 export function InviteSection({
   onError,
@@ -54,22 +63,33 @@ export function InviteSection({
           expiredLabel="Make a new code"
           doneLabel="I have entered it"
           onDone={() => setInvite(undefined)}
-          steps={
-            <ol className="plain-steps">
-              <li>On the other device, open a terminal.</li>
-              <li>
-                Run this command. Put the server address where{" "}
-                <span className="mono">&lt;server address&gt;</span> is:
-                <pre className="copy">
-                  home-ctl workspace join &lt;server address&gt; {invite.code}
-                </pre>
-              </li>
-              <li>
-                Check that the other device shows the same verification phrase
-                as its own screen. If it does not match, do not continue.
-              </li>
-            </ol>
-          }
+          steps={(() => {
+            const addr = suggestedServerAddress();
+            const argv = ["home-ctl", "workspace", "join", addr, invite.code];
+            return (
+              <ol className="plain-steps">
+                <li>
+                  On the other device, open <strong>System</strong> in its
+                  homectl panel and enter server{" "}
+                  <code className="mono">{addr}</code> with code{" "}
+                  <code className="mono">{invite.code}</code>.
+                </li>
+                <li>
+                  Or run this command in a terminal:
+                  <div className="command-block row between">
+                    <Argv argv={argv} />
+                    {addr.startsWith("http") ? (
+                      <CopyButton label="join command" text={argv.join(" ")} />
+                    ) : null}
+                  </div>
+                </li>
+                <li>
+                  Check that the other device shows the same verification phrase
+                  as its own screen. If it does not match, do not continue.
+                </li>
+              </ol>
+            );
+          })()}
         />
       ) : (
         <form className="stack" onSubmit={create}>

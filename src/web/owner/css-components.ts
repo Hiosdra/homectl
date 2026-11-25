@@ -108,11 +108,13 @@ button.primary:disabled { background: var(--surface-2); border-color: var(--line
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { font-family: var(--mono); font-size: 14px; padding: 4px 10px; border-radius: 6px; background: var(--surface-2);
   border: 1px solid var(--line); word-break: break-all; }
-.command-block { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 11px 14px; }
-.cmd-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; font-family: var(--mono);
+.command-block { background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+  padding: 12px 14px; box-shadow: inset 0 1px 0 rgb(255 255 255 / .03); }
+.cmd-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 6px; font-family: var(--mono);
   font-size: 13.5px; line-height: 1.65; overflow-wrap: anywhere; }
+.cmd-line::before { content: "$"; color: var(--ink-2); opacity: .7; margin-right: 4px; user-select: none; font-weight: 700; }
 .cmd-item { display: inline; max-width: 100%; }
-.cmd-tok { border-radius: 4px; padding: 1px 2px; transition: background-color .12s var(--ease); }
+.cmd-tok { border-radius: 4px; padding: 1px 3px; transition: background-color .12s var(--ease); }
 .cmd-tok:hover { background: var(--accent-soft); }
 .cmd-bin { color: var(--accent); font-weight: 700; }
 .cmd-sub { color: var(--ink); font-weight: 650; }
