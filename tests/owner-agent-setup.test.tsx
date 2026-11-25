@@ -192,9 +192,20 @@ describe("the agent page", () => {
     const command = html.match(
       /<code[^>]+aria-label="Command arguments"[^>]*>(.*?)<\/code>/,
     )?.[1];
-    expect(command?.replace(/<[^>]*>/g, "")).toBe(
-      "home-ctl agent connect claude --name claude --hosts &lt;machine&gt;",
+    const tokens = Array.from(
+      command?.matchAll(/<span class="cmd-tok [^"]+">([^<]*)<\/span>/g) ?? [],
+      (match) => match[1],
     );
+    expect(tokens).toEqual([
+      "home-ctl",
+      "agent",
+      "connect",
+      "claude",
+      "--name",
+      "claude",
+      "--hosts",
+      "&lt;machine&gt;",
+    ]);
     expect(html).toContain("You type your owner password there");
   });
 
