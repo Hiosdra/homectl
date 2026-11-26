@@ -46,6 +46,33 @@ export async function installSudo(
     );
   return { installed: target };
 }
+
+// The connectivity probe `enroll` runs: one read-only `uname -s` through the
+// machine's own credentials. Returns the OS name, or throws a plain message.
+// The owner panel's enroll and "check again" call this too, so there is one probe.
+export async function probeMachine(
+  m: Machine,
+  configPath: string,
+  runner: Runner = run,
+): Promise<string> {
+  const probe = await runner(
+    credentialSpec(
+      m.auth,
+      transportSpec(m, ["uname", "-s"], configPath),
+      workerArgv,
+    ),
+  );
+  if (probe.exitCode !== 0)
+    throw new HomectlError(5, probeFailureMessage(probe));
+  const os = unameValue(probe.stdout);
+  if (!os)
+    throw new HomectlError(
+      5,
+      "The remote OS probe returned no recognizable uname value. Inventory was not changed; raw provider output is suppressed.",
+    );
+  return os;
+}
+
 export async function enroll(
   name: string,
   m: Machine,
@@ -77,21 +104,7 @@ export async function enroll(
     return { name, machine: m, configureSudo: options.configureSudo ?? false };
   await writeSSHConfig(configPath, inv.machines);
   const runner = options.runner ?? run;
-  const probe = await runner(
-    credentialSpec(
-      m.auth,
-      transportSpec(m, ["uname", "-s"], configPath),
-      workerArgv,
-    ),
-  );
-  if (probe.exitCode !== 0)
-    throw new HomectlError(5, probeFailureMessage(probe));
-  const os = unameValue(probe.stdout);
-  if (!os)
-    throw new HomectlError(
-      5,
-      "The remote OS probe returned no recognizable uname value. Inventory was not changed; raw provider output is suppressed.",
-    );
+  const os = await probeMachine(m, configPath, runner);
   if (options.configureSudo) await installSudo(name, m, configPath, runner);
   if ((await readFile(inventoryPath, "utf8")) !== before)
     throw new HomectlError(

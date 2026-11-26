@@ -23,7 +23,7 @@ export async function atomicReplace(source: string, destination: string) {
 
 export function executable(name: string): string {
   if (!windows) return name;
-  if (["ssh", "ssh-add", "ssh-keygen"].includes(name))
+  if (["ssh", "ssh-add", "ssh-keygen", "ssh-keyscan"].includes(name))
     return join(
       process.env.SystemRoot ?? "C:\\Windows",
       "System32",
@@ -50,8 +50,9 @@ export async function protect(path: string, directory = false) {
     return;
   }
   const script = `$ErrorActionPreference='Stop'
+$pp=$env:HOMECTL_PROTECT_PATH
 try {
-  $p=$env:HOMECTL_PROTECT_PATH
+  $p=$pp
   $identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()
   $sid=$identity.User
   $old=if(${directory ? "$true" : "$false"}){[System.IO.Directory]::GetAccessControl($p)}else{[System.IO.File]::GetAccessControl($p)}
@@ -67,8 +68,49 @@ try {
     $acl.AddAccessRule($rule)
   }
   if(${directory ? "$true" : "$false"}){[System.IO.Directory]::SetAccessControl($p,$acl)}else{[System.IO.File]::SetAccessControl($p,$acl)}
-} catch { [Console]::Out.Write($_.Exception.GetType().Name); exit 1 }
+} catch {
+  # The .NET exception under PowerShell's wrapper: its type, HRESULT and message.
+  # The private path is replaced first, so no path leaves the script.
+  $e=$_.Exception
+  if($e.InnerException){$e=$e.InnerException}
+  $m=[string]$e.Message
+  if($pp){$m=$m.Replace($pp,'<private path>')}
+  if($m.Length -gt 300){$m=$m.Substring(0,300)}
+  [Console]::Out.Write($e.GetType().Name + '|' + ('0x{0:X8}' -f $e.HResult) + '|' + $m)
+  exit 1
+}
 `;
+  let attempt = await runAclScript(script, path);
+  for (const delay of ACL_RETRY_MS) {
+    if (attempt.code === 0 || !aclFailure(attempt.diagnostic).transient) break;
+    await Bun.sleep(delay);
+    attempt = await runAclScript(script, path);
+  }
+  if (attempt.code)
+    throw new HomectlError(
+      3,
+      attempt.code === 13
+        ? "Private path is owned by another Windows account"
+        : `Cannot secure Windows permissions (PowerShell ACL operation failed: ${aclFailure(attempt.diagnostic).message})`,
+    );
+}
+
+// Bounded retries for a sharing or lock violation: another PowerShell run may hold
+// the file for a moment. Any other failure is reported at once.
+const ACL_RETRY_MS = [150, 400];
+const TRANSIENT_HRESULTS = new Set(["0x80070020", "0x80070021"]);
+
+// C0 control characters and DEL, which a diagnostic must not carry into a message.
+function isControl(char: string): boolean {
+  const code = char.charCodeAt(0);
+  return code < 32 || code === 127;
+}
+
+// One run of an ACL script. The diagnostic is what the script wrote on stdout.
+async function runAclScript(
+  script: string,
+  path: string,
+): Promise<{ code: number; diagnostic: string }> {
   const child = Bun.spawn(
     [
       "powershell.exe",
@@ -89,13 +131,32 @@ try {
     child.exited,
     new Response(child.stdout).text(),
   ]);
-  if (code)
-    throw new HomectlError(
-      3,
-      code === 13
-        ? "Private path is owned by another Windows account"
-        : `Cannot secure Windows permissions (PowerShell ACL operation failed: ${/^[A-Za-z]+Exception$/.test(diagnostic) ? diagnostic : "unknown error"})`,
-    );
+  return { code, diagnostic };
+}
+
+// Reads the script's diagnostic, "Type|0xHRESULT|message". The message is kept
+// (the private path was replaced inside the script), with control characters and
+// extra spaces removed and a length cap. Text that is not an exception type name
+// is "unknown error".
+export function aclFailure(diagnostic: string): {
+  message: string;
+  transient: boolean;
+} {
+  const [type = "", hresult = "", ...rest] = diagnostic.split("|");
+  if (!/^[A-Za-z]+Exception$/.test(type))
+    return { message: "unknown error", transient: false };
+  const text = rest
+    .join("|")
+    .split("")
+    .map((char) => (isControl(char) ? " " : char))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+  return {
+    message: text ? `${type}: ${text}` : type,
+    transient: TRANSIENT_HRESULTS.has(hresult),
+  };
 }
 
 export async function ownedByCurrentUser(path: string): Promise<boolean> {

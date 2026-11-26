@@ -1,4 +1,4 @@
-import type { Page } from "./help";
+import type { Page } from "./help-format";
 
 export const commandsHelp: Page = {
   usage: "home-ctl commands <list|save|run|rm> [id] [options]",
@@ -34,10 +34,6 @@ export const commandsHelp: Page = {
         [
           "-- name=value",
           "Provide declared parameter values after the separator.",
-        ],
-        [
-          "--approval DIGEST",
-          "Confirm this exact run after reviewing the digest from a prior preview.",
         ],
       ],
     },

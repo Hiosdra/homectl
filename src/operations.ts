@@ -19,6 +19,8 @@ export const workerArgv = internalCommand("worker");
 
 type ExecuteOptions = {
   configPath: string;
+  // Sent to the remote command's stdin only (secret injection). Never logged.
+  stdin?: string;
   dryRun?: boolean;
   approval?: string;
   approvalContext?: "cli" | "panel" | "peer";
@@ -200,7 +202,10 @@ export async function execute(
   await options.beforeRun?.();
   const spec = credentialSpec(
     machine.auth,
-    transportSpec(machine, argv, options.configPath),
+    {
+      ...transportSpec(machine, argv, options.configPath),
+      ...(options.stdin === undefined ? {} : { stdin: options.stdin }),
+    },
     workerArgv,
   );
   const startedAt = Date.now();

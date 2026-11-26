@@ -1,4 +1,4 @@
-// Startup recovery for the containerized peer (docs/homectl-2.0/container-peer.md).
+// Startup recovery for the containerized peer (docs/setup.md (Docker and NAS containers)).
 // Checks run before any listener opens. Integrity doubts stop the start (fail
 // closed); nothing is repaired automatically. Messages never carry entry
 // contents or secret material.

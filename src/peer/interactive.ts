@@ -125,7 +125,9 @@ export async function interactivePair(
             throw new HomectlError(2, "Invalid interface selection");
         }
       }
-      running = await (await import("../serve")).serve({
+      running = await (
+        await import("../serve")
+      ).serve({
         inventoryPath,
         configPath,
         interface: interfaceIP,

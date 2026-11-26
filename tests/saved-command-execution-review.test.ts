@@ -450,7 +450,7 @@ test("secret-flagged saved parameters stay masked in plans, errors, and local hi
 test("approval guidance is specific to CLI, panel and peer contexts", () => {
   const plan = planExecution("example", machine, ["rm", "fixture"]);
   for (const [context, message] of [
-    ["cli", "--approval <digest>"],
+    ["cli", "home-ctl approve"],
     ["panel", "Request approval and Accept in the panel"],
     ["peer", "Peer approval digest mismatch"],
   ] as const)

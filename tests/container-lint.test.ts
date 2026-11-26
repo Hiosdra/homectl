@@ -8,6 +8,10 @@ import { parse } from "yaml";
 
 const REPO = resolve(import.meta.dir, "..");
 const read = (...parts: string[]) => readFile(join(REPO, ...parts), "utf8");
+// Compose interpolation, ${NAME...}: built from char codes so no JS template
+// or string literal in this file reads as one.
+const DOLLAR_BRACE = String.fromCharCode(36, 123);
+const interp = (body: string) => `${DOLLAR_BRACE}${body}}`;
 
 type Compose = {
   services: Record<string, Record<string, unknown>>;
@@ -54,13 +58,35 @@ describe("Dockerfile", () => {
     expect(instructions(text).some((i) => i.op === "VOLUME")).toBe(false);
   });
 
-  test("the healthcheck is the local status-only script and the entrypoint is the CLI", async () => {
+  test("the healthcheck is the local status-only check and the entrypoint is the 0.3 supervisor", async () => {
     const text = await read("Dockerfile");
     const health = instructions(text).find((i) => i.op === "HEALTHCHECK");
-    expect(health?.rest).toContain("/app/src/container/health.ts");
+    expect(health?.rest).toContain("/app/docker/healthcheck.ts");
     expect(text).toMatch(
-      /^ENTRYPOINT \["bun", "\/app\/src\/cli\/main\.ts"\]$/m,
+      /^ENTRYPOINT \["bun", "\/app\/docker\/entrypoint\.ts"\]$/m,
     );
+  });
+
+  test("the default command is the broker: no legacy serve command is baked in", async () => {
+    const text = await read("Dockerfile");
+    expect(instructions(text).some((i) => i.op === "CMD")).toBe(false);
+    expect(text).not.toMatch(/^CMD .*"serve"/m);
+  });
+
+  test("the owner panel port is set and the workspace port is documented", async () => {
+    const text = await read("Dockerfile");
+    const env = instructions(text).filter((i) => i.op === "ENV");
+    expect(env.map((e) => e.rest).join(" ")).toContain(
+      "HOMECTL_OWNER_PANEL_PORT=7451",
+    );
+    const expose = instructions(text).find((i) => i.op === "EXPOSE");
+    expect(expose?.rest.split(" ")).toContain("7450");
+    expect(expose?.rest.split(" ")).toContain("7451");
+  });
+
+  test("the entrypoint and health check are copied into the image", async () => {
+    const text = await read("Dockerfile");
+    expect(text).toMatch(/^COPY docker \.\/docker$/m);
   });
 
   test("no secret material in ENV or ARG defaults", async () => {
@@ -219,6 +245,131 @@ describe("prebuilt Compose Project example", () => {
     });
     expect(compose.services.homectl?.healthcheck).toBeDefined();
     expect(compose.services.homectl?.restart).toBe("unless-stopped");
+  });
+});
+
+describe("0.3 broker Compose project example", () => {
+  async function broker() {
+    return parse(
+      await read("examples", "container", "compose.broker.yaml"),
+    ) as Compose & { name: string; volumes: Record<string, unknown> };
+  }
+
+  test("is a named project that uses a required image reference, not a build", async () => {
+    const compose = await broker();
+    const service = compose.services.homectl ?? {};
+    expect(compose.name).toBe("homectl-broker");
+    expect(String(service.image)).toMatch(/^\$\{HOMECTL_IMAGE:\?/);
+    expect(service.build).toBeUndefined();
+  });
+
+  test("keeps the container restrictions and runs as a numeric non-root user", async () => {
+    const service = (await broker()).services.homectl ?? {};
+    expect(service.privileged).toBe(false);
+    expect(service.read_only).toBe(true);
+    expect(service.cap_drop).toEqual(["ALL"]);
+    expect(service.security_opt).toContain("no-new-privileges:true");
+    expect(String(service.user)).toMatch(/^\d+:\d+$/);
+    expect(String(service.user).split(":")[0]).not.toBe("0");
+  });
+
+  test("the only writable path is one private named volume at /data", async () => {
+    const compose = await broker();
+    const service = compose.services.homectl ?? {};
+    expect(service.volumes).toEqual(["homectl-state:/data"]);
+    expect(Object.keys(compose.volumes)).toEqual(["homectl-state"]);
+    expect(service.tmpfs).toEqual(["/tmp:size=64m,mode=1777"]);
+  });
+
+  test("uses a bridge network and publishes only the panel, on loopback by default", async () => {
+    const text = await read("examples", "container", "compose.broker.yaml");
+    const compose = await broker();
+    const service = compose.services.homectl ?? {};
+    expect(service.network_mode).toBeUndefined();
+    expect(service.networks).toEqual(["homectl"]);
+    expect(compose.networks).toEqual({ homectl: { driver: "bridge" } });
+    expect(service.ports).toEqual([
+      `${interp("HOMECTL_PANEL_PUBLISH:-127.0.0.1:7451")}:7451`,
+    ]);
+    // The workspace port is opt-in: the base file never publishes it.
+    expect(text).not.toContain("HOMECTL_WORKSPACE_PUBLISH");
+    expect(text).not.toContain("docker.sock");
+  });
+
+  test("the owner panel listens on every address inside the container and needs its origin", async () => {
+    const service = (await broker()).services.homectl ?? {};
+    const env = service.environment as Record<string, string>;
+    expect(env.HOMECTL_OWNER_PANEL_PORT).toBe("7451");
+    expect(env.HOMECTL_PANEL_LISTEN).toBe("0.0.0.0");
+    // Required from .env: no placeholder origin is baked into the YAML.
+    expect(env.HOMECTL_PANEL_ORIGIN).toMatch(/^\$\{HOMECTL_PANEL_ORIGIN:\?/);
+    expect(env.HOMECTL_PANEL_ORIGIN).not.toContain("127.0.0.1");
+    // Plain http is off unless the owner sets it in .env.
+    expect(env.HOMECTL_PANEL_INSECURE_HTTP).toBe(
+      interp("HOMECTL_PANEL_INSECURE_HTTP:-"),
+    );
+  });
+
+  test("the workspace listener is off unless the operator sets it", async () => {
+    const service = (await broker()).services.homectl ?? {};
+    const env = service.environment as Record<string, string>;
+    // Compose interpolation, split so the string is not read as a JS template.
+    expect(env.HOMECTL_WORKSPACE_LISTEN).toBe(
+      "$" + "{HOMECTL_WORKSPACE_LISTEN:-}",
+    );
+  });
+
+  test("the workspace server override publishes only the workspace port and turns the listener on", async () => {
+    const override = parse(
+      await read("examples", "container", "compose.workspace.yaml"),
+    ) as Compose;
+    expect(Object.keys(override.services)).toEqual(["homectl"]);
+    const service = override.services.homectl ?? {};
+    expect(service.ports).toEqual([
+      `${interp("HOMECTL_WORKSPACE_PUBLISH:-127.0.0.1:7450")}:7450`,
+    ]);
+    const env = service.environment as Record<string, string>;
+    expect(env.HOMECTL_WORKSPACE_LISTEN).toBe("0.0.0.0:7450");
+    // The override adds no privilege, no volume and no secret.
+    const text = JSON.stringify(override);
+    expect(text).not.toMatch(
+      /privileged|docker\.sock|PASSWORD|SECRET|TOKEN|KDBX/i,
+    );
+    expect(service).not.toHaveProperty("volumes");
+    expect(service).not.toHaveProperty("privileged");
+  });
+
+  test("has no secret in the environment, the YAML or any file reference", async () => {
+    // Comments may mention passwords; the parsed values must not carry any.
+    const values = JSON.stringify(await broker());
+    expect(values).not.toMatch(/PASSWORD|SECRET|TOKEN|KDBX/i);
+    expect((await broker()).services.homectl).not.toHaveProperty("secrets");
+  });
+
+  test("has restart, grace period, resource limits and the broker health check", async () => {
+    const service = (await broker()).services.homectl ?? {};
+    expect(service.restart).toBe("unless-stopped");
+    expect(service.stop_grace_period).toBe("20s");
+    expect(service.mem_limit).toBeDefined();
+    expect(service.cpus).toBeDefined();
+    expect(service.pids_limit).toBeDefined();
+    expect(service.init).toBe(true);
+    expect(service.healthcheck).toEqual({
+      test: ["CMD", "bun", "/app/docker/healthcheck.ts"],
+      interval: "60s",
+      timeout: "5s",
+      retries: 3,
+      start_period: "30s",
+    });
+  });
+
+  test("explains the two supported ways to reach the panel, and the plain-http trade-off", async () => {
+    const text = await read("examples", "container", "compose.broker.yaml");
+    expect(text).toContain("reverse proxy");
+    expect(text).toContain("SSH tunnel");
+    expect(text).toContain("SSH encrypts");
+    expect(text).toContain("HOMECTL_PANEL_INSECURE_HTTP=1");
+    expect(text).not.toContain("network_mode");
   });
 });
 

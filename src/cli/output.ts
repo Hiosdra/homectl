@@ -1,3 +1,4 @@
+import type { MigrationResult } from "../migrate/types";
 import { HomectlError } from "../types";
 
 type RecordValue = Record<string, unknown>;
@@ -62,6 +63,20 @@ function checks(value: unknown): string {
     )
     .join("\n");
 }
+// The Dependencies block of a setup or update result. Nothing missing reads as
+// "All found" (a dry run reports { missing: [] }); missing tools are named; a
+// list of checks or planned actions is shown as before.
+function dependencySection(dependencies: Record<string, unknown>): string {
+  const detail = dependencies.checks ?? dependencies.actions;
+  if (detail !== undefined && !(Array.isArray(detail) && detail.length === 0))
+    return `Dependencies\n${checks(detail)}`;
+  const missing = Array.isArray(dependencies.missing)
+    ? dependencies.missing
+    : [];
+  return missing.length > 0
+    ? `Dependencies\nMissing: ${missing.map(String).join(", ")}`
+    : "Dependencies\nAll found";
+}
 function table(headers: string[], rows: string[][]): string {
   const widths = headers.map((header, i) =>
     Math.max(header.length, ...rows.map((row) => (row[i] ?? "").length)),
@@ -75,6 +90,39 @@ function table(headers: string[], rows: string[][]): string {
     )
     .join("\n");
 }
+// `migrate` results: the plan of a dry run, or what a run did. Shows the steps
+// and the files each may touch, the backup taken, and the notes for the owner.
+export function formatMigration(result: MigrationResult): string {
+  switch (result.status) {
+    case "current":
+      return `Data version ${result.version} is current. Nothing to migrate.`;
+    case "initialized":
+      return `No 0.2 data was found. Created an empty workspace at data version ${result.version}.`;
+    case "planned": {
+      if (result.steps.length === 0)
+        return `Dry run: nothing to migrate. A run would only record data version ${result.to}. Nothing was changed.`;
+      const steps = result.steps.flatMap((step, index) => [
+        `${index + 1}. ${step.description} (${step.id})`,
+        `   May touch: ${step.touches.length ? step.touches.join(", ") : "nothing"}`,
+      ]);
+      return [
+        `Dry run: data version ${result.from} would migrate to ${result.to} in ${result.steps.length} step(s). Nothing was changed.`,
+        steps.join("\n"),
+      ].join("\n\n");
+    }
+    case "migrated": {
+      const lines = [
+        `Migrated data version ${result.from} to ${result.to}.`,
+        `Backup: ${result.backup}`,
+        `Steps: ${result.steps.join(", ") || "none"}`,
+      ];
+      if (result.notes.length)
+        lines.push("", "Notes:", ...result.notes.map((note) => `• ${note}`));
+      return lines.join("\n");
+    }
+  }
+}
+
 export function formatHuman(
   value: unknown,
   command?: string,
@@ -112,10 +160,16 @@ export function formatHuman(
       ? tree(value)
       : "No saved commands yet. Use home-ctl commands save --file PATH.";
   if (!record(value)) return tree(value);
+  if (command === "migrate" && typeof value.status === "string")
+    return formatMigration(value as unknown as MigrationResult);
   if (command === "doctor" && Array.isArray(value.checks)) {
-    const { checks: entries, ok, note, ...rest } = value;
+    const { checks: entries, ok, note, summary, ...rest } = value;
     return [
-      ok ? "Doctor: all checks passed." : "Doctor: action required.",
+      typeof summary === "string"
+        ? summary
+        : ok
+          ? "Doctor: all checks passed."
+          : "Doctor: action required.",
       checks(entries),
       Object.keys(rest).length ? tree(rest) : "",
       note,
@@ -153,10 +207,7 @@ export function formatHuman(
         ? actions.map((item) => `• ${item}`).join("\n")
         : "",
     ];
-    if (record(dependencies))
-      sections.push(
-        `Dependencies\n${checks(dependencies.checks ?? dependencies.actions)}`,
-      );
+    if (record(dependencies)) sections.push(dependencySection(dependencies));
     if (doctor) sections.push(formatHuman(doctor, "doctor"));
     if (next) sections.push(String(next));
     if (hint) sections.push(String(hint));
@@ -190,6 +241,12 @@ export function formatHuman(
         ]),
       ),
     );
+  }
+  // A dry run shows the plan's fingerprint. It is not an approval: the owner's
+  // approval is a separate step in the panel or with `home-ctl approve`.
+  if (command === "exec" && record(value.plan) && !("result" in value)) {
+    const { approval, ...plan } = value.plan;
+    return tree({ ...plan, "plan fingerprint": approval });
   }
   if ((command === "exec" || command === "peer") && record(value.result)) {
     const { stdout, stderr, exitCode, ...rest } = value.result;

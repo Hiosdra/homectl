@@ -90,3 +90,35 @@ test("completed update is a report, while dry-run remains a plan", () => {
     formatHuman({ actions: ["Install dependencies"] }, "update"),
   ).toContain("Update preview");
 });
+
+test("setup dry-run with nothing missing says so, never 'undefined'", () => {
+  const output = formatHuman(
+    { mode: "dry-run", dependencies: { missing: [] } },
+    "setup",
+  );
+  expect(output).toContain("Dependencies\nAll found");
+  expect(output).not.toContain("undefined");
+});
+
+test("setup names the missing tools and empty planned actions read as all found", () => {
+  expect(
+    formatHuman(
+      { dependencies: { missing: ["ssh", "keepassxc-cli"] } },
+      "setup",
+    ),
+  ).toContain("Dependencies\nMissing: ssh, keepassxc-cli");
+  expect(
+    formatHuman({ dependencies: { installed: false, actions: [] } }, "setup"),
+  ).toContain("Dependencies\nAll found");
+  expect(
+    formatHuman(
+      {
+        dependencies: {
+          installed: true,
+          checks: [{ name: "ssh", ok: true }],
+        },
+      },
+      "setup",
+    ),
+  ).toContain("OK  ssh");
+});

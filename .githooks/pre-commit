@@ -1,0 +1,27 @@
+#!/bin/sh
+# Pre-commit: format staged files with `bun fmt`, type check with `bun check`
+# and lint what is staged.
+# Installed by `bun install` (scripts/install-hooks.ts sets core.hooksPath).
+# Skip once with `git commit --no-verify` only when you know why.
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+[ -n "$staged" ] || exit 0
+
+# Formats the staged files and stages the result again.
+bun fmt --staged
+
+bun check
+bun scripts/check-file-length.ts
+bun scripts/check-doc-links.ts
+
+lintable="$(echo "$staged" | grep -E '^(src|tests|scripts|schema)/.*\.(ts|tsx|js|json)$|^(package|tsconfig|biome)\.json$' || true)"
+if [ -n "$lintable" ]; then
+  # shellcheck disable=SC2086 # word splitting of the file list is intended
+  bunx biome lint --no-errors-on-unmatched $lintable
+fi
+
+if echo "$staged" | grep -qE '\.sh$|^\.githooks/|^\.github/workflows/|^Dockerfile$'; then
+  sh scripts/lint-other.sh
+fi

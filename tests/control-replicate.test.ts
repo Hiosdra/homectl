@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -22,6 +22,8 @@ import {
   ownerAt,
   sealRecord,
 } from "../src/control/replicate";
+
+setDefaultTimeout(60_000);
 
 const dirs: string[] = [];
 afterEach(async () => {

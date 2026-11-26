@@ -6,8 +6,15 @@ import { Action, PageHeading, Tag } from "../shared";
 import { Button } from "../ui/button";
 
 export function Welcome() {
-  const machines = Object.values(ui.state.inventory.machines).filter((m) => m.transport !== "local");
-  const steps: { title: string; text: string; done: boolean; action: ReactNode }[] = [
+  const machines = Object.values(ui.state.inventory.machines).filter(
+    (m) => m.transport !== "local",
+  );
+  const steps: {
+    title: string;
+    text: string;
+    done: boolean;
+    action: ReactNode;
+  }[] = [
     {
       title: "Create a safe",
       text: "Encrypted database on this device",

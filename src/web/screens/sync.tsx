@@ -56,7 +56,7 @@ export function syncChangeCards(
           ? ["type", "host", "node"]
           : type === "saved-command"
             ? ["name", "hosts", "argv", "parameters", "description"]
-          : [];
+            : [];
     const left = object(before);
     const right = object(after);
     const details = fields.filter(
@@ -69,11 +69,15 @@ export function syncChangeCards(
           ? "Review the host fingerprint independently before trusting it."
           : type === "saved-command"
             ? "Shortcuts never grant access. Each device checks its own inventory and policy when a command runs."
-          : "";
+            : "";
     return (
-      <article key={id} className="min-w-0 rounded-lg border border-border bg-background p-4">
+      <article
+        key={id}
+        className="min-w-0 rounded-lg border border-border bg-background p-4"
+      >
         <h3 className="mb-2 text-[15px] font-semibold break-words">
-          {label}: {type === "saved-command" ? display(right.name ?? name) : name}
+          {label}:{" "}
+          {type === "saved-command" ? display(right.name ?? name) : name}
         </h3>
         <Tag>{action}</Tag>
         {details.length ? (
@@ -112,7 +116,11 @@ function stamp(at?: number) {
   return at === undefined ? "" : localStamp(new Date(at).toISOString());
 }
 
-function removedNote(p: Preview, conflict: Conflict, suggested: Side | undefined) {
+function removedNote(
+  p: Preview,
+  conflict: Conflict,
+  suggested: Side | undefined,
+) {
   const removed: Side = conflict.local.value === null ? "local" : "remote";
   const kept: Side = removed === "local" ? "remote" : "local";
   const removedAt = stamp(conflict[removed].at);
@@ -137,14 +145,18 @@ export function SyncWait() {
       <AlertTitle id="sync-wait-title">Unlock the vault on {name}</AlertTitle>
       <AlertDescription>
         <p>
-          On {name}, open homectl → Vault → Unlock vault, or run this command in a
-          private terminal:
+          On {name}, open homectl → Vault → Unlock vault, or run this command in
+          a private terminal:
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2.5">
           <code>home-ctl session unlock</code>
           <Action action="sync-copy-unlock" label="Copy command" />
         </div>
-        <p id="sync-wait-status" role="status" className="mt-2 text-muted-foreground">
+        <p
+          id="sync-wait-status"
+          role="status"
+          className="mt-2 text-muted-foreground"
+        >
           {ui.syncWaitStatus}
         </p>
       </AlertDescription>
@@ -172,25 +184,44 @@ function VersionBox({
         {title} <Tag>{tag}</Tag>
       </h3>
       {at ? <Note>Changed {at}</Note> : null}
-      {syncChangeCards([{ id: conflict.id, local: null, remote: conflict[side] }], true)}
+      {syncChangeCards(
+        [{ id: conflict.id, local: null, remote: conflict[side] }],
+        true,
+      )}
     </div>
   );
 }
 
-function ConflictCard({ p, index, conflict }: { p: Preview; index: number; conflict: Conflict }) {
+function ConflictCard({
+  p,
+  index,
+  conflict,
+}: {
+  p: Preview;
+  index: number;
+  conflict: Conflict;
+}) {
   const choice = ui.conflictChoice[index];
-  const removal = conflict.local.value === null || conflict.remote.value === null;
+  const removal =
+    conflict.local.value === null || conflict.remote.value === null;
   const suggested = conflict.suggested;
-  const options: { value: string; label: string; hint?: string; isDefault: boolean }[] = [
-    "local",
-    "remote",
-  ].map((side) => ({
+  const options: {
+    value: string;
+    label: string;
+    hint?: string;
+    isDefault: boolean;
+  }[] = ["local", "remote"].map((side) => ({
     value: side,
     label: optionLabel(p, conflict, side as Side),
     isDefault: suggested === side,
   }));
   if (!conflict.id.startsWith("hostkey:") && !removal)
-    options.push({ value: "both", label: "Keep both", hint: "Two separate entries", isDefault: false });
+    options.push({
+      value: "both",
+      label: "Keep both",
+      hint: "Two separate entries",
+      isDefault: false,
+    });
   const title = conflict.id;
   const choiceText =
     choice === "both"
@@ -216,11 +247,26 @@ function ConflictCard({ p, index, conflict }: { p: Preview; index: number; confl
       {removal ? <Note>{removedNote(p, conflict, suggested)}</Note> : null}
       {choice === undefined ? (
         <div className="grid gap-3 md:grid-cols-2">
-          <VersionBox p={p} side="local" conflict={conflict} title={p.localName} tag="Local" />
-          <VersionBox p={p} side="remote" conflict={conflict} title={p.remoteName} tag="Received" />
+          <VersionBox
+            p={p}
+            side="local"
+            conflict={conflict}
+            title={p.localName}
+            tag="Local"
+          />
+          <VersionBox
+            p={p}
+            side="remote"
+            conflict={conflict}
+            title={p.remoteName}
+            tag="Received"
+          />
         </div>
       ) : (
-        <div className="grid gap-2 rounded-lg border border-border p-4" role="status">
+        <div
+          className="grid gap-2 rounded-lg border border-border p-4"
+          role="status"
+        >
           <h3 className="text-[15px] font-semibold">
             {choice === "both" ? "Both versions kept" : "Selected version"}
           </h3>
@@ -229,28 +275,44 @@ function ConflictCard({ p, index, conflict }: { p: Preview; index: number; confl
             <div className="grid gap-3 md:grid-cols-2">
               {(["local", "remote"] as Side[]).map((side) => (
                 <div key={side}>
-                  {syncChangeCards([{ id: conflict.id, local: null, remote: conflict[side] }], true)}
+                  {syncChangeCards(
+                    [{ id: conflict.id, local: null, remote: conflict[side] }],
+                    true,
+                  )}
                 </div>
               ))}
             </div>
           ) : (
-            syncChangeCards([
-              {
-                id: conflict.id,
-                local: null,
-                remote: conflict[choice === "remote" ? "remote" : "local"],
-              },
-            ], true)
+            syncChangeCards(
+              [
+                {
+                  id: conflict.id,
+                  local: null,
+                  remote: conflict[choice === "remote" ? "remote" : "local"],
+                },
+              ],
+              true,
+            )
           )}
           <div>
-            <Action action="compare-conflict" label="Compare again" id={String(index)} kind="quiet" />
+            <Action
+              action="compare-conflict"
+              label="Compare again"
+              id={String(index)}
+              kind="quiet"
+            />
           </div>
         </div>
       )}
       <fieldset className="grid gap-2.5">
-        <legend className="mb-1 text-sm text-muted-foreground">Choose the final result</legend>
+        <legend className="mb-1 text-sm text-muted-foreground">
+          Choose the final result
+        </legend>
         {options.map((option) => (
-          <label key={option.value} className="flex flex-wrap items-center gap-2.5">
+          <label
+            key={option.value}
+            className="flex flex-wrap items-center gap-2.5"
+          >
             <input
               type="radio"
               name={`choice-${index}`}
@@ -261,9 +323,15 @@ function ConflictCard({ p, index, conflict }: { p: Preview; index: number; confl
             />
             <span>
               {option.label}
-              {option.hint ? <span className="block text-xs text-muted-foreground">{option.hint}</span> : null}
+              {option.hint ? (
+                <span className="block text-xs text-muted-foreground">
+                  {option.hint}
+                </span>
+              ) : null}
             </span>
-            {option.isDefault ? <Tag tone="info">default · later change</Tag> : null}
+            {option.isDefault ? (
+              <Tag tone="info">default · later change</Tag>
+            ) : null}
           </label>
         ))}
       </fieldset>
@@ -283,13 +351,22 @@ export function SyncCompare({ p }: { p: Preview }) {
       <SyncWait />
       <form id="sync-form" key={p.id} className="grid gap-5">
         <p className="text-sm text-muted-foreground">
-          {p.conflicts.length} conflict{p.conflicts.length === 1 ? "" : "s"} to resolve · {ui.applied?.items.length ?? 0} change{(ui.applied?.items.length ?? 0) === 1 ? "" : "s"} applied automatically
+          {p.conflicts.length} conflict{p.conflicts.length === 1 ? "" : "s"} to
+          resolve · {ui.applied?.items.length ?? 0} change
+          {(ui.applied?.items.length ?? 0) === 1 ? "" : "s"} applied
+          automatically
         </p>
         {p.issues?.length ? (
-          <section role="status" className="grid gap-2 rounded-lg border border-warning/40 p-4 text-sm">
+          <section
+            role="status"
+            className="grid gap-2 rounded-lg border border-warning/40 p-4 text-sm"
+          >
             <strong>Some saved-command records were skipped</strong>
             {p.issues.map((issue) => (
-              <p key={`${issue.id}:${issue.reason}`} className="break-words text-muted-foreground">
+              <p
+                key={`${issue.id}:${issue.reason}`}
+                className="break-words text-muted-foreground"
+              >
                 {issue.id}: {issue.reason}
               </p>
             ))}
@@ -299,21 +376,30 @@ export function SyncCompare({ p }: { p: Preview }) {
           <ConflictCard key={c.id + i} p={p} index={i} conflict={c} />
         ))}
         <Disclosure title={<>Changes to review</>} panelClassName="pt-3">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {p.entries
-                ? syncChangeCards(p.entries)
-                : p.changes.map((id) => (
-                    <article key={id} className="rounded-lg border border-border bg-background p-4">
-                      <h3 className="text-[15px] font-semibold break-words">{id}</h3>
-                    </article>
-                  ))}
-            </div>
-          </Disclosure>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {p.entries
+              ? syncChangeCards(p.entries)
+              : p.changes.map((id) => (
+                  <article
+                    key={id}
+                    className="rounded-lg border border-border bg-background p-4"
+                  >
+                    <h3 className="text-[15px] font-semibold break-words">
+                      {id}
+                    </h3>
+                  </article>
+                ))}
+          </div>
+        </Disclosure>
         <footer className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-sm text-muted-foreground">Only conflicts need you</span>
+          <span className="text-sm text-muted-foreground">
+            Only conflicts need you
+          </span>
           <div className="flex flex-wrap items-center gap-2.5">
             <Action action="sync-cancel" label="Close" kind="quiet" />
-            {ui.syncPeerId ? <Action action="sync-restart" label="Compare devices again" /> : null}
+            {ui.syncPeerId ? (
+              <Action action="sync-restart" label="Compare devices again" />
+            ) : null}
             <Button type="submit" disabled={syncWaitVisible()}>
               Apply choices
             </Button>
@@ -323,4 +409,3 @@ export function SyncCompare({ p }: { p: Preview }) {
     </>
   );
 }
-

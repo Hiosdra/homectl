@@ -121,7 +121,7 @@ export async function service(action: string, options: ServiceOptions) {
     if (windows && !options.wrapper)
       throw new HomectlError(
         5,
-        "Provide --wrapper with an official WinSW executable; see docs/windows.md",
+        "Provide --wrapper with an official WinSW executable; see docs/setup.md (Windows)",
       );
     await privateDirectory(directory);
     await writeFile(

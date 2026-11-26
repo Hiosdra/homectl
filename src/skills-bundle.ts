@@ -3,12 +3,8 @@
 // its folder. A source checkout still links the skills from skills/ instead of copying.
 // tests/skill-install.test.ts fails if a file under skills/ is missing from this list.
 import homelabSkill from "../skills/homelab/SKILL.md" with { type: "file" };
-import homelabEnrollSkill from "../skills/homelab-enroll/SKILL.md" with {
-  type: "file",
-};
-import homelabSetupSkill from "../skills/homelab-setup/SKILL.md" with {
-  type: "file",
-};
+import homelabEnrollSkill from "../skills/homelab-enroll/SKILL.md" with { type: "file" };
+import homelabSetupSkill from "../skills/homelab-setup/SKILL.md" with { type: "file" };
 
 export type BundledSkill = {
   name: string;

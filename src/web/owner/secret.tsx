@@ -1,0 +1,363 @@
+// Provide or decline one secret request. The plain sentence says where the value
+// goes; the exact command, file mode and other technical values sit under Details.
+// Values live only in this form's state: they are never logged, never put in the
+// URL or storage, and cleared as soon as the request is sent.
+import { useId, useState } from "react";
+import {
+  describeError,
+  type PendingSecret,
+  type SecretDestination,
+  type SecretField,
+  ownerCall,
+  untrustedText,
+} from "./api";
+import { RadioRow } from "./radio";
+import { useAssistantNames } from "./assistant-names";
+import { displayName } from "./plain-words";
+import {
+  Argv,
+  Badge,
+  Field,
+  MachineChip,
+  MachineText,
+  Notice,
+  PasswordStep,
+  Untrusted,
+} from "./ui";
+
+type Retention = "ephemeral" | "saved";
+
+// Field kinds decide how the value is typed and masked.
+export function inputFor(
+  field: SecretField,
+  value: string,
+  onChange: (value: string) => void,
+  id: string,
+) {
+  const common = {
+    id,
+    value,
+    required: true,
+    autoComplete: "off",
+    spellCheck: false,
+    autoCapitalize: "off",
+    onChange: (event: { target: { value: string } }) =>
+      onChange(event.target.value),
+  } as const;
+  switch (field.kind) {
+    case "ssh-key":
+      return (
+        <textarea
+          {...common}
+          className="masked"
+          rows={6}
+          aria-describedby={`${id}-hint`}
+        />
+      );
+    case "password":
+    case "token":
+      return <input {...common} type="password" />;
+    case "text":
+      return <input {...common} type="text" />;
+  }
+}
+
+// One plain sentence for where the value goes. Its technical values (the command,
+// the file mode) are listed under Details, so nothing is hidden.
+export function plainDestination(destination: SecretDestination): string {
+  switch (destination.kind) {
+    case "ssh-stdin":
+      return `It will be passed to a command on ${destination.host}.`;
+    case "http-header":
+      return `It will be sent as a header to ${destination.url}.`;
+    case "target-file":
+      return `It will be saved to a file on ${destination.host}.`;
+    case "vault-only":
+      return "It will be kept in the vault only. Nothing is sent to a machine yet.";
+  }
+}
+
+export function DestinationBlock({
+  destination,
+}: {
+  destination: SecretDestination;
+}) {
+  const details = (() => {
+    switch (destination.kind) {
+      case "ssh-stdin":
+        return (
+          <dl>
+            <dt>Machine</dt>
+            <dd>
+              <MachineChip name={destination.host} />
+            </dd>
+            <dt>Command</dt>
+            <dd>
+              <Argv argv={destination.argv} />
+            </dd>
+          </dl>
+        );
+      case "http-header":
+        return (
+          <dl>
+            <dt>Header</dt>
+            <dd>
+              <code>{destination.header}</code>
+            </dd>
+            <dt>Address</dt>
+            <dd>
+              <code>{destination.url}</code>
+            </dd>
+          </dl>
+        );
+      case "target-file":
+        return (
+          <dl>
+            <dt>Machine</dt>
+            <dd>
+              <MachineChip name={destination.host} />
+            </dd>
+            <dt>File</dt>
+            <dd>
+              <code>{destination.path}</code>
+            </dd>
+            <dt>Mode</dt>
+            <dd>
+              <code>{destination.mode}</code>
+            </dd>
+          </dl>
+        );
+      case "vault-only":
+        return <p className="small muted">No machine or address is used.</p>;
+    }
+  })();
+  return (
+    <>
+      <p className="lead">
+        <MachineText
+          text={plainDestination(destination)}
+          machines={
+            destination.kind === "ssh-stdin" ||
+            destination.kind === "target-file"
+              ? [destination.host]
+              : []
+          }
+        />
+      </p>
+      <details className="details">
+        <summary>Details</summary>
+        {details}
+      </details>
+    </>
+  );
+}
+
+export function SecretScreen({
+  request,
+  onDone,
+  onError,
+}: {
+  request: PendingSecret;
+  onDone: (message: string) => void;
+  onError: (error: unknown) => unknown;
+}) {
+  const baseId = useId();
+  const names = useAssistantNames();
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [retention, setRetention] = useState<Retention>("ephemeral");
+  const [saveName, setSaveName] = useState("");
+  const [reuse, setReuse] = useState(false);
+  const canReuse =
+    request.destination.kind !== "vault-only" &&
+    !request.fields.some((field) => field.kind === "ssh-key");
+  // Providing a value is a step-up: the owner password goes with the request.
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+
+  const missing: string[] = [];
+  if (!request.fields.every((field) => (values[field.name] ?? "").length > 0))
+    missing.push("fill in every value");
+  if (retention === "saved" && saveName.trim().length === 0)
+    missing.push("name the vault entry");
+  if (password.length === 0) missing.push("enter your owner password");
+  const complete = missing.length === 0;
+
+  const provide = async () => {
+    if (busy || !complete) return;
+    // Copy out, then clear the form before the request leaves.
+    const payload = { ...values };
+    const secret = password;
+    setValues({});
+    setPassword("");
+    setBusy(true);
+    setError(undefined);
+    try {
+      await ownerCall("/v1/owner/secrets/provide", {
+        id: request.id,
+        values: payload,
+        retention,
+        password: secret,
+        ...(retention === "saved"
+          ? { saveName: saveName.trim(), reuse: canReuse && reuse }
+          : {}),
+      });
+      setSaveName("");
+      setReuse(false);
+      onDone(
+        retention === "saved"
+          ? "Saved to the vault. The assistant can now use it for this destination."
+          : "Provided for one hour in memory. It is dropped afterwards.",
+      );
+    } catch (failure) {
+      onError(failure);
+      setError(describeError(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const decline = async () => {
+    setValues({});
+    setBusy(true);
+    try {
+      await ownerCall("/v1/owner/secrets/decline", { id: request.id });
+      onDone("Declined. The assistant was told.");
+    } catch (failure) {
+      onError(failure);
+      setError(describeError(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <article className="stack" aria-labelledby="secret-title">
+      <section>
+        <div className="row between">
+          <h2 id="secret-title">Secret request</h2>
+          <Badge>{displayName(request.client, names)}</Badge>
+        </div>
+        <Untrusted
+          label="Why the assistant asks"
+          text={untrustedText(request.purpose)}
+        />
+        <h3 className="sub-title">Where the value goes</h3>
+        <DestinationBlock destination={request.destination} />
+      </section>
+
+      <section className="stack" aria-label="Values">
+        {request.fields.map((field) => {
+          const id = `${baseId}-${field.name}`;
+          return (
+            <Field
+              key={field.name}
+              id={id}
+              label={field.label}
+              hint={
+                field.kind === "ssh-key"
+                  ? "masked; paste the whole key"
+                  : field.kind === "text"
+                    ? undefined
+                    : "hidden as you type"
+              }
+            >
+              {inputFor(
+                field,
+                values[field.name] ?? "",
+                (value) =>
+                  setValues((current) => ({ ...current, [field.name]: value })),
+                id,
+              )}
+            </Field>
+          );
+        })}
+
+        <fieldset>
+          <legend>How long to keep it</legend>
+          <div className="radio-group">
+            <RadioRow
+              name={`${baseId}-retention`}
+              value="ephemeral"
+              checked={retention === "ephemeral"}
+              onChange={() => setRetention("ephemeral")}
+              title="One hour, in memory only"
+              detail="The default. It is dropped after an hour."
+            />
+            {request.canSave !== false ? (
+              <RadioRow
+                name={`${baseId}-retention`}
+                value="saved"
+                checked={retention === "saved"}
+                onChange={() => setRetention("saved")}
+                title="Save to the encrypted vault"
+                detail="Kept until you remove it."
+              />
+            ) : null}
+          </div>
+          {retention === "saved" ? (
+            <div className="stack">
+              <Field
+                id={`${baseId}-save`}
+                label="Save for next time, under this name"
+              >
+                <input
+                  id={`${baseId}-save`}
+                  type="text"
+                  autoComplete="off"
+                  value={saveName}
+                  onChange={(event) => setSaveName(event.target.value)}
+                />
+              </Field>
+              {canReuse ? (
+                <label className="row small">
+                  <input
+                    name="reuse"
+                    type="checkbox"
+                    checked={reuse}
+                    onChange={(event) => setReuse(event.target.checked)}
+                  />
+                  Let this assistant reuse it for the same task, destination and
+                  fields.
+                </label>
+              ) : null}
+            </div>
+          ) : null}
+        </fieldset>
+
+        <PasswordStep
+          value={password}
+          onChange={setPassword}
+          hint="required to provide"
+        />
+        {error ? <Notice tone="bad">{error}</Notice> : null}
+        <div className="request-actions">
+          <button
+            type="button"
+            className="primary"
+            disabled={busy || !complete}
+            onClick={provide}
+          >
+            Provide secret
+          </button>
+          <button
+            type="button"
+            className="danger"
+            disabled={busy}
+            onClick={decline}
+          >
+            Decline
+          </button>
+        </div>
+        {!complete && !busy ? (
+          <p className="small muted" role="note">
+            To provide it: {missing.join(", ")}.
+          </p>
+        ) : null}
+        <p className="small muted">
+          Values are sent once to your homectl broker and are never shown again.
+        </p>
+      </section>
+    </article>
+  );
+}

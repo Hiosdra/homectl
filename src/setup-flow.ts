@@ -6,7 +6,11 @@ import { configureFirewall, firewallPlan } from "./firewall";
 import { loadInventory } from "./inventory";
 import { lanAddresses } from "./peer/interactive";
 import { available, protect, windows } from "./platform";
+import { readPassword } from "./session";
+import { initDatabase } from "./session/database";
+import { sessionConfig } from "./session/config";
 import { doctor, paths, setup } from "./setup";
+import { type GuidedResult, guidedSetup } from "./setup-guided";
 import { HomectlError } from "./types";
 
 export async function selectLanInterface(
@@ -50,9 +54,15 @@ export async function setupFlow(options: {
   installDeps: boolean;
   configureFirewall: boolean;
   interface?: string;
+  // false (--no-path): leave the Windows user PATH alone.
+  updatePath?: boolean;
   interactive?: boolean;
   addresses?: string[];
   ask?: (prompt: string) => Promise<string>;
+  // Guided setup seams (interactive only). Defaults: the terminal and the real vault.
+  askSecret?: (prompt: string) => Promise<string>;
+  createVault?: (password: string) => Promise<unknown>;
+  start?: () => Promise<number>;
 }) {
   const interactive =
     options.interactive ??
@@ -106,7 +116,11 @@ export async function setupFlow(options: {
         )
       : await installLinuxDependencies(options.dryRun, interactive)
     : { missing };
-  const result = await setup(options.home, options.dryRun);
+  const result = await setup(
+    options.home,
+    options.dryRun,
+    options.updatePath ?? true,
+  );
   let firewall: unknown;
   let configure = options.configureFirewall;
   if (ip) {
@@ -145,17 +159,47 @@ export async function setupFlow(options: {
       configured: false,
       note: "LAN not selected; firewall not changed. Run setup interactively or pass --configure-firewall --interface in JSON mode.",
     };
+  const inventoryPath = paths(options.home).inventory;
   const verification = options.dryRun
     ? undefined
-    : await doctor(
-        await loadInventory(paths(options.home).inventory),
-        paths(options.home).inventory,
-      );
+    : await doctor(await loadInventory(inventoryPath), inventoryPath);
+  // Interactive only: create the vault, print a summary, then offer to start homectl.
+  const guided =
+    interactive && !options.dryRun ? await runGuided(options, ask) : undefined;
   return {
     ...result,
     dependencies,
     firewall,
     ...(verification ? { doctor: verification } : {}),
     interactive,
+    ...(guided ? { guided } : {}),
   };
+}
+
+async function runGuided(
+  options: Parameters<typeof setupFlow>[0],
+  ask: (prompt: string) => Promise<string>,
+): Promise<GuidedResult> {
+  const { home } = options;
+  const inventoryPath = paths(home).inventory;
+  const inventory = await loadInventory(inventoryPath);
+  const database = sessionConfig(inventory, inventoryPath).database;
+  return guidedSetup({
+    say: (line) => console.log(line),
+    ask,
+    askSecret: options.askSecret ?? ((prompt) => readPassword(prompt)),
+    vaultExists: async () => Bun.file(database).exists(),
+    vaultPath: database,
+    createVault:
+      options.createVault ??
+      ((password) => initDatabase(inventory, inventoryPath, password)),
+    start:
+      options.start ??
+      (async () =>
+        (await import("./cli/start-command")).startCommand({
+          inventoryPath,
+          sshConfigPath: paths(home).ssh,
+          open: true,
+        })),
+  });
 }

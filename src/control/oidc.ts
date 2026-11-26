@@ -1,4 +1,4 @@
-// OIDC authentication for MCP clients (slice 4, docs/homectl-2.0/oidc-mcp-auth.md).
+// OIDC authentication for MCP clients (slice 4, docs/reference.md).
 // The identity provider proves who the caller is; homectl decides what the
 // caller may do. Static `hct_` tokens are unchanged and remain the default.
 import {

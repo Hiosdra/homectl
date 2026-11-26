@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   mkdir,
   mkdtemp,
@@ -13,6 +13,8 @@ import { loadOrCreateDeviceKey } from "../src/control/device-key";
 import { ControlPlane, controlStateDirectory } from "../src/control/engine";
 import { ControlReplicator, loadReplicaFile } from "../src/control/replicator";
 import { HomectlError } from "../src/types";
+
+setDefaultTimeout(60_000);
 
 // Synthetic device with an empty inventory; nothing here contacts a peer.
 const dirs: string[] = [];

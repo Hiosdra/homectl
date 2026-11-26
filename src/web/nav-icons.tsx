@@ -58,4 +58,3 @@ export const NAV_ICONS: Record<string, ReactNode> = {
     </svg>
   ),
 };
-

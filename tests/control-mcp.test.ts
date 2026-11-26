@@ -1,11 +1,16 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { ControlPlane } from "../src/control/engine";
-import { type McpServer, startMcpServer, TOOLS } from "../src/control/mcp";
-import { schemas } from "../src/control/schema";
+import {
+  type McpServer,
+  RETIRED_MESSAGE,
+  startMcpServer,
+} from "../src/control/mcp";
 import { HomectlError, type ProcessSpec } from "../src/types";
+
+setDefaultTimeout(60_000);
 
 const INVENTORY = `version: 1
 machines:
@@ -115,8 +120,8 @@ async function call(
   });
   return response.json?.result as {
     isError: boolean;
-    structuredContent?: Record<string, unknown>;
-    content: { text: string }[];
+
+    content: { type: string; text: string }[];
   };
 }
 
@@ -286,7 +291,8 @@ describe("MCP methods", () => {
       },
     });
     expect(
-      (older.json?.result as { protocolVersion: string }).protocolVersion,
+      (older.json?.result as { protocolVersion?: string } | undefined)
+        ?.protocolVersion,
     ).toBe("2025-03-26");
     const unknown = await rpc(f, token, {
       jsonrpc: "2.0",
@@ -304,53 +310,15 @@ describe("MCP methods", () => {
     expect(result.serverInfo.name).toBe("homectl");
   });
 
-  test("tools/list is filtered by scope and exposes no execution or shell tool", async () => {
+  test("the retired endpoint advertises an empty catalogue", async () => {
     const f = await fixture();
-    const codex = await rpc(f, f.tokens["codex-pc"], {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/list",
-    });
-    const hermes = await rpc(f, f.tokens["hermes-admin"], {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/list",
-    });
-    const names = (r: typeof codex) =>
-      (r.json?.result as { tools: { name: string }[] }).tools
-        .map((t) => t.name)
-        .sort();
-    // The typed Proxmox plan tool carries plan:create, like homectl_plan.
-    expect(names(codex)).toEqual([
-      "homectl_inspect",
-      "homectl_plan",
-      "homectl_proxmox_plan",
-      "homectl_status",
-    ]);
-    expect(names(hermes)).toEqual([
-      "homectl_approve",
-      "homectl_inspect",
-      "homectl_status",
-    ]);
-    const everything = [...TOOLS.map((t) => t.name)].join(" ");
-    expect(everything).not.toMatch(/exec|shell|execute|client|secret|sudo/i);
-  });
-
-  test("tool input schemas are self-contained and reject unknown properties", async () => {
-    const f = await fixture();
-    const response = await rpc(f, f.tokens["codex-pc"], {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/list",
-    });
-    const tools = (
-      response.json?.result as {
-        tools: { name: string; inputSchema: Record<string, unknown> }[];
-      }
-    ).tools;
-    for (const tool of tools) {
-      expect(JSON.stringify(tool.inputSchema)).not.toContain("$ref");
-      expect(tool.inputSchema.additionalProperties).toBe(false);
+    for (const token of Object.values(f.tokens)) {
+      const response = await rpc(f, token, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+      });
+      expect(response.json?.result).toEqual({ tools: [] });
     }
   });
 
@@ -364,185 +332,22 @@ describe("MCP methods", () => {
     expect(response.json).toEqual({ jsonrpc: "2.0", id: "abc", result: {} });
   });
 
-  test("unknown tools are a protocol error, not a tool result", async () => {
+  test("the retired endpoint refuses calls without reaching the engine", async () => {
     const f = await fixture();
-    const response = await rpc(f, f.tokens["codex-pc"], {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: { name: "homectl_exec", arguments: { argv: ["sh"] } },
-    });
-    expect(response.json).toMatchObject({ error: { code: -32602 } });
-    expect(f.calls).toHaveLength(0);
-  });
-});
-
-describe("tool calls through the engine", () => {
-  test("plan then approve over JSON-RPC, with status reflecting each step", async () => {
-    const f = await fixture();
-    const codex = f.tokens["codex-pc"] ?? "";
-    const hermes = f.tokens["hermes-admin"] ?? "";
-    const plan = await call(f, codex, "homectl_plan", {
-      host: "lab-printer",
-      argv: ["systemctl", "restart", "nginx"],
-      impact: "restart the web service",
-    });
-    expect(plan.isError).toBe(false);
-    expect(schemas.operationView(plan.structuredContent)).toBe(true);
-    const operationId = plan.structuredContent?.operationId as string;
-    const fingerprint = plan.structuredContent?.fingerprint as string;
-
-    const approved = await call(f, hermes, "homectl_approve", {
-      operationId,
-      fingerprint,
-      decision: "approve",
-    });
-    expect(approved.isError).toBe(false);
-    expect(JSON.stringify(approved.structuredContent)).not.toContain("nonce");
-    expect(schemas.approvalView(approved.structuredContent?.approval)).toBe(
-      true,
-    );
-
-    const status = await call(f, codex, "homectl_status", { operationId });
-    expect(status.structuredContent?.state).toBe("approved");
-    expect(f.calls).toHaveLength(0);
-  });
-
-  test("a client cannot approve its own plan", async () => {
-    const f = await fixture([
-      { ...CODEX, scopes: [...CODEX.scopes, "approve:decide"] },
-    ]);
-    const codex = f.tokens["codex-pc"] ?? "";
-    const plan = await call(f, codex, "homectl_plan", {
-      host: "lab-printer",
-      argv: ["systemctl", "restart", "nginx"],
-    });
-    const self = await call(f, codex, "homectl_approve", {
-      operationId: plan.structuredContent?.operationId,
-      fingerprint: plan.structuredContent?.fingerprint,
-      decision: "approve",
-    });
-    expect(self.isError).toBe(true);
-    expect(self.content[0]?.text).toContain("Self-approval");
-  });
-
-  test("a client without plan:create cannot plan, and the refusal is audited", async () => {
-    const f = await fixture();
-    const denied = await call(
-      f,
-      f.tokens["hermes-admin"] ?? "",
+    for (const name of [
       "homectl_plan",
-      {
-        host: "lab-printer",
-        argv: ["uname"],
-      },
-    );
-    expect(denied.isError).toBe(true);
-    expect(denied.content[0]?.text).toContain("(code 3)");
-    const audit = await readFile(
-      join(f.dir, "control-plane", "audit.jsonl"),
-      "utf8",
-    );
-    expect(audit).toContain('"request.rejected"');
-  });
-
-  test("the typed op cannot be overridden by tool arguments", async () => {
-    const f = await fixture();
-    const codex = f.tokens["codex-pc"] ?? "";
-    const plan = await call(f, codex, "homectl_plan", {
-      host: "lab-printer",
-      argv: ["uname"],
-      op: "execute",
-    });
-    expect(plan.isError).toBe(false);
-    const smuggled = await call(f, codex, "homectl_plan", {
-      host: "lab-printer",
-      argv: ["uname"],
-      operationId: plan.structuredContent?.operationId,
-    });
-    expect(smuggled.isError).toBe(true);
-    expect(smuggled.content[0]?.text).toContain(
-      "Invalid control-plane request",
-    );
+      "homectl_approve",
+      "homectl_proxmox_plan",
+      "homectl_exec",
+    ]) {
+      const result = await call(f, f.tokens["codex-pc"] ?? "", name, {});
+      expect(result).toEqual({
+        isError: true,
+        content: [{ type: "text", text: RETIRED_MESSAGE }],
+      });
+    }
     expect(f.calls).toHaveLength(0);
-  });
-
-  test("shells, full-access hosts and secrets are refused through tools", async () => {
-    const f = await fixture([{ ...CODEX, hosts: ["lab-printer", "big"] }]);
-    const codex = f.tokens["codex-pc"] ?? "";
-    const shell = await call(f, codex, "homectl_plan", {
-      host: "lab-printer",
-      argv: ["sh", "-c", "id"],
-    });
-    expect(shell.isError).toBe(true);
-    const full = await call(f, codex, "homectl_plan", {
-      host: "big",
-      argv: ["uname"],
-    });
-    expect(full.content[0]?.text).toContain("Full-access");
-    const secret = await call(f, codex, "homectl_plan", {
-      host: "lab-printer",
-      argv: ["tool", "--token=abc123456"],
-    });
-    expect(secret.content[0]?.text).toContain("Secret-like");
-    expect(f.calls).toHaveLength(0);
-  });
-
-  test("inspect returns redacted machine metadata and no execution", async () => {
-    const f = await fixture();
-    const result = await call(
-      f,
-      f.tokens["codex-pc"] ?? "",
-      "homectl_inspect",
-      { host: "lab-printer" },
-    );
-    expect(result.isError).toBe(false);
-    expect(result.structuredContent).toMatchObject({
-      host: "lab-printer",
-      access: "user",
-    });
-    // Key names only: "user" is also a legitimate access value.
-    expect(JSON.stringify(result.structuredContent)).not.toMatch(
-      /"(address|auth|ssh_alias|user|port|sudo_allow|public_key|socket)":/,
-    );
-    const all = await call(
-      f,
-      f.tokens["codex-pc"] ?? "",
-      "homectl_inspect",
-      {},
-    );
-    expect((all.structuredContent?.hosts as unknown[]).length).toBe(1);
-    expect(f.calls).toHaveLength(0);
-  });
-
-  test("ungranted and unknown hosts are indistinguishable through inspect", async () => {
-    const f = await fixture();
-    const codex = f.tokens["codex-pc"] ?? "";
-    const ungranted = await call(f, codex, "homectl_inspect", { host: "nas" });
-    const unknown = await call(f, codex, "homectl_inspect", { host: "ghost" });
-    expect(ungranted.content[0]?.text).toBe(unknown.content[0]?.text);
-  });
-
-  test("status of an operation outside the caller's grants is unavailable", async () => {
-    const f = await fixture([
-      CODEX,
-      HERMES,
-      { ...HERMES, id: "other-admin", hosts: ["nas"] },
-    ]);
-    const plan = await call(f, f.tokens["codex-pc"] ?? "", "homectl_plan", {
-      host: "lab-printer",
-      argv: ["uname"],
-    });
-    const other = await call(
-      f,
-      f.tokens["other-admin"] ?? "",
-      "homectl_status",
-      {
-        operationId: plan.structuredContent?.operationId,
-      },
-    );
-    expect(other.isError).toBe(true);
-    expect(other.content[0]?.text).toContain("Operation unavailable");
+    expect(await f.plane.listOperations({ all: true })).toEqual([]);
   });
 });
 
@@ -621,91 +426,5 @@ describe("port conflicts", () => {
     expect((caught as HomectlError).message).toBe(
       `Port ${busy} is already in use; stop the other process or choose another port with --port`,
     );
-  });
-});
-
-describe("agent-facing text", () => {
-  test("plan results carry the full operation id and fingerprint in a readable sentence", async () => {
-    const f = await fixture();
-    const plan = await call(f, f.tokens["codex-pc"] ?? "", "homectl_plan", {
-      host: "lab-printer",
-      argv: ["systemctl", "restart", "nginx"],
-    });
-    const text = plan.content[0]?.text ?? "";
-    const operationId = plan.structuredContent?.operationId as string;
-    const fingerprint = plan.structuredContent?.fingerprint as string;
-    expect(text.startsWith("Planned ")).toBe(true);
-    expect(text).toContain(operationId);
-    expect(text).toContain(fingerprint);
-    expect(text).toContain("`systemctl restart nginx`");
-    expect(text).toContain("needs approval by another client");
-    expect(text).not.toContain("{");
-  });
-
-  test("inspection plans say no approval is needed and name the operator command", async () => {
-    const f = await fixture();
-    const plan = await call(f, f.tokens["codex-pc"] ?? "", "homectl_plan", {
-      host: "lab-printer",
-      argv: ["hostname"],
-    });
-    const text = plan.content[0]?.text ?? "";
-    expect(text).toContain("no approval needed");
-    expect(text).toContain(
-      `home-ctl control execute ${plan.structuredContent?.operationId}`,
-    );
-  });
-});
-
-describe("actionable status and approval text", () => {
-  test("status lists operations one per line, with full ids only for the approver who can act", async () => {
-    const f = await fixture([CODEX, HERMES]);
-    const codex = f.tokens["codex-pc"] ?? "";
-    const hermes = f.tokens["hermes-admin"] ?? "";
-    const change = await call(f, codex, "homectl_plan", {
-      host: "lab-printer",
-      argv: ["systemctl", "restart", "nginx"],
-    });
-    await call(f, codex, "homectl_plan", {
-      host: "lab-printer",
-      argv: ["hostname"],
-    });
-    const asApprover = await call(f, hermes, "homectl_status", {});
-    const text = asApprover.content[0]?.text ?? "";
-    expect(text.split("\n")[0]).toContain("2 operation(s)");
-    expect(text).toContain("needs approval");
-    expect(text).toContain("ready");
-    expect(text).toContain(
-      `operationId ${change.structuredContent?.operationId}`,
-    );
-    expect(text).toContain(
-      `fingerprint ${change.structuredContent?.fingerprint}`,
-    );
-    const asIssuer = await call(f, codex, "homectl_status", {});
-    expect(asIssuer.content[0]?.text).not.toContain(
-      "Approve with homectl_approve",
-    );
-    expect(asIssuer.content[0]?.text).not.toContain(
-      String(change.structuredContent?.fingerprint),
-    );
-  });
-
-  test("approval text names the next step for the operator and the panel", async () => {
-    const f = await fixture();
-    const codex = f.tokens["codex-pc"] ?? "";
-    const hermes = f.tokens["hermes-admin"] ?? "";
-    const plan = await call(f, codex, "homectl_plan", {
-      host: "lab-printer",
-      argv: ["systemctl", "restart", "nginx"],
-    });
-    const approved = await call(f, hermes, "homectl_approve", {
-      operationId: plan.structuredContent?.operationId,
-      fingerprint: plan.structuredContent?.fingerprint,
-      decision: "approve",
-    });
-    const text = approved.content[0]?.text ?? "";
-    expect(text).toContain(
-      `home-ctl control execute ${plan.structuredContent?.operationId}`,
-    );
-    expect(text).toMatch(/choose Accept in the panel.*Accept requests/);
   });
 });

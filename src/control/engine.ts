@@ -1,24 +1,17 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { loadInventory } from "../inventory";
 import { execute as executeCommand, writeSSHConfig } from "../operations";
 import { atomicReplace } from "../platform";
-import { innerCommand, planExecution } from "../policies";
 import { run } from "../process";
-import {
-  type ApiRequest,
-  type ApiRunOptions,
-  type ApiTarget,
-  apiRequestFor,
-  runProxmoxApi,
-} from "../proxmox/api";
+import { type ApiRunOptions, runProxmoxApi } from "../proxmox/api";
 import {
   buildProxmoxPlan,
   type ProxmoxInput,
   providerFacts,
 } from "../proxmox/catalogue";
-import { apiTokenSecretName, getSessionSecret } from "../session";
+import { getSessionSecret } from "../session";
 import {
   HomectlError,
   type Inventory,
@@ -57,23 +50,24 @@ import {
   validateOidcConfigInput,
   verifyOidcToken,
 } from "./oidc";
+import { buildPlan } from "./plan-build";
 import {
-  CONTAINER_CONTROL,
-  NEVER_EXECUTABLES,
-  RUNTIME_SOCKET,
-} from "./policy-constants";
+  buildFullPlan,
+  fullCurrentReason,
+  proxmoxTransport,
+} from "./proxmox-full";
 import { containsSecretMaterial, redactArgv } from "./redact";
 import type { ReplicaOverlay } from "./replicator";
 import { schemas } from "./schema";
 import { type ControlState, ControlStore } from "./store";
 import {
   type Actor,
+  type ApiPlanInput,
   type ApprovalRecord,
   type ApprovalView,
   type AuditEvent,
   type AuditEventName,
   type CatalogueInput,
-  type Classification,
   type ClientIdentity,
   type ClientRecord,
   type ClientView,
@@ -177,70 +171,6 @@ function visibleOperation(
   return op;
 }
 
-function screenPlan(
-  argv: string[],
-  machine: Machine,
-  classification: Classification,
-  catalogue = false,
-): void {
-  // Proxmox guest plans from the catalogue are the one reviewed path to qm/pct.
-  if (machine.access === "full" && !catalogue)
-    throw new HomectlError(
-      3,
-      "Full-access hosts are not available through the control plane",
-    );
-  const name = basename(innerCommand(argv).args[0] ?? "");
-  if (
-    NEVER_EXECUTABLES.has(basename(argv[0] ?? "")) ||
-    NEVER_EXECUTABLES.has(name)
-  )
-    throw new HomectlError(
-      3,
-      "Shell, interpreter and privilege-wrapper commands are not available through the control plane",
-    );
-  if (argv.some((value) => RUNTIME_SOCKET.test(value)))
-    throw new HomectlError(
-      3,
-      "Container runtime sockets are not available through the control plane",
-    );
-  if (CONTAINER_CONTROL.has(name) && classification !== "inspect" && !catalogue)
-    throw new HomectlError(
-      3,
-      "Container and hypervisor control is limited to inspection through the control plane",
-    );
-  if (classification === "opaque")
-    throw new HomectlError(
-      3,
-      "Opaque commands are not available through the control plane",
-    );
-}
-
-// Builds the immutable plan. The existing policy decides tier and
-// classification; the control plane adds screening on top.
-function buildPlan(
-  host: string,
-  machine: Machine,
-  argv: string[],
-  impact: string,
-  catalogue = false,
-): ExecPlan {
-  const policy = planExecution(host, machine, argv, impact, { catalogue });
-  screenPlan(argv, machine, policy.classification, catalogue);
-  return {
-    apiVersion: CONTROL_API_VERSION,
-    kind: "exec",
-    host,
-    machine: structuredClone(machine),
-    argv: [...argv],
-    impact: policy.impact,
-    classification: policy.classification,
-    // Only inspection is exempt; the existing policy flag does not cover mutation.
-    needsApproval: policy.classification !== "inspect",
-    execApproval: policy.approval,
-    ...(catalogue ? { catalogue: true } : {}),
-  };
-}
-
 function approvalView(approval: ApprovalRecord): ApprovalView {
   return {
     id: approval.id,
@@ -271,6 +201,13 @@ function operationView(op: OperationRecord, now: number): OperationView {
     impact: op.plan.impact,
     ...(op.plan.catalogueInput
       ? { catalogueInput: op.plan.catalogueInput }
+      : {}),
+    ...(op.plan.apiInput
+      ? {
+          apiInput: op.plan.apiInput,
+          risk: op.plan.risk,
+          ownerOnly: op.plan.ownerOnly === true,
+        }
       : {}),
     ...(op.planSignature !== undefined
       ? { planSignature: op.planSignature }
@@ -1097,6 +1034,8 @@ export class ControlPlane {
         return this.plan(client, req);
       case "proxmox-plan":
         return this.proxmoxPlan(client, req);
+      case "proxmox-api":
+        return this.proxmoxApiPlan(client, req);
       case "validate":
         return this.validate(client, req.operationId, req.fingerprint);
       case "approve":
@@ -1200,7 +1139,32 @@ export class ControlPlane {
     );
   }
 
-  // Shared by generic and catalogue plans. Only the Proxmox catalogue sets catalogue.
+  // Full-mode Proxmox operation (inventory operations: "full"): one typed API route.
+  private async proxmoxApiPlan(
+    client: ClientIdentity,
+    req: Extract<OperationRequest, { op: "proxmox-api" }>,
+  ) {
+    requireScope(client, "plan:create");
+    requireHost(client, req.host);
+    const apiInput: ApiPlanInput = {
+      method: req.method,
+      path: req.path,
+      params: req.params ?? {},
+    };
+    return this.createPlan(
+      client,
+      req.host,
+      ["proxmox-api", req.method, req.path],
+      "",
+      undefined,
+      false,
+      undefined,
+      apiInput,
+    );
+  }
+
+  // Shared by generic, catalogue and full-mode plans. Only the Proxmox catalogue
+  // sets catalogue; only full mode passes apiInput.
   private async createPlan(
     client: ClientIdentity,
     host: string,
@@ -1209,6 +1173,7 @@ export class ControlPlane {
     idempotencyKey?: string,
     catalogue = false,
     catalogueInput?: CatalogueInput,
+    apiInput?: ApiPlanInput,
   ) {
     if (containsSecretMaterial(`${argv.join("\n")}\n${impact}`))
       throw new HomectlError(
@@ -1219,7 +1184,10 @@ export class ControlPlane {
       const inventory = await loadInventory(this.options.inventoryPath);
       const machine = machineOf(inventory, host);
       if (!machine) throw new HomectlError(2, "Unknown host");
-      const plan = buildPlan(host, machine, argv, impact, catalogue);
+      const plan =
+        apiInput !== undefined
+          ? buildFullPlan(inventory, host, machine, apiInput)
+          : buildPlan(host, machine, argv, impact, catalogue);
       if (catalogueInput !== undefined)
         plan.catalogueInput = structuredClone(catalogueInput);
       const planFingerprint = fingerprint(plan);
@@ -1231,6 +1199,7 @@ export class ControlPlane {
         host: host,
         argv: argv,
         impact,
+        ...(apiInput !== undefined ? { apiInput } : {}),
       });
       if (key !== undefined && Object.hasOwn(state.idempotency, key)) {
         const prior = state.idempotency[key];
@@ -1320,6 +1289,12 @@ export class ControlPlane {
       op.plan.host,
     );
     if (!machine) return "host-missing";
+    if (op.plan.apiInput !== undefined)
+      return fullCurrentReason(
+        await loadInventory(this.options.inventoryPath),
+        op,
+        machine,
+      );
     let fresh: ExecPlan;
     try {
       // A catalogue plan is judged by the facts in force now, not the stored argv.
@@ -1381,6 +1356,11 @@ export class ControlPlane {
         throw new HomectlError(
           3,
           "Self-approval is not permitted; another authorized client must approve",
+        );
+      if (req.decision === "approve" && op.plan.ownerOnly === true)
+        throw new HomectlError(
+          3,
+          "This Proxmox operation is owner-only: no client can approve it here. Submit it with home-ctl proxmox and approve it in Needs you",
         );
       if (req.fingerprint !== op.fingerprint)
         throw new HomectlError(
@@ -1557,41 +1537,15 @@ export class ControlPlane {
     return verifyBytes(op.planSignerKey, op.fingerprint, op.planSignature);
   }
 
-  // The Proxmox API transport for a catalogue plan, when its provider has an api
-  // block. The request is derived from the same typed input the approver saw.
-  private async proxmoxApiFor(
-    op: OperationRecord,
-  ): Promise<
-    { request: ApiRequest; target: ApiTarget; node: string } | undefined
-  > {
-    const inventory = await loadInventory(this.options.inventoryPath);
-    const found = Object.entries(inventory.providers ?? {}).find(
-      ([, provider]) => provider.host === op.plan.host,
-    );
-    if (found === undefined || found[1].api === undefined) return undefined;
-    const [name, provider] = found;
-    const api = provider.api;
-    if (api === undefined || op.plan.catalogueInput === undefined)
-      return undefined;
-    const request = apiRequestFor(
-      op.plan.catalogueInput as ProxmoxInput,
-      providerFacts(provider),
-    );
-    const authorization = await (
+  // The Proxmox API transport for a catalogue or full-mode plan (see proxmox-full.ts).
+  private async proxmoxApiFor(op: OperationRecord) {
+    return proxmoxTransport(
+      await loadInventory(this.options.inventoryPath),
+      op,
       this.options.proxmoxApi?.tokenSource ??
-      ((secret: string) => getSessionSecret(this.options.inventoryPath, secret))
-    )(apiTokenSecretName(name));
-    if (authorization === undefined)
-      throw new HomectlError(
-        5,
-        "Unlock the session first: the Proxmox API token is not loaded. The operation stays approved.",
-      );
-    const caPem = await readFile(api.ca_file, "utf8");
-    return {
-      request,
-      node: provider.node,
-      target: { baseUrl: api.url, caPem, authorization },
-    };
+        (async (secret: string) =>
+          getSessionSecret(this.options.inventoryPath, secret)),
+    );
   }
 
   private async execute(operationId: string): Promise<ExecuteResult> {
@@ -1631,8 +1585,7 @@ export class ControlPlane {
       const approval = approvalRequired ? op.approval : undefined;
       if (
         approvalRequired &&
-        (!approval ||
-          approval.state !== "active" ||
+        (approval?.state !== "active" ||
           state.consumedNonces.includes(approval.nonce))
       )
         throw new HomectlError(3, "Approval was already used");
@@ -1689,7 +1642,9 @@ export class ControlPlane {
       // Proxmox API transport: the token and the request are checked before the
       // approval is consumed. A missing token leaves the operation approved.
       const api =
-        op.plan.catalogue === true ? await this.proxmoxApiFor(op) : undefined;
+        op.plan.catalogue === true || op.plan.apiInput !== undefined
+          ? await this.proxmoxApiFor(op)
+          : undefined;
       // Consume the nonce and mark `executing` durably before any spawn.
       if (approval !== undefined) {
         approval.state = "consumed";
@@ -1756,8 +1711,7 @@ export class ControlPlane {
     let output: ExecuteResult["output"];
     try {
       let result:
-        | { exitCode: number; stdout: string; stderr: string }
-        | undefined;
+        { exitCode: number; stdout: string; stderr: string } | undefined;
       if (prepared.api !== undefined) {
         // From here the request may reach the host, so an error is `unknown`, never a retry.
         spawned = true;
@@ -1814,7 +1768,7 @@ export class ControlPlane {
       const op = Object.hasOwn(state.operations, operationId)
         ? state.operations[operationId]
         : undefined;
-      if (!op || op.state !== "executing")
+      if (op?.state !== "executing")
         throw new HomectlError(
           5,
           "Operation changed during execution; inspect the audit journal",

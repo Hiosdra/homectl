@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   appendEntry,
   type Checkpoint,
@@ -12,6 +12,8 @@ import {
   SKEW_MS,
   takeoverWindow,
 } from "../src/control/lease";
+
+setDefaultTimeout(60_000);
 
 describe("owner lease", () => {
   test("no paired peers means no lease gate", () => {

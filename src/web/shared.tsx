@@ -4,23 +4,34 @@ import type { ReactNode } from "react";
 import { ui } from "./store";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "./ui/table";
 import { cn } from "./lib/utils";
 
 export type ActionKind =
-  | "primary"
-  | "secondary"
-  | "quiet"
-  | "danger"
-  | "quiet-danger"
-  | "accept";
+  "primary" | "secondary" | "quiet" | "danger" | "quiet-danger" | "accept";
 
-const ACTION_KIND: Record<ActionKind, { variant: "default" | "secondary" | "ghost" | "destructive-outline"; className?: string }> = {
+const ACTION_KIND: Record<
+  ActionKind,
+  {
+    variant: "default" | "secondary" | "ghost" | "destructive-outline";
+    className?: string;
+  }
+> = {
   primary: { variant: "default" },
   secondary: { variant: "secondary" },
   quiet: { variant: "ghost" },
   danger: { variant: "destructive-outline" },
-  "quiet-danger": { variant: "ghost", className: "text-destructive-foreground" },
+  "quiet-danger": {
+    variant: "ghost",
+    className: "text-destructive-foreground",
+  },
   accept: {
     variant: "default",
     className: "border-success bg-success text-background hover:bg-success/90",
@@ -74,7 +85,9 @@ export function PageHeading({
         >
           {title}
         </h1>
-        <p className="mt-2.5 max-w-[72ch] text-muted-foreground">{description}</p>
+        <p className="mt-2.5 max-w-[72ch] text-muted-foreground">
+          {description}
+        </p>
       </div>
       {actions ? <div className="flex flex-wrap gap-2.5">{actions}</div> : null}
     </header>
@@ -102,7 +115,9 @@ export function Section({
       )}
     >
       {title ? (
-        <h2 className="mb-3 text-xl font-semibold tracking-[-0.015em]">{title}</h2>
+        <h2 className="mb-3 text-xl font-semibold tracking-[-0.015em]">
+          {title}
+        </h2>
       ) : null}
       {children}
     </section>
@@ -111,7 +126,9 @@ export function Section({
 
 // A helper line under a heading or control.
 export function Note({ children }: { children: ReactNode }) {
-  return <p className="mt-2 max-w-none text-xs text-muted-foreground">{children}</p>;
+  return (
+    <p className="mt-2 max-w-none text-xs text-muted-foreground">{children}</p>
+  );
 }
 
 export function Muted({ children }: { children: ReactNode }) {
@@ -119,9 +136,17 @@ export function Muted({ children }: { children: ReactNode }) {
 }
 
 // Status tags. Each carries a text label; colour only reinforces it.
-export type Tone = "neutral" | "ready" | "success" | "warning" | "danger" | "info";
+export type Tone =
+  "neutral" | "ready" | "success" | "warning" | "danger" | "info";
 
-const TONE: Record<Tone, { variant: "outline" | "default" | "success" | "warning" | "destructive" | "info"; className?: string }> = {
+const TONE: Record<
+  Tone,
+  {
+    variant:
+      "outline" | "default" | "success" | "warning" | "destructive" | "info";
+    className?: string;
+  }
+> = {
   neutral: { variant: "outline", className: "text-muted-foreground" },
   ready: { variant: "info", className: "text-info" },
   success: { variant: "success" },
@@ -167,7 +192,10 @@ export function DataTable({
   return (
     <div
       data-table
-      className={cn("overflow-auto rounded-panel border border-border bg-card", className)}
+      className={cn(
+        "overflow-auto rounded-panel border border-border bg-card",
+        className,
+      )}
     >
       <Table className="w-full text-left max-[700px]:block">
         <TableHeader className="bg-muted max-[700px]:hidden">
@@ -261,7 +289,11 @@ export function EmptyState({
         </h2>
       ) : null}
       <div className="mx-auto max-w-[55ch]">{children}</div>
-      {actions ? <div className="mt-6 flex flex-wrap justify-center gap-2.5">{actions}</div> : null}
+      {actions ? (
+        <div className="mt-6 flex flex-wrap justify-center gap-2.5">
+          {actions}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -304,7 +336,13 @@ export function Facts({ items }: { items: [ReactNode, ReactNode][] }) {
 }
 
 // Preformatted output: commands, JSON and command results.
-export function Pre({ children, className }: { children: ReactNode; className?: string }) {
+export function Pre({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return (
     <pre
       className={cn(

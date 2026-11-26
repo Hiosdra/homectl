@@ -97,9 +97,10 @@ describe("update checker", () => {
     const url = new URL("http://127.0.0.1:7447/api/update");
     const response = await handleUpdateRoute(new Request(url), url, checker);
     expect(response?.status).toBe(200);
-    expect(((await response?.json()) as { available: boolean }).available).toBe(
-      false,
-    );
+    expect(
+      ((await response?.json()) as { available: boolean } | undefined)
+        ?.available,
+    ).toBe(false);
     const other = new URL("http://127.0.0.1:7447/api/state");
     expect(
       await handleUpdateRoute(new Request(other), other, checker),

@@ -52,22 +52,25 @@ export async function verifySavedCommandEditor(
   await page
     .getByRole("textbox", { name: "target" })
     .fill("private-panel-parameter");
-  const reviewButton = page.getByRole("button", { name: "Review and run" });
+  const reviewButton = page.getByRole("button", { name: "Preview command" });
   await expect(reviewButton).toHaveAttribute("type", "submit");
+  const previewResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/commands/run" &&
+      response.request().method() === "POST",
+  );
   await reviewButton.click();
-  await expect(page.locator("#confirm-dialog")).toContainText(
-    "Run saved command on agent-host?",
+  const preview = await previewResponse;
+  expect(preview.request().postDataJSON()).toMatchObject({ dryRun: true });
+  expect(await preview.json()).toMatchObject({
+    plan: {
+      argv: ["rm", "private-panel-parameter"],
+      impact: "Remove {{target}}",
+    },
+  });
+  await expect(page.locator("#notice")).toContainText(
+    "This panel previews local commands.",
   );
-  await expect(page.locator("#confirm-dialog")).toContainText(
-    'Command: "rm" "private-panel-parameter"',
-  );
-  await expect(page.locator("#confirm-dialog")).toContainText(
-    "Remove {{target}}",
-  );
-  await expect(page.locator("#confirm-dialog")).not.toContainText(
-    '"{{target}}"',
-  );
-  await page.locator("#confirm-dialog button[value=cancel]").click();
   await expect(page.locator("#confirm-dialog")).toHaveCount(0);
 }
 
@@ -153,14 +156,18 @@ export async function captureDarkAndPhone(page: Page, out: string) {
       fullPage: true,
     });
   }
+  // Phone width in both themes, so a layout fault shows in either.
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const [file, link, heading] of screens) {
-    await open(link, heading);
-    await page.screenshot({
-      path: join(out, `${file}-phone.png`),
-      fullPage: true,
-    });
-    await closeRequestDrawer(page);
+  for (const scheme of ["dark", "light"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    for (const [file, link, heading] of screens) {
+      await open(link, heading);
+      await page.screenshot({
+        path: join(out, `${file}-phone-${scheme}.png`),
+        fullPage: true,
+      });
+      await closeRequestDrawer(page);
+    }
   }
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.emulateMedia({ colorScheme: "light" });
@@ -253,4 +260,22 @@ export async function denyReadyRequest(
   await expect(
     page.locator("tr", { hasText: "uptime" }).getByText("denied"),
   ).toBeVisible();
+}
+
+export async function verifyLocalCommandPreview(page: Page) {
+  const localPreview = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/exec" &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Review command" }).click();
+  const preview = await localPreview;
+  expect(preview.request().postDataJSON()).toMatchObject({ dryRun: true });
+  expect(await preview.json()).toMatchObject({
+    plan: { argv: ["uname", "-s"] },
+  });
+  await expect(page.locator("#notice")).toContainText(
+    "This panel previews local commands.",
+  );
+  await expect(page.locator("#confirm-dialog")).toHaveCount(0);
 }

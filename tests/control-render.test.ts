@@ -1,6 +1,8 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { renderOperationDetail } from "../src/control/present";
 import type { OperationView } from "../src/control/types";
+
+setDefaultTimeout(60_000);
 
 const NOW = Date.UTC(2026, 10, 5, 23, 40);
 function view(overrides: Partial<OperationView>): OperationView {

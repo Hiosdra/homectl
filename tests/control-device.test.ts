@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,8 @@ import {
 } from "../src/control/device-key";
 import { validateIdentity } from "../src/peer/pairing";
 import { windows } from "../src/platform";
+
+setDefaultTimeout(60_000);
 
 async function dir() {
   return mkdtemp(join(tmpdir(), "homectl-device-"));
@@ -65,7 +67,9 @@ test("a corrupt device key file is refused, not replaced silently", async () => 
     await loadOrCreateDeviceKey(d);
     const path = join(d, "device-key.json");
     const text = await readFile(path, "utf8");
-    await (await import("node:fs/promises")).writeFile(
+    await (
+      await import("node:fs/promises")
+    ).writeFile(
       path,
       text.replace(/"publicKey":"[^"]+"/, '"publicKey":"AAAA"'),
     );

@@ -14,8 +14,7 @@ type ApplyContext = {
     replaceFromRecordsWith(
       records: Record<string, Version>,
       expectedSavedCommands:
-        | Record<string, { value: unknown | null }>
-        | undefined,
+        Record<string, { value: unknown | null }> | undefined,
       apply: (
         savedCommandsAvailable: boolean,
         preservedInvalidIds: string[],

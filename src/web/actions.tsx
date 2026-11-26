@@ -37,7 +37,9 @@ export async function handleAction(action: string | undefined, id: string) {
     case "machine-delete": {
       const machine = ui.state.inventory.machines[id];
       if (!machine || machine.transport !== "ssh")
-        throw new Error("This machine cannot be removed here. Refresh the list.");
+        throw new Error(
+          "This machine cannot be removed here. Refresh the list.",
+        );
       if (
         !(await confirm(
           `Remove ${id}?`,
@@ -61,7 +63,9 @@ export async function handleAction(action: string | undefined, id: string) {
     case "doctor": {
       ui.result = await api("/api/doctor", { host: id });
       // Reachable when every check of the host passes; the first failing check is named.
-      const checks = (ui.result as { checks?: { name: string; ok: boolean }[] }).checks ?? [];
+      const checks =
+        (ui.result as { checks?: { name: string; ok: boolean }[] }).checks ??
+        [];
       const failed = checks.find((c) => !c.ok);
       ui.machineStatus[id] = failed
         ? { ok: false, text: "unreachable" }
@@ -86,26 +90,42 @@ export async function handleAction(action: string | undefined, id: string) {
       return;
     case "save-command-from-form": {
       if (ui.commandPeer)
-        throw new Error("Save a template from this computer's host form; peer commands run on the other device.");
+        throw new Error(
+          "Save a template from this computer's host form; peer commands run on the other device.",
+        );
       const form = element<HTMLFormElement>("command-form");
       const values = new FormData(form);
       if (String(values.get("peer") ?? ""))
-        throw new Error("Save a shortcut from this computer's host form; peer commands run on the other device.");
+        throw new Error(
+          "Save a shortcut from this computer's host form; peer commands run on the other device.",
+        );
       const name = String(values.get("template-name") ?? "").trim();
       if (!name) throw new Error("Enter a name for this saved command.");
       const impact = String(values.get("impact") ?? "").trim();
-      if (!impact) throw new Error("Enter what this command should do before saving it.");
+      if (!impact)
+        throw new Error("Enter what this command should do before saving it.");
       const program = String(values.get("program") ?? "").trim();
-      const argv = [program, ...String(values.get("arguments") ?? "").split(/\r?\n/).filter(Boolean)];
-      const saved = await api<{ command: { name: string } }>("/api/commands/save", {
-        name,
-        hosts: [ui.commandHost],
-        argv,
-        parameters: [],
-        description: impact,
-      });
+      const argv = [
+        program,
+        ...String(values.get("arguments") ?? "")
+          .split(/\r?\n/)
+          .filter(Boolean),
+      ];
+      const saved = await api<{ command: { name: string } }>(
+        "/api/commands/save",
+        {
+          name,
+          hosts: [ui.commandHost],
+          argv,
+          parameters: [],
+          description: impact,
+        },
+      );
       ui.savedCommandVersion++;
-      report(`Saved “${saved.command.name}”. It will use the current policy each time it runs.`, "notice");
+      report(
+        `Saved “${saved.command.name}”. It will use the current policy each time it runs.`,
+        "notice",
+      );
       return;
     }
     case "audit-refresh":
@@ -127,7 +147,10 @@ export async function handleAction(action: string | undefined, id: string) {
       if (typeof result?.publicKey !== "string")
         throw new Error("The public key is unavailable.");
       await copyText(result.publicKey);
-      report("Public key copied. Install it on the host through trusted access.", "notice");
+      report(
+        "Public key copied. Install it on the host through trusted access.",
+        "notice",
+      );
       return;
     }
     case "remote-command":
@@ -194,7 +217,10 @@ export async function handleAction(action: string | undefined, id: string) {
       return;
     case "sync-copy-unlock":
       await copyText("home-ctl session unlock");
-      report("Unlock command copied. Run it on the device named above.", "notice");
+      report(
+        "Unlock command copied. Run it on the device named above.",
+        "notice",
+      );
       return;
     case "pair-confirm":
       if (
@@ -222,7 +248,9 @@ export async function handleAction(action: string | undefined, id: string) {
         ))
       )
         return;
-      const outcome = await api<{ text: string }>("/api/service", { action: "restart" });
+      const outcome = await api<{ text: string }>("/api/service", {
+        action: "restart",
+      });
       report(outcome.text, "notice");
       return;
     }
@@ -240,6 +268,8 @@ export async function handleAction(action: string | undefined, id: string) {
       render();
       return;
     case "pair-open-wizard":
+      // The wizard is mounted by the Sync screen, so from Welcome it must open that screen.
+      navigate("peers");
       ui.pairWizard = true;
       ui.pairStep = 1;
       render();
@@ -300,17 +330,23 @@ export async function handleAction(action: string | undefined, id: string) {
       if (ui.view !== "sync") navigate("sync");
       ui.applied = undefined;
       ui.syncWaiting = undefined;
-      ui.syncPeerId = ui.state.pending.find((pending) => pending.id === id)?.peerId;
+      ui.syncPeerId = ui.state.pending.find(
+        (pending) => pending.id === id,
+      )?.peerId;
       ui.preview = await api<Preview>("/api/sync/preview", { id });
       armSyncWait(ui.preview);
       render();
       return;
     case "sync-restart":
-      if (!ui.syncPeerId) throw new Error("Choose the device again to compare it.");
+      if (!ui.syncPeerId)
+        throw new Error("Choose the device again to compare it.");
       // A new comparison replaces the note of the last applied changes.
       ui.applied = undefined;
       if ((await updateSyncPreview(ui.syncPeerId)) && !ui.syncWaiting)
-        report("Comparison updated. Review the changes before applying them.", "notice");
+        report(
+          "Comparison updated. Review the changes before applying them.",
+          "notice",
+        );
       return;
     case "sync-cancel":
       ui.syncWaiting = undefined;

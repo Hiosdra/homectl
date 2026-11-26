@@ -3,7 +3,11 @@
 import { ChevronDownIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "./lib/utils";
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "./ui/collapsible";
+import {
+  Collapsible,
+  CollapsiblePanel,
+  CollapsibleTrigger,
+} from "./ui/collapsible";
 
 export function Disclosure({
   title,
@@ -22,7 +26,10 @@ export function Disclosure({
   compact?: boolean;
 }) {
   return (
-    <Collapsible defaultOpen={defaultOpen} className={cn("grid gap-0", className)}>
+    <Collapsible
+      defaultOpen={defaultOpen}
+      className={cn("grid gap-0", className)}
+    >
       <CollapsibleTrigger
         className={cn(
           "group flex w-full cursor-pointer items-center justify-between gap-3 text-left font-medium text-foreground hover:bg-accent",
@@ -37,7 +44,9 @@ export function Disclosure({
           className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]:rotate-180"
         />
       </CollapsibleTrigger>
-      <CollapsiblePanel className={cn("pt-3", panelClassName)}>{children}</CollapsiblePanel>
+      <CollapsiblePanel className={cn("pt-3", panelClassName)}>
+        {children}
+      </CollapsiblePanel>
     </Collapsible>
   );
 }

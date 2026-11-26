@@ -1,0 +1,30 @@
+# Optional override for the homectl 0.3 broker: makes this NAS a workspace server.
+# It turns on the workspace listener inside the container and publishes its port
+# (7450). Nothing else changes. Example only: this repository does not deploy it.
+#
+# Use it with compose.broker.yaml, and only on the one NAS that serves the
+# workspace. Clients and every other machine do not need it:
+#   docker compose -f compose.broker.yaml -f compose.workspace.yaml up -d
+# UGOS imports one compose file as a Project. To use this override there, merge the
+# `ports` and `environment` entries below into the homectl service of that
+# project by hand, then check the project with `docker compose config`.
+#
+# Set in the project's .env file, never in this YAML:
+#   HOMECTL_WORKSPACE_PUBLISH  optional; host address:port the workspace port is
+#                              published on. Default 127.0.0.1:7450, which only the
+#                              NAS itself can reach. For clients on your network, set
+#                              the NAS's LAN address and port, for example
+#                              192.168.1.10:7450. Pairing and every later message are
+#                              sealed by the workspace protocol; the port is still a
+#                              network exposure, so publish it only as far as you need.
+#
+# Not verified by this repository: a real workspace pairing across UGOS and a client
+# device, and bridge networking on UGOS.
+services:
+  homectl:
+    ports:
+      - "${HOMECTL_WORKSPACE_PUBLISH:-127.0.0.1:7450}:7450"
+    environment:
+      # The listener inside the container; the published port decides who can
+      # reach it. It replaces the empty default in compose.broker.yaml.
+      HOMECTL_WORKSPACE_LISTEN: "0.0.0.0:7450"

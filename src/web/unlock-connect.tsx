@@ -34,7 +34,9 @@ function writePin(value: string) {
 
 async function call<T>(path: string, init?: RequestInit): Promise<Answer<T>> {
   const response = await fetch(path, { credentials: "same-origin", ...init });
-  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
+  const body = (await response.json().catch(() => ({}))) as T & {
+    error?: string;
+  };
   return { status: response.status, body };
 }
 
@@ -69,7 +71,8 @@ export function UnlockConnect({
       });
   }, []);
 
-  const changed = key !== undefined && pinned !== null && pinned !== key.fingerprint;
+  const changed =
+    key !== undefined && pinned !== null && pinned !== key.fingerprint;
   const local = onThisComputer();
 
   async function unlock(event: FormEvent<HTMLFormElement>) {
@@ -87,15 +90,23 @@ export function UnlockConnect({
         writePin(key.fingerprint);
         setPinned(key.fingerprint);
       }
-      const challenge = await call<{ challenge: string }>("/api/unlock/challenge");
-      if (challenge.status !== 200) throw new Error(challenge.body.error ?? "No challenge.");
-      const envelope = sealPassword(password, fromHex(key.pub), challenge.body.challenge);
+      const challenge = await call<{ challenge: string }>(
+        "/api/unlock/challenge",
+      );
+      if (challenge.status !== 200)
+        throw new Error(challenge.body.error ?? "No challenge.");
+      const envelope = sealPassword(
+        password,
+        fromHex(key.pub),
+        challenge.body.challenge,
+      );
       const answer = await call<{ unlocked?: boolean }>("/api/unlock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(envelope),
       });
-      if (answer.status !== 200) throw new Error(answer.body.error ?? "Unlock failed.");
+      if (answer.status !== 200)
+        throw new Error(answer.body.error ?? "Unlock failed.");
       onDone();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Unlock failed.");
@@ -111,7 +122,10 @@ export function UnlockConnect({
   }
 
   return (
-    <div id="connection" className="grid min-h-dvh place-items-center p-8 max-[700px]:p-4">
+    <div
+      id="connection"
+      className="grid min-h-dvh place-items-center p-8 max-[700px]:p-4"
+    >
       <div className="grid w-full max-w-[640px] gap-5">
         <div className="flex items-center gap-2.5 text-[22px] font-bold tracking-[-0.025em]">
           <BrandMark />
@@ -126,15 +140,21 @@ export function UnlockConnect({
           </Alert>
         ) : null}
         <p className="text-muted-foreground">
-          Your database password is the only password you need here. One unlock lasts the session length set in
-          Settings (24 h by default).
+          Your vault password (also your owner password) is the only password
+          you need here. One unlock lasts the session length set in Settings (24
+          h by default).
         </p>
         {changed ? (
           <Alert id="connection-error" variant="error">
             <AlertDescription>
-              The server key changed since your last visit. Do not enter your password until you have checked the new
-              key in the terminal.{" "}
-              <Button type="button" variant="outline" size="sm" onClick={trustChangedKey}>
+              The server key changed since your last visit. Do not enter your
+              password until you have checked the new key in the terminal.{" "}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={trustChangedKey}
+              >
                 Trust the new key
               </Button>
             </AlertDescription>
@@ -150,20 +170,32 @@ export function UnlockConnect({
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">
-              {local ? "Served over HTTPS or on this computer" : "Served over plain HTTP on the LAN"}
+              {local
+                ? "Served over HTTPS or on this computer"
+                : "Served over plain HTTP on the LAN"}
             </h2>
             {local ? null : <Tag tone="success">encrypted in browser</Tag>}
           </div>
           {local ? (
-            <p className="text-muted-foreground">Unlock with your database password.</p>
+            <p className="text-muted-foreground">
+              Unlock with your vault password.
+            </p>
           ) : (
             <p className="text-muted-foreground">
-              The password is encrypted in this browser with the server key before it is sent. Server key:{" "}
-              <code id="server-fingerprint">{key?.fingerprint ?? "…"}</code> (compare once with the terminal).
+              The password is encrypted in this browser with the server key
+              before it is sent. Server key:{" "}
+              <code id="server-fingerprint">{key?.fingerprint ?? "…"}</code>{" "}
+              (compare once with the terminal).
             </p>
           )}
-          <form id="unlock-form" className="grid gap-3" onSubmit={(event) => void unlock(event)}>
-            <Label htmlFor="password">Database password</Label>
+          <form
+            id="unlock-form"
+            className="grid gap-3"
+            onSubmit={(event) => void unlock(event)}
+          >
+            <Label htmlFor="password">
+              Vault password (also your owner password)
+            </Label>
             <Input
               id="password"
               name="password"
@@ -189,9 +221,12 @@ export function UnlockConnect({
           </form>
         </section>
         <section className="rounded-panel border border-border p-5 max-[700px]:p-4">
-          <h2 className="mb-1.5 text-lg font-semibold">After 5 wrong passwords</h2>
+          <h2 className="mb-1.5 text-lg font-semibold">
+            After 5 wrong passwords
+          </h2>
           <p className="text-muted-foreground">
-            Unlock pauses for 60 seconds. The counter resets after a successful unlock.
+            Unlock pauses for 60 seconds. The counter resets after a successful
+            unlock.
           </p>
         </section>
       </div>

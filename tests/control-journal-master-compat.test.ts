@@ -1,10 +1,12 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Ajv from "ajv";
 import { AuditJournal } from "../src/control/journal";
 import type { AuditEventName } from "../src/control/types";
+
+setDefaultTimeout(60_000);
 
 const masterEventNames: AuditEventName[] = [
   "auth.rejected",

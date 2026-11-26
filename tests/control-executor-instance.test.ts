@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ControlPlane, controlStateDirectory } from "../src/control/engine";
 import type { ClientIdentity } from "../src/control/types";
+
+setDefaultTimeout(60_000);
 
 // Synthetic local device. The "executing" record is written by hand to imitate
 // an interrupted executor; nothing runs.

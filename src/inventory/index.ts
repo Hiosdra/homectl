@@ -80,8 +80,7 @@ export function parseInventory(text: string): Inventory {
   for (const p of Object.values(inventory.providers ?? {})) {
     const host = inventory.machines[p.host];
     if (
-      !host ||
-      host.transport !== "ssh" ||
+      host?.transport !== "ssh" ||
       host.access !== "full" ||
       host.auth?.type !== "keepassxc"
     )
@@ -89,6 +88,12 @@ export function parseInventory(text: string): Inventory {
         2,
         "Proxmox provider must reference an existing SSH host with full access and a managed key",
       );
+    if (
+      p.operations !== undefined &&
+      p.operations !== "guests" &&
+      p.operations !== "full"
+    )
+      throw new HomectlError(2, "Proxmox operations must be guests or full");
     // Facts for the guest catalogue: a sane VMID range, and allowlists that are unique.
     const range = p.vmid_range;
     if (

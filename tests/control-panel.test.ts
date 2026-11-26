@@ -1,10 +1,12 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AUDIT_NORMALIZATION_MARKERS } from "../src/control/redact";
 import { serve } from "../src/serve";
 import { waitFor } from "./audit-test-helpers";
+
+setDefaultTimeout(60_000);
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => {

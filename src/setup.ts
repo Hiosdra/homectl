@@ -74,11 +74,19 @@ async function link(source: string, target: string) {
     });
   else await symlink(source, target);
 }
-export async function setup(home = homedir(), dryRun = false) {
+export async function setup(
+  home = homedir(),
+  dryRun = false,
+  // false (--no-path): never change the Windows user PATH. Sandboxes and tests
+  // must pass it: an overridden USERPROFILE makes homedir() point at the sandbox,
+  // so the home check alone cannot tell it from the real account.
+  updatePath = true,
+) {
   const p = paths(home);
   // Setup tests and explicit alternate-home runs must never change the real
   // Windows account's PATH.
-  const updateWindowsPath = windows && resolve(home) === resolve(homedir());
+  const updateWindowsPath =
+    updatePath && windows && resolve(home) === resolve(homedir());
   const initial: Inventory = {
     version: 1,
     session: sessionConfig({ version: 1, machines: {} }, p.inventory),
@@ -110,9 +118,9 @@ export async function setup(home = homedir(), dryRun = false) {
   if (dryRun) return { actions };
   await privateDirectory(p.base);
   if (!(await exists(p.inventory))) await saveInventory(p.inventory, initial);
-  const inventory = await (await import("./inventory")).loadInventory(
-    p.inventory,
-  );
+  const inventory = await (
+    await import("./inventory")
+  ).loadInventory(p.inventory);
   await writeSSHConfig(p.ssh, inventory.machines);
   // A compiled executable carries the skills and copies them, because it has no skill folder
   // to link. A checkout links its skills/ folders, so edits there take effect at once.
@@ -219,9 +227,9 @@ export async function doctor(
     "ssh",
     // A compiled executable runs without Bun; a checkout needs it.
     ...(bundled ? [] : ["bun"]),
-    ...(usesKeepass
-      ? [...(windows ? [] : ["ssh-agent"]), "ssh-add", "keepassxc-cli"]
-      : []),
+    // The vault needs KeePassXC from the first run on, so it is always checked.
+    "keepassxc-cli",
+    ...(usesKeepass ? [...(windows ? [] : ["ssh-agent"]), "ssh-add"] : []),
   ]);
   for (const tool of required) {
     if (["ssh-agent", "ssh-add", "keepassxc-cli"].includes(tool)) {
@@ -314,11 +322,47 @@ export async function doctor(
       });
     }
   }
+  const ok = checks
+    .filter((c) => required.has(c.name) || c.name.includes(":"))
+    .every((c) => c.ok);
+  const vaultExists = await Bun.file(
+    sessionConfig(inventory, configPath).database,
+  ).exists();
   return {
     checks,
-    ok: checks
-      .filter((c) => required.has(c.name) || c.name.includes(":"))
-      .every((c) => c.ok),
+    ok,
+    summary: doctorSummary({
+      ok,
+      checks,
+      required,
+      vaultExists,
+      onlyDefaultMachine: Object.keys(inventory.machines).every(
+        (name) => name === "agent-host",
+      ),
+      hostChecked: host !== undefined,
+    }),
     note: "Tool checks do not open the database. Host probes use only the managed SSH agent; run session unlock privately when needed.",
   };
+}
+
+// The first line of `doctor`, in plain words. "All checks passed" is said only
+// when something is set up and every required check passed.
+export function doctorSummary(input: {
+  ok: boolean;
+  checks: { name: string; ok: boolean }[];
+  required: ReadonlySet<string>;
+  vaultExists: boolean;
+  onlyDefaultMachine: boolean;
+  hostChecked: boolean;
+}): string {
+  const keepassMissing = input.checks.some(
+    (c) => c.name === "keepassxc-cli" && !c.ok,
+  );
+  if (keepassMissing)
+    return "KeePassXC is not installed. homectl needs it to open your vault. Install KeePassXC, then run home-ctl doctor again.";
+  if (!input.hostChecked && !input.vaultExists && input.onlyDefaultMachine)
+    return "Not set up yet. Run home-ctl setup to create your vault and add your first machine.";
+  if (!input.ok)
+    return "Action required: some checks failed. Each one below says how to fix it.";
+  return "All checks passed.";
 }
