@@ -15,6 +15,7 @@ import { checkLocalExecOptions, previewExec } from "./exec-local-options";
 import { paths } from "../setup";
 import { HomectlError } from "../types";
 import { ownerCommand } from "./owner-commands";
+import { formatHuman } from "./output";
 import { workspaceCommand } from "./workspace-commands";
 import { verificationNote, verifyCommand } from "./verify-command";
 
@@ -194,14 +195,13 @@ export async function brokerCommand(
       if (!host || !argv.length)
         throw new HomectlError(2, "Usage: home-ctl exec <host> -- <argv...>");
       if (v["dry-run"]) {
-        emit(
-          await previewExec(inventoryPath, {
-            host,
-            argv,
-            impact: v.impact,
-            task: v.task,
-          }),
-        );
+        const preview = await previewExec(inventoryPath, {
+          host,
+          argv,
+          impact: v.impact,
+          task: v.task,
+        });
+        emit(preview, formatHuman(preview, "exec"));
         return 0;
       }
       const auth = await agentAuth(inventoryPath);
