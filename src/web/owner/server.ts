@@ -104,16 +104,19 @@ export async function startOwnerPanel(
       // Server-sent events stay open; the broker sends heartbeats.
       idleTimeout: 255,
       async fetch(req) {
+        const url = new URL(req.url);
+        // The health route says only "ok" and reads nothing, so it answers under
+        // any Host: the container health check calls it on 127.0.0.1 while the
+        // panel's origin names the published address.
+        if (req.method === "GET" && url.pathname === "/healthz")
+          return Response.json({ ok: true }, { headers: SECURITY_HEADERS });
         // Loopback name only: a rebinding page cannot reach this panel.
         if (req.headers.get("host") !== host)
           return new Response("Unexpected panel host", {
             status: 403,
             headers: SECURITY_HEADERS,
           });
-        const url = new URL(req.url);
         if (url.pathname.startsWith(OWNER_PREFIX)) return proxy(req);
-        if (req.method === "GET" && url.pathname === "/healthz")
-          return Response.json({ ok: true }, { headers: SECURITY_HEADERS });
         const file = files[url.pathname];
         if (req.method !== "GET" || !file)
           return new Response("Not found", {

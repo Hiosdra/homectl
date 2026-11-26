@@ -255,6 +255,17 @@ test("a non-loopback panel warns, and keeps the Host and Origin checks strict", 
     headers: { host: `192.168.1.99:${port}` },
   });
   expect(forged.status).toBe(403);
+  // The container health check calls /healthz on loopback while the origin names
+  // the published address. It says only "ok", so it answers under any Host.
+  const probe = await fetch(`${origin}/healthz`, {
+    headers: { host: `192.168.1.99:${port}` },
+  });
+  expect(probe.status).toBe(200);
+  expect(await probe.json()).toEqual({ ok: true });
+  const forgedPage = await fetch(`${origin}/owner.js`, {
+    headers: { host: `192.168.1.99:${port}` },
+  });
+  expect(forgedPage.status).toBe(403);
 
   // Owner requests from another origin are refused, as on loopback.
   const crossOrigin = await fetch(`${origin}/v1/owner/login`, {
