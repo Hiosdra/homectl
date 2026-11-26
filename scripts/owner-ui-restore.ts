@@ -150,6 +150,43 @@ export async function runRestoreScenario(harness: Harness, viewport: Viewport) {
     await expect(code).toBeVisible();
     await code.getByRole("button", { name: "I have entered it" }).click();
     await expect(code).toHaveCount(0);
+
+    // A closed code view can be recovered from the retired source's backup.
+    const retired = page.getByRole("article", { name: "Backup from Laptop" });
+    await retired.getByRole("button", { name: "Restore Laptop…" }).click();
+    await dialog
+      .getByLabel(/Why are you restoring/)
+      .fill("Reissue after leaving the page");
+    await dialog.getByLabel("Backup version").fill("7");
+    await toCheckStep(dialog, false);
+    await dialog.getByLabel("Owner password").fill(harness.password);
+    await check.click();
+    await expect(dialog.getByText("Verified", { exact: true })).toBeVisible();
+    stub.restoreCodeLifetimeMs = -1;
+    const generate = dialog.getByRole("button", {
+      name: "Generate restore code",
+    });
+    await expect(generate).toBeDisabled();
+    await dialog.getByLabel("Owner password").fill(harness.password);
+    await generate.click();
+
+    // An expired code can also be renewed in place, for the same preview.
+    await expect(code.getByLabel("Restore code")).toHaveCount(0);
+    await code.getByRole("button", { name: "Get a new code" }).click();
+    await expect(generate).toBeDisabled();
+    stub.restoreCodeLifetimeMs = 5 * 60_000;
+    await dialog.getByLabel("Owner password").fill(harness.password);
+    await generate.click();
+    await expect(code.getByLabel("Restore code")).toHaveText("NEW-0003");
+    expect(stub.removed).toEqual(["ws-laptop"]);
+    expect(stub.restores.slice(1)).toEqual(
+      Array(2).fill({
+        client: "ws-laptop",
+        seq: 7,
+        reason: "Reissue after leaving the page",
+      }),
+    );
+    await code.getByRole("button", { name: "I have entered it" }).click();
     expect(page.url()).not.toContain(harness.password);
     await noOverflow(page);
   } finally {

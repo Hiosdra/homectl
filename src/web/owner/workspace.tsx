@@ -10,6 +10,7 @@ import { InviteSection } from "./workspace-invite";
 import { IntentHistory } from "./workspace-intents";
 import { PendingSection } from "./workspace-pending";
 import { RestoreFlow } from "./workspace-restore";
+import { RetiredBackups } from "./workspace-retired";
 import { WorkspaceSecretsSection } from "./workspace-secrets";
 import {
   decideWorkspace,
@@ -52,7 +53,7 @@ export function WorkspaceScreen({
   // The restore flow is held here, not in a client row: a restore revokes the
   // client, the row leaves the list, and the one-time code must stay on screen.
   const [restoring, setRestoring] = useState<
-    { id: string; name: string } | undefined
+    { id: string; name: string; retired?: boolean } | undefined
   >();
   const closeRestore = useCallback(() => setRestoring(undefined), []);
 
@@ -124,7 +125,22 @@ export function WorkspaceScreen({
             }
             onError={onError}
           />
-          {wholeServer ? <InviteSection onError={onError} /> : null}
+          {wholeServer ? (
+            <>
+              <RetiredBackups
+                linkedCount={clients.length}
+                onRestore={(client) =>
+                  setRestoring({
+                    id: client.id,
+                    name: client.name,
+                    retired: true,
+                  })
+                }
+                onError={onError}
+              />
+              <InviteSection onError={onError} />
+            </>
+          ) : null}
         </div>
       )}
       {restoring ? (

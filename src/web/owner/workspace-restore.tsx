@@ -5,6 +5,7 @@
 // client's row leaving the list when the restore cuts it off.
 import { type FormEvent, useCallback, useId, useState } from "react";
 import { describeError } from "./api";
+import { CopyButton } from "./copy";
 import { needsOwnerPassword } from "./auto-mode-api";
 import { PairCode } from "./pair-code";
 import { Badge, Dialog, Field, fmtTime, Notice, PasswordStep } from "./ui";
@@ -18,6 +19,7 @@ import {
   type WorkspaceRestorePreview,
 } from "./workspace-restore-api";
 import { FileList } from "./workspace-restore-files";
+import { suggestedServerAddress } from "./workspace-api";
 
 type Stage = "choose" | "explain" | "confirm" | "issued";
 const STEP_COUNT = 3;
@@ -40,7 +42,7 @@ export function RestoreFlow({
   onError,
 }: {
   // The client as it was when the restore started; the list may drop it later.
-  client: { id: string; name: string };
+  client: { id: string; name: string; retired?: boolean };
   onClose: () => void;
   // Re-reads the server: the restored client is cut off and leaves the list.
   onRestored: () => void;
@@ -52,6 +54,8 @@ export function RestoreFlow({
   // The version as typed; blank is the latest. Checked before anything is sent.
   const [seqText, setSeqText] = useState("");
   const [understood, setUnderstood] = useState(false);
+  const [sourceRetired, setSourceRetired] = useState(client.retired === true);
+  const address = suggestedServerAddress();
   const [password, setPassword] = useState("");
   const [preview, setPreview] = useState<WorkspaceRestorePreview | undefined>();
   const [issued, setIssued] = useState<WorkspaceRestoreIssued | undefined>();
@@ -113,7 +117,7 @@ export function RestoreFlow({
 
   const restore = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (busy || !preview || !preview.verified || !understood) return;
+    if (busy || !preview?.verified || (!sourceRetired && !understood)) return;
     const secret = password;
     setPassword("");
     setBusy(true);
@@ -127,6 +131,7 @@ export function RestoreFlow({
           password: secret,
         }),
       );
+      setSourceRetired(true);
       setStage("issued");
       onRestored();
     } catch (caught) {
@@ -218,7 +223,7 @@ export function RestoreFlow({
           className="stack"
           onSubmit={(event) => {
             event.preventDefault();
-            if (understood) setStage("confirm");
+            if (sourceRetired || understood) setStage("confirm");
           }}
         >
           <StepHeading step={2} title="What will happen" />
@@ -228,8 +233,9 @@ export function RestoreFlow({
               identity; it does not become {client.name}.
             </li>
             <li>
-              {client.name} is cut off from this server. It can no longer sync
-              or send requests here.
+              {sourceRetired
+                ? `${client.name} remains disconnected from this server.`
+                : `${client.name} is cut off from this server. It can no longer sync or send requests here.`}
             </li>
             <li>
               Files are written only to a device that has none of them yet.
@@ -242,16 +248,22 @@ export function RestoreFlow({
           <Notice tone="warn">
             Nothing changes until you confirm in the last step.
           </Notice>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={understood}
-              onChange={(event) => setUnderstood(event.target.checked)}
-            />
-            I understand {client.name} will be cut off.
-          </label>
+          {sourceRetired ? null : (
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={understood}
+                onChange={(event) => setUnderstood(event.target.checked)}
+              />
+              I understand {client.name} will be cut off.
+            </label>
+          )}
           <div className="row">
-            <button type="submit" className="primary" disabled={!understood}>
+            <button
+              type="submit"
+              className="primary"
+              disabled={!sourceRetired && !understood}
+            >
               Continue
             </button>
             <button type="button" onClick={() => setStage("choose")}>
@@ -350,8 +362,9 @@ export function RestoreFlow({
             <FileList files={preview.files} />
           </details>
           <Notice tone="warn">
-            Restoring cuts off {client.name}. Its access to this server ends
-            when you confirm.
+            {sourceRetired
+              ? `${client.name} stays disconnected. This creates a new code for the fresh device.`
+              : `Restoring cuts off ${client.name}. Its access to this server ends when you confirm.`}
           </Notice>
           <PasswordStep
             value={password}
@@ -363,9 +376,16 @@ export function RestoreFlow({
             <button
               type="submit"
               className="danger"
-              disabled={busy || !preview.verified || !understood || !password}
+              disabled={
+                busy ||
+                !preview.verified ||
+                (!sourceRetired && !understood) ||
+                !password
+              }
             >
-              Restore and cut off {client.name}
+              {sourceRetired
+                ? "Generate restore code"
+                : `Restore and cut off ${client.name}`}
             </button>
             <button
               type="button"
@@ -389,24 +409,38 @@ export function RestoreFlow({
           title="One-time code"
           codeLabel="Restore code"
           expiredText={`This code has expired, so it cannot be used. ${client.name} stays cut off.`}
-          expiredLabel="Close"
+          expiredLabel="Get a new code"
           doneLabel="I have entered it"
           onDone={onClose}
+          onExpired={() => {
+            setIssued(undefined);
+            setStage("confirm");
+          }}
           steps={
-            <ol className="plain-steps">
-              <li>On the fresh device, open a terminal.</li>
-              <li>
-                Run this command. Put the server address where{" "}
-                <span className="mono">&lt;server address&gt;</span> is:
-                <pre className="copy">
-                  home-ctl workspace join &lt;server address&gt; {issued.code}
-                </pre>
-              </li>
-              <li>
-                Check that the verification phrase on the fresh device matches
-                the one it shows.
-              </li>
-            </ol>
+            <>
+              <CopyButton label="restore code" text={issued.code} />
+              <ol className="plain-steps">
+                <li>
+                  On the fresh device, open its homectl panel and go to{" "}
+                  <strong>System</strong>.
+                </li>
+                <li>
+                  In the workspace link, enter{" "}
+                  {address ? (
+                    <code>{address}</code>
+                  ) : (
+                    "the workspace server address"
+                  )}{" "}
+                  and paste this code into{" "}
+                  <strong>One-time pairing code</strong>.
+                </li>
+                <li>
+                  Enter that device's owner password and select{" "}
+                  <strong>Pair with server</strong>. The device shows the
+                  restore result.
+                </li>
+              </ol>
+            </>
           }
         >
           <Notice tone="warn">

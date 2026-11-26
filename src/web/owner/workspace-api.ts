@@ -12,6 +12,34 @@ import {
   type Untrusted,
 } from "./api";
 
+export function suggestedServerAddress(): string | undefined {
+  if (typeof location === "undefined") return undefined;
+  const host = location.hostname;
+  if (!host || host === "127.0.0.1" || host === "localhost" || host === "[::1]")
+    return undefined;
+  return `http://${host}:7450`;
+}
+
+export interface RetiredWorkspaceClient {
+  id: string;
+  name: string;
+  retiredAt: number;
+  restorable: boolean;
+}
+
+export async function listRetiredWorkspaceClients(): Promise<
+  RetiredWorkspaceClient[]
+> {
+  try {
+    return await ownerCall<RetiredWorkspaceClient[]>(
+      "/v1/owner/workspace/retired",
+    );
+  } catch (error) {
+    if (error instanceof OwnerApiError && error.status === 404) return [];
+    throw error;
+  }
+}
+
 export interface WorkspaceServerInfo {
   id: string;
   name: string;

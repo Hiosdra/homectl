@@ -6,17 +6,13 @@ import { type FormEvent, useEffect, useState } from "react";
 import { describeError } from "./api";
 import { CopyButton } from "./copy";
 import { PairCode } from "./pair-code";
-import { createWorkspaceInvite, type WorkspaceInvite } from "./workspace-api";
+import {
+  createWorkspaceInvite,
+  suggestedServerAddress,
+  type WorkspaceInvite,
+} from "./workspace-api";
 import { Argv, Notice, PasswordStep } from "./ui";
 import { toEpoch } from "./time";
-
-function suggestedServerAddress(): string {
-  if (typeof location === "undefined") return "<server address>";
-  const host = location.hostname;
-  if (!host || host === "127.0.0.1" || host === "localhost" || host === "[::1]")
-    return "<server address>";
-  return `http://${host}:7450`;
-}
 
 export function InviteSection({
   onError,
@@ -64,7 +60,7 @@ export function InviteSection({
           doneLabel="I have entered it"
           onDone={() => setInvite(undefined)}
           steps={(() => {
-            const addr = suggestedServerAddress();
+            const addr = suggestedServerAddress() ?? "<server address>";
             const argv = ["home-ctl", "workspace", "join", addr, invite.code];
             return (
               <ol className="plain-steps">

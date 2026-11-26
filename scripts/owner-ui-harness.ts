@@ -57,7 +57,8 @@ export interface WorkspaceStub {
   // Previews and restores as the server received them (password never kept).
   previews: Json[];
   restores: Json[];
-  // Whether the held snapshot verifies. A failed snapshot is refused on restore.
+  retired: Json[];
+  restoreCodeLifetimeMs: number;
   restoreVerified: boolean;
 }
 
@@ -247,6 +248,8 @@ export function workspaceStub(): WorkspaceStub {
     previews: [],
     restores: [],
     restoreVerified: true,
+    retired: [],
+    restoreCodeLifetimeMs: 5 * 60_000,
   };
 }
 
@@ -376,7 +379,6 @@ export async function serveWorkspace(
         return reply(200, { removed: id });
       }
       case "backup-request": {
-        // No password: asking a client to back up changes nothing sensitive.
         const id = String(body.client);
         const client = stub.clients.find((item) => item.id === id);
         if (!client) return refuse("Unknown workspace client");
@@ -384,15 +386,15 @@ export async function serveWorkspace(
         stub.backupRequests.push(id);
         return reply(200, { client: id, requested: true });
       }
+      case "retired":
+        return reply(200, stub.retired);
       case "restore-preview": {
         if (!ownerOk()) return refuse("Confirm with the owner password");
         if (!reasonOk())
           return refuse("A restore needs a reason of 1 to 300 characters");
         const id = String(body.client);
-        if (!stub.clients.some((item) => item.id === id))
+        if (![...stub.clients, ...stub.retired].some((item) => item.id === id))
           return refuse("No backups are held for that client");
-        // Without seq the server previews its latest snapshot, as the panel sends
-        // no seq for that. An unknown version is refused as the server words it.
         const seq = body.seq === undefined ? LATEST_SEQ : body.seq;
         if (!SNAPSHOT_SEQS.includes(seq as number))
           return refuse(`No backup at seq ${seq} for that client`);
@@ -408,7 +410,7 @@ export async function serveWorkspace(
         if (!reasonOk())
           return refuse("A restore needs a reason of 1 to 300 characters");
         const id = String(body.client);
-        if (!stub.clients.some((item) => item.id === id))
+        if (![...stub.clients, ...stub.retired].some((item) => item.id === id))
           return refuse("No backups are held for that client");
         if (!SNAPSHOT_SEQS.includes(body.seq as number))
           return refuse(`No backup at seq ${body.seq} for that client`);
@@ -416,18 +418,31 @@ export async function serveWorkspace(
           return refuse(
             "This snapshot does not verify. Nothing was restored and the client is not revoked.",
           );
-        // The source is revoked only once its snapshot verified.
-        stub.clients = stub.clients.filter((item) => item.id !== id);
-        stub.pending = stub.pending.filter((item) => item.origin !== id);
-        stub.removed.push(id);
+        const active = stub.clients.find((item) => item.id === id);
+        if (active) {
+          stub.clients = stub.clients.filter((item) => item.id !== id);
+          stub.pending = stub.pending.filter((item) => item.origin !== id);
+          stub.removed.push(id);
+          stub.retired.push({
+            id,
+            name: active.name,
+            retiredAt: Date.now(),
+            restorable: true,
+          });
+        }
         stub.restores.push({
           client: id,
           seq: body.seq,
           reason: body.reason,
         });
         return reply(200, {
-          code: RESTORE_CODE,
-          expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+          code:
+            stub.restores.length === 1
+              ? RESTORE_CODE
+              : `NEW-000${stub.restores.length}`,
+          expiresAt: new Date(
+            Date.now() + stub.restoreCodeLifetimeMs,
+          ).toISOString(),
           restore: { source: id, seq: body.seq, files: 2, bytes: 2860 },
           server: { id: "ws-server", name: "Home server" },
         });

@@ -165,7 +165,11 @@ The client backs up `inventory.yaml`, `known_hosts` and the policy file. Tests c
 
 A restore brings a **reset** client's scoped state back onto a fresh device. A retry verifies the installed files against the snapshot before confirming recovery. If any installed file is missing or has changed, the client keeps the files for your review and leaves the restore unconfirmed. It runs on the server, is owner-only, and is never automatic. Files are written only to a device that holds none of them yet.
 
-**Steps.**
+In the server panel, open **Devices & backup** and select **Restore** for the source device. Choose the backup, verify it, and confirm with the owner password. Open **System** in the fresh device's panel and use its workspace link form to enter the server address and restore code.
+
+If the code expires, select **Get a new code** and confirm again with the owner password. After leaving the dialog, open **Backups from disconnected devices** in the server panel to start recovery again from the same backup.
+
+**CLI steps.**
 
 1. **Preview.** `home-ctl workspace restore-preview <client> [seq] --reason "<why>"`, then enter the owner password. It lists each file in the snapshot with its size, whether it would be restored, and whether the snapshot verifies. Without `seq` it previews the latest snapshot.
 2. **Restore.** `home-ctl workspace restore <client> <seq> --reason "<why>"`, then enter the owner password. The server verifies the whole snapshot again. Only if it verifies:

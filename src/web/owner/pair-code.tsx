@@ -26,6 +26,7 @@ export function PairCode({
   expiredLabel,
   doneLabel,
   onDone,
+  onExpired,
   children,
 }: {
   code: string;
@@ -38,6 +39,7 @@ export function PairCode({
   expiredLabel: string;
   doneLabel: string;
   onDone: () => void;
+  onExpired?: () => void;
   children?: ReactNode;
 }) {
   const now = useNow();
@@ -73,10 +75,15 @@ export function PairCode({
         <button
           type="button"
           className={expired ? "primary" : undefined}
-          onClick={onDone}
+          onClick={expired ? (onExpired ?? onDone) : onDone}
         >
           {expired ? expiredLabel : doneLabel}
         </button>
+        {expired && onExpired ? (
+          <button type="button" onClick={onDone}>
+            Close
+          </button>
+        ) : null}
       </div>
     </div>
   );
