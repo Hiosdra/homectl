@@ -101,7 +101,7 @@ export function WorkspaceScreen({
           This device. Choose All devices or a client to see them.
         </p>
       ) : (
-        <>
+        <div className="workspace-sections">
           <PendingSection
             pending={pending}
             clients={clients}
@@ -124,9 +124,9 @@ export function WorkspaceScreen({
             }
             onError={onError}
           />
-        </>
+          {wholeServer ? <InviteSection onError={onError} /> : null}
+        </div>
       )}
-      {wholeServer ? <InviteSection onError={onError} /> : null}
       {restoring ? (
         <RestoreFlow
           client={restoring}

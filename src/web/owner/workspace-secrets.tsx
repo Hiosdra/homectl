@@ -184,7 +184,10 @@ function WorkspaceSecretCard({
         </p>
       ) : null}
       {!done && canRemote ? (
-        <form className="stack" onSubmit={(event) => void provide(event)}>
+        <form
+          className="workspace-secret-form"
+          onSubmit={(event) => void provide(event)}
+        >
           {!request.admin && !locked ? (
             <>
               {request.fields.map((field) => {
@@ -205,7 +208,7 @@ function WorkspaceSecretCard({
                   </Field>
                 );
               })}
-              <div className="stack">
+              <div className="workspace-secret-retention">
                 <RadioRow
                   name={`${baseId}-retention`}
                   value="ephemeral"

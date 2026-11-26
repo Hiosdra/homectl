@@ -94,6 +94,10 @@ button.primary:disabled { background: var(--surface-2); border-color: var(--line
 .group + .group { margin-top: 24px; }
 .group-title { display: flex; align-items: center; gap: 8px; font-size: 16px; margin-bottom: 10px; }
 .request-list { display: flex; flex-direction: column; gap: 12px; }
+.workspace-sections { display: grid; min-width: 0; gap: 24px; }
+.workspace-sections > .group, .workspace-sections > section { margin-block: 0; }
+.workspace-secret-form { display: grid; min-width: 0; gap: 12px; }
+.workspace-secret-retention { display: grid; gap: 8px; }
 .item.request-card, .request-card { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; margin: 0;
   background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line-strong);
   border-radius: var(--r); box-shadow: var(--shadow); }
