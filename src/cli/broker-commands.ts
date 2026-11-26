@@ -11,7 +11,7 @@ import { callWithWait, waitInChunks } from "../broker/long-wait";
 import type { Endpoint } from "../broker/paths";
 import { readPassword } from "../session";
 import { connectAgent, describeConnect } from "./agent-connect";
-import { checkLocalExecOptions } from "./exec-local-options";
+import { checkLocalExecOptions, previewExec } from "./exec-local-options";
 import { paths } from "../setup";
 import { HomectlError } from "../types";
 import { ownerCommand } from "./owner-commands";
@@ -148,7 +148,10 @@ export async function brokerCommand(
   // exec/ssh go through the broker whenever the agent is connected to one.
   if (command === "exec" || command === "ssh") {
     const endpoint = await findEndpoint(options.inventoryPath);
-    if (!endpoint || !(await clientToken())) {
+    if (
+      !cliArgs.includes("--dry-run") &&
+      (!endpoint || !(await clientToken()))
+    ) {
       checkLocalExecOptions(cliArgs);
       return undefined;
     }
@@ -190,6 +193,17 @@ export async function brokerCommand(
       const [host] = positionals;
       if (!host || !argv.length)
         throw new HomectlError(2, "Usage: home-ctl exec <host> -- <argv...>");
+      if (v["dry-run"]) {
+        emit(
+          await previewExec(inventoryPath, {
+            host,
+            argv,
+            impact: v.impact,
+            task: v.task,
+          }),
+        );
+        return 0;
+      }
       const auth = await agentAuth(inventoryPath);
       const view = await callWithWait(
         (path, body) => callBroker(path, body, auth),

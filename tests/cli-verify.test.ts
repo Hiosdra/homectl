@@ -2,7 +2,7 @@
 // recorded once and shown by op and wait, but it never changes the state, the
 // exit status or the command's own output. Bad arguments fail before any call.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callBroker } from "../src/broker/client";
@@ -97,6 +97,34 @@ function cliFor(inventoryPath: string) {
     });
   return { seen, run };
 }
+
+test("exec dry-run returns a plan without submitting to a connected broker", async () => {
+  const { inventoryPath } = await boot();
+  const cli = cliFor(inventoryPath);
+  const state = join(compatPaths(inventoryPath).state, "broker-state.json");
+  const before = await readFile(state, "utf8").catch(() => undefined);
+  const argv = ["docker", "restart", "fixture"];
+  expect(
+    await cli.run([
+      "exec",
+      "pc",
+      "--dry-run",
+      "--impact",
+      "fixture reload",
+      "--",
+      ...argv,
+    ]),
+  ).toBe(0);
+  expect(cli.seen[0]?.value).toMatchObject({
+    plan: {
+      host: "pc",
+      argv,
+      impact: "fixture reload",
+      approval: expect.any(String),
+    },
+  });
+  expect(await readFile(state, "utf8").catch(() => undefined)).toBe(before);
+});
 
 describe("verify arguments", () => {
   test("the operation, a verdict and a summary are required", () => {

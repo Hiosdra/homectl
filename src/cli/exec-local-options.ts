@@ -2,6 +2,9 @@
 // locally, which cannot wait for an owner or use a task, so those options are
 // refused or checked here with a plain message instead of an "Unknown option".
 import { parseArgs } from "node:util";
+import { validateExecInput } from "../broker/plan";
+import { loadInventory, resolveHost } from "../inventory";
+import { planExecution } from "../policies";
 import { HomectlError } from "../types";
 
 export function checkLocalExecOptions(cliArgs: string[]): void {
@@ -20,4 +23,12 @@ export function checkLocalExecOptions(cliArgs: string[]): void {
   const seconds = Number(values.wait);
   if (!Number.isFinite(seconds) || seconds < 0 || seconds > 600)
     throw new HomectlError(2, "--wait takes 0 to 600 seconds");
+}
+
+export async function previewExec(inventoryPath: string, request: unknown) {
+  const { host, argv, impact } = validateExecInput(request);
+  const inventory = await loadInventory(inventoryPath);
+  return {
+    plan: planExecution(host, resolveHost(inventory, host), argv, impact),
+  };
 }
