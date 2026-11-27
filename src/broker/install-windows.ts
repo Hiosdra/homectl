@@ -198,7 +198,7 @@ export function windowsPlan(options: {
     {
       description: `Stop existing ${WINDOWS_SERVICE_NAME} service if running`,
       argv: psEncoded(
-        `$svc = Get-Service -Name ${psQuote(WINDOWS_SERVICE_NAME)} -ErrorAction SilentlyContinue; if ($svc -and $svc.Status -ne 'Stopped') { Stop-Service -Name ${psQuote(WINDOWS_SERVICE_NAME)} -Force -ErrorAction SilentlyContinue; $svc.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(10)) }`,
+        `$svc = Get-Service -Name ${psQuote(WINDOWS_SERVICE_NAME)} -ErrorAction SilentlyContinue; if ($svc -and $svc.Status -ne 'Stopped') { Stop-Service -Name ${psQuote(WINDOWS_SERVICE_NAME)} -Force -ErrorAction SilentlyContinue; $svc.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(10)) }; Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ${psQuote(`${binDir}\\*`)} } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 300`,
       ),
       ignoreFailure: true,
     },
