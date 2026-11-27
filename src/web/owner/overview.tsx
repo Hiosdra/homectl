@@ -35,6 +35,8 @@ import { setupHash } from "./route";
 import { type SetupStatus } from "./setup-api";
 import { SetupChecklist, UpgradeNotice } from "./setup-checklist";
 import { wizardStep } from "./setup-copy";
+import { describeDestination, SecretCard } from "./overview-secret-card";
+export { describeDestination };
 
 export function OverviewScreen({
   data,
@@ -82,6 +84,29 @@ export function OverviewScreen({
             ? "Nothing is waiting. Assistants keep working within their permissions."
             : `${total} ${total === 1 ? "thing needs" : "things need"} you. Small changes can be approved here; anything bigger opens with its exact command shown.`}
         </p>
+        {total > 0 ? (
+          <div className="summary-pills">
+            {data.operations.length > 0 ? (
+              <Badge tone="warn" icon="shield">
+                {data.operations.length}{" "}
+                {data.operations.length === 1 ? "approval" : "approvals"}
+              </Badge>
+            ) : null}
+            {data.secrets.length > 0 ? (
+              <Badge tone="info" icon="key">
+                {data.secrets.length}{" "}
+                {data.secrets.length === 1
+                  ? "secret request"
+                  : "secret requests"}
+              </Badge>
+            ) : null}
+            {workspaceWaiting > 0 ? (
+              <Badge tone="neutral" icon="devices">
+                {workspaceWaiting} on linked devices
+              </Badge>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <ContextNote scope={scope} />
       {setup && onSetupChanged ? (
@@ -91,7 +116,7 @@ export function OverviewScreen({
           onError={onError}
         />
       ) : null}
-      {setup && onSetupChanged ? (
+      {total === 0 && setup && onSetupChanged ? (
         <SetupChecklist
           status={setup}
           onOpen={onOpen}
@@ -209,6 +234,15 @@ export function OverviewScreen({
             ))}
           </div>
         </div>
+      ) : null}
+
+      {total > 0 && setup && onSetupChanged ? (
+        <SetupChecklist
+          status={setup}
+          onOpen={onOpen}
+          onChanged={onSetupChanged}
+          onError={onError}
+        />
       ) : null}
 
       <p className="small muted">
@@ -400,89 +434,4 @@ function ApprovalCard({
       )}
     </div>
   );
-}
-
-function SecretCard({
-  request,
-  names,
-  onOpen,
-  onDone,
-  onError,
-}: {
-  request: PendingSecret;
-  names: AssistantNames;
-  onOpen: (hash: string) => void;
-  onDone: (message: string) => void;
-  onError: (error: unknown) => unknown;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | undefined>();
-  const expires = toEpoch(request.expiresAt);
-  const asked = toEpoch(request.createdAt);
-  const decline = async () => {
-    if (busy) return;
-    setBusy(true);
-    setError(undefined);
-    try {
-      await ownerCall("/v1/owner/secrets/decline", { id: request.id });
-      onDone("Declined. The assistant was told.");
-    } catch (failure) {
-      onError(failure);
-      setError(describeError(failure));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const count = request.fields.length;
-  return (
-    <div className="item request-card" data-risk="look">
-      <div className="request-head">
-        <AssistantTag id={request.client} names={names} />
-        <Badge tone="info" icon="key">
-          Secret request
-        </Badge>
-      </div>
-      <p className="lead">
-        {`Needs ${count === 1 ? "a value" : `${count} values`} for ${describeDestination(request)}.`}
-      </p>
-      <p className="small muted">
-        It is typed here, is never shown again, and is not sent unless you
-        provide it.
-      </p>
-      <RequestMeta asked={toEpoch(request.createdAt)} expires={expires} />
-      {error ? <Notice tone="bad">{error}</Notice> : null}
-      <div className="request-actions">
-        <button
-          type="button"
-          className="primary"
-          disabled={busy}
-          onClick={() => onOpen(`#/secrets/${encodeURIComponent(request.id)}`)}
-        >
-          Provide…
-        </button>
-        <button
-          type="button"
-          className="danger"
-          disabled={busy}
-          onClick={() => void decline()}
-        >
-          Decline
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export function describeDestination(request: PendingSecret): string {
-  const destination = request.destination;
-  switch (destination.kind) {
-    case "ssh-stdin":
-      return destination.host;
-    case "target-file":
-      return `${destination.host}:${destination.path}`;
-    case "http-header":
-      return destination.url;
-    case "vault-only":
-      return "the vault only";
-  }
 }

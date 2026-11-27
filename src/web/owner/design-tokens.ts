@@ -57,46 +57,49 @@ export const TOKENS_CSS = `
 :root {
   --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-  --bg: #f3f5f9; --surface: #ffffff; --surface-2: #eef2f7;
-  --ink: #111a2b; --ink-2: #4a5669;
-  --line: #d6dde8; --line-strong: #aeb9c9;
-  --accent: #1c5bc4; --accent-hover: #164ca8; --accent-ink: #ffffff;
-  --accent-soft: #e5edfb; --accent-soft-ink: #163f8c;
-  --ok: #14693a; --ok-bg: #e0f4e8;
-  --warn: #834a00; --warn-bg: #fff0d2;
-  --bad: #a81c2c; --bad-bg: #fce6e9; --bad-line: #e0a0aa;
-  --untrusted: #5f2d9c; --untrusted-bg: #f2eafc;
-  --focus: #1c5bc4;
-  --shadow: 0 1px 2px rgb(17 26 43 / .06), 0 2px 10px rgb(17 26 43 / .05);
-  --r-sm: 8px; --r: 12px; --r-lg: 18px; --r-pill: 999px;
-  --touch: 44px; --ease: cubic-bezier(.2, .7, .2, 1);
+  --bg: #f5f7fb; --surface: #ffffff; --surface-2: #edf1f8;
+  --ink: #0f172a; --ink-2: #475569;
+  --line: #dbe2ee; --line-strong: #b6c2d6;
+  --accent: #1d4ed8; --accent-hover: #1e40af; --accent-ink: #ffffff;
+  --accent-soft: #e6efff; --accent-soft-ink: #173a99;
+  --ok: #0f6b40; --ok-bg: #dff6ea;
+  --warn: #8a4b00; --warn-bg: #fff1d6;
+  --bad: #b41d31; --bad-bg: #fde7ea; --bad-line: #e49aa5;
+  --untrusted: #6328a8; --untrusted-bg: #f3ebff;
+  --focus: #1d4ed8;
+  --shadow: 0 1px 2px rgb(15 23 42 / .05), 0 6px 20px -6px rgb(15 23 42 / .08);
+  --shadow-lg: 0 16px 40px -12px rgb(15 23 42 / .16), 0 2px 6px rgb(15 23 42 / .06);
+  --r-sm: 10px; --r: 14px; --r-lg: 20px; --r-pill: 999px;
+  --touch: 44px; --ease: cubic-bezier(.2, .8, .2, 1);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0b1017; --surface: #131a24; --surface-2: #1a2331;
-    --ink: #e9eef6; --ink-2: #aab5c6;
-    --line: #283445; --line-strong: #3c4a5e;
-    --accent: #86b4ff; --accent-hover: #a3c6ff; --accent-ink: #0a1528;
-    --accent-soft: #1b2c49; --accent-soft-ink: #c4dcff;
-    --ok: #86e0b0; --ok-bg: #123024;
-    --warn: #f5c372; --warn-bg: #3a2b10;
-    --bad: #ffa2ac; --bad-bg: #3e1a22; --bad-line: #7a3a45;
-    --untrusted: #d2b8ff; --untrusted-bg: #2a2040;
-    --focus: #86b4ff;
-    --shadow: 0 1px 2px rgb(0 0 0 / .4);
+    --bg: #090b10; --surface: #11151e; --surface-2: #181e2b;
+    --ink: #f1f5fb; --ink-2: #9ba8bd;
+    --line: #232c3d; --line-strong: #37455e;
+    --accent: #6ea8ff; --accent-hover: #8cbaff; --accent-ink: #071224;
+    --accent-soft: #152542; --accent-soft-ink: #c2dcff;
+    --ok: #6ee7b7; --ok-bg: #0d2b22;
+    --warn: #fbbf24; --warn-bg: #332409;
+    --bad: #fb7185; --bad-bg: #38131d; --bad-line: #7a2e42;
+    --untrusted: #c4b5fd; --untrusted-bg: #23193b;
+    --focus: #6ea8ff;
+    --shadow: 0 1px 2px rgb(0 0 0 / .45), 0 8px 24px -10px rgb(0 0 0 / .6);
+    --shadow-lg: 0 24px 48px -14px rgb(0 0 0 / .75), 0 2px 8px rgb(0 0 0 / .45);
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0b1017; --surface: #131a24; --surface-2: #1a2331;
-  --ink: #e9eef6; --ink-2: #aab5c6;
-  --line: #283445; --line-strong: #3c4a5e;
-  --accent: #86b4ff; --accent-hover: #a3c6ff; --accent-ink: #0a1528;
-  --accent-soft: #1b2c49; --accent-soft-ink: #c4dcff;
-  --ok: #86e0b0; --ok-bg: #123024;
-  --warn: #f5c372; --warn-bg: #3a2b10;
-  --bad: #ffa2ac; --bad-bg: #3e1a22; --bad-line: #7a3a45;
-  --untrusted: #d2b8ff; --untrusted-bg: #2a2040;
-  --focus: #86b4ff;
-  --shadow: 0 1px 2px rgb(0 0 0 / .4);
+  --bg: #090b10; --surface: #11151e; --surface-2: #181e2b;
+  --ink: #f1f5fb; --ink-2: #9ba8bd;
+  --line: #232c3d; --line-strong: #37455e;
+  --accent: #6ea8ff; --accent-hover: #8cbaff; --accent-ink: #071224;
+  --accent-soft: #152542; --accent-soft-ink: #c2dcff;
+  --ok: #6ee7b7; --ok-bg: #0d2b22;
+  --warn: #fbbf24; --warn-bg: #332409;
+  --bad: #fb7185; --bad-bg: #38131d; --bad-line: #7a2e42;
+  --untrusted: #c4b5fd; --untrusted-bg: #23193b;
+  --focus: #6ea8ff;
+  --shadow: 0 1px 2px rgb(0 0 0 / .45), 0 8px 24px -10px rgb(0 0 0 / .6);
+  --shadow-lg: 0 24px 48px -14px rgb(0 0 0 / .75), 0 2px 8px rgb(0 0 0 / .45);
 }
 `;

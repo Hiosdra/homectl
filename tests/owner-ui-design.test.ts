@@ -10,6 +10,7 @@ import {
   readLastSection,
   writeLastSection,
 } from "../src/web/owner/last-section";
+import { readTheme, writeTheme } from "../src/web/owner/theme";
 import { OWNER_CSS, OWNER_HTML } from "../src/web/owner/shell";
 import { TOKENS_CSS } from "../src/web/owner/design-tokens";
 import {
@@ -190,6 +191,18 @@ describe("remembered section", () => {
     install(undefined);
     expect(readLastSection()).toBeUndefined();
     expect(() => writeLastSection("system")).not.toThrow();
+  });
+
+  test("theme preference stores only allowlisted values", () => {
+    const store: Store = {};
+    install(store);
+    expect(readTheme()).toBe("system");
+    writeTheme("dark");
+    expect(store["homectl.owner.theme"]).toBe("dark");
+    expect(readTheme()).toBe("dark");
+    store["homectl.owner.theme"] = "bogus";
+    expect(readTheme()).toBe("system");
+    install(undefined);
   });
 });
 
