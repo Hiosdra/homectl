@@ -133,6 +133,10 @@ const ownerSections: Section[] = [
         "Reads the host's platform and what homectl could manage there, through the pinned key.",
       ],
       [
+        "proxmox-api <host> <https-origin> <vault-entry> [fingerprint]",
+        "Previews full Proxmox HTTPS setup using the cluster CA read over pinned SSH and an existing token in the broker vault. Pass the reviewed fingerprint to verify and save. Asks for the owner password privately.",
+      ],
+      [
         "preview-host-grant <host>",
         "Plans the homectl sudoers drop-in for the host and prints its fingerprint. Writes nothing on the host.",
       ],

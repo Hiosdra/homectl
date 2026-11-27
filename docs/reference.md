@@ -191,7 +191,7 @@ Verification is the agent's own check of an outcome, and it is kept apart from e
 
 ## Proxmox
 
-A Proxmox provider in the inventory names one node, reached through a full-access SSH host with a managed key. Its settings are the only facts homectl checks against:
+A Proxmox provider in the inventory names one node, reached through a full-access SSH host with a managed key. Its settings define the allowed targets:
 
 | Setting           | Meaning                                                                                                                               |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -200,10 +200,14 @@ A Proxmox provider in the inventory names one node, reached through a full-acces
 | `protected_vmids` | Guest ids that can never be destroyed or rolled back.                                                                                 |
 | `storages`        | Storages homectl may use. Any storage operation needs it.                                                                             |
 | `templates`       | LXC templates allowed for guest-mode creation.                                                                                        |
-| `api`             | `url`, `ca_file` and `token_entry`. With it, plans run over HTTPS with the session's API token. Without it, guest plans run over SSH. |
+| `api`             | `url`, `ca_file` and `token_entry`. Required for the broker's full HTTPS API requests. The broker's guest catalogue uses managed SSH. |
 | `operations`      | `guests` (default) or `full`. See below.                                                                                              |
 
-`operations: guests` is the default and is unchanged: a typed catalogue of list, status, config, start, stop, reboot, shutdown, clone, create (LXC from an allowed template) and destroy (with purge). Each action is one fixed argv or one fixed API call. Restore is disabled.
+`operations: guests` is the default. It enables the typed catalogue for list, status, config, start, stop, reboot, shutdown, QEMU clone, LXC create from an allowed template, and destroy with purge. The broker confirms the node on the managed SSH connection and rechecks the approved inventory before running the catalogue command. The legacy control plane still uses HTTPS for guest plans when its provider config includes `api`. Restore is disabled.
+
+For LXC creation, `storage` is the disk storage and `template_storage` defaults to that same storage. Pass `memory_mb`, `swap_mb`, `cores`, `disk_gb`, and a `bridge` such as `vmbr0`. The address defaults to DHCP. `nesting` and `keyctl` are optional booleans. The broker always requires the owner's approval with step-up, displays the exact command, checks the VMID across the cluster, and creates the container unprivileged with automatic start and start on boot disabled.
+
+To set up HTTPS with Proxmox's default cluster certificate, first put an existing API token in the broker's KDBX vault. Use the token ID as the entry's username and the token secret as its password. Then run `home-ctl owner proxmox-api <host> <https-origin> <vault-entry>` to preview the node, origin, vault entry, and CA fingerprint. Run the same command with the reviewed fingerprint appended to verify node status over HTTPS and save the provider with `operations: full`. It requires a previously pinned SSH host key and a managed key. This command reads the public cluster CA and leaves the remote account, ACLs and services unchanged. For a new provider, set an explicit VMID range and the storage and template allowlists before requesting guest changes. If the result is configured but inactive, lock and unlock the broker vault to load the token.
 
 `operations: full` lets the owner plan any operation in homectl's route table through one request: `{op: "proxmox-api", host, method, path, params}`. Nothing outside the table is sent. Every request is classified by its method and its area:
 

@@ -8,7 +8,7 @@ import { fingerprint } from "../control/canonical";
 import type { DeviceKey } from "../control/device-key";
 import type { ApprovalGrant } from "../core/contracts";
 import { HomectlError, type Machine, type ProcessResult } from "../types";
-import { boundOutput } from "./plan";
+import { boundOutput, operationFingerprint } from "./plan";
 import { authorityRefusal, type CurrentClient } from "./request-authority";
 import type { BrokerStore } from "./store";
 import {
@@ -32,8 +32,7 @@ export interface DispatchContext {
   currentClient?: CurrentClient;
 }
 
-// Proxmox requests run through the API transport, never over SSH. Without one,
-// nothing starts and the operation fails as not-started.
+// Proxmox requests use the transport bound to the approved operation.
 async function runProxmox(
   executor: ExecutorPort,
   op: BrokerOperation,
@@ -41,12 +40,14 @@ async function runProxmox(
   if (!executor.proxmox || op.proxmox === undefined)
     throw new HomectlError(
       5,
-      "The Proxmox API is not configured for this broker",
+      "The Proxmox executor is not configured for this broker",
     );
   return executor.proxmox.run({
     host: op.host,
     operationId: op.id,
     request: op.proxmox,
+    argv: op.argv,
+    machineHash: op.machineHash,
     ...(op.providerHash === undefined ? {} : { providerHash: op.providerHash }),
   });
 }
@@ -136,6 +137,8 @@ export async function dispatch(
         live.grantId === grant.id &&
         now < live.expiresAt &&
         check.ok &&
+        (live.proxmox === undefined ||
+          operationFingerprint(live) === live.fingerprint) &&
         revision === current &&
         fingerprint(machine ?? null) === live.machineHash &&
         (await ctx.ledger.consume(grant.nonce, grant.expiresAt));

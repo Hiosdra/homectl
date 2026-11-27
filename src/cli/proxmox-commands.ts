@@ -10,7 +10,7 @@ import { HomectlError } from "../types";
 type Emit = (value: unknown, human?: string) => void;
 
 export const PROXMOX_USAGE = [
-  "home-ctl proxmox <host> <action> [--kind qemu|lxc] [--vmid N] [--template N|name] [--name text] [--storage id] [--memory-mb N] [--cores N] [--disk-gb N] [--bridge id] [--address dhcp|IPv4] [--cidr N] [--gateway IPv4] [--timeout-s N]",
+  "home-ctl proxmox <host> <action> [--kind qemu|lxc] [--vmid N] [--template N|name] [--name text] [--storage id] [--template-storage id] [--memory-mb N] [--swap-mb N] [--cores N] [--disk-gb N] [--bridge id] [--address dhcp|IPv4] [--cidr N] [--gateway IPv4] [--nesting] [--keyctl] [--timeout-s N]",
   "home-ctl proxmox <host> api <GET|POST|PUT|DELETE> <path> [--param key=value ...]",
   "Options for both forms: --wait seconds (default 120, up to 600), --task <id>, --json.",
 ].join("\n");
@@ -53,7 +53,11 @@ export function parseProxmoxArgs(args: string[]) {
       template: { type: "string" },
       name: { type: "string" },
       storage: { type: "string" },
+      "template-storage": { type: "string" },
       "memory-mb": { type: "string" },
+      "swap-mb": { type: "string" },
+      nesting: { type: "boolean" },
+      keyctl: { type: "boolean" },
       cores: { type: "string" },
       "disk-gb": { type: "string" },
       bridge: { type: "string" },
@@ -133,7 +137,11 @@ export function parseProxmoxArgs(args: string[]) {
   );
   set("name", v.name);
   set("storage", v.storage);
+  set("template_storage", v["template-storage"]);
   set("memory_mb", wholeNumber(v["memory-mb"], "--memory-mb"));
+  set("swap_mb", wholeNumber(v["swap-mb"], "--swap-mb"));
+  set("nesting", v.nesting);
+  set("keyctl", v.keyctl);
   set("cores", wholeNumber(v.cores, "--cores"));
   set("disk_gb", wholeNumber(v["disk-gb"], "--disk-gb"));
   set("bridge", v.bridge);
