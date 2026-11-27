@@ -22,12 +22,15 @@ const SID_ADMINS = "*S-1-5-32-544";
 const SID_USERS = "*S-1-5-32-545";
 
 function psEncoded(script: string): string[] {
+  const full = `$ProgressPreference='SilentlyContinue'; ${script}`;
   return [
     "powershell.exe",
     "-NoProfile",
     "-NonInteractive",
+    "-OutputFormat",
+    "Text",
     "-EncodedCommand",
-    Buffer.from(script, "utf16le").toString("base64"),
+    Buffer.from(full, "utf16le").toString("base64"),
   ];
 }
 
@@ -194,7 +197,16 @@ export function windowsPlan(options: {
   const steps: InstallStep[] = [
     {
       description: `Stop existing ${WINDOWS_SERVICE_NAME} service if running`,
-      argv: ["sc.exe", "stop", WINDOWS_SERVICE_NAME],
+      argv: psEncoded(
+        `$svc = Get-Service -Name ${psQuote(WINDOWS_SERVICE_NAME)} -ErrorAction SilentlyContinue; if ($svc -and $svc.Status -ne 'Stopped') { Stop-Service -Name ${psQuote(WINDOWS_SERVICE_NAME)} -Force -ErrorAction SilentlyContinue; $svc.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(10)) }`,
+      ),
+      ignoreFailure: true,
+    },
+    {
+      description: `Reclaim temporary administrator access to existing ${state} for upgrade`,
+      argv: psEncoded(
+        `$q = [System.Collections.Generic.Queue[string]]::new(); $q.Enqueue(${psQuote(state)}); while ($q.Count -gt 0) { $cur = $q.Dequeue(); & takeown.exe /F $cur /A | Out-Null; & icacls.exe $cur /grant '${SID_ADMINS}:(OI)(CI)F' /C | Out-Null; Get-ChildItem -LiteralPath $cur -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object { $q.Enqueue($_.FullName) } }`,
+      ),
       ignoreFailure: true,
     },
     {
