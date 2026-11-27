@@ -15,7 +15,7 @@ import { EventLog } from "../events";
 import { loadInventory } from "../inventory";
 import { mcpHttpRoute } from "../mcp/http";
 import { migrate } from "../migrate";
-import { execute } from "../operations";
+import { execute, writeSSHConfig } from "../operations";
 import { atomicReplace, privateDirectory } from "../platform";
 import { planExecution } from "../policies";
 import { SecretBroker } from "../secrets";
@@ -57,7 +57,7 @@ import type {
 } from "./types";
 import { UpdateRoutes } from "./update-routes";
 import type { KeyAgentPort } from "./vault-service";
-import { createVault, rebindInventory } from "./vault-wiring";
+import { createVault, rebindInventory, rebindMachine } from "./vault-wiring";
 
 export interface DaemonConfig {
   mode: BrokerMode;
@@ -102,6 +102,14 @@ export function sshExecutor(
 ): ExecutorPort {
   return {
     async run({ host, machine, argv, operationId, stdin }) {
+      const inv = await loadInventory(inventoryPath);
+      const rebound = Object.fromEntries(
+        Object.entries(inv.machines).map(([name, entry]) => [
+          name,
+          rebindMachine(entry, inventoryPath),
+        ]),
+      );
+      await writeSSHConfig(configPath, rebound);
       const approval = planExecution(host, machine, argv).approval;
       const { result } = await execute(host, machine, argv, {
         configPath,
