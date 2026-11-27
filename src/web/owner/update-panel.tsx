@@ -79,9 +79,11 @@ export function UpdatePanel({
   return (
     <section aria-labelledby="update-heading">
       <h3 id="update-heading">Updates</h3>
-      <dl>
+      <dl className="update-meta">
         <dt>This panel</dt>
-        <dd>homectl {PANEL_VERSION}</dd>
+        <dd>
+          <span className="mono">homectl {PANEL_VERSION}</span>
+        </dd>
         {load.state === "ready" ? (
           <>
             <dt>Installed</dt>

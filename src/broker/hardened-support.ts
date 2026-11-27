@@ -28,9 +28,9 @@ export function hardenedSupport(
   if (platform === "win32")
     return {
       platform,
-      supported: false,
+      supported: true,
       statement:
-        "Hardened mode is not available on Windows yet (a dedicated service account is planned). Compatibility mode runs as your user and is weaker.",
+        "Hardened mode is supported: a Windows service under the virtual service account NT SERVICE\\homectl with ACL-restricted state in %ProgramData%\\homectl\\state.",
     };
   if (platform === "darwin")
     return {

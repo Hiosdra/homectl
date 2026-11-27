@@ -3,44 +3,48 @@
 // design-tokens.ts, so the light and dark themes share these rules.
 export const COMPONENTS_CSS = `
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font);
-  -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; }
-h1, h2, h3, h4 { margin: 0; line-height: 1.25; color: var(--ink); letter-spacing: -.01em; }
-h3 { font-size: 16px; font-weight: 650; margin-bottom: 10px; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font);
+  background-image: radial-gradient(ellipse 90% 45% at 50% -12%, var(--accent-soft), transparent 70%);
+  background-attachment: fixed; -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; }
+h1, h2, h3, h4 { margin: 0; line-height: 1.22; color: var(--ink); letter-spacing: -.02em; }
+h3 { font-size: 16.5px; font-weight: 700; margin-bottom: 10px; }
 h4 { font-size: 14px; font-weight: 650; margin: 16px 0 8px; }
 p { margin: 0 0 10px; }
 p:last-child { margin-bottom: 0; }
-.page-head { margin: 4px 0 20px; }
-.page-head h2 { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
-.page-head p { color: var(--ink-2); margin: 0; max-width: 62ch; }
+.page-head { margin: 2px 0 24px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.page-head h2 { font-size: 28px; font-weight: 750; letter-spacing: -.03em; margin-bottom: 6px; }
+.page-head p { color: var(--ink-2); margin: 0; max-width: 64ch; font-size: 14.5px; }
+.summary-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .muted { color: var(--ink-2); }
 .small { font-size: 13px; }
 .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .between { justify-content: space-between; }
 .stack > * + * { margin-top: 12px; }
 .lead { font-size: 16px; margin: 0 0 6px; }
-.sub-title { font-size: 13px; font-weight: 650; color: var(--ink-2); margin: 14px 0 6px; }
+.sub-title { font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); margin: 16px 0 8px; }
 section, .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
-  padding: 18px; margin-bottom: 16px; box-shadow: var(--shadow); }
+  padding: 20px 22px; margin-bottom: 18px; box-shadow: var(--shadow), inset 0 1px 0 rgb(255 255 255 / .04); }
 section:last-child { margin-bottom: 0; }
-a { color: var(--accent); font-weight: 600; }
+a { color: var(--accent); font-weight: 600; text-underline-offset: 3px; }
 
 button, .button { font: inherit; font-size: 14px; font-weight: 600; display: inline-flex; align-items: center;
   justify-content: center; gap: 8px; min-height: var(--touch); padding: 8px 16px; border-radius: var(--r-sm);
   border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); cursor: pointer;
-  transition: background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease); }
-button:hover:not(:disabled) { background: var(--surface-2); }
-button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  transition: background-color .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .1s var(--ease), box-shadow .15s var(--ease); }
+button:hover:not(:disabled) { background: var(--surface-2); border-color: var(--ink-2); }
+button:active:not(:disabled) { transform: scale(.985); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+  box-shadow: 0 2px 8px -2px rgb(0 0 0 / .28), inset 0 1px 0 rgb(255 255 255 / .22); }
 button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-button.danger { color: var(--bad); border-color: var(--bad-line); }
-button.danger:hover:not(:disabled) { background: var(--bad-bg); }
+button.danger { color: var(--bad); border-color: var(--bad-line); background: transparent; }
+button.danger:hover:not(:disabled) { background: var(--bad-bg); border-color: var(--bad); }
 button.quiet { background: transparent; border-color: transparent; color: var(--accent); }
-button.quiet:hover:not(:disabled) { background: var(--accent-soft); }
+button.quiet:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; }
 button.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 /* A disabled control keeps its colour family and readable text; it is only dimmed
    and loses the pointer, so it still reads as the same button. */
 button:disabled { opacity: .62; cursor: not-allowed; }
-button.primary:disabled { background: var(--surface-2); border-color: var(--line-strong); color: var(--ink-2); opacity: 1; }
+button.primary:disabled { background: var(--surface-2); border-color: var(--line-strong); color: var(--ink-2); opacity: 1; box-shadow: none; }
 .icon { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
   stroke-linecap: round; stroke-linejoin: round; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
@@ -49,7 +53,7 @@ button.primary:disabled { background: var(--surface-2); border-color: var(--line
   border-radius: var(--r-pill); font-size: 12.5px; font-weight: 600; white-space: nowrap;
   background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); }
 .badge .icon { width: 14px; height: 14px; stroke-width: 2.4; }
-.badge.count { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.badge.count { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-variant-numeric: tabular-nums; }
 .badge.info { background: var(--accent-soft); color: var(--accent-soft-ink); border-color: transparent; }
 .badge.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
 .badge.bad { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
@@ -91,29 +95,35 @@ button.primary:disabled { background: var(--surface-2); border-color: var(--line
 
 /* Needs you: one list of cards under one heading each. The cards carry the only
    border, so nothing sits inside a bordered container. */
+.group { margin-bottom: 24px; }
+.group:last-child { margin-bottom: 0; }
 .group + .group { margin-top: 24px; }
-.group-title { display: flex; align-items: center; gap: 8px; font-size: 16px; margin-bottom: 10px; }
+.group-title { display: flex; align-items: center; gap: 8px; font-size: 16px; margin-bottom: 12px; }
+.approval-title { font-size: 21px; margin: 12px 0 8px; }
+.update-meta { margin-bottom: 10px; }
 .request-list { display: flex; flex-direction: column; gap: 12px; }
 .workspace-sections { display: grid; min-width: 0; gap: 24px; }
 .workspace-sections > .group, .workspace-sections > section { margin-block: 0; }
 .workspace-secret-form { display: grid; min-width: 0; gap: 12px; }
 .workspace-secret-retention { display: grid; gap: 8px; }
-.item.request-card, .request-card { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; margin: 0;
+.item.request-card, .request-card { display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; margin: 0;
   background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line-strong);
-  border-radius: var(--r); box-shadow: var(--shadow); }
-.item.request-card { padding-top: 16px; }
+  border-radius: var(--r); box-shadow: var(--shadow), inset 0 1px 0 rgb(255 255 255 / .04);
+  transition: border-color .15s var(--ease), transform .15s var(--ease), box-shadow .15s var(--ease); }
+.item.request-card:hover, .request-card:hover { border-color: var(--line-strong); }
+.item.request-card { padding-top: 18px; }
 .item.request-card[data-risk="look"] { border-left-color: var(--accent); }
 .item.request-card[data-risk="small"] { border-left-color: var(--ok); }
 .item.request-card[data-risk="big"] { border-left-color: var(--warn); }
 .item.request-card[data-risk="destructive"] { border-left-color: var(--bad); }
-.assistant-tag { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 650; color: var(--ink-2); }
+.assistant-tag { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 650; color: var(--ink-2); }
 .assistant-tag .icon { width: 18px; height: 18px; color: var(--accent); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { font-family: var(--mono); font-size: 14px; padding: 4px 10px; border-radius: 6px; background: var(--surface-2);
+.chip { font-family: var(--mono); font-size: 13px; padding: 4px 10px; border-radius: var(--r-pill); background: var(--surface-2);
   border: 1px solid var(--line); word-break: break-all; }
-.command-block { background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm);
-  padding: 12px 14px; box-shadow: inset 0 1px 0 rgb(255 255 255 / .03); }
+.command-block { background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 13px 16px; box-shadow: inset 0 2px 6px rgb(0 0 0 / .16); }
 .cmd-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 6px; font-family: var(--mono);
   font-size: 13.5px; line-height: 1.65; overflow-wrap: anywhere; }
 .cmd-line::before { content: "$"; color: var(--ink-2); opacity: .7; margin-right: 4px; user-select: none; font-weight: 700; }
@@ -162,8 +172,11 @@ dd { margin: 0; word-break: break-word; }
 .field + .field { margin-top: 14px; }
 label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; color: var(--ink); }
 label .hint { font-weight: 400; color: var(--ink-2); }
-input, select, textarea { font: inherit; font-size: 16px; width: 100%; min-height: var(--touch); padding: 10px 12px;
-  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); }
+input, select, textarea { font: inherit; font-size: 16px; width: 100%; min-height: var(--touch); padding: 10px 13px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--bg); color: var(--ink);
+  transition: border-color .15s var(--ease), background-color .15s var(--ease), box-shadow .15s var(--ease); }
+input:focus, select:focus, textarea:focus { background: var(--surface); border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft); }
 input[type="radio"], input[type="checkbox"] { width: 20px; height: 20px; min-height: 20px; margin: 0; accent-color: var(--accent); }
 textarea { min-height: 120px; font-family: var(--mono); font-size: 14px; }
 textarea.masked { -webkit-text-security: disc; text-security: disc; }
@@ -177,7 +190,8 @@ legend { font-weight: 650; padding: 0 6px; }
   font-weight: 500; cursor: pointer; }
 .radio-row:hover { background: var(--surface-2); }
 .radio-row input { margin-top: 3px; flex: none; }
-.radio-row.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.radio-row.selected { border-color: var(--accent); background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent); }
 .radio-text { display: flex; flex-direction: column; min-width: 0; }
 .radio-title { font-size: 15px; font-weight: 650; color: var(--ink); }
 .radio-detail { font-size: 13.5px; color: var(--ink-2); margin-top: 2px; font-weight: 400; }
@@ -230,9 +244,9 @@ legend { font-weight: 650; padding: 0 6px; }
 @media (min-width: 900px) { .toast { bottom: 24px; } }
 
 /* A machine's inventory name inside a sentence: one chip, the same on every screen. */
-.machine { display: inline-block; font-family: var(--mono); font-size: .9em; line-height: 1.6; padding: 0 7px;
+.machine { display: inline-block; font-family: var(--mono); font-size: .88em; line-height: 1.45; padding: 1px 7px;
   margin: 0 1px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line);
-  color: var(--ink); white-space: nowrap; font-weight: 600; }
+  color: var(--ink); white-space: nowrap; font-weight: 600; vertical-align: baseline; }
 .assistant-id { color: var(--ink-2); font-weight: 500; font-size: 14px; word-break: break-all; }
 .plain-list-bare { list-style: none; margin: 0; padding: 0; }
 .wizard-step { font-size: 13px; font-weight: 650; color: var(--ink-2); margin: 0 0 2px; }

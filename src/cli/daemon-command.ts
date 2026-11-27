@@ -4,11 +4,19 @@ import { dirname, join } from "node:path";
 import { callBroker, findEndpoint } from "../broker/client";
 import { hardenedSupport } from "../broker/hardened-support";
 import { assertRoot, installPlan, uninstallPlan } from "../broker/install";
+import {
+  isWindowsAdmin,
+  runElevatedWindows,
+  windowsElevationNotice,
+  windowsOwnershipStep,
+} from "../broker/install-windows";
 import { compatPaths, hardenedPaths } from "../broker/paths";
+import { windowsCscPath } from "../broker/windows-service-host";
 import type { ReviewerAuthority } from "../core/contracts";
 import { run } from "../process";
 import { readPassword } from "../session";
 import { HomectlError } from "../types";
+import { confirm } from "./prompts";
 
 type Emit = (value: unknown, human?: string) => void;
 
@@ -148,6 +156,7 @@ export async function daemonCommand(
     }
     case "install":
     case "uninstall": {
+      const isWin = process.platform === "win32";
       const plan =
         action === "install"
           ? installPlan({
@@ -155,11 +164,25 @@ export async function daemonCommand(
               executable: selfExecutable(),
               workspace: dirname(options.inventoryPath),
               systemd: process.platform === "linux" && (await systemdRunning()),
+              ...(isWin
+                ? {
+                    cscAvailable: await Bun.file(windowsCscPath()).exists(),
+                    ...(process.env.HOMECTL_PANEL_ORIGIN
+                      ? { panelOrigin: process.env.HOMECTL_PANEL_ORIGIN }
+                      : {}),
+                  }
+                : {}),
             })
           : {
-              supported: process.platform === "linux",
-              reasons: [],
-              steps: uninstallPlan(),
+              supported:
+                process.platform === "linux" || process.platform === "win32",
+              reasons:
+                process.platform === "linux" || process.platform === "win32"
+                  ? []
+                  : [
+                      "Hardened daemon uninstall is supported on Linux and Windows only.",
+                    ],
+              steps: uninstallPlan(process.platform),
             };
       if (!plan.supported) {
         options.emit(plan, plan.reasons.join("\n"));
@@ -174,36 +197,73 @@ export async function daemonCommand(
         );
         return 0;
       }
+      if (isWin && !isWindowsAdmin() && process.stdin.isTTY) {
+        console.log(windowsElevationNotice(action));
+        if (
+          !(await confirm(
+            "Continue and open the Windows administrator prompt (UAC)?",
+          ))
+        )
+          throw new HomectlError(
+            3,
+            "Cancelled before requesting administrator permission.",
+          );
+        console.error(
+          `Requesting administrator permission (UAC) to ${action} the homectl Windows service…`,
+        );
+        const elevated = runElevatedWindows([
+          ...selfExecutable(),
+          "daemon",
+          action,
+          "--inventory",
+          options.inventoryPath,
+        ]);
+        if (elevated.cancelled)
+          throw new HomectlError(
+            3,
+            "Administrator permission was cancelled (UAC). Accept the prompt to continue.",
+          );
+        if (elevated.exitCode !== 0) return elevated.exitCode;
+        options.emit(
+          { done: action, elevated: true },
+          `homectl broker ${action === "install" ? "installed and started" : "removed"}.`,
+        );
+        return 0;
+      }
       assertRoot();
-      for (const step of plan.steps) {
+      // On Windows, create owner.json/policy.json before starting the service so
+      // protect() does not strip Administrators before the installer writes them.
+      const deferLastStep =
+        action === "install" && isWin && plan.steps.length > 0;
+      const mainSteps = deferLastStep ? plan.steps.slice(0, -1) : plan.steps;
+      const finalStep = deferLastStep ? plan.steps.at(-1) : undefined;
+      const runStep = async (step: (typeof plan.steps)[number]) => {
         if (step.skipIf && (await run({ argv: step.skipIf })).exitCode === 0)
-          continue;
+          return;
         const result = await run({
           argv: step.argv,
           ...(step.stdin ? { stdin: step.stdin } : {}),
         });
-        if (result.exitCode !== 0)
+        if (result.exitCode !== 0 && !step.ignoreFailure) {
+          const detail = (result.stderr || result.stdout).trim().slice(0, 400);
           throw new HomectlError(
             5,
-            `Step failed: ${step.description}. Nothing after it ran.`,
+            `Step failed: ${step.description}. Nothing after it ran.${detail ? `\n${detail}` : ""}`,
             {
               step: step.argv,
             },
           );
-      }
+        }
+      };
+      for (const step of mainSteps) await runStep(step);
       let reviewerAuthority: ReviewerAuthority | undefined;
       if (action === "install") {
         const { FileVerifier } = await import("../broker/owner");
-        const verifier = new FileVerifier(
-          join(hardenedPaths().state, "owner.json"),
-        );
+        const state = hardenedPaths().state;
+        const verifier = new FileVerifier(join(state, "owner.json"));
         // A vault taken into custody makes its master password the owner
         // password; a separate one is only needed without a vault.
-        const custodyVault = join(
-          hardenedPaths().state,
-          "workspace",
-          "homelab.kdbx",
-        );
+        const custodyVault = join(state, "workspace", "homelab.kdbx");
         if (
           !(await verifier.exists()) &&
           !(await Bun.file(custodyVault).exists())
@@ -216,16 +276,26 @@ export async function daemonCommand(
           const { chooseReviewerAuthority, saveReviewerAuthority } =
             await import("./owner-commands");
           reviewerAuthority = await chooseReviewerAuthority();
-          const state = hardenedPaths().state;
-          if (await saveReviewerAuthority(state, reviewerAuthority))
+          const savedPolicy = await saveReviewerAuthority(
+            state,
+            reviewerAuthority,
+          );
+          if (isWin) {
+            if (savedPolicy)
+              await runStep(windowsOwnershipStep(join(state, "policy.json")));
+            await runStep(windowsOwnershipStep(join(state, "owner.json")));
+          } else {
+            if (savedPolicy)
+              await run({
+                argv: ["chown", "homectl:homectl", join(state, "policy.json")],
+              });
             await run({
-              argv: ["chown", "homectl:homectl", join(state, "policy.json")],
+              argv: ["chown", "homectl:homectl", join(state, "owner.json")],
             });
-          await run({
-            argv: ["chown", "homectl:homectl", join(state, "owner.json")],
-          });
+          }
         }
       }
+      if (finalStep) await runStep(finalStep);
       options.emit(
         { done: action, ...(reviewerAuthority ? { reviewerAuthority } : {}) },
         `homectl broker ${action === "install" ? "installed and started" : "removed"}.${reviewerAuthority ? ` Reviewer authority: ${reviewerAuthority}.` : ""}`,

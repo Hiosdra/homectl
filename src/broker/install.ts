@@ -5,6 +5,11 @@
 // vault, and cannot reach credentials except through the token-checked API.
 import { join } from "node:path";
 import { HomectlError } from "../types";
+import {
+  isWindowsAdmin,
+  windowsPlan,
+  windowsUninstallPlan,
+} from "./install-windows";
 import { hardenedPaths } from "./paths";
 
 export const SERVICE_USER = "homectl";
@@ -16,6 +21,8 @@ export interface InstallStep {
   stdin?: string;
   // A failing check step means "already done"; the step is skipped.
   skipIf?: string[];
+  // Optional steps (such as stopping a service that is already stopped).
+  ignoreFailure?: boolean;
 }
 
 export interface InstallPlan {
@@ -150,6 +157,9 @@ export function installPlan(options: {
   executable: string[];
   workspace: string;
   systemd: boolean;
+  cscAvailable?: boolean;
+  cscPath?: string;
+  panelOrigin?: string;
 }): InstallPlan {
   if (options.platform === "linux") {
     if (!options.systemd)
@@ -165,20 +175,40 @@ export function installPlan(options: {
       };
     return linuxPlan(options);
   }
+  if (options.platform === "win32") {
+    if (options.cscAvailable === false)
+      return {
+        platform: "win32",
+        supported: false,
+        reasons: [
+          "The .NET Framework 4.x compiler (csc.exe) was not found, so the Windows service host cannot be built.",
+          "Install or enable .NET Framework 4.x, or use compatibility mode.",
+        ],
+        steps: [],
+        imports: [],
+      };
+    return windowsPlan({
+      executable: options.executable,
+      workspace: options.workspace,
+      ...(options.cscPath ? { cscPath: options.cscPath } : {}),
+      ...(options.panelOrigin ? { panelOrigin: options.panelOrigin } : {}),
+    });
+  }
   return {
     platform: options.platform,
     supported: false,
     reasons: [
-      options.platform === "win32"
-        ? "The hardened Windows service (virtual service account) is not available in this build yet; compatibility mode runs as your user and is weaker."
-        : "The hardened macOS launchd daemon is not available in this build yet; compatibility mode runs as your user and is weaker.",
+      "The hardened macOS launchd daemon is not available in this build yet; compatibility mode runs as your user and is weaker.",
     ],
     steps: [],
     imports: [],
   };
 }
 
-export function uninstallPlan(): InstallStep[] {
+export function uninstallPlan(
+  platform: NodeJS.Platform = process.platform,
+): InstallStep[] {
+  if (platform === "win32") return windowsUninstallPlan();
   return [
     {
       description: "Stop and disable the broker",
@@ -190,6 +220,14 @@ export function uninstallPlan(): InstallStep[] {
 }
 
 export function assertRoot() {
+  if (process.platform === "win32") {
+    if (!isWindowsAdmin())
+      throw new HomectlError(
+        5,
+        "Installing the hardened broker needs administrator rights once: run this command from an Administrator terminal",
+      );
+    return;
+  }
   if (process.getuid?.() !== 0)
     throw new HomectlError(
       5,

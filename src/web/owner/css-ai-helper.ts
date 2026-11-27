@@ -35,6 +35,4 @@ export const AI_HELPER_CSS = `
 .model-badges .badge { min-height: 22px; padding: 1px 8px; font-size: 12px; }
 .model-price { color: var(--ink-2); }
 .model-desc { overflow-wrap: anywhere; }
-
-button.quiet { text-decoration: underline; }
 `;

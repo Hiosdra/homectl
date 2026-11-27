@@ -51,6 +51,7 @@ import {
   TopBar,
 } from "./app-chrome";
 import { readLastSection, writeLastSection } from "./last-section";
+import { applyTheme, readTheme } from "./theme";
 import { Notice, Toast } from "./ui";
 import {
   probeWorkspace,
@@ -492,5 +493,6 @@ function App() {
   );
 }
 
+applyTheme(readTheme());
 const root = document.getElementById("root");
 if (root) createRoot(root).render(<App />);

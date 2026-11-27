@@ -13,6 +13,7 @@ import {
   ownerCall,
   untrustedText,
 } from "./api";
+import { CopyButton } from "./copy";
 import { Icon } from "./icons";
 import { useAssistantNames } from "./assistant-names";
 import { actionView, riskView } from "./risk";
@@ -246,9 +247,19 @@ export function ApprovalScreen({
           </>
         ) : (
           <>
-            <h3 className="sub-title">
-              {proxmox ? "The exact request" : "The exact command"}
-            </h3>
+            <div className="row between">
+              <h3 className="sub-title">
+                {proxmox ? "The exact request" : "The exact command"}
+              </h3>
+              <CopyButton
+                text={operation.argv
+                  .map((tok) =>
+                    tok === "" || /\s/.test(tok) ? JSON.stringify(tok) : tok,
+                  )
+                  .join(" ")}
+                label="command"
+              />
+            </div>
             <div
               className="command-block"
               role="group"

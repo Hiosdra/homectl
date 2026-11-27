@@ -7,6 +7,7 @@ import { ApprovalWaitSection } from "./approval-wait";
 import { SavedSecretGrants } from "./secret-grants";
 import { type SetupStatus, stepOf } from "./setup-api";
 import { SetupLink } from "./setup-checklist";
+import { readTheme, type ThemePreference, writeTheme } from "./theme";
 import { UpdatePanel } from "./update-panel";
 import { WorkspaceJoinCard } from "./workspace-join";
 import { Badge, Notice } from "./ui";
@@ -23,8 +24,9 @@ export function SystemScreen({
     <>
       <div className="page-head">
         <h2>System</h2>
-        <p>Approval timing, updates and browser notifications.</p>
+        <p>Appearance, approval timing, updates and browser notifications.</p>
       </div>
+      <AppearanceSection />
       <ApprovalWaitSection onError={onError} />
       <SavedSecretGrants onError={onError} />
       <UpdatePanel onError={onError} />
@@ -95,6 +97,42 @@ export function NotificationSection() {
           the browser's site settings, then reload this panel.
         </Notice>
       ) : null}
+    </section>
+  );
+}
+
+const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
+
+function AppearanceSection() {
+  const [theme, setTheme] = useState<ThemePreference>(() => readTheme());
+  const choose = (next: ThemePreference) => {
+    setTheme(next);
+    writeTheme(next);
+  };
+  return (
+    <section aria-labelledby="appearance-heading">
+      <h3 id="appearance-heading">Appearance</h3>
+      <p className="small muted">
+        Choose how this panel looks in this browser. System follows your device
+        setting.
+      </p>
+      <div className="segmented" role="group" aria-label="Theme">
+        {THEME_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className={theme === option.value ? "active" : ""}
+            aria-pressed={theme === option.value}
+            onClick={() => choose(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
     </section>
   );
 }
