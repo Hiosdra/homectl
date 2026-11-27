@@ -45,7 +45,7 @@ const daemonSections: Section[] = [
     rows: [
       [
         "run",
-        "Starts the broker in the foreground (Ctrl+C stops it). Migrates the workspace first. Compat (default) keeps state in the workspace's broker folder under your own OS user; any process of that user can read it.",
+        "Starts the broker in the foreground and migrates the workspace first. Hardened mode also starts the owner panel. Ctrl+C stops both. Compat (default) keeps state in the workspace's broker folder under your own OS user; any process of that user can read it.",
       ],
       [
         "panel",
@@ -53,7 +53,7 @@ const daemonSections: Section[] = [
       ],
       [
         "status",
-        "Reports whether the broker answers, its mode, and what hardened mode gives on this platform.",
+        "Reports whether the broker answers, its mode, and the owner panel URL when configured.",
       ],
       [
         "install",
