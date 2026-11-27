@@ -238,6 +238,23 @@ export async function ownerCommand(
   ctx: OwnerCommandContext,
 ): Promise<number> {
   const [action] = positionals;
+  if (action === "proxmox-api") {
+    const [, host, url, tokenEntry, approval, ...extra] = positionals;
+    if (!host || !url || !tokenEntry || extra.length || ctx.argv.length)
+      throw new HomectlError(
+        2,
+        "Usage: home-ctl owner proxmox-api <host> <https-origin> <vault-entry> [fingerprint]",
+      );
+    const auth = await ctx.auth();
+    ctx.emit(
+      await callBroker(
+        "/v1/owner/proxmox-api/setup",
+        { host, url, tokenEntry, approval, password: auth.password },
+        { ...auth, timeoutMs: 45_000 },
+      ),
+    );
+    return 0;
+  }
   const hostCall = ctx.argv.length === 0 && ownerHostCommand(positionals);
   if (hostCall) {
     const auth = await ctx.auth();

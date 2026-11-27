@@ -148,10 +148,18 @@ export function apiRequestFor(
           ostemplate: argv[3] ?? "",
           hostname: flagValue(argv, "--hostname"),
           unprivileged: "1",
+          start: flagValue(argv, "--start"),
+          onboot: flagValue(argv, "--onboot"),
           memory: flagValue(argv, "--memory"),
           cores: flagValue(argv, "--cores"),
           rootfs: flagValue(argv, "--rootfs"),
           net0: flagValue(argv, "--net0"),
+          ...(argv.includes("--swap")
+            ? { swap: flagValue(argv, "--swap") }
+            : {}),
+          ...(argv.includes("--features")
+            ? { features: flagValue(argv, "--features") }
+            : {}),
         },
         task: true,
         inspect: false,

@@ -171,22 +171,50 @@ export class VaultService implements OwnerVerifier, RouteExtension {
           ? metas.get(provider.api.token_entry)
           : undefined;
         if (!meta || meta.admin) continue;
-        const fields = session.getSecret(meta.id);
-        const tokenId = fields.UserName ?? "";
-        const secret = fields.Password ?? "";
-        if (
-          !/^[^\s=!]+@[^\s=!]+![^\s=!]+$/.test(tokenId) ||
-          !secret ||
-          /\s/.test(secret)
-        )
-          throw new HomectlError(5, "Proxmox API token entry is malformed");
         await agent.putSecret(
           apiTokenSecretName(name),
-          `PVEAPIToken=${tokenId}=${secret}`,
+          this.proxmoxHeader(meta.id),
         );
       }
     return loaded;
   }
+
+  private proxmoxHeader(entryId: string): string {
+    const fields = this.options.session.getSecret(entryId);
+    const id = fields.UserName ?? "";
+    const secret = fields.Password ?? "";
+    if (
+      !/^[^\s=!]+@[^\s=!]+![^\s=!]+$/.test(id) ||
+      !secret ||
+      /\s/.test(secret)
+    )
+      throw new HomectlError(5, "Proxmox API token entry is malformed");
+    return `PVEAPIToken=${id}=${secret}`;
+  }
+
+  proxmoxAuthorization = (entry: string): string => {
+    if (!this.options.session.check())
+      throw new HomectlError(5, "Unlock the broker vault first");
+    const matches = this.options.session
+      .listEntries()
+      .filter((meta) => meta.name === entry);
+    const meta = matches[0];
+    if (matches.length !== 1 || !meta || meta.admin)
+      throw new HomectlError(
+        3,
+        "Choose one existing non-admin vault entry for the Proxmox API token",
+      );
+    return this.proxmoxHeader(meta.id);
+  };
+
+  activateProxmoxToken = async (
+    provider: string,
+    entry: string,
+  ): Promise<void> =>
+    this.options.agent.putSecret(
+      apiTokenSecretName(provider),
+      this.proxmoxAuthorization(entry),
+    );
 
   // Loads one managed key (a machine's key, made after the owner's `key create`)
   // into the session agent, so a probe can use it. A locked vault refuses; the

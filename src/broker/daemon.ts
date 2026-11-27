@@ -46,6 +46,7 @@ import { machineSummaries } from "./setup-agent";
 import { SetupRoutes } from "./setup-routes";
 import { isUpgradeNotice, SetupStore } from "./setup-state";
 import { proxmoxExecutor } from "./proxmox-exec";
+import { proxmoxApiSetup } from "./proxmox-api-setup";
 import { ownerSetupPort } from "./setup-exec";
 import { ScanRecords } from "./scan-records";
 import { BrokerStore } from "./store";
@@ -375,6 +376,12 @@ export async function startDaemon(config: DaemonConfig) {
         events,
       ),
       ownerHosts,
+      proxmoxApiSetup({
+        inventoryPath: config.inventoryPath,
+        authorization: vault.proxmoxAuthorization,
+        activate: vault.activateProxmoxToken,
+        ...(config.machineRunner ? { runner: config.machineRunner } : {}),
+      }),
       setupRoutes,
       ...workspace.extensions,
       ...(hasVault ? [vault] : []),

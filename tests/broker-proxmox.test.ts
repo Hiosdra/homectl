@@ -6,7 +6,7 @@ import {
   setDefaultTimeout,
   test,
 } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NonceLedger } from "../src/approvals/ledger";
@@ -17,12 +17,15 @@ import { proxmoxExecutor } from "../src/broker/proxmox-exec";
 import { validateProxmoxInput } from "../src/broker/proxmox-plan";
 import { BrokerStore } from "../src/broker/store";
 import type { ExecutorPort, InventoryPort } from "../src/broker/types";
+import { rebindMachine } from "../src/broker/vault-wiring";
 import { providerEntry } from "../src/control/proxmox-full";
 import { loadOrCreateDeviceKey } from "../src/control/device-key";
 import type { ClientIdentity } from "../src/control/types";
 import type { ApiFetch } from "../src/proxmox/api";
 import { parseInventory } from "../src/inventory";
+import { runTool } from "../src/mcp/tools";
 import type { Inventory, Machine } from "../src/types";
+import { inventoryText } from "./proxmox-test-inventory";
 
 setDefaultTimeout(60_000);
 
@@ -43,42 +46,11 @@ const agent: ClientIdentity = {
 };
 const brokers: Broker[] = [];
 let calls: { method: string; path: string }[];
+let sshCalls: string[];
+let occupied: boolean;
+let changeHostDuringCheck: boolean;
 let inventory: Inventory;
 let inventoryPath: string;
-
-function inventoryText(caFile: string) {
-  return `version: 1
-session:
-  ttl: 1h
-  database: /tmp/homectl-synthetic/vault.kdbx
-machines:
-  pve-host:
-    description: Synthetic Proxmox host
-    transport: ssh
-    access: full
-    ssh_alias: pve-host
-    address: 192.0.2.10
-    user: ops
-    auth:
-      type: keepassxc
-      entry: homectl-pve-host
-      socket: /tmp/homectl-synthetic/agent.sock
-      public_key: /tmp/homectl-synthetic/pve-host.pub
-providers:
-  pve-test:
-    type: proxmox
-    host: pve-host
-    node: pve-test
-    operations: full
-    vmid_range: [9001, 9010]
-    protected_vmids: [9009]
-    storages: [local-test]
-    api:
-      url: https://pve.example:8006
-      ca_file: ${caFile}
-      token_entry: homectl-pve-token
-`;
-}
 
 // A fake API: reads return data with a secret field; changes return a task.
 function fakeFetch(): ApiFetch {
@@ -108,11 +80,43 @@ async function makeBroker() {
       inventoryPath,
       fetcher: fakeFetch(),
       tokenSource: async () => TOKEN,
+      sshRunner: async (spec) => {
+        const command =
+          (JSON.parse(spec.stdin ?? "").argv as string[]).at(-1) ?? "";
+        sshCalls.push(command);
+        if (command.includes("'/cluster/status'"))
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify([
+              { type: "node", name: "pve-test", local: 1 },
+            ]),
+            stderr: "",
+          };
+        if (command.includes("'/cluster/nextid'")) {
+          if (changeHostDuringCheck)
+            await writeFile(
+              inventoryPath,
+              (await readFile(inventoryPath, "utf8")).replace(
+                "192.0.2.10",
+                "192.0.2.11",
+              ),
+            );
+          return {
+            exitCode: occupied ? 1 : 0,
+            stdout: occupied ? "" : "105",
+            stderr: "",
+          };
+        }
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
       pollMs: 1,
     }),
   };
   const inventoryPort: InventoryPort = {
-    machine: async (host) => inventory.machines[host] as Machine | undefined,
+    machine: async (host) => {
+      const machine = inventory.machines[host] as Machine | undefined;
+      return machine && rebindMachine(machine, inventoryPath);
+    },
     hosts: async () => Object.keys(inventory.machines),
     providerFor: async (host) => providerEntry(inventory, host)?.[1],
   };
@@ -151,6 +155,9 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "homectl-broker-pve-"));
   clock = 1_800_000_000_000;
   calls = [];
+  sshCalls = [];
+  occupied = false;
+  changeHostDuringCheck = false;
   const caFile = join(dir, "ca.pem");
   await writeFile(caFile, PEM);
   inventoryPath = join(dir, "inventory.yaml");
@@ -300,10 +307,8 @@ describe("submit, queue, approve, execute", () => {
     await decideFor(broker, view.id, view.fingerprint, false);
     await broker.settled();
     expect((await broker.status(agent, view.id)).state).toBe("succeeded");
-    expect(calls[0]).toEqual({
-      method: "POST",
-      path: "/nodes/pve-test/qemu/9001/status/start",
-    });
+    expect(calls).toEqual([]);
+    expect(sshCalls.at(-1)).toBe("'sudo' '-n' 'qm' 'start' '9001'");
   });
 
   test("a changed provider after submit fails the operation instead of running it", async () => {
@@ -319,6 +324,77 @@ describe("submit, queue, approve, execute", () => {
     expect(result.operation.state).toBe("failed");
     expect(calls).toEqual([]);
   });
+
+  test.each(["free", "occupied", "host changed"])(
+    "stopped CT 105 on a provider without HTTPS, VMID %s",
+    async (scenario) => {
+      occupied = scenario === "occupied";
+      changeHostDuringCheck = scenario === "host changed";
+      const text = inventoryText(join(dir, "ca.pem"))
+        .replace(/^ {4}api:[\s\S]*$/m, "")
+        .replace("[9001, 9010]", "[105, 105]");
+      await writeFile(inventoryPath, text);
+      inventory = parseInventory(text);
+      const { broker } = await makeBroker();
+      const catalogue = {
+        kind: "lxc",
+        action: "create",
+        vmid: 105,
+        name: "authentik",
+        template: "debian-13-standard.tar.zst",
+        template_storage: "local",
+        storage: "local-test",
+        cores: 2,
+        memory_mb: 2048,
+        swap_mb: 512,
+        disk_gb: 16,
+        bridge: "vmbr0",
+        address: "dhcp",
+        nesting: true,
+        keyctl: true,
+      };
+      const result = await runTool(
+        { call: (path, input) => agentMethod(broker, path, input, agent) },
+        "proxmox",
+        { host: "pve-host", catalogue },
+      );
+      expect(result.isError).toBe(false);
+      const [view] = await broker.list(agent);
+      if (!view) throw new Error("The MCP request did not reach the broker");
+      expect(view.state).toBe("awaiting-approval");
+      expect((await broker.operation(view.id))?.ownerOnly).toBe(true);
+      expect(view.argv).toEqual(
+        (
+          "pct create 105 local:vztmpl/debian-13-standard.tar.zst " +
+          "--hostname authentik --unprivileged 1 --start 0 --onboot 0 " +
+          "--memory 2048 --swap 512 --cores 2 --rootfs local-test:16 " +
+          "--net0 name=eth0,bridge=vmbr0,ip=dhcp --features nesting=1,keyctl=1"
+        ).split(" "),
+      );
+      const revised = await broker.proxmox(agent, {
+        host: "pve-host",
+        catalogue: { ...catalogue, swap_mb: 1024 },
+      });
+      await expect(
+        decideFor(broker, revised.id, view.fingerprint, true),
+      ).rejects.toThrow("plan changed");
+      await expect(
+        decideFor(broker, view.id, view.fingerprint, false),
+      ).rejects.toThrow("confirm your identity");
+      expect(sshCalls).toEqual([]);
+      await decideFor(broker, view.id, view.fingerprint, true);
+      await broker.settled();
+      expect(calls).toEqual([]);
+      expect((await broker.status(agent, view.id)).state).toBe(
+        scenario === "free" ? "succeeded" : "failed",
+      );
+      expect(sshCalls.filter((command) => command.includes("'pct'"))).toEqual(
+        scenario === "free"
+          ? [["sudo", "-n", ...view.argv].map((arg) => `'${arg}'`).join(" ")]
+          : [],
+      );
+    },
+  );
 });
 
 describe("agent routes", () => {

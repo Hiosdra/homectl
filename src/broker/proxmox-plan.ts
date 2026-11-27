@@ -19,7 +19,7 @@ export type ProxmoxOperationRequest =
   | {
       api: { method: FullMethod; path: string; params: Record<string, string> };
     }
-  | { catalogue: ProxmoxInput };
+  | { catalogue: ProxmoxInput; transport?: "ssh" };
 
 // What an agent sends to /v1/proxmox. Exactly one of (method + path) or catalogue.
 export interface ProxmoxWireInput {
@@ -51,24 +51,36 @@ const CATALOGUE_KEYS = new Set([
   "template",
   "name",
   "storage",
+  "template_storage",
   "memory_mb",
+  "swap_mb",
   "cores",
   "disk_gb",
   "bridge",
   "address",
   "cidr",
   "gateway",
+  "nesting",
+  "keyctl",
   "timeout_s",
 ]);
 const CATALOGUE_NUMBERS = [
   "vmid",
   "memory_mb",
+  "swap_mb",
   "cores",
   "disk_gb",
   "cidr",
   "timeout_s",
 ];
-const CATALOGUE_TEXT = ["name", "storage", "bridge", "address", "gateway"];
+const CATALOGUE_TEXT = [
+  "name",
+  "storage",
+  "template_storage",
+  "bridge",
+  "address",
+  "gateway",
+];
 const CATALOGUE_ACTIONS = [
   "list",
   "status",
@@ -118,6 +130,9 @@ function validateCatalogue(raw: unknown): ProxmoxInput {
   for (const key of CATALOGUE_TEXT)
     if (input[key] !== undefined && !plainText(input[key], 200))
       refuse(`catalogue.${key} must be text of up to 200 characters`);
+  for (const key of ["nesting", "keyctl"])
+    if (input[key] !== undefined && typeof input[key] !== "boolean")
+      refuse(`catalogue.${key} must be a boolean`);
   if (
     input.template !== undefined &&
     typeof input.template !== "number" &&
@@ -202,7 +217,8 @@ export interface PlannedProxmox {
   impact: string;
   classification: Classification;
   risk: Risk;
-  // Owner-only routes are R4 and have no approval path but the owner's.
+  sudo: boolean;
+  // Owner-only operations have no approval path but the owner's.
   ownerOnly: boolean;
   area: string;
   providerHash: string;
@@ -217,26 +233,37 @@ export function planProxmox(
 ): PlannedProxmox {
   if (provider === undefined)
     refuse("This host is not a configured Proxmox provider", 3);
-  if (provider.api === undefined)
-    refuse(
-      "Proxmox requests need the provider's api block (url, ca_file, token_entry) in the inventory",
-      3,
-    );
   const facts = providerFacts(provider);
   const providerHash = fingerprint(provider);
   if (input.catalogue !== undefined) {
+    if (
+      machine.transport !== "ssh" ||
+      machine.access !== "full" ||
+      machine.auth?.type !== "keepassxc"
+    )
+      refuse(
+        "The Proxmox catalogue needs a full-access SSH host with a managed key",
+        3,
+      );
     const plan = buildProxmoxPlan(input.catalogue, facts);
+    const ownerOnly = input.catalogue.action === "create";
     return {
-      request: { catalogue: input.catalogue },
+      request: { catalogue: input.catalogue, transport: "ssh" },
       argv: plan.argv,
       impact: plan.label,
       classification: plan.classification,
-      risk: riskOfClassification(plan.classification),
-      ownerOnly: false,
+      risk: ownerOnly ? "R4" : riskOfClassification(plan.classification),
+      sudo: machine.user !== "root",
+      ownerOnly,
       area: "Virtual machines and containers",
       providerHash,
     };
   }
+  if (provider.api === undefined)
+    refuse(
+      "Full Proxmox operations need the provider's api block (url, ca_file, token_entry) in the inventory",
+      3,
+    );
   if ((provider.operations ?? "guests") !== "full")
     refuse(
       `Full Proxmox operations are off for ${input.host}. Set operations: full on its provider in the inventory to allow them.`,
@@ -260,6 +287,7 @@ export function planProxmox(
     impact: op.label,
     classification: op.classification,
     risk: op.risk,
+    sudo: false,
     ownerOnly: op.ownerOnly,
     area: routeArea(op.path),
     providerHash,

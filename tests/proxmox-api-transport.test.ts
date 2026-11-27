@@ -138,6 +138,8 @@ describe("request mapping: each catalogue action becomes one exact API call", ()
       ostemplate: "local-test:vztmpl/debian-12-standard_12.2-1_amd64.tar.zst",
       hostname: "sample-ct",
       unprivileged: "1",
+      start: "0",
+      onboot: "0",
       memory: "512",
       cores: "1",
       rootfs: "local-test:4",

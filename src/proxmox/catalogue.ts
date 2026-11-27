@@ -38,13 +38,17 @@ export interface ProxmoxInput {
   template?: number | string;
   name?: string;
   storage?: string;
+  template_storage?: string;
   memory_mb?: number;
+  swap_mb?: number;
   cores?: number;
   disk_gb?: number;
   bridge?: string;
   address?: string; // "dhcp" or an IPv4 address
   cidr?: number;
   gateway?: string;
+  nesting?: boolean;
+  keyctl?: boolean;
   timeout_s?: number;
 }
 
@@ -154,6 +158,8 @@ export function buildProxmoxPlan(
     const vmid = vmidOf(input.vmid, facts, "VMID");
     const template = vmidOf(input.template, facts, "Template VMID");
     if (template === vmid) invalid("VMID must differ from the template");
+    if (facts.protectedVmids.includes(vmid))
+      invalid("The target VMID is protected by this Proxmox provider");
     if (typeof input.name !== "string" || !NAME.test(input.name))
       invalid("Name must be lowercase letters, digits and dashes");
     const argv = [
@@ -181,6 +187,8 @@ export function buildProxmoxPlan(
     if (kind !== "lxc")
       invalid("Create from template is available for LXC containers only");
     const vmid = vmidOf(input.vmid, facts, "VMID");
+    if (facts.protectedVmids.includes(vmid))
+      invalid("The target VMID is protected by this Proxmox provider");
     if (typeof input.name !== "string" || !NAME.test(input.name))
       invalid("Name must be lowercase letters, digits and dashes");
     if (
@@ -194,7 +202,20 @@ export function buildProxmoxPlan(
       !facts.storages.includes(input.storage)
     )
       invalid("Storage is not allowed for this Proxmox provider");
+    const templateStorage = input.template_storage ?? input.storage;
+    if (!facts.storages.includes(templateStorage))
+      invalid("Template storage is not allowed for this Proxmox provider");
     const memory = inRange(input.memory_mb, 128, 1_048_576, "Memory (MB)");
+    const swap =
+      input.swap_mb === undefined
+        ? undefined
+        : inRange(input.swap_mb, 0, 1_048_576, "Swap (MB)");
+    const features = (["nesting", "keyctl"] as const).flatMap((feature) => {
+      const value = input[feature];
+      if (value === undefined) return [];
+      if (typeof value !== "boolean") invalid(`${feature} must be a boolean`);
+      return [`${feature}=${value ? 1 : 0}`];
+    });
     const cores = inRange(input.cores, 1, 256, "Cores");
     const disk = inRange(input.disk_gb, 1, 65_536, "Root disk (GB)");
     if (typeof input.bridge !== "string" || !BRIDGE.test(input.bridge))
@@ -220,20 +241,26 @@ export function buildProxmoxPlan(
         "pct",
         "create",
         String(vmid),
-        `${input.storage}:vztmpl/${input.template}`,
+        `${templateStorage}:vztmpl/${input.template}`,
         "--hostname",
         input.name,
         // Always unprivileged: a privileged container is not in the catalogue.
         "--unprivileged",
         "1",
+        "--start",
+        "0",
+        "--onboot",
+        "0",
         "--memory",
         String(memory),
+        ...(swap === undefined ? [] : ["--swap", String(swap)]),
         "--cores",
         String(cores),
         "--rootfs",
         `${input.storage}:${disk}`,
         "--net0",
         `name=eth0,bridge=${input.bridge},ip=${ip}`,
+        ...(features.length ? ["--features", features.join(",")] : []),
       ],
       label: `Create CT ${vmid} (${input.name}) from ${input.template}`,
       classification: "mutation",
@@ -358,16 +385,33 @@ export function catalogueClass(
     const allowed = new Set([
       "--hostname",
       "--unprivileged",
+      "--start",
+      "--onboot",
       "--memory",
+      "--swap",
       "--cores",
       "--rootfs",
       "--net0",
+      "--features",
     ]);
+    const seen = new Set<string>();
     for (let i = 0; i < flags.length; i += 2) {
-      if (!allowed.has(flags[i] ?? "") || flags[i + 1] === undefined)
+      const flag = flags[i] ?? "";
+      if (!allowed.has(flag) || seen.has(flag) || flags[i + 1] === undefined)
         return undefined;
+      seen.add(flag);
     }
     if (flags[flags.indexOf("--unprivileged") + 1] !== "1") return undefined;
+    for (const flag of ["--start", "--onboot"])
+      if (seen.has(flag) && flags[flags.indexOf(flag) + 1] !== "0")
+        return undefined;
+    if (
+      seen.has("--features") &&
+      !/^(?:nesting=[01](?:,keyctl=[01])?|keyctl=[01])$/.test(
+        flags[flags.indexOf("--features") + 1] ?? "",
+      )
+    )
+      return undefined;
     return "mutation";
   }
   return undefined;
