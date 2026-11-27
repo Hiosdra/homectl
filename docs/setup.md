@@ -126,7 +126,7 @@ home-ctl daemon status       # is the broker running?
 - Without an owner password, `daemon run` starts but warns that approvals are impossible until you set one.
 - `daemon run` prints where it listens. The address is also written to an endpoint file in the broker's state directory.
 
-Advanced: run the broker and the panel separately. The broker refuses panel sign-in from any origin other than the one it was started with, so give both the same origin.
+Advanced: in compatibility mode you can run the broker and the panel separately. The broker refuses panel sign-in from any origin other than the one it was started with, so give both the same origin.
 
 ```sh
 home-ctl daemon panel      # prints its origin, http://127.0.0.1:7451 by default (HOMECTL_OWNER_PANEL_PORT changes the port)
@@ -144,7 +144,7 @@ $env:HOMECTL_PANEL_ORIGIN = "http://127.0.0.1:7451"; home-ctl daemon run
 HOMECTL_PANEL_ORIGIN=http://127.0.0.1:7451 home-ctl daemon run
 ```
 
-Hardened mode (Linux with systemd only) installs the broker as a service under its own account:
+Hardened mode installs the broker as a service under its own account on Windows and Linux with systemd. The service starts the owner panel with the broker. On Windows, open `http://127.0.0.1:7451`. On Linux, the panel uses the first free loopback port from 7451 through 7470 by default. Run `home-ctl daemon status` to see the URL.
 
 ```sh
 sudo home-ctl daemon install     # creates the homectl account and unit; if no vault exists, asks for the owner password and then the reviewer authority (Enter keeps recommend)
@@ -297,7 +297,7 @@ These files are not changed. The migration checks that every file outside the de
 ### Windows
 
 - Use the release zip, or a source checkout with `bun src/cli/main.ts setup`. Launchers go in `%USERPROFILE%\.local\bin`. Restart the terminal after the first setup. If PowerShell blocks the `.ps1` launcher, use `home-ctl.cmd` instead.
-- **Compatibility broker only.** The hardened Windows service is not available in this build. The broker listens on a random loopback TCP port and writes it to its endpoint file.
+- **Hardened broker:** run `home-ctl daemon install` from an Administrator terminal. Windows starts the broker and owner panel together. The panel listens on loopback by default.
 - **Background operation** has two options:
   - `home-ctl service install --task --interface <LAN-IP>` creates a logon scheduled task that runs `home-ctl serve` for your user. It needs no service account password.
   - `home-ctl service install --wrapper <path to WinSW.exe> --interface <LAN-IP>` installs a Windows service through [WinSW](https://github.com/winsw/winsw), which you supply. homectl never downloads it. The service starts in **Manual** mode. Set its Log On account to your Windows user in `services.msc`, and enter the password there, never in a command. The CLI refuses to run the service as SYSTEM.

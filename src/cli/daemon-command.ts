@@ -16,7 +16,9 @@ import type { ReviewerAuthority } from "../core/contracts";
 import { run } from "../process";
 import { readPassword } from "../session";
 import { HomectlError } from "../types";
+import { panelOptionsFromEnv } from "../web/owner/binding";
 import { confirm } from "./prompts";
+import { planPanel } from "./start-command";
 
 type Emit = (value: unknown, human?: string) => void;
 
@@ -66,7 +68,7 @@ export async function daemonCommand(
       const { startDaemon } = await import("../broker/daemon");
       const { workspaceFromEnv } = await import("../workspace/wiring");
       const workspace = workspaceFromEnv();
-      const daemon = await startDaemon({
+      const config = {
         mode,
         ...paths,
         inventoryPath,
@@ -78,23 +80,39 @@ export async function daemonCommand(
         ...(process.env.HOMECTL_PANEL_ORIGIN
           ? { panelOrigin: process.env.HOMECTL_PANEL_ORIGIN }
           : {}),
-      });
-      // Hardened: agents of any local user may connect; the token is the check.
-      if (mode === "hardened" && paths.listen.kind === "unix")
-        await chmod(paths.listen.path, 0o666);
-      if (!(await daemon.verifier.exists()))
-        console.error(
-          "No owner password is set yet; approvals are impossible until `home-ctl owner init` (compat) or `home-ctl daemon install` (hardened).",
+      } as const;
+      const panelPlan =
+        mode === "hardened" ? await planPanel(process.env) : undefined;
+      const daemon = panelPlan
+        ? await (
+            await import("../broker/daemon-panel")
+          ).startDaemonWithPanel(config, {
+            ...panelOptionsFromEnv(process.env),
+            port: panelPlan.port,
+          })
+        : await startDaemon(config);
+      const stop = Promise.withResolvers<void>();
+      process.once("SIGINT", stop.resolve);
+      process.once("SIGTERM", stop.resolve);
+      try {
+        // Hardened agents of any local user may connect. The token is the check.
+        if (mode === "hardened" && paths.listen.kind === "unix")
+          await chmod(paths.listen.path, 0o666);
+        if (!(await daemon.verifier.exists()))
+          console.error(
+            "No owner password is set yet; approvals are impossible until `home-ctl owner init` (compat) or `home-ctl daemon install` (hardened).",
+          );
+        const { address, panel } = daemon.endpoint;
+        options.emit(
+          { running: true, mode, address, ...(panel ? { panel } : {}) },
+          `homectl broker running (${mode}) on ${address}.${panel ? ` Owner panel: ${panel}.` : ""} Press Ctrl+C to stop.`,
         );
-      options.emit(
-        { running: true, mode, address: daemon.endpoint.address },
-        `homectl broker running (${mode}) on ${daemon.endpoint.address}. Press Ctrl+C to stop.`,
-      );
-      await new Promise<void>((resolve) => {
-        const stop = () => void daemon.stop().then(resolve);
-        process.once("SIGINT", stop);
-        process.once("SIGTERM", stop);
-      });
+        await stop.promise;
+      } finally {
+        process.off("SIGINT", stop.resolve);
+        process.off("SIGTERM", stop.resolve);
+        await daemon.stop();
+      }
       return 0;
     }
     case "panel": {
@@ -138,11 +156,13 @@ export async function daemonCommand(
         process.platform,
         process.platform === "linux" && (await systemdRunning()),
       );
+      const panel = reachable ? endpoint.panel : undefined;
       options.emit(
         {
           running: reachable,
           mode: endpoint.mode,
           address: endpoint.address,
+          ...(panel ? { panel } : {}),
           hardened,
         },
         [
@@ -150,6 +170,7 @@ export async function daemonCommand(
             ? `homectl broker is running (${endpoint.mode}${endpoint.mode === "compat" ? ", weaker: same user as the owner" : ""}).`
             : "The endpoint file exists but the broker does not answer.",
           hardened.statement,
+          ...(panel ? [`Owner panel: ${panel}`] : []),
         ].join("\n"),
       );
       return reachable ? 0 : 5;

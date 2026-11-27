@@ -5,6 +5,7 @@
 // the work.
 import { resolve } from "node:path";
 import { findEndpoint } from "../../broker/client";
+import type { Endpoint } from "../../broker/paths";
 import { bundled } from "../../internal";
 import { HomectlError } from "../../types";
 import { embeddedOwnerScript } from "../embedded";
@@ -19,6 +20,8 @@ import { OWNER_CSS, OWNER_HTML } from "./shell";
 export interface OwnerPanelOptions {
   inventoryPath: string;
   port: number;
+  // An integrated panel proxies only to the daemon that started it.
+  endpoint?: Endpoint;
   // Default: HOMECTL_PANEL_LISTEN, then loopback. Non-loopback needs an origin
   // (see binding.ts). Both checks stay strict on every address.
   listen?: string;
@@ -86,7 +89,8 @@ export async function startOwnerPanel(
   const origin = binding.origin;
   const proxy = createOwnerProxy({
     panelOrigin: origin,
-    endpoint: () => findEndpoint(options.inventoryPath),
+    endpoint: async () =>
+      options.endpoint ?? findEndpoint(options.inventoryPath),
   });
   const host = binding.host;
   const files: Record<string, { body: string; type: string }> = {
